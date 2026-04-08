@@ -25,6 +25,8 @@ export interface Contact {
   last_activity_at: string | null;
   merged_from: string | null;
   notes: string | null;
+  charter_end_date: string | null;
+  post_charter_step: number;
   created_at: string;
   updated_at: string;
   // Joined fields

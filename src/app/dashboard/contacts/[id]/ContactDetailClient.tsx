@@ -93,6 +93,10 @@ export default function ContactDetailClient({
   const [savingNote, setSavingNote] = useState(false);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [stageLoading, setStageLoading] = useState(false);
+  const [charterEndDate, setCharterEndDate] = useState(
+    contact.charter_end_date ?? ""
+  );
+  const [charterSaving, setCharterSaving] = useState(false);
 
   const fullName = `${contact.first_name ?? ""} ${contact.last_name ?? ""}`.trim() || "Unknown";
   const currentStage = stages.find((s) => s.id === currentStageId);
@@ -170,6 +174,22 @@ export default function ContactDetailClient({
       }
     } finally {
       setSavingNote(false);
+    }
+  }
+
+  // ─── Charter end date ────────────────────────────────────────────────
+
+  async function handleCharterDateChange(date: string) {
+    setCharterEndDate(date);
+    setCharterSaving(true);
+    try {
+      await fetch(`/api/crm/contacts/${contact.id}/charter`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ charter_end_date: date || null }),
+      });
+    } finally {
+      setCharterSaving(false);
     }
   }
 
@@ -272,6 +292,31 @@ export default function ContactDetailClient({
                   </option>
                 ))}
               </select>
+            </div>
+
+            {/* Charter End Date */}
+            <div className="mt-5">
+              <label className="mb-1.5 block text-xs font-medium text-ivory/40 uppercase tracking-wider">
+                Charter End Date
+              </label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={charterEndDate}
+                  onChange={(e) => handleCharterDateChange(e.target.value)}
+                  className="w-full rounded-lg border border-white/5 bg-navy-lighter px-3 py-2.5 text-sm text-ivory focus:border-gold/30 focus:outline-none [color-scheme:dark]"
+                />
+                {charterSaving && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gold">
+                    Saving...
+                  </span>
+                )}
+              </div>
+              {charterEndDate && (
+                <p className="mt-1 text-[10px] text-ivory/30">
+                  Post-charter step: {contact.post_charter_step}/3
+                </p>
+              )}
             </div>
           </div>
 
