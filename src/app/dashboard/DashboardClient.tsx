@@ -14,8 +14,8 @@ const SOURCE_COLORS: Record<string, { bg: string; text: string }> = {
   website_lead: { bg: "bg-emerald-500/20", text: "text-emerald-400" },
   website_inquiry: { bg: "bg-emerald-500/20", text: "text-emerald-400" },
   outreach_bot: { bg: "bg-blue-500/20", text: "text-blue-400" },
-  manual: { bg: "bg-purple-500/20", text: "text-purple-400" },
-  referral: { bg: "bg-amber-500/20", text: "text-amber-400" },
+  manual: { bg: "bg-neon-purple/20", text: "text-neon-purple" },
+  referral: { bg: "bg-amber/20", text: "text-amber" },
   partner: { bg: "bg-pink-500/20", text: "text-pink-400" },
 };
 
@@ -48,6 +48,38 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const dragCounter = useRef<Record<string, number>>({});
 
+  // ─── Mouse drag-to-scroll ──────────────────────────────────────────────
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isDraggingScroll = useRef(false);
+  const startX = useRef(0);
+  const scrollLeft = useRef(0);
+
+  function onMouseDownScroll(e: React.MouseEvent) {
+    // Only engage scroll drag on the container background, not on cards
+    if ((e.target as HTMLElement).closest("[data-kanban-card]")) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    isDraggingScroll.current = true;
+    startX.current = e.pageX - el.offsetLeft;
+    scrollLeft.current = el.scrollLeft;
+    el.style.cursor = "grabbing";
+  }
+
+  function onMouseMoveScroll(e: React.MouseEvent) {
+    if (!isDraggingScroll.current) return;
+    e.preventDefault();
+    const el = scrollRef.current;
+    if (!el) return;
+    const x = e.pageX - el.offsetLeft;
+    const walk = (x - startX.current) * 1.5;
+    el.scrollLeft = scrollLeft.current - walk;
+  }
+
+  function onMouseUpScroll() {
+    isDraggingScroll.current = false;
+    if (scrollRef.current) scrollRef.current.style.cursor = "grab";
+  }
+
   const contactsByStage = useCallback(
     (stageId: string) =>
       contacts.filter((c) => c.pipeline_stage_id === stageId),
@@ -60,7 +92,6 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
     setDraggedId(contactId);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", contactId);
-    // Make the drag image slightly transparent
     const el = e.currentTarget as HTMLElement;
     el.style.opacity = "0.5";
   }
@@ -103,7 +134,6 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
     const contact = contacts.find((c) => c.id === contactId);
     if (!contact || contact.pipeline_stage_id === stageId) return;
 
-    // Optimistic update
     const newStage = stages.find((s) => s.id === stageId);
     setContacts((prev) =>
       prev.map((c) =>
@@ -118,7 +148,6 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
       )
     );
 
-    // Persist to server
     try {
       const res = await fetch(`/api/crm/contacts/${contactId}/stage`, {
         method: "PATCH",
@@ -126,7 +155,6 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
         body: JSON.stringify({ pipeline_stage_id: stageId }),
       });
       if (!res.ok) {
-        // Revert on error
         setContacts((prev) =>
           prev.map((c) =>
             c.id === contactId
@@ -136,7 +164,6 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
         );
       }
     } catch {
-      // Revert on error
       setContacts((prev) =>
         prev.map((c) =>
           c.id === contactId
@@ -147,18 +174,35 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
     }
   }
 
+  // Check if a contact is HOT
+  function isHot(contact: Contact): boolean {
+    const stage = contact.pipeline_stage;
+    if (!stage) return false;
+    if (typeof stage === "object" && "name" in stage) {
+      return (stage as PipelineStage).name === "Hot";
+    }
+    return false;
+  }
+
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
+    <div
+      ref={scrollRef}
+      className="flex gap-4 overflow-x-auto pb-4 kanban-scroll cursor-grab select-none touch-pan-x"
+      onMouseDown={onMouseDownScroll}
+      onMouseMove={onMouseMoveScroll}
+      onMouseUp={onMouseUpScroll}
+      onMouseLeave={onMouseUpScroll}
+    >
       {stages.map((stage) => {
         const stageContacts = contactsByStage(stage.id);
         const isOver = dragOverStage === stage.id;
         return (
           <div
             key={stage.id}
-            className={`flex w-[280px] shrink-0 flex-col rounded-lg transition-colors ${
+            className={`flex w-[260px] sm:w-[280px] shrink-0 flex-col rounded-xl transition-all duration-200 ${
               isOver
-                ? "bg-white/5 ring-1 ring-gold/30"
-                : "bg-navy/50"
+                ? "bg-electric-cyan/5 ring-1 ring-electric-cyan/30"
+                : "bg-deep-space/50"
             }`}
             onDragEnter={(e) => onDragEnter(e, stage.id)}
             onDragLeave={(e) => onDragLeave(e, stage.id)}
@@ -171,10 +215,10 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
                 className="h-2.5 w-2.5 rounded-full"
                 style={{ backgroundColor: stage.color }}
               />
-              <span className="font-[family-name:var(--font-montserrat)] text-sm font-semibold text-ivory/80">
+              <span className="font-[family-name:var(--font-display)] text-sm font-semibold text-soft-white/80">
                 {stage.name}
               </span>
-              <span className="ml-auto rounded-full bg-white/5 px-2 py-0.5 text-xs text-ivory/40">
+              <span className="ml-auto rounded-full bg-soft-white/5 px-2 py-0.5 font-[family-name:var(--font-mono)] text-xs text-muted-blue">
                 {stageContacts.length}
               </span>
             </div>
@@ -182,8 +226,8 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
             {/* Cards */}
             <div className="flex-1 space-y-2 px-2 pb-3 min-h-[80px]">
               {stageContacts.length === 0 && (
-                <div className="flex h-[80px] items-center justify-center rounded-lg border border-dashed border-white/10">
-                  <p className="text-xs text-ivory/25">No contacts in this stage</p>
+                <div className="flex h-[80px] items-center justify-center rounded-lg border border-dashed border-soft-white/5">
+                  <p className="text-xs text-muted-blue/50">No contacts</p>
                 </div>
               )}
               {stageContacts.map((contact) => {
@@ -191,27 +235,32 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
                   bg: "bg-gray-500/20",
                   text: "text-gray-400",
                 };
+                const hot = isHot(contact);
                 return (
                   <Link
                     key={contact.id}
                     href={`/dashboard/contacts/${contact.id}`}
                     draggable
+                    data-kanban-card
                     onDragStart={(e) => onDragStart(e, contact.id)}
                     onDragEnd={onDragEnd}
-                    className={`block cursor-grab rounded-lg border bg-navy-lighter p-3 shadow-sm transition-all active:cursor-grabbing ${
+                    className={`block cursor-grab rounded-lg border bg-glass-dark p-3 shadow-sm transition-all active:cursor-grabbing ${
                       draggedId === contact.id
-                        ? "border-gold/40 opacity-50"
-                        : "border-white/5 hover:border-gold/30 hover:shadow-md hover:scale-[1.01]"
+                        ? "border-electric-cyan/40 opacity-50"
+                        : hot
+                        ? "border-hot-red/30 animate-hot-pulse hover:border-hot-red/50"
+                        : "border-border-glow hover:border-electric-cyan/20 hover:shadow-md"
                     }`}
+                    style={{ borderLeftWidth: "3px", borderLeftColor: stage.color }}
                   >
                     <div className="flex items-start justify-between">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-ivory">
+                        <p className="truncate text-sm font-semibold text-soft-white">
                           {getFlagFromCountry(contact.country)}{" "}
                           {contact.first_name} {contact.last_name}
                         </p>
                         {contact.company && (
-                          <p className="mt-0.5 truncate text-xs text-gray-400">
+                          <p className="mt-0.5 truncate text-xs text-muted-blue">
                             {contact.company}
                           </p>
                         )}
@@ -225,7 +274,7 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
                           {sourceLabel(contact.source)}
                         </span>
                       )}
-                      <span className="text-[10px] text-ivory/30">
+                      <span className="text-[10px] text-muted-blue/60">
                         {timeAgo(contact.last_activity_at)}
                       </span>
                     </div>

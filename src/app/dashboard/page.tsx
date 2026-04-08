@@ -52,29 +52,49 @@ export default async function DashboardPage() {
       label: "New Leads (7d)",
       value: String(newLeadsCount),
       sub: "this week",
-      color: "text-emerald-400",
+      color: "text-emerald",
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+        </svg>
+      ),
     },
     {
       label: "Total Contacts",
       value: String(totalContacts),
       sub: "in CRM",
-      color: "text-blue-400",
+      color: "text-electric-cyan",
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+        </svg>
+      ),
     },
     {
       label: "Hot Leads",
       value: String(hotLeadsCount),
       sub: "ready to close",
-      color: "text-red-400",
+      color: "text-hot-red",
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
+        </svg>
+      ),
     },
     {
       label: "Pipeline Stages",
       value: String(stagesCount),
       sub: "active stages",
-      color: "text-gold",
+      color: "text-neon-purple",
+      icon: (
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6z" />
+        </svg>
+      ),
     },
   ];
 
-  // ─── Today's Tasks: build unified task list ────────────────────────────
+  // ─── Today's Tasks ────────────────────────────────────────────────
 
   const tasks: TaskItem[] = [];
 
@@ -107,9 +127,9 @@ export default async function DashboardPage() {
         company: c.company,
         detail: `${stage} -- idle ${daysIdle} days`,
         badge: stage,
-        badgeColor: "bg-amber-500/15 text-amber-400",
-        iconBg: "bg-amber-500/15",
-        iconColor: "text-amber-400",
+        badgeColor: "bg-amber/15 text-amber",
+        iconBg: "bg-amber/15",
+        iconColor: "text-amber",
       });
     }
   }
@@ -157,9 +177,9 @@ export default async function DashboardPage() {
         company: c.company,
         detail: `Pre-call brief ready -- meeting at ${timeStr}`,
         badge: "Brief",
-        badgeColor: "bg-blue-500/15 text-blue-400",
-        iconBg: "bg-blue-500/15",
-        iconColor: "text-blue-400",
+        badgeColor: "bg-electric-cyan/15 text-electric-cyan",
+        iconBg: "bg-electric-cyan/15",
+        iconColor: "text-electric-cyan",
       });
     }
   }
@@ -191,53 +211,57 @@ export default async function DashboardPage() {
           company: c.company,
           detail: `Post-charter email ${step + 1}/3 due (day ${daysSince})`,
           badge: "Charter",
-          badgeColor: "bg-emerald-500/15 text-emerald-400",
-          iconBg: "bg-emerald-500/15",
-          iconColor: "text-emerald-400",
+          badgeColor: "bg-emerald/15 text-emerald",
+          iconBg: "bg-emerald/15",
+          iconColor: "text-emerald",
         });
       }
     }
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="font-[family-name:var(--font-montserrat)] text-2xl font-bold text-ivory">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="font-[family-name:var(--font-display)] text-2xl sm:text-3xl font-bold text-soft-white">
           Dashboard
         </h1>
-        <p className="mt-1 text-sm text-ivory/50">
+        <p className="mt-1 text-sm text-muted-blue">
           Welcome back, George. Here is your overview.
         </p>
       </div>
 
       {/* Stats row */}
-      <div className="mb-8 grid grid-cols-4 gap-4">
+      <div className="mb-6 sm:mb-8 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {stats.map((stat) => (
           <div
             key={stat.label}
-            className="rounded-xl border border-white/5 bg-navy-light p-5"
+            className="glass-card relative overflow-hidden p-4 sm:p-5"
           >
-            <p className="text-xs font-medium tracking-wider text-ivory/40 uppercase">
+            {/* Faded icon top-right */}
+            <div className="absolute top-3 right-3 opacity-10">
+              {stat.icon}
+            </div>
+            <p className="font-[family-name:var(--font-sans)] text-[11px] font-medium tracking-wider text-muted-blue uppercase">
               {stat.label}
             </p>
             <p
-              className={`mt-2 font-[family-name:var(--font-montserrat)] text-3xl font-bold ${stat.color}`}
+              className={`mt-2 font-[family-name:var(--font-mono)] text-2xl sm:text-3xl font-bold ${stat.color}`}
             >
               {stat.value}
             </p>
-            <p className="mt-1 text-xs text-ivory/30">{stat.sub}</p>
+            <p className="mt-1 text-[11px] text-muted-blue/60">{stat.sub}</p>
           </div>
         ))}
       </div>
 
       {/* Today's Tasks */}
       {tasks.length > 0 && (
-        <div className="mb-8 rounded-xl border border-gold/10 bg-navy-light p-6 shadow-lg shadow-gold/5">
+        <div className="mb-6 sm:mb-8 glass-card p-4 sm:p-6">
           <div className="mb-4 flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gold/20">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-electric-cyan/10">
               <svg
-                className="h-4 w-4 text-gold"
+                className="h-4 w-4 text-electric-cyan"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -250,10 +274,10 @@ export default async function DashboardPage() {
                 />
               </svg>
             </div>
-            <h2 className="font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory">
+            <h2 className="font-[family-name:var(--font-display)] text-base sm:text-lg font-semibold text-soft-white">
               Today&apos;s Tasks
             </h2>
-            <span className="ml-auto rounded-full bg-gold/15 px-2.5 py-0.5 text-xs font-semibold text-gold">
+            <span className="ml-auto rounded-full bg-electric-cyan/10 px-2.5 py-0.5 font-[family-name:var(--font-mono)] text-xs font-semibold text-electric-cyan">
               {tasks.length}
             </span>
           </div>
@@ -262,7 +286,7 @@ export default async function DashboardPage() {
               <Link
                 key={`${task.type}-${task.id}-${idx}`}
                 href={`/dashboard/contacts/${task.id}`}
-                className="flex items-center gap-4 rounded-lg border border-white/5 bg-navy-lighter/50 px-4 py-3 transition-colors hover:border-gold/30 hover:bg-navy-lighter"
+                className="flex items-center gap-3 sm:gap-4 rounded-lg border border-border-glow bg-glass-light/30 px-3 sm:px-4 py-3 transition-all hover:border-electric-cyan/20 hover:bg-glass-light/50 min-h-[44px]"
               >
                 <div
                   className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${task.iconBg}`}
@@ -314,18 +338,18 @@ export default async function DashboardPage() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-ivory">
+                  <p className="text-sm font-medium text-soft-white">
                     {task.type === "idle" && `Follow up with ${task.name}`}
                     {task.type === "pre_call" && `Pre-call brief ready for ${task.name}`}
                     {task.type === "post_charter" && `Post-charter email due for ${task.name}`}
                   </p>
-                  <p className="text-xs text-ivory/40">
+                  <p className="text-xs text-muted-blue">
                     {task.company ? `${task.company} \u00B7 ` : ""}
                     {task.detail}
                   </p>
                 </div>
                 <span
-                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${task.badgeColor}`}
+                  className={`hidden sm:inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${task.badgeColor}`}
                 >
                   {task.badge}
                 </span>
@@ -336,8 +360,8 @@ export default async function DashboardPage() {
       )}
 
       {/* Pipeline Kanban */}
-      <div className="rounded-xl border border-white/5 bg-navy-light p-6">
-        <h2 className="mb-5 font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory">
+      <div className="glass-card p-4 sm:p-6">
+        <h2 className="mb-5 font-[family-name:var(--font-display)] text-base sm:text-lg font-semibold text-soft-white">
           Pipeline
         </h2>
         <DashboardClient stages={stages} contacts={contacts} />

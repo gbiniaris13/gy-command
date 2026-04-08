@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 
 interface NavItem {
   label: string;
@@ -76,12 +76,175 @@ const navItems: NavItem[] = [
   },
 ];
 
+// Bottom bar items (subset for mobile)
+const bottomBarItems = navItems.slice(0, 5); // Dashboard, Contacts, Email, Calendar, Chat
+
+function WelcomeGate({ children }: { children: React.ReactNode }) {
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomeDone, setWelcomeDone] = useState(false);
+
+  useEffect(() => {
+    const todayKey = `gy-welcome-${new Date().toISOString().slice(0, 10)}`;
+    if (!localStorage.getItem(todayKey)) {
+      setShowWelcome(true);
+    } else {
+      setWelcomeDone(true);
+    }
+  }, []);
+
+  function handleDismiss() {
+    const todayKey = `gy-welcome-${new Date().toISOString().slice(0, 10)}`;
+    localStorage.setItem(todayKey, "1");
+    setShowWelcome(false);
+    setWelcomeDone(true);
+  }
+
+  if (showWelcome && !welcomeDone) {
+    return <WelcomeScreen onDismiss={handleDismiss} />;
+  }
+
+  return <>{children}</>;
+}
+
+function WelcomeScreen({ onDismiss }: { onDismiss: () => void }) {
+  const [step, setStep] = useState(0);
+  const [counts, setCounts] = useState([0, 0, 0, 0]);
+  const targets = [7, 24, 3, 5]; // Hot Leads, Emails Sent, Meetings Today, New Replies
+  const labels = ["Hot Leads", "Emails Sent", "Meetings Today", "New Replies"];
+  const icons = [
+    <svg key="hot" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" /></svg>,
+    <svg key="email" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>,
+    <svg key="cal" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>,
+    <svg key="reply" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" /></svg>,
+  ];
+
+  // Step animation timeline
+  useEffect(() => {
+    const t1 = setTimeout(() => setStep(1), 300); // greeting
+    const t2 = setTimeout(() => setStep(2), 800); // date
+    const t3 = setTimeout(() => setStep(3), 1200); // cards stagger start
+    const t4 = setTimeout(() => setStep(4), 3500); // button appears
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+    };
+  }, []);
+
+  // Count-up animation
+  useEffect(() => {
+    if (step < 3) return;
+    let raf: number;
+    const startTime = performance.now();
+    const duration = 1500;
+    function animate(now: number) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCounts(targets.map((t) => Math.round(t * eased)));
+      if (progress < 1) {
+        raf = requestAnimationFrame(animate);
+      }
+    }
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return "Good morning";
+    if (h < 17) return "Good afternoon";
+    return "Good evening";
+  })();
+
+  const dateStr = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-deep-space">
+      {/* Mesh gradient bg */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_40%,rgba(0,240,255,0.04)_0%,transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_40%_at_30%_70%,rgba(139,92,246,0.04)_0%,transparent_60%)]" />
+      </div>
+
+      <div className="relative z-10 flex flex-col items-center px-6 text-center">
+        {/* Greeting */}
+        <h1
+          className="font-[family-name:var(--font-display)] text-2xl font-bold text-soft-white sm:text-3xl md:text-4xl transition-all duration-700"
+          style={{
+            opacity: step >= 1 ? 1 : 0,
+            transform: step >= 1 ? "translateY(0)" : "translateY(16px)",
+          }}
+        >
+          {greeting}, George.
+        </h1>
+
+        {/* Date */}
+        <p
+          className="mt-2 text-sm text-muted-blue transition-all duration-700"
+          style={{
+            opacity: step >= 2 ? 1 : 0,
+            transform: step >= 2 ? "translateY(0)" : "translateY(12px)",
+          }}
+        >
+          {dateStr}
+        </p>
+
+        {/* Stat cards */}
+        <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {targets.map((_, i) => (
+            <div
+              key={i}
+              className="glass-card flex flex-col items-center p-5 sm:p-6 min-w-[130px] transition-all duration-500"
+              style={{
+                opacity: step >= 3 ? 1 : 0,
+                transform: step >= 3 ? "translateY(0)" : "translateY(20px)",
+                transitionDelay: `${i * 150}ms`,
+              }}
+            >
+              <div className="mb-2 text-electric-cyan/50">
+                {icons[i]}
+              </div>
+              <span className="font-[family-name:var(--font-mono)] text-3xl font-bold text-electric-cyan sm:text-4xl">
+                {counts[i]}
+              </span>
+              <span className="mt-1 text-[11px] font-medium tracking-wider text-muted-blue uppercase">
+                {labels[i]}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Enter button */}
+        <button
+          onClick={onDismiss}
+          className="mt-10 rounded-xl border border-electric-cyan/20 bg-electric-cyan/5 px-8 py-3 font-[family-name:var(--font-display)] text-sm font-semibold text-electric-cyan cyan-glow transition-all duration-500 hover:bg-electric-cyan/10 hover:border-electric-cyan/40 min-h-[44px]"
+          style={{
+            opacity: step >= 4 ? 1 : 0,
+            transform: step >= 4 ? "translateY(0)" : "translateY(12px)",
+          }}
+        >
+          Enter Command Center &rarr;
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
@@ -91,99 +254,148 @@ export default function DashboardLayout({
   const isOnChatPage = pathname.startsWith("/dashboard/chat");
 
   return (
-    <div className="flex h-screen overflow-hidden bg-navy">
-      {/* Sidebar */}
-      <aside className="flex w-[260px] shrink-0 flex-col border-r border-navy-lighter bg-navy-light">
-        {/* Logo */}
-        <div className="flex h-16 items-center gap-2.5 px-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gold">
-            <span className="font-[family-name:var(--font-montserrat)] text-xs font-bold text-navy">
-              GY
-            </span>
+    <WelcomeGate>
+      <div className="flex h-screen overflow-hidden bg-deep-space">
+        {/* ─── Desktop Sidebar ─────────────────────────────────────────── */}
+        <aside
+          className={`hidden md:flex shrink-0 flex-col border-r border-border-glow bg-glass-dark transition-all duration-300 ${
+            collapsed ? "w-16" : "w-60"
+          }`}
+        >
+          {/* Logo row + collapse toggle */}
+          <div className="flex h-14 items-center justify-between px-3">
+            <div className={`flex items-center gap-2.5 ${collapsed ? "justify-center w-full" : ""}`}>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-electric-cyan/10 border border-electric-cyan/20">
+                <span className="font-[family-name:var(--font-display)] text-xs font-bold text-electric-cyan">
+                  GY
+                </span>
+              </div>
+              {!collapsed && (
+                <span className="font-[family-name:var(--font-display)] text-sm font-semibold tracking-wide text-soft-white">
+                  GY Command
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              className={`rounded-md p-1.5 text-muted-blue transition-colors hover:bg-glass-light hover:text-soft-white min-h-[44px] min-w-[44px] flex items-center justify-center ${
+                collapsed ? "hidden" : ""
+              }`}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                {collapsed ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                )}
+              </svg>
+            </button>
           </div>
-          <div>
-            <p className="font-[family-name:var(--font-montserrat)] text-sm font-semibold tracking-wide text-ivory">
-              GY Command
-            </p>
+
+          {/* Divider */}
+          <div className="mx-3 h-px bg-border-glow" />
+
+          {/* Nav */}
+          <nav className="flex-1 space-y-0.5 px-2 py-4">
+            {navItems.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  title={collapsed ? item.label : undefined}
+                  className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-[44px] ${
+                    active
+                      ? "bg-[rgba(0,240,255,0.05)] text-electric-cyan"
+                      : "text-muted-blue hover:bg-glass-light/50 hover:text-soft-white"
+                  } ${collapsed ? "justify-center px-0" : ""}`}
+                >
+                  {/* Active indicator */}
+                  {active && (
+                    <div className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r bg-electric-cyan" />
+                  )}
+                  {item.icon}
+                  {!collapsed && (
+                    <span className="font-[family-name:var(--font-sans)]">
+                      {item.label}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Divider */}
+          <div className="mx-3 h-px bg-border-glow" />
+
+          {/* User area */}
+          <div className={`flex items-center gap-3 px-3 py-4 ${collapsed ? "justify-center" : ""}`}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-electric-cyan/10 border border-electric-cyan/20 text-electric-cyan">
+              <span className="font-[family-name:var(--font-display)] text-xs font-semibold">
+                GP
+              </span>
+            </div>
+            {!collapsed && (
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-soft-white">
+                  George P. Biniaris
+                </p>
+                <p className="truncate text-[10px] font-semibold tracking-wider text-electric-cyan uppercase">
+                  Commander
+                </p>
+              </div>
+            )}
           </div>
-        </div>
+        </aside>
 
-        {/* Divider */}
-        <div className="mx-4 h-px bg-navy-lighter" />
+        {/* ─── Main content ───────────────────────────────────────────── */}
+        <main className="relative flex-1 overflow-y-auto pb-16 md:pb-0">
+          <div className="animate-page-enter">{children}</div>
 
-        {/* Nav */}
-        <nav className="flex-1 space-y-0.5 px-3 py-4">
-          {navItems.map((item) => {
+          {/* Floating chat button (hidden on chat page and mobile) */}
+          {!isOnChatPage && (
+            <Link
+              href="/dashboard/chat"
+              className="fixed bottom-20 right-4 z-50 hidden md:flex h-14 w-14 items-center justify-center rounded-full bg-electric-cyan shadow-lg shadow-electric-cyan/20 transition-all hover:scale-105 hover:shadow-xl hover:shadow-electric-cyan/30 animate-chat-pulse"
+              title="Open Boardroom Chat"
+            >
+              <svg
+                className="h-6 w-6 text-deep-space"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                />
+              </svg>
+            </Link>
+          )}
+        </main>
+
+        {/* ─── Mobile Bottom Tab Bar ──────────────────────────────────── */}
+        <nav className="fixed bottom-0 left-0 right-0 z-50 flex md:hidden h-16 items-stretch border-t border-border-glow bg-glass-dark/95 backdrop-blur-lg">
+          {bottomBarItems.map((item) => {
             const active = isActive(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-navy-lighter text-gold"
-                    : "text-ivory/60 hover:bg-navy-lighter/50 hover:text-ivory"
+                className={`flex flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-medium min-h-[44px] ${
+                  active ? "text-electric-cyan" : "text-muted-blue"
                 }`}
               >
-                {/* Active indicator */}
-                {active && (
-                  <div className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r bg-gold" />
-                )}
                 {item.icon}
-                <span className="font-[family-name:var(--font-montserrat)]">
-                  {item.label}
-                </span>
+                <span>{item.label}</span>
               </Link>
             );
           })}
         </nav>
-
-        {/* Divider */}
-        <div className="mx-4 h-px bg-navy-lighter" />
-
-        {/* User */}
-        <div className="flex items-center gap-3 px-5 py-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gold/20 text-gold">
-            <span className="font-[family-name:var(--font-montserrat)] text-xs font-semibold">
-              GP
-            </span>
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-ivory">
-              George P. Biniaris
-            </p>
-            <p className="truncate text-xs text-ivory/40">Admin</p>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main content */}
-      <main className="relative flex-1 overflow-y-auto">
-        {children}
-
-        {/* Floating chat button (hidden on chat page) */}
-        {!isOnChatPage && (
-          <Link
-            href="/dashboard/chat"
-            className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gold shadow-lg shadow-gold/20 transition-all hover:scale-105 hover:shadow-xl hover:shadow-gold/30 animate-chat-pulse"
-            title="Open Boardroom Chat"
-          >
-            <svg
-              className="h-6 w-6 text-navy"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
-              />
-            </svg>
-          </Link>
-        )}
-      </main>
-    </div>
+      </div>
+    </WelcomeGate>
   );
 }

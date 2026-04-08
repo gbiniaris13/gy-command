@@ -41,7 +41,6 @@ export default function ChatClient() {
     setInput("");
     setIsStreaming(true);
 
-    // Add a placeholder assistant message
     setMessages([...newMessages, { role: "assistant", content: "" }]);
 
     try {
@@ -113,10 +112,10 @@ export default function ChatClient() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-white/5 px-6 py-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gold/20">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border-glow px-4 sm:px-6 py-4">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-electric-cyan/10 border border-electric-cyan/20">
           <svg
-            className="h-5 w-5 text-gold"
+            className="h-5 w-5 text-electric-cyan"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -125,28 +124,28 @@ export default function ChatClient() {
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
-              d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+              d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"
             />
           </svg>
         </div>
         <div>
-          <h1 className="font-[family-name:var(--font-montserrat)] text-base font-semibold text-ivory">
+          <h1 className="font-[family-name:var(--font-display)] text-base font-semibold text-soft-white">
             Boardroom
           </h1>
-          <p className="text-xs text-ivory/40">
+          <p className="text-xs text-muted-blue">
             Your AI advisory team for George Yachts
           </p>
         </div>
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
         {messages.length === 0 && (
           <div className="flex h-full items-center justify-center">
-            <div className="max-w-md text-center">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gold/10">
+            <div className="max-w-md text-center px-4">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-electric-cyan/5 border border-electric-cyan/10">
                 <svg
-                  className="h-8 w-8 text-gold"
+                  className="h-8 w-8 text-electric-cyan"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -159,10 +158,10 @@ export default function ChatClient() {
                   />
                 </svg>
               </div>
-              <h2 className="font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory">
+              <h2 className="font-[family-name:var(--font-display)] text-lg font-semibold text-soft-white">
                 The Boardroom
               </h2>
-              <p className="mt-2 text-sm text-ivory/40 leading-relaxed">
+              <p className="mt-2 text-sm text-muted-blue leading-relaxed">
                 Ask about lead strategy, email responses, charter operations, or
                 any aspect of your brokerage business. Your AI advisory team is
                 ready.
@@ -180,7 +179,7 @@ export default function ChatClient() {
                       setInput(suggestion);
                       textareaRef.current?.focus();
                     }}
-                    className="rounded-lg border border-white/5 bg-navy-lighter px-3 py-2 text-xs text-ivory/50 transition-colors hover:border-gold/20 hover:text-ivory/70"
+                    className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2 text-xs text-muted-blue transition-all hover:border-electric-cyan/20 hover:text-soft-white min-h-[44px]"
                   >
                     {suggestion}
                   </button>
@@ -198,10 +197,10 @@ export default function ChatClient() {
             }`}
           >
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+              className={`max-w-[85%] sm:max-w-[80%] rounded-2xl px-4 py-3 ${
                 msg.role === "user"
-                  ? "bg-navy-lighter text-ivory"
-                  : "border-l-2 border-gold/30 bg-navy-light text-ivory/90"
+                  ? "bg-glass-light text-soft-white"
+                  : "border-l-2 border-electric-cyan/30 bg-glass-dark text-soft-white/90"
               }`}
             >
               <p className="whitespace-pre-wrap text-sm leading-relaxed">
@@ -209,7 +208,7 @@ export default function ChatClient() {
                 {isStreaming &&
                   i === messages.length - 1 &&
                   msg.role === "assistant" && (
-                    <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-gold" />
+                    <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-electric-cyan" />
                   )}
               </p>
             </div>
@@ -220,7 +219,7 @@ export default function ChatClient() {
       </div>
 
       {/* Input bar */}
-      <div className="shrink-0 border-t border-white/5 bg-navy-light px-6 py-4">
+      <div className="shrink-0 border-t border-border-glow bg-glass-dark px-4 sm:px-6 py-4">
         <div className="flex items-end gap-3">
           <textarea
             ref={textareaRef}
@@ -230,12 +229,12 @@ export default function ChatClient() {
             placeholder="Ask the Boardroom..."
             rows={1}
             disabled={isStreaming}
-            className="flex-1 resize-none rounded-xl border border-white/5 bg-navy-lighter px-4 py-3 text-sm text-ivory placeholder:text-ivory/25 focus:border-gold/30 focus:outline-none disabled:opacity-50"
+            className="flex-1 resize-none rounded-xl border border-border-glow bg-glass-light px-4 py-3 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={isStreaming || !input.trim()}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gold text-navy transition-colors hover:bg-gold/90 disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-electric-cyan text-deep-space transition-colors hover:bg-electric-cyan/90 disabled:opacity-50 min-h-[44px] min-w-[44px]"
           >
             {isStreaming ? (
               <svg
@@ -274,7 +273,7 @@ export default function ChatClient() {
             )}
           </button>
         </div>
-        <p className="mt-2 text-center text-[10px] text-ivory/20">
+        <p className="mt-2 text-center text-[10px] text-muted-blue/40">
           AI-powered advisory. Responses may not always be accurate.
         </p>
       </div>
