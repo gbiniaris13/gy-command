@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import DashboardClient from "./DashboardClient";
+import Link from "next/link";
 import type { PipelineStage, Contact } from "@/lib/types";
 
 export default async function DashboardPage() {
@@ -61,6 +62,38 @@ export default async function DashboardPage() {
     },
   ];
 
+  // ─── Today's Tasks: idle Warm/Hot leads ─────────────────────────────────
+
+  const warmHotStageIds = stages
+    .filter((s) => s.name === "Warm" || s.name === "Hot")
+    .map((s) => s.id);
+
+  let idleTasks: { id: string; name: string; company: string | null; stage: string; daysIdle: number }[] = [];
+
+  if (warmHotStageIds.length > 0) {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: idleContacts } = await supabase
+      .from("contacts")
+      .select("id, first_name, last_name, company, last_activity_at, pipeline_stage:pipeline_stages(name)")
+      .in("pipeline_stage_id", warmHotStageIds)
+      .lt("last_activity_at", sevenDaysAgo)
+      .order("last_activity_at", { ascending: true })
+      .limit(5);
+
+    idleTasks = (idleContacts ?? []).map((c) => ({
+      id: c.id,
+      name: [c.first_name, c.last_name].filter(Boolean).join(" ") || "Unnamed",
+      company: c.company,
+      stage: (() => {
+        const s = c.pipeline_stage as unknown as { name: string } | { name: string }[] | null;
+        return Array.isArray(s) ? s[0]?.name ?? "?" : s?.name ?? "?";
+      })(),
+      daysIdle: Math.floor(
+        (Date.now() - new Date(c.last_activity_at!).getTime()) / (1000 * 60 * 60 * 24)
+      ),
+    }));
+  }
+
   return (
     <div className="p-8">
       {/* Header */}
@@ -92,6 +125,52 @@ export default async function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* Today's Tasks */}
+      {idleTasks.length > 0 && (
+        <div className="mb-8 rounded-xl border border-white/5 bg-navy-light p-6">
+          <h2 className="mb-4 font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory">
+            Today&apos;s Tasks
+          </h2>
+          <div className="space-y-2">
+            {idleTasks.map((task) => (
+              <Link
+                key={task.id}
+                href={`/dashboard/contacts/${task.id}`}
+                className="flex items-center gap-4 rounded-lg border border-white/5 bg-navy-lighter/50 px-4 py-3 transition-colors hover:border-gold/30 hover:bg-navy-lighter"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/15">
+                  <svg
+                    className="h-4 w-4 text-amber-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ivory">
+                    Follow up with {task.name}
+                  </p>
+                  <p className="text-xs text-ivory/40">
+                    {task.company ? `${task.company} \u00B7 ` : ""}
+                    {task.stage} \u00B7 {task.daysIdle}d idle
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[10px] font-semibold text-amber-400">
+                  {task.stage}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Pipeline Kanban */}
       <div className="rounded-xl border border-white/5 bg-navy-light p-6">

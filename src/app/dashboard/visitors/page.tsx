@@ -1,30 +1,99 @@
-export default function VisitorsPage() {
-  return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="font-[family-name:var(--font-montserrat)] text-2xl font-bold text-ivory">
-          Site Visitors
-        </h1>
-        <p className="mt-1 text-sm text-ivory/50">
-          Real-time activity on georgeyachts.com
-        </p>
-      </div>
+import { cookies } from "next/headers";
+import { createServerSupabaseClient } from "@/lib/supabase";
+import VisitorsClient from "./VisitorsClient";
 
-      <div className="flex h-96 items-center justify-center rounded-xl border border-dashed border-navy-lighter bg-navy-light">
-        <div className="text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-navy-lighter">
-            <svg className="h-7 w-7 text-ivory/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5a17.92 17.92 0 01-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
-            </svg>
-          </div>
-          <p className="font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory/50">
-            Real-time feed coming in Phase 1b
-          </p>
-          <p className="mt-2 text-sm text-ivory/30">
-            See who is browsing yachts, where they are from, and what they view
-          </p>
-        </div>
-      </div>
-    </div>
+export default async function VisitorsPage() {
+  const cookieStore = await cookies();
+  const supabase = createServerSupabaseClient(cookieStore);
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const weekStart = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() - now.getDay()
+  ).toISOString();
+
+  // Fetch all data in parallel
+  const [sessionsRes, todayRes, weekRes, hotRes, capturedRes] = await Promise.all([
+    // Last 50 sessions with optional contact join
+    supabase
+      .from("sessions")
+      .select("*, contact:contacts(id, first_name, last_name, company)")
+      .order("started_at", { ascending: false })
+      .limit(50),
+    // Today count
+    supabase
+      .from("sessions")
+      .select("id", { count: "exact", head: true })
+      .gte("started_at", todayStart),
+    // This week count
+    supabase
+      .from("sessions")
+      .select("id", { count: "exact", head: true })
+      .gte("started_at", weekStart),
+    // Hot leads
+    supabase
+      .from("sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("is_hot_lead", true)
+      .gte("started_at", weekStart),
+    // Captured
+    supabase
+      .from("sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("lead_captured", true)
+      .gte("started_at", weekStart),
+  ]);
+
+  const sessions = (sessionsRes.data ?? []).map((s) => ({
+    id: s.id,
+    session_id: s.session_id,
+    contact_id: s.contact_id,
+    country: s.country,
+    city: s.city,
+    device_type: s.device_type,
+    referrer: s.referrer,
+    pages_visited: s.pages_visited ?? [],
+    yachts_viewed: s.yachts_viewed ?? [],
+    time_on_site: s.time_on_site ?? 0,
+    is_hot_lead: s.is_hot_lead ?? false,
+    lead_captured: s.lead_captured ?? false,
+    started_at: s.started_at,
+    ended_at: s.ended_at,
+    contact: s.contact
+      ? {
+          id: s.contact.id,
+          first_name: s.contact.first_name,
+          last_name: s.contact.last_name,
+          company: s.contact.company,
+        }
+      : null,
+  }));
+
+  // Aggregate top yachts
+  const yachtCounts: Record<string, number> = {};
+  for (const s of sessions) {
+    for (const y of s.yachts_viewed) {
+      const name = typeof y === "string" ? y : y.name;
+      if (name) {
+        yachtCounts[name] = (yachtCounts[name] || 0) + 1;
+      }
+    }
+  }
+  const topYachts = Object.entries(yachtCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count }));
+
+  return (
+    <VisitorsClient
+      initialSessions={sessions}
+      visitorsToday={todayRes.count ?? 0}
+      visitorsWeek={weekRes.count ?? 0}
+      hotLeads={hotRes.count ?? 0}
+      captured={capturedRes.count ?? 0}
+      topYachts={topYachts}
+    />
   );
 }
