@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 
 /**
- * PATCH — Update charter_end_date for a contact and reset post_charter_step.
+ * PATCH — Update charter fields for a contact.
+ * Accepts any subset of charter-related fields.
  */
 export async function PATCH(
   req: NextRequest,
@@ -13,15 +14,40 @@ export async function PATCH(
     const body = await req.json();
     const supabase = createServiceClient();
 
-    const charterEndDate = body.charter_end_date ?? null;
+    // Build update object from allowed charter fields
+    const allowedFields = [
+      "charter_vessel",
+      "charter_start_date",
+      "charter_end_date",
+      "charter_guests",
+      "charter_embarkation",
+      "charter_disembarkation",
+      "charter_fee",
+      "charter_apa",
+      "captain_name",
+      "captain_phone",
+      "charter_notes",
+      "payment_status",
+    ] as const;
+
+    const updates: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    for (const field of allowedFields) {
+      if (field in body) {
+        updates[field] = body[field];
+      }
+    }
+
+    // Reset post_charter_step if end date changes
+    if ("charter_end_date" in body) {
+      updates.post_charter_step = 0;
+    }
 
     const { data, error } = await supabase
       .from("contacts")
-      .update({
-        charter_end_date: charterEndDate,
-        post_charter_step: 0,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updates)
       .eq("id", id)
       .select("*")
       .single();
@@ -31,12 +57,15 @@ export async function PATCH(
     }
 
     // Log activity
-    if (charterEndDate) {
+    const changedFields = Object.keys(updates).filter(
+      (k) => k !== "updated_at" && k !== "post_charter_step"
+    );
+    if (changedFields.length > 0) {
       await supabase.from("activities").insert({
         contact_id: id,
         type: "note",
-        description: `Charter end date set to ${charterEndDate}`,
-        metadata: { charter_end_date: charterEndDate },
+        description: `Charter details updated: ${changedFields.join(", ")}`,
+        metadata: updates,
       });
     }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { sendTelegram } from "@/lib/telegram";
 
 // PATCH — Update a contact's pipeline stage (used by Kanban drag-drop)
 export async function PATCH(
@@ -21,7 +22,7 @@ export async function PATCH(
     // Get old stage name for logging
     const { data: contact } = await supabase
       .from("contacts")
-      .select("pipeline_stage_id, first_name, last_name, pipeline_stage:pipeline_stages(name)")
+      .select("pipeline_stage_id, first_name, last_name, company, charter_vessel, pipeline_stage:pipeline_stages(name)")
       .eq("id", id)
       .single();
 
@@ -63,6 +64,23 @@ export async function PATCH(
         to_name: newName,
       },
     });
+
+    // Send Telegram alerts for key stage changes
+    const contactName = [contact?.first_name, contact?.last_name]
+      .filter(Boolean)
+      .join(" ") || "Unknown";
+    const company = contact?.company ?? "Unknown company";
+    const vessel = contact?.charter_vessel ?? "TBD";
+
+    if (newName === "Meeting Booked") {
+      await sendTelegram(
+        `\u{1F4C5} <b>MEETING BOOKED:</b> ${contactName} from ${company}`
+      );
+    } else if (newName === "Closed Won") {
+      await sendTelegram(
+        `\u{1F389} <b>DEAL CLOSED:</b> ${contactName} \u2014 ${vessel}`
+      );
+    }
 
     return NextResponse.json(data);
   } catch (err) {

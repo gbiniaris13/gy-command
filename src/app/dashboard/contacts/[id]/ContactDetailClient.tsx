@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import type { Contact, PipelineStage, Activity, Note, Tag, YachtViewed } from "@/lib/types";
+import type { Contact, PipelineStage, Activity, Note, Tag, YachtViewed, CharterReminder } from "@/lib/types";
 import { getFlagFromCountry } from "@/lib/flags";
 
 interface Props {
@@ -98,6 +98,23 @@ export default function ContactDetailClient({
   );
   const [charterSaving, setCharterSaving] = useState(false);
 
+  // Charter management state
+  const [charterVessel, setCharterVessel] = useState(contact.charter_vessel ?? "");
+  const [charterStartDate, setCharterStartDate] = useState(contact.charter_start_date ?? "");
+  const [charterGuests, setCharterGuests] = useState(contact.charter_guests?.toString() ?? "");
+  const [charterEmbarkation, setCharterEmbarkation] = useState(contact.charter_embarkation ?? "");
+  const [charterDisembarkation, setCharterDisembarkation] = useState(contact.charter_disembarkation ?? "");
+  const [charterFee, setCharterFee] = useState(contact.charter_fee?.toString() ?? "");
+  const [charterApa, setCharterApa] = useState(contact.charter_apa?.toString() ?? "");
+  const [captainName, setCaptainName] = useState(contact.captain_name ?? "");
+  const [captainPhone, setCaptainPhone] = useState(contact.captain_phone ?? "");
+  const [charterNotes, setCharterNotes] = useState(contact.charter_notes ?? "");
+  const [paymentStatus, setPaymentStatus] = useState(contact.payment_status ?? "pending");
+  const [reminders, setReminders] = useState<CharterReminder[]>([]);
+  const [remindersLoading, setRemindersLoading] = useState(false);
+  const [activatingCharter, setActivatingCharter] = useState(false);
+  const [charterFieldsSaving, setCharterFieldsSaving] = useState(false);
+
   const fullName = `${contact.first_name ?? ""} ${contact.last_name ?? ""}`.trim() || "Unknown";
   const currentStage = stages.find((s) => s.id === currentStageId);
   const srcColor = SOURCE_COLORS[contact.source ?? ""] ?? {
@@ -191,6 +208,108 @@ export default function ContactDetailClient({
     } finally {
       setCharterSaving(false);
     }
+  }
+
+  // ─── Charter: check if stage is Closed Won ──────────────────────────────
+  const isClosedWon = currentStage?.name === "Closed Won";
+
+  // Load reminders when stage is Closed Won
+  const fetchReminders = useCallback(async () => {
+    setRemindersLoading(true);
+    try {
+      const res = await fetch(
+        `/api/crm/charter/reminders?contactId=${contact.id}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setReminders(data.reminders ?? []);
+      }
+    } finally {
+      setRemindersLoading(false);
+    }
+  }, [contact.id]);
+
+  useEffect(() => {
+    if (isClosedWon) {
+      fetchReminders();
+    }
+  }, [isClosedWon, fetchReminders]);
+
+  // Save charter fields
+  async function saveCharterFields() {
+    setCharterFieldsSaving(true);
+    try {
+      await fetch(`/api/crm/contacts/${contact.id}/charter`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          charter_vessel: charterVessel || null,
+          charter_start_date: charterStartDate || null,
+          charter_end_date: charterEndDate || null,
+          charter_guests: charterGuests ? parseInt(charterGuests) : null,
+          charter_embarkation: charterEmbarkation || null,
+          charter_disembarkation: charterDisembarkation || null,
+          charter_fee: charterFee ? parseFloat(charterFee) : null,
+          charter_apa: charterApa ? parseFloat(charterApa) : null,
+          captain_name: captainName || null,
+          captain_phone: captainPhone || null,
+          charter_notes: charterNotes || null,
+          payment_status: paymentStatus,
+        }),
+      });
+    } finally {
+      setCharterFieldsSaving(false);
+    }
+  }
+
+  // Activate charter (create reminders)
+  async function activateCharter() {
+    if (!charterStartDate) return;
+    setActivatingCharter(true);
+    try {
+      const res = await fetch("/api/crm/charter/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: contact.id,
+          charter_start_date: charterStartDate,
+        }),
+      });
+      if (res.ok) {
+        await fetchReminders();
+      }
+    } finally {
+      setActivatingCharter(false);
+    }
+  }
+
+  // Toggle reminder complete
+  async function toggleReminder(id: string, completed: boolean) {
+    setReminders((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, completed } : r))
+    );
+    await fetch("/api/crm/charter/reminders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, completed }),
+    });
+  }
+
+  // Snooze reminder (7 days)
+  async function snoozeReminder(id: string) {
+    const snoozedUntil = new Date(
+      Date.now() + 7 * 24 * 60 * 60 * 1000
+    ).toISOString().slice(0, 10);
+    setReminders((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, snoozed_until: snoozedUntil } : r
+      )
+    );
+    await fetch("/api/crm/charter/reminders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, snoozed_until: snoozedUntil }),
+    });
   }
 
   return (
@@ -490,6 +609,235 @@ export default function ContactDetailClient({
               </div>
             )}
           </div>
+
+          {/* Charter Management — only when Closed Won */}
+          {isClosedWon && (
+            <div className="glass-card p-5">
+              <h3 className="mb-4 text-[11px] font-semibold tracking-wider text-muted-blue uppercase">
+                Charter Management
+              </h3>
+
+              {/* Charter Fields Form */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">Vessel</label>
+                  <input
+                    type="text"
+                    value={charterVessel}
+                    onChange={(e) => setCharterVessel(e.target.value)}
+                    placeholder="M/Y Vessel Name"
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">Guests</label>
+                  <input
+                    type="number"
+                    value={charterGuests}
+                    onChange={(e) => setCharterGuests(e.target.value)}
+                    placeholder="Number of guests"
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">Start Date</label>
+                  <input
+                    type="date"
+                    value={charterStartDate}
+                    onChange={(e) => setCharterStartDate(e.target.value)}
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white focus:border-electric-cyan/30 focus:outline-none [color-scheme:dark] min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">End Date</label>
+                  <input
+                    type="date"
+                    value={charterEndDate}
+                    onChange={(e) => setCharterEndDate(e.target.value)}
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white focus:border-electric-cyan/30 focus:outline-none [color-scheme:dark] min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">Embarkation Port</label>
+                  <input
+                    type="text"
+                    value={charterEmbarkation}
+                    onChange={(e) => setCharterEmbarkation(e.target.value)}
+                    placeholder="e.g. Athens Marina"
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">Disembarkation Port</label>
+                  <input
+                    type="text"
+                    value={charterDisembarkation}
+                    onChange={(e) => setCharterDisembarkation(e.target.value)}
+                    placeholder="e.g. Mykonos"
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">Charter Fee (EUR)</label>
+                  <input
+                    type="number"
+                    value={charterFee}
+                    onChange={(e) => setCharterFee(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">APA (EUR)</label>
+                  <input
+                    type="number"
+                    value={charterApa}
+                    onChange={(e) => setCharterApa(e.target.value)}
+                    placeholder="0"
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">Captain Name</label>
+                  <input
+                    type="text"
+                    value={captainName}
+                    onChange={(e) => setCaptainName(e.target.value)}
+                    placeholder="Captain name"
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-muted-blue/70 mb-1">Captain Phone</label>
+                  <input
+                    type="text"
+                    value={captainPhone}
+                    onChange={(e) => setCaptainPhone(e.target.value)}
+                    placeholder="+30 ..."
+                    className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  />
+                </div>
+              </div>
+
+              {/* Payment Status */}
+              <div className="mb-4">
+                <label className="block text-[10px] text-muted-blue/70 mb-1">Payment Status</label>
+                <select
+                  value={paymentStatus}
+                  onChange={(e) => setPaymentStatus(e.target.value)}
+                  className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                >
+                  <option value="pending">Pending</option>
+                  <option value="deposit_paid">Deposit Paid</option>
+                  <option value="balance_paid">Balance Paid</option>
+                  <option value="fully_paid">Fully Paid</option>
+                  <option value="refunded">Refunded</option>
+                </select>
+              </div>
+
+              {/* Charter Notes */}
+              <div className="mb-4">
+                <label className="block text-[10px] text-muted-blue/70 mb-1">Charter Notes</label>
+                <textarea
+                  value={charterNotes}
+                  onChange={(e) => setCharterNotes(e.target.value)}
+                  placeholder="Special requests, dietary needs, etc."
+                  rows={2}
+                  className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none resize-none"
+                />
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex flex-wrap gap-2 mb-5">
+                <button
+                  onClick={saveCharterFields}
+                  disabled={charterFieldsSaving}
+                  className="rounded-lg bg-electric-cyan px-4 py-2 font-[family-name:var(--font-display)] text-xs font-semibold text-deep-space transition-colors hover:bg-electric-cyan/90 disabled:opacity-50 min-h-[44px]"
+                >
+                  {charterFieldsSaving ? "Saving..." : "Save Charter Details"}
+                </button>
+                <button
+                  onClick={activateCharter}
+                  disabled={activatingCharter || !charterStartDate}
+                  className="rounded-lg border border-neon-purple bg-neon-purple/10 px-4 py-2 font-[family-name:var(--font-display)] text-xs font-semibold text-neon-purple transition-colors hover:bg-neon-purple/20 disabled:opacity-50 min-h-[44px]"
+                >
+                  {activatingCharter ? "Activating..." : "Activate Charter"}
+                </button>
+              </div>
+
+              {/* Reminder Timeline */}
+              {reminders.length > 0 && (
+                <div>
+                  <h4 className="mb-3 text-[10px] font-semibold tracking-wider text-muted-blue uppercase">
+                    Reminder Timeline
+                  </h4>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {reminders.map((r) => {
+                      const isPast =
+                        new Date(r.reminder_date) <= new Date();
+                      const isSnoozed =
+                        r.snoozed_until &&
+                        new Date(r.snoozed_until) > new Date();
+                      return (
+                        <div
+                          key={r.id}
+                          className={`flex items-center gap-3 rounded-lg px-3 py-2 ${
+                            r.completed
+                              ? "bg-emerald/5 border border-emerald/10"
+                              : isPast && !isSnoozed
+                              ? "bg-hot-red/5 border border-hot-red/10"
+                              : "bg-glass-light border border-border-glow"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={r.completed}
+                            onChange={() =>
+                              toggleReminder(r.id, !r.completed)
+                            }
+                            className="h-4 w-4 rounded border-muted-blue accent-electric-cyan min-h-[44px] min-w-[44px] flex items-center justify-center"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className={`text-sm ${
+                                r.completed
+                                  ? "text-muted-blue/50 line-through"
+                                  : "text-soft-white/80"
+                              }`}
+                            >
+                              {r.description}
+                            </p>
+                            <p className="text-[10px] text-muted-blue/50">
+                              {r.reminder_date}
+                              {isSnoozed && (
+                                <span className="ml-2 text-amber">
+                                  Snoozed to {r.snoozed_until}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          {!r.completed && (
+                            <button
+                              onClick={() => snoozeReminder(r.id)}
+                              className="shrink-0 rounded px-2 py-1 text-[10px] text-muted-blue hover:text-amber hover:bg-amber/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                              title="Snooze 7 days"
+                            >
+                              Snooze
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {remindersLoading && (
+                <p className="text-xs text-muted-blue/50 py-2">
+                  Loading reminders...
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Activity Timeline */}
           <div className="glass-card p-5">

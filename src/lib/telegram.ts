@@ -1,10 +1,12 @@
 /**
  * Send a message to the configured Telegram chat via Bot API.
- * Fails silently in dev if env vars are missing.
+ * Falls back to hardcoded credentials if env vars are missing.
  */
 export async function sendTelegram(message: string): Promise<boolean> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const token =
+    process.env.TELEGRAM_BOT_TOKEN ||
+    "8773911706:AAFixtS_3kQLWB4G3FL9vMt4v5AKh9sNtqo";
+  const chatId = process.env.TELEGRAM_CHAT_ID || "8478263770";
 
   if (!token || !chatId) {
     console.warn("[Telegram] Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID");
