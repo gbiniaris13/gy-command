@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
+import { aiChat } from "@/lib/ai";
 
 /**
  * GET — Generate a luxury yacht charter proposal for a contact.
@@ -12,13 +11,6 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    if (!ANTHROPIC_API_KEY) {
-      return NextResponse.json(
-        { error: "ANTHROPIC_API_KEY not configured" },
-        { status: 500 }
-      );
-    }
-
     const { id } = await params;
     const supabase = createServiceClient();
 
@@ -62,22 +54,9 @@ export async function GET(
       ? `EUR ${Number(contact.charter_fee).toLocaleString()}`
       : "upon request";
 
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1500,
-        system:
-          "You are a luxury yacht charter proposal writer for George Yachts, a premium charter brokerage based in Greece. Write in professional, elegant language befitting the luxury yachting industry. Use HTML formatting with h2, h3, p, ul/li tags. Do not use markdown.",
-        messages: [
-          {
-            role: "user",
-            content: `Generate a luxury yacht charter proposal for ${fullName} from ${company}.
+    const html = await aiChat(
+      "You are a luxury yacht charter proposal writer for George Yachts, a premium charter brokerage based in Greece. Write in professional, elegant language befitting the luxury yachting industry. Use HTML formatting with h2, h3, p, ul/li tags. Do not use markdown.",
+      `Generate a luxury yacht charter proposal for ${fullName} from ${company}.
 Vessel: ${vessel}
 Dates: ${startDate} to ${endDate}
 Guests: ${guests}
@@ -85,26 +64,8 @@ Embarkation: ${embarkation}
 Disembarkation: ${disembarkation}
 Charter Fee: ${fee}
 
-Include: yacht description, itinerary highlights through the Greek islands, what's included (crew, fuel, water toys, gourmet cuisine), pricing summary. Professional tone, luxury feel. Sign off as George P. Biniaris, George Yachts.`,
-          },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("[Proposal] Anthropic error:", res.status, text);
-      return NextResponse.json(
-        { error: "Failed to generate proposal" },
-        { status: 500 }
-      );
-    }
-
-    const data = await res.json();
-    const textBlock = data.content?.find(
-      (b: { type: string }) => b.type === "text"
-    );
-    const html = textBlock?.text ?? "<p>Unable to generate proposal.</p>";
+Include: yacht description, itinerary highlights through the Greek islands, what's included (crew, fuel, water toys, gourmet cuisine), pricing summary. Professional tone, luxury feel. Sign off as George P. Biniaris, George Yachts.`
+    ) || "<p>Unable to generate proposal.</p>";
 
     // Log activity
     await supabase.from("activities").insert({

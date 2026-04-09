@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { aiChat } from "@/lib/ai";
 
 interface ClassifyRequest {
   messageId: string;
@@ -37,37 +38,15 @@ Body:
 {BODY}`;
 
 async function classifyWithAI(email: ClassifyRequest): Promise<ClassifyResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing ANTHROPIC_API_KEY");
-  }
-
   const prompt = CLASSIFICATION_PROMPT
     .replace("{FROM}", email.from)
     .replace("{SUBJECT}", email.subject)
     .replace("{BODY}", email.body.slice(0, 3000)); // Limit body length
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 512,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Anthropic API error: ${res.status} ${text}`);
-  }
-
-  const data = await res.json();
-  const content = data.content?.[0]?.text ?? "";
+  const content = await aiChat(
+    "You classify emails for a luxury yacht brokerage. Respond only with valid JSON.",
+    prompt
+  );
 
   // Extract JSON from response
   const jsonMatch = content.match(/\{[\s\S]*\}/);

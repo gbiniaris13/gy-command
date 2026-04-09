@@ -1,6 +1,5 @@
 import { NextRequest } from "next/server";
-
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
+import { aiStream } from "@/lib/ai";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -56,13 +55,6 @@ Give advice specific to this contact when relevant.`;
  * Streams a response from Anthropic Claude for the Boardroom Chat.
  */
 export async function POST(request: NextRequest) {
-  if (!ANTHROPIC_API_KEY) {
-    return new Response(
-      JSON.stringify({ error: "ANTHROPIC_API_KEY not configured" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
   try {
     const body = await request.json();
     const messages = (body.messages ?? []) as ChatMessage[];
@@ -77,84 +69,7 @@ export async function POST(request: NextRequest) {
 
     const systemPrompt = buildSystemPrompt(contactContext);
 
-    // Call Anthropic with streaming
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2048,
-        system: systemPrompt,
-        messages: messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-        stream: true,
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      return new Response(
-        JSON.stringify({ error: `Anthropic API error: ${res.status}`, details: text }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Transform the SSE stream from Anthropic into a simpler text stream
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
-
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = res.body?.getReader();
-        if (!reader) {
-          controller.close();
-          return;
-        }
-
-        let buffer = "";
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const data = line.slice(6).trim();
-              if (data === "[DONE]") continue;
-
-              try {
-                const event = JSON.parse(data);
-                if (
-                  event.type === "content_block_delta" &&
-                  event.delta?.type === "text_delta"
-                ) {
-                  controller.enqueue(
-                    encoder.encode(event.delta.text)
-                  );
-                }
-              } catch {
-                // Skip non-JSON lines
-              }
-            }
-          }
-        } catch (err) {
-          console.error("[Chat] Stream error:", err);
-        } finally {
-          controller.close();
-        }
-      },
-    });
+    const stream = await aiStream(systemPrompt, messages);
 
     return new Response(stream, {
       headers: {

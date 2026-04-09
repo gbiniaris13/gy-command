@@ -3,8 +3,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { calendarFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { getFlagFromCountry } from "@/lib/flags";
-
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
+import { aiChat } from "@/lib/ai";
 
 interface CalendarEvent {
   id: string;
@@ -31,20 +30,9 @@ async function generateBrief(
   company: string | null,
   country: string | null
 ): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 500,
-      messages: [
-        {
-          role: "user",
-          content: `Research this person for a pre-call brief:
+  return await aiChat(
+    "You are a pre-call research assistant for a luxury yacht charter brokerage. Be concise and actionable.",
+    `Research this person for a pre-call brief:
 Name: ${name}
 Company: ${company ?? "Unknown"}
 Country: ${country ?? "Unknown"}
@@ -55,20 +43,8 @@ Provide:
 2. What they might need from a yacht charter brokerage (2 lines)
 3. 3 good opening questions for the meeting
 
-Be concise. No fluff.`,
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Anthropic API error: ${res.status} ${text}`);
-  }
-
-  const data = await res.json();
-  const block = data.content?.[0];
-  return block?.type === "text" ? block.text : "Brief generation failed.";
+Be concise. No fluff.`
+  ) || "Brief generation failed.";
 }
 
 /**
@@ -81,13 +57,6 @@ export async function GET(request: NextRequest) {
 
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY not configured" },
-      { status: 500 }
-    );
   }
 
   try {
