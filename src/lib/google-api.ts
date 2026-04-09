@@ -19,9 +19,9 @@ export async function setSetting(key: string, value: string): Promise<void> {
 
 // ─── Google OAuth config ─────────────────────────────────────────────────────
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? "";
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI ?? "";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "577946473201-48bvc1l6e0p1d3ujt7f5aq7or831agkm.apps.googleusercontent.com";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "https://command.georgeyachts.com/api/auth/gmail/callback";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
