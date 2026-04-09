@@ -1,39 +1,30 @@
 import { createBrowserClient, createServerClient } from "@supabase/ssr";
 import type { cookies } from "next/headers";
 
-// ─── Browser client (used in Client Components) ─────────────────────────────
+const SUPABASE_URL = "https://lquxemsonehfltdzdbhq.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_165zpH2bBgEXwy8ZQYL2sg_zUpEyrrn";
+
 export function createBrowserSupabaseClient() {
-  return createBrowserClient(
-    // Replace with your real Supabase URL
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://lquxemsonehfltdzdbhq.supabase.co",
-    // Replace with your real Supabase anon key
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "sb_publishable_165zpH2bBgEXwy8ZQYL2sg_zUpEyrrn"
-  );
+  return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 }
 
-// ─── Server client (used in Server Components, Route Handlers, Middleware) ───
 export function createServerSupabaseClient(
   cookieStore: Awaited<ReturnType<typeof cookies>>
 ) {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://lquxemsonehfltdzdbhq.supabase.co",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "sb_publishable_165zpH2bBgEXwy8ZQYL2sg_zUpEyrrn",
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {
-            // The `setAll` method was called from a Server Component.
-            // This can be ignored if you have middleware refreshing user sessions.
-          }
-        },
+  return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
       },
-    }
-  );
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          );
+        } catch {
+          // Ignored in Server Components
+        }
+      },
+    },
+  });
 }
