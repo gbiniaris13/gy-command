@@ -1,17 +1,17 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-deep-space: #050A12;
-  --color-glass-dark: #0A1628;
+  --color-deep-space: #010810;
+  --color-glass-dark: #010810;
   --color-glass-light: #111D35;
-  --color-electric-cyan: #00F0FF;
+  --color-electric-cyan: #00ffc8;
   --color-neon-purple: #8B5CF6;
   --color-emerald: #10B981;
   --color-amber: #F59E0B;
   --color-hot-red: #EF4444;
-  --color-soft-white: #E2E8F0;
+  --color-soft-white: #a0ffe0;
   --color-muted-blue: #64748B;
-  --color-border-glow: rgba(0, 240, 255, 0.1);
+  --color-border-glow: rgba(0, 255, 200, 0.1);
   --font-display: var(--font-space-grotesk);
   --font-sans: var(--font-inter);
   --font-mono: var(--font-jetbrains-mono);
@@ -24,7 +24,7 @@ body {
 }
 
 body {
-  background-color: var(--color-deep-space);
+  background-color: #010810;
   color: var(--color-soft-white);
   font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -38,14 +38,14 @@ body::before {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(ellipse 80% 50% at 20% 40%, rgba(0, 240, 255, 0.03) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 50% at 20% 40%, rgba(0, 255, 200, 0.03) 0%, transparent 60%),
     radial-gradient(ellipse 60% 40% at 80% 60%, rgba(139, 92, 246, 0.03) 0%, transparent 60%);
   pointer-events: none;
 }
 
 /* ── Selection ──────────────────────────────── */
 ::selection {
-  background-color: rgba(0, 240, 255, 0.25);
+  background-color: rgba(0, 255, 200, 0.25);
   color: #fff;
 }
 
@@ -56,22 +56,22 @@ body::before {
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #010810;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 240, 255, 0.25);
+  background: rgba(0, 255, 200, 0.3);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 240, 255, 0.45);
+  background: rgba(0, 255, 200, 0.45);
 }
 
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 240, 255, 0.25) transparent;
+  scrollbar-color: rgba(0, 255, 200, 0.3) #010810;
 }
 
 /* ── Focus ring ─────────────────────────────── */
@@ -82,17 +82,49 @@ body::before {
 
 /* ── Glass card ──────────────────────────────── */
 .glass-card {
-  background: rgba(10, 22, 40, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(0, 240, 255, 0.08);
-  border-radius: 12px;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  background: rgba(0, 255, 200, 0.015);
+  border: 0.5px solid rgba(0, 255, 200, 0.08);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: all 0.3s;
 }
 
 .glass-card:hover {
-  border-color: rgba(0, 240, 255, 0.2);
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.05);
+  border-color: rgba(0, 255, 200, 0.25);
+  box-shadow: 0 0 20px rgba(0, 255, 200, 0.08);
+}
+
+/* ── CRT Scanline Overlay ───────────────────── */
+.crt-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 255, 200, 0.02) 2px,
+    rgba(0, 255, 200, 0.02) 4px
+  );
+}
+
+/* ── Scan Beam ──────────────────────────────── */
+.scan-beam {
+  position: fixed;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00ffc8, transparent);
+  opacity: 0.15;
+  z-index: 9998;
+  pointer-events: none;
+  animation: scanBeam 6s linear infinite;
+}
+
+@keyframes scanBeam {
+  0% { top: -2px; }
+  100% { top: 100vh; }
 }
 
 /* ── Hot pulse animation ─────────────────────── */
@@ -111,20 +143,20 @@ body::before {
 
 /* ── Cyan glow effect ────────────────────────── */
 .cyan-glow {
-  box-shadow: 0 0 15px rgba(0, 240, 255, 0.15), 0 0 30px rgba(0, 240, 255, 0.05);
+  box-shadow: 0 0 15px rgba(0, 255, 200, 0.15), 0 0 30px rgba(0, 255, 200, 0.05);
 }
 
 .cyan-glow-hover:hover {
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.2), 0 0 40px rgba(0, 240, 255, 0.08);
+  box-shadow: 0 0 20px rgba(0, 255, 200, 0.2), 0 0 40px rgba(0, 255, 200, 0.08);
 }
 
 /* ── Chat pulse animation ──────────────────── */
 @keyframes chat-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.4);
+    box-shadow: 0 0 0 0 rgba(0, 255, 200, 0.4);
   }
   50% {
-    box-shadow: 0 0 0 8px rgba(0, 240, 255, 0);
+    box-shadow: 0 0 0 8px rgba(0, 255, 200, 0);
   }
 }
 
@@ -185,15 +217,15 @@ body::before {
 }
 
 .kanban-scroll::-webkit-scrollbar-track {
-  background: #0A1628;
+  background: #010810;
   border-radius: 3px;
 }
 
 .kanban-scroll::-webkit-scrollbar-thumb {
-  background: #00F0FF40;
+  background: #00ffc840;
   border-radius: 3px;
 }
 
 .kanban-scroll::-webkit-scrollbar-thumb:hover {
-  background: #00F0FF80;
+  background: #00ffc880;
 }

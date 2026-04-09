@@ -207,7 +207,7 @@ export default function RevenueClient({
                     className="w-full rounded-t-md bg-electric-cyan/20 transition-all hover:bg-electric-cyan/40"
                     style={{
                       height: `${Math.max(heightPct, 4)}%`,
-                      background: `linear-gradient(to top, rgba(0,240,255,0.3), rgba(0,240,255,0.1))`,
+                      background: `linear-gradient(to top, rgba(0,255,200,0.3), rgba(0,255,200,0.1))`,
                     }}
                   />
                   <span className="text-[10px] text-muted-blue">{label}</span>

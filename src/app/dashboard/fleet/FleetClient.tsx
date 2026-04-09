@@ -47,7 +47,7 @@ export default function FleetClient() {
   };
 
   const typeColor: Record<string, string> = {
-    Sailing: "#00F0FF",
+    Sailing: "#00ffc8",
     Catamaran: "#8B5CF6",
     Motor: "#F59E0B",
     "Power Cat": "#10B981",
@@ -65,7 +65,7 @@ export default function FleetClient() {
     <div className="animate-page-enter p-4 sm:p-6">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: "#00F0FF", fontFamily: "var(--font-space-grotesk)" }}>
+          <h1 className="text-2xl font-bold" style={{ color: "#00ffc8", fontFamily: "var(--font-space-grotesk)" }}>
             Fleet
           </h1>
           <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>
@@ -78,7 +78,7 @@ export default function FleetClient() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search vessels..."
           className="rounded-lg border px-4 py-2.5 text-sm outline-none"
-          style={{ background: "#0A1628", borderColor: "rgba(0,240,255,0.1)", color: "#fff", minHeight: "44px", width: "100%", maxWidth: "300px" }}
+          style={{ background: "#0A1628", borderColor: "rgba(0,255,200,0.1)", color: "#fff", minHeight: "44px", width: "100%", maxWidth: "300px" }}
         />
       </div>
 
@@ -90,9 +90,9 @@ export default function FleetClient() {
             onClick={() => setTypeFilter(t)}
             className="rounded-full px-4 py-2 text-xs font-medium transition-all"
             style={{
-              background: typeFilter === t ? (typeColor[t] || "#00F0FF") + "20" : "transparent",
-              border: `1px solid ${typeFilter === t ? (typeColor[t] || "#00F0FF") : "rgba(255,255,255,0.1)"}`,
-              color: typeFilter === t ? (typeColor[t] || "#00F0FF") : "rgba(255,255,255,0.5)",
+              background: typeFilter === t ? (typeColor[t] || "#00ffc8") + "20" : "transparent",
+              border: `1px solid ${typeFilter === t ? (typeColor[t] || "#00ffc8") : "rgba(255,255,255,0.1)"}`,
+              color: typeFilter === t ? (typeColor[t] || "#00ffc8") : "rgba(255,255,255,0.5)",
               minHeight: "36px",
             }}
           >
@@ -106,9 +106,9 @@ export default function FleetClient() {
             onClick={() => setTierFilter(t)}
             className="rounded-full px-4 py-2 text-xs font-medium transition-all"
             style={{
-              background: tierFilter === t ? "#00F0FF20" : "transparent",
-              border: `1px solid ${tierFilter === t ? "#00F0FF" : "rgba(255,255,255,0.1)"}`,
-              color: tierFilter === t ? "#00F0FF" : "rgba(255,255,255,0.5)",
+              background: tierFilter === t ? "#00ffc820" : "transparent",
+              border: `1px solid ${tierFilter === t ? "#00ffc8" : "rgba(255,255,255,0.1)"}`,
+              color: tierFilter === t ? "#00ffc8" : "rgba(255,255,255,0.5)",
               minHeight: "36px",
             }}
           >
@@ -134,7 +134,7 @@ export default function FleetClient() {
             <div className="mb-3 flex items-center justify-between">
               <span
                 className="rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase"
-                style={{ background: (typeColor[v.type] || "#00F0FF") + "20", color: typeColor[v.type] || "#00F0FF" }}
+                style={{ background: (typeColor[v.type] || "#00ffc8") + "20", color: typeColor[v.type] || "#00ffc8" }}
               >
                 {v.type}
               </span>
@@ -161,7 +161,7 @@ export default function FleetClient() {
             </div>
 
             {/* Price */}
-            <p className="mt-2 text-xs font-medium" style={{ color: "#00F0FF", fontFamily: "var(--font-jetbrains-mono)" }}>
+            <p className="mt-2 text-xs font-medium" style={{ color: "#00ffc8", fontFamily: "var(--font-jetbrains-mono)" }}>
               {v.price}
             </p>
 

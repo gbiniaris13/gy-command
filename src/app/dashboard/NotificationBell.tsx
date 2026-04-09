@@ -200,7 +200,7 @@ export default function NotificationBell() {
           <span
             className="absolute inset-0 rounded-lg animate-pulse"
             style={{
-              boxShadow: "0 0 12px rgba(0, 240, 255, 0.15)",
+              boxShadow: "0 0 12px rgba(0, 255, 200, 0.15)",
             }}
           />
         )}

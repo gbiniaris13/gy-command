@@ -467,6 +467,10 @@ export default function DashboardLayout({
             );
           })}
         </nav>
+        {/* ─── CRT Scanline Overlay ─── */}
+        <div className="crt-overlay" />
+        {/* ─── Scan Beam ─── */}
+        <div className="scan-beam" />
       </div>
     </WelcomeGate>
   );
