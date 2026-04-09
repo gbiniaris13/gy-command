@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import type { PipelineStage, Contact } from "@/lib/types";
 import { getFlagFromCountry } from "@/lib/flags";
+import { playSwoosh } from "@/lib/sounds";
 
 interface Props {
   stages: PipelineStage[];
@@ -133,6 +134,8 @@ export default function DashboardClient({ stages, contacts: initial }: Props) {
 
     const contact = contacts.find((c) => c.id === contactId);
     if (!contact || contact.pipeline_stage_id === stageId) return;
+
+    playSwoosh();
 
     const newStage = stages.find((s) => s.id === stageId);
     setContacts((prev) =>

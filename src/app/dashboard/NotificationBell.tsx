@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Notification } from "@/lib/types";
+import { playChime } from "@/lib/sounds";
 
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor(
@@ -91,6 +92,15 @@ export default function NotificationBell() {
   const panelRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const prevUnreadRef = useRef<number | null>(null);
+
+  // Play chime when unread count increases (skip initial load)
+  useEffect(() => {
+    if (prevUnreadRef.current !== null && unreadCount > prevUnreadRef.current) {
+      playChime();
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount]);
 
   const fetchNotifications = useCallback(async () => {
     try {

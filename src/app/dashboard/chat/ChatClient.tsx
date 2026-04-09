@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { playPop } from "@/lib/sounds";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -69,6 +70,8 @@ export default function ChatClient() {
         setIsStreaming(false);
         return;
       }
+
+      playPop();
 
       const decoder = new TextDecoder();
       let accumulated = "";
