@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import type { Contact, PipelineStage, Activity, Note, Tag, YachtViewed, CharterReminder } from "@/lib/types";
 import { getFlagFromCountry } from "@/lib/flags";
@@ -114,6 +114,18 @@ export default function ContactDetailClient({
   const [remindersLoading, setRemindersLoading] = useState(false);
   const [activatingCharter, setActivatingCharter] = useState(false);
   const [charterFieldsSaving, setCharterFieldsSaving] = useState(false);
+
+  // Voice notes state
+  const [recording, setRecording] = useState(false);
+  const recognitionRef = useRef<unknown>(null);
+
+  // Proposal modal state
+  const [proposalHtml, setProposalHtml] = useState("");
+  const [proposalLoading, setProposalLoading] = useState(false);
+  const [showProposalModal, setShowProposalModal] = useState(false);
+
+  // LinkedIn message copied state
+  const [linkedinCopied, setLinkedinCopied] = useState(false);
 
   const fullName = `${contact.first_name ?? ""} ${contact.last_name ?? ""}`.trim() || "Unknown";
   const currentStage = stages.find((s) => s.id === currentStageId);
@@ -312,8 +324,171 @@ export default function ContactDetailClient({
     });
   }
 
+  // ─── Voice Notes ──────────────────────────────────────────────────────────
+  function startVoiceNote() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SR) {
+      alert("Speech recognition is not supported in this browser. Try Chrome or Edge.");
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const recognition = new SR() as any;
+    recognitionRef.current = recognition;
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    setRecording(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
+      const text = event.results[0][0].transcript as string;
+      setRecording(false);
+      // Save as note
+      fetch(`/api/crm/contacts/${contact.id}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: `\uD83C\uDFA4 Voice note: ${text}` }),
+      }).then(async (res) => {
+        if (res.ok) {
+          const newNote = await res.json();
+          setNotes((prev) => [newNote, ...prev]);
+          setActivities((prev) => [
+            {
+              id: crypto.randomUUID(),
+              contact_id: contact.id,
+              type: "note",
+              description: `Voice note: ${text.substring(0, 200)}`,
+              metadata: {},
+              created_at: new Date().toISOString(),
+            },
+            ...prev,
+          ]);
+        }
+      });
+    };
+    recognition.onerror = () => setRecording(false);
+    recognition.onend = () => setRecording(false);
+    recognition.start();
+  }
+
+  function stopVoiceNote() {
+    if (recognitionRef.current) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (recognitionRef.current as any).stop();
+    }
+    setRecording(false);
+  }
+
+  // ─── Proposal Generator ─────────────────────────────────────────────────
+  async function generateProposal() {
+    setProposalLoading(true);
+    setShowProposalModal(true);
+    try {
+      const res = await fetch(`/api/crm/contacts/${contact.id}/proposal`);
+      if (res.ok) {
+        const data = await res.json();
+        setProposalHtml(data.html);
+      } else {
+        setProposalHtml("<p>Failed to generate proposal. Please try again.</p>");
+      }
+    } catch {
+      setProposalHtml("<p>Error generating proposal. Please try again.</p>");
+    } finally {
+      setProposalLoading(false);
+    }
+  }
+
+  // ─── LinkedIn Message ───────────────────────────────────────────────────
+  function copyLinkedInMessage() {
+    const firstName = contact.first_name || "there";
+    const company = contact.company || "your company";
+    const message = `Hi ${firstName}, I came across ${company} and wanted to reach out about luxury yacht charter partnerships in Greece. Happy to share our Partnership Programme. Best, George`;
+    navigator.clipboard.writeText(message).then(() => {
+      setLinkedinCopied(true);
+      setTimeout(() => setLinkedinCopied(false), 2000);
+    });
+  }
+
+  async function logLinkedInActivity() {
+    await fetch(`/api/crm/contacts/${contact.id}/activities`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "email_sent",
+        description: `LinkedIn message sent to ${fullName}`,
+      }),
+    });
+    setActivities((prev) => [
+      {
+        id: crypto.randomUUID(),
+        contact_id: contact.id,
+        type: "email_sent",
+        description: `LinkedIn message sent to ${fullName}`,
+        metadata: {},
+        created_at: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
+      {/* Proposal Modal */}
+      {showProposalModal && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="glass-card w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-border-glow px-5 py-3">
+              <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-soft-white">
+                Charter Proposal
+              </h2>
+              <button
+                onClick={() => setShowProposalModal(false)}
+                className="rounded p-1.5 text-muted-blue hover:text-soft-white hover:bg-glass-light transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {proposalLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-electric-cyan border-t-transparent" />
+                  <span className="ml-3 text-sm text-muted-blue">Generating proposal...</span>
+                </div>
+              ) : (
+                <div
+                  className="prose prose-invert prose-sm max-w-none text-soft-white/80 [&_h1]:text-electric-cyan [&_h2]:text-electric-cyan/80 [&_h3]:text-soft-white [&_strong]:text-soft-white"
+                  dangerouslySetInnerHTML={{ __html: proposalHtml }}
+                />
+              )}
+            </div>
+            {!proposalLoading && proposalHtml && (
+              <div className="flex items-center gap-2 border-t border-border-glow px-5 py-3">
+                <button
+                  onClick={() => {
+                    const textContent = proposalHtml.replace(/<[^>]*>/g, "");
+                    navigator.clipboard.writeText(textContent);
+                  }}
+                  className="rounded-lg border border-border-glow bg-glass-dark px-4 py-2 text-xs font-semibold text-muted-blue hover:text-electric-cyan hover:border-electric-cyan/20 transition-all min-h-[44px]"
+                >
+                  Copy Text
+                </button>
+                {contact.email && (
+                  <a
+                    href={`mailto:${contact.email}?subject=Luxury Yacht Charter Proposal&body=${encodeURIComponent(proposalHtml.replace(/<[^>]*>/g, ""))}`}
+                    className="rounded-lg bg-electric-cyan px-4 py-2 font-[family-name:var(--font-display)] text-xs font-semibold text-deep-space hover:bg-electric-cyan/90 transition-colors min-h-[44px] inline-flex items-center"
+                  >
+                    Send via Email
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Back link */}
       <Link
         href="/dashboard/contacts"
@@ -566,13 +741,83 @@ export default function ContactDetailClient({
               </svg>
               Book Meeting
             </button>
+            {/* LinkedIn buttons */}
+            {contact.linkedin_url && (
+              <a
+                href={contact.linkedin_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg border border-border-glow bg-glass-dark px-4 py-2.5 text-sm text-muted-blue transition-all hover:border-blue-400/20 hover:text-blue-400 min-h-[44px]"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                </svg>
+                Open LinkedIn
+              </a>
+            )}
+            <button
+              onClick={copyLinkedInMessage}
+              className="inline-flex items-center gap-2 rounded-lg border border-border-glow bg-glass-dark px-4 py-2.5 text-sm text-muted-blue transition-all hover:border-blue-400/20 hover:text-blue-400 min-h-[44px]"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+              </svg>
+              {linkedinCopied ? "Copied!" : "Copy LinkedIn Message"}
+            </button>
+            <button
+              onClick={logLinkedInActivity}
+              className="inline-flex items-center gap-2 rounded-lg border border-border-glow bg-glass-dark px-4 py-2.5 text-sm text-muted-blue transition-all hover:border-emerald/20 hover:text-emerald min-h-[44px]"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              LinkedIn Message Sent
+            </button>
+            {/* Generate Proposal — only for Closed Won */}
+            {isClosedWon && (
+              <button
+                onClick={generateProposal}
+                disabled={proposalLoading}
+                className="inline-flex items-center gap-2 rounded-lg border border-amber/20 bg-amber/5 px-4 py-2.5 text-sm text-amber transition-all hover:bg-amber/10 hover:border-amber/30 disabled:opacity-50 min-h-[44px]"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+                {proposalLoading ? "Generating..." : "Generate Proposal"}
+              </button>
+            )}
           </div>
 
           {/* Quick Notes */}
           <div className="glass-card p-5">
-            <h3 className="mb-3 text-[11px] font-semibold tracking-wider text-muted-blue uppercase">
-              Quick Notes
-            </h3>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-[11px] font-semibold tracking-wider text-muted-blue uppercase">
+                Quick Notes
+              </h3>
+              <button
+                onClick={recording ? stopVoiceNote : startVoiceNote}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all min-h-[44px] ${
+                  recording
+                    ? "bg-hot-red/10 border border-hot-red/30 text-hot-red animate-hot-pulse"
+                    : "border border-border-glow text-muted-blue hover:text-electric-cyan hover:border-electric-cyan/20"
+                }`}
+                title={recording ? "Stop recording" : "Start voice note"}
+              >
+                {recording ? (
+                  <>
+                    <span className="inline-block h-2 w-2 rounded-full bg-hot-red animate-pulse" />
+                    Recording...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                    </svg>
+                    Voice Note
+                  </>
+                )}
+              </button>
+            </div>
             <textarea
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}

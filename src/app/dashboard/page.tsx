@@ -359,6 +359,47 @@ export default async function DashboardPage() {
         </div>
       )}
 
+      {/* Weather Widget — Greek Charter Locations */}
+      <div className="mb-6 sm:mb-8 glass-card p-4 sm:p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber/10">
+            <span className="text-sm">{"\u2600\uFE0F"}</span>
+          </div>
+          <h2 className="font-[family-name:var(--font-display)] text-base sm:text-lg font-semibold text-soft-white">
+            Greek Charter Weather
+          </h2>
+          <span className="ml-auto text-[10px] text-muted-blue/50">
+            Static data -- connect API for live updates
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {[
+            { location: "Athens", temp: "26", condition: "\u2600\uFE0F", wind: "12 km/h", desc: "Sunny" },
+            { location: "Mykonos", temp: "24", condition: "\u26C5", wind: "18 km/h", desc: "Partly Cloudy" },
+            { location: "Corfu", temp: "23", condition: "\u2600\uFE0F", wind: "8 km/h", desc: "Sunny" },
+            { location: "Santorini", temp: "25", condition: "\u2600\uFE0F", wind: "15 km/h", desc: "Clear" },
+            { location: "Lefkada", temp: "22", condition: "\u{1F324}\uFE0F", wind: "10 km/h", desc: "Fair" },
+          ].map((w) => (
+            <div
+              key={w.location}
+              className="rounded-lg border border-border-glow bg-glass-light/30 p-3 text-center"
+            >
+              <p className="text-lg">{w.condition}</p>
+              <p className="font-[family-name:var(--font-display)] text-sm font-semibold text-soft-white">
+                {w.location}
+              </p>
+              <p className="font-[family-name:var(--font-mono)] text-2xl font-bold text-electric-cyan">
+                {w.temp}&deg;C
+              </p>
+              <p className="text-[10px] text-muted-blue">{w.desc}</p>
+              <p className="text-[10px] text-muted-blue/60">
+                {"\uD83D\uDCA8"} {w.wind}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Pipeline Kanban */}
       <div className="glass-card p-4 sm:p-6">
         <h2 className="mb-5 font-[family-name:var(--font-display)] text-base sm:text-lg font-semibold text-soft-white">
