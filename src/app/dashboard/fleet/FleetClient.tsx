@@ -1,214 +1,179 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Vessel {
   name: string;
-  type: "Sailing" | "Catamaran" | "Motor";
+  type: string;
   length: string;
   sleeps: number;
   price: string;
-  year?: number;
-  builder?: string;
-}
-
-const FLEET: Vessel[] = [
-  { name: "S/Y Allegra", type: "Sailing", length: "56ft", sleeps: 10, price: "\u20AC12,500/week", year: 2019, builder: "Beneteau" },
-  { name: "S/CAT Ad Astra", type: "Catamaran", length: "52ft", sleeps: 12, price: "\u20AC18,000/week", year: 2021, builder: "Lagoon" },
-  { name: "S/CAT ALTEYA", type: "Catamaran", length: "60ft", sleeps: 12, price: "\u20AC22,000/week", year: 2022, builder: "Fountaine Pajot" },
-  { name: "M/Y La Pellegrina", type: "Motor", length: "164ft", sleeps: 12, price: "\u20AC235,000/week", year: 2012, builder: "Couach" },
-  { name: "S/Y Fo\u2019s", type: "Sailing", length: "48ft", sleeps: 8, price: "\u20AC8,500/week", year: 2017, builder: "Dufour" },
-  { name: "M/Y Eros", type: "Motor", length: "130ft", sleeps: 10, price: "\u20AC95,000/week", year: 2009, builder: "Maiora" },
-  { name: "S/CAT Thetis", type: "Catamaran", length: "55ft", sleeps: 10, price: "\u20AC19,500/week", year: 2023, builder: "Bali" },
-  { name: "S/Y Anemone", type: "Sailing", length: "62ft", sleeps: 10, price: "\u20AC15,000/week", year: 2020, builder: "Jeanneau" },
-  { name: "M/Y Celeste", type: "Motor", length: "85ft", sleeps: 8, price: "\u20AC52,000/week", year: 2018, builder: "Azimut" },
-  { name: "S/CAT Poseidon", type: "Catamaran", length: "50ft", sleeps: 10, price: "\u20AC16,000/week", year: 2021, builder: "Lagoon" },
-  { name: "M/Y Neptune Star", type: "Motor", length: "110ft", sleeps: 10, price: "\u20AC75,000/week", year: 2015, builder: "Benetti" },
-  { name: "S/Y Aegean Wind", type: "Sailing", length: "52ft", sleeps: 8, price: "\u20AC10,500/week", year: 2018, builder: "Bavaria" },
-  { name: "S/CAT Blue Horizon", type: "Catamaran", length: "58ft", sleeps: 12, price: "\u20AC20,000/week", year: 2022, builder: "Fountaine Pajot" },
-  { name: "M/Y Aphrodite", type: "Motor", length: "142ft", sleeps: 12, price: "\u20AC145,000/week", year: 2016, builder: "Feadship" },
-  { name: "S/Y Calypso", type: "Sailing", length: "44ft", sleeps: 6, price: "\u20AC7,000/week", year: 2016, builder: "Beneteau" },
-  { name: "M/Y Olympia", type: "Motor", length: "95ft", sleeps: 10, price: "\u20AC65,000/week", year: 2020, builder: "Sunseeker" },
-  { name: "S/CAT Elysium", type: "Catamaran", length: "65ft", sleeps: 12, price: "\u20AC25,000/week", year: 2024, builder: "Sunreef" },
-  { name: "S/Y Mistral", type: "Sailing", length: "70ft", sleeps: 10, price: "\u20AC18,000/week", year: 2021, builder: "Swan" },
-  { name: "M/Y Triton", type: "Motor", length: "120ft", sleeps: 12, price: "\u20AC85,000/week", year: 2017, builder: "Sanlorenzo" },
-  { name: "S/CAT Artemis", type: "Catamaran", length: "48ft", sleeps: 8, price: "\u20AC14,000/week", year: 2020, builder: "Bali" },
-];
-
-function typeColor(type: string): string {
-  switch (type) {
-    case "Sailing":
-      return "bg-electric-cyan/15 text-electric-cyan border-electric-cyan/20";
-    case "Motor":
-      return "bg-amber/15 text-amber border-amber/20";
-    case "Catamaran":
-      return "bg-neon-purple/15 text-neon-purple border-neon-purple/20";
-    default:
-      return "bg-muted-blue/15 text-muted-blue border-muted-blue/20";
-  }
-}
-
-function typeGlow(type: string): string {
-  switch (type) {
-    case "Sailing":
-      return "hover:border-electric-cyan/30 hover:shadow-[0_0_20px_rgba(0,240,255,0.08)]";
-    case "Motor":
-      return "hover:border-amber/30 hover:shadow-[0_0_20px_rgba(245,158,11,0.08)]";
-    case "Catamaran":
-      return "hover:border-neon-purple/30 hover:shadow-[0_0_20px_rgba(139,92,246,0.08)]";
-    default:
-      return "";
-  }
+  tier: string;
+  slug: string;
+  subtitle?: string;
+  image?: string | null;
 }
 
 export default function FleetClient() {
+  const [fleet, setFleet] = useState<Vessel[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("All");
-  const [copied, setCopied] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [tierFilter, setTierFilter] = useState("All");
+  const [copied, setCopied] = useState("");
 
-  const filtered = FLEET.filter((v) => {
-    const matchesSearch =
-      search === "" ||
-      v.name.toLowerCase().includes(search.toLowerCase()) ||
-      v.builder?.toLowerCase().includes(search.toLowerCase());
-    const matchesType = typeFilter === "All" || v.type === typeFilter;
-    return matchesSearch && matchesType;
+  useEffect(() => {
+    fetch("/api/fleet")
+      .then((r) => r.json())
+      .then((d) => { setFleet(d.yachts || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const types = ["All", ...Array.from(new Set(fleet.map((v) => v.type)))];
+  const tiers = ["All", "private", "explorer"];
+
+  const filtered = fleet.filter((v) => {
+    const matchSearch = v.name.toLowerCase().includes(search.toLowerCase()) ||
+      (v.subtitle || "").toLowerCase().includes(search.toLowerCase());
+    const matchType = typeFilter === "All" || v.type === typeFilter;
+    const matchTier = tierFilter === "All" || v.tier === tierFilter;
+    return matchSearch && matchType && matchTier;
   });
 
-  async function copyName(name: string) {
-    try {
-      await navigator.clipboard.writeText(name);
-      setCopied(name);
-      setTimeout(() => setCopied(null), 2000);
-    } catch {
-      // fallback
-    }
+  const handleCopy = (name: string) => {
+    navigator.clipboard.writeText(name);
+    setCopied(name);
+    setTimeout(() => setCopied(""), 2000);
+  };
+
+  const typeColor: Record<string, string> = {
+    Sailing: "#00F0FF",
+    Catamaran: "#8B5CF6",
+    Motor: "#F59E0B",
+    "Power Cat": "#10B981",
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <p style={{ color: "rgba(255,255,255,0.4)" }}>Loading fleet from Sanity...</p>
+      </div>
+    );
   }
 
-  const types = ["All", "Sailing", "Catamaran", "Motor"];
-
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      {/* Header */}
-      <div className="mb-6 sm:mb-8">
-        <h1 className="font-[family-name:var(--font-display)] text-2xl sm:text-3xl font-bold text-soft-white">
-          Fleet
-        </h1>
-        <p className="mt-1 text-sm text-muted-blue">
-          {FLEET.length} vessels available -- click to copy name
-        </p>
+    <div className="animate-page-enter p-4 sm:p-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold" style={{ color: "#00F0FF", fontFamily: "var(--font-space-grotesk)" }}>
+            Fleet
+          </h1>
+          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>
+            {fleet.length} vessels from Sanity CMS
+          </p>
+        </div>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search vessels..."
+          className="rounded-lg border px-4 py-2.5 text-sm outline-none"
+          style={{ background: "#0A1628", borderColor: "rgba(0,240,255,0.1)", color: "#fff", minHeight: "44px", width: "100%", maxWidth: "300px" }}
+        />
       </div>
 
       {/* Filters */}
-      <div className="mb-6 flex flex-col sm:flex-row gap-3">
-        {/* Search */}
-        <div className="relative flex-1">
-          <svg
-            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-blue"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-            />
-          </svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search vessels..."
-            className="w-full rounded-lg border border-border-glow bg-glass-dark px-10 py-2.5 text-sm text-soft-white placeholder:text-muted-blue/50 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
-          />
-        </div>
-        {/* Type filter */}
-        <div className="flex gap-1.5">
-          {types.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTypeFilter(t)}
-              className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors min-h-[44px] ${
-                typeFilter === t
-                  ? "bg-electric-cyan/10 text-electric-cyan border border-electric-cyan/20"
-                  : "text-muted-blue hover:bg-glass-light border border-transparent"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filtered.map((vessel) => (
+      <div className="mb-6 flex flex-wrap gap-2">
+        {types.map((t) => (
           <button
-            key={vessel.name}
-            onClick={() => copyName(vessel.name)}
-            className={`glass-card relative flex flex-col p-4 text-left transition-all ${typeGlow(
-              vessel.type
-            )} min-h-[44px]`}
+            key={t}
+            onClick={() => setTypeFilter(t)}
+            className="rounded-full px-4 py-2 text-xs font-medium transition-all"
+            style={{
+              background: typeFilter === t ? (typeColor[t] || "#00F0FF") + "20" : "transparent",
+              border: `1px solid ${typeFilter === t ? (typeColor[t] || "#00F0FF") : "rgba(255,255,255,0.1)"}`,
+              color: typeFilter === t ? (typeColor[t] || "#00F0FF") : "rgba(255,255,255,0.5)",
+              minHeight: "36px",
+            }}
           >
-            {/* Type badge */}
-            <span
-              className={`self-start rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${typeColor(
-                vessel.type
-              )}`}
-            >
-              {vessel.type}
-            </span>
-
-            {/* Name */}
-            <h3 className="mt-3 font-[family-name:var(--font-display)] text-base font-semibold text-soft-white">
-              {vessel.name}
-            </h3>
-
-            {/* Specs */}
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-blue">
-              <span>{vessel.length}</span>
-              <span>Sleeps {vessel.sleeps}</span>
-              {vessel.year && <span>{vessel.year}</span>}
-              {vessel.builder && <span>{vessel.builder}</span>}
-            </div>
-
-            {/* Price */}
-            <p className="mt-3 font-[family-name:var(--font-mono)] text-sm font-semibold text-electric-cyan">
-              {vessel.price}
-            </p>
-
-            {/* Copy indicator */}
-            {copied === vessel.name && (
-              <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-deep-space/80 backdrop-blur-sm">
-                <span className="flex items-center gap-1.5 text-sm font-medium text-electric-cyan">
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4.5 12.75l6 6 9-13.5"
-                    />
-                  </svg>
-                  Copied!
-                </span>
-              </div>
-            )}
+            {t}
+          </button>
+        ))}
+        <span style={{ color: "rgba(255,255,255,0.2)", padding: "8px" }}>|</span>
+        {tiers.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTierFilter(t)}
+            className="rounded-full px-4 py-2 text-xs font-medium transition-all"
+            style={{
+              background: tierFilter === t ? "#00F0FF20" : "transparent",
+              border: `1px solid ${tierFilter === t ? "#00F0FF" : "rgba(255,255,255,0.1)"}`,
+              color: tierFilter === t ? "#00F0FF" : "rgba(255,255,255,0.5)",
+              minHeight: "36px",
+            }}
+          >
+            {t === "All" ? "All Tiers" : t === "private" ? "Private Fleet" : "Explorer Fleet"}
           </button>
         ))}
       </div>
 
-      {filtered.length === 0 && (
-        <div className="mt-8 text-center text-sm text-muted-blue">
-          No vessels match your search.
-        </div>
-      )}
+      <p className="mb-4 text-sm" style={{ color: "rgba(255,255,255,0.3)" }}>
+        Showing {filtered.length} of {fleet.length} vessels
+      </p>
+
+      {/* Grid */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {filtered.map((v) => (
+          <button
+            key={v.slug || v.name}
+            onClick={() => handleCopy(v.name)}
+            className="glass-card group cursor-pointer rounded-xl p-4 text-left transition-all hover:scale-[1.01]"
+            style={{ border: copied === v.name ? "1px solid #10B981" : undefined }}
+          >
+            {/* Type badge */}
+            <div className="mb-3 flex items-center justify-between">
+              <span
+                className="rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase"
+                style={{ background: (typeColor[v.type] || "#00F0FF") + "20", color: typeColor[v.type] || "#00F0FF" }}
+              >
+                {v.type}
+              </span>
+              <span
+                className="rounded-full px-2 py-0.5 text-[9px] uppercase"
+                style={{ background: v.tier === "explorer" ? "#10B98120" : "#F59E0B20", color: v.tier === "explorer" ? "#10B981" : "#F59E0B" }}
+              >
+                {v.tier}
+              </span>
+            </div>
+
+            {/* Name */}
+            <h3 className="mb-1 text-sm font-semibold" style={{ color: "#fff" }}>
+              {v.name}
+            </h3>
+            <p className="mb-3 text-xs" style={{ color: "rgba(255,255,255,0.35)", lineHeight: 1.4 }}>
+              {v.subtitle || ""}
+            </p>
+
+            {/* Specs */}
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+              <span>📏 {v.length}</span>
+              <span>👥 {v.sleeps} guests</span>
+            </div>
+
+            {/* Price */}
+            <p className="mt-2 text-xs font-medium" style={{ color: "#00F0FF", fontFamily: "var(--font-jetbrains-mono)" }}>
+              {v.price}
+            </p>
+
+            {/* Copy feedback */}
+            {copied === v.name && (
+              <p className="mt-2 text-center text-[10px] font-bold" style={{ color: "#10B981" }}>
+                ✓ Copied to clipboard
+              </p>
+            )}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
