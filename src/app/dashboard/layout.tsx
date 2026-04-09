@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect, type ReactNode } from "react";
 import NotificationBell from "./NotificationBell";
 import { isSoundEnabled, toggleSound } from "@/lib/sounds";
+import AlienBackground from "@/app/components/AlienBackground";
 
 interface NavItem {
   label: string;
@@ -322,7 +323,8 @@ export default function DashboardLayout({
 
   return (
     <WelcomeGate>
-      <div className="flex h-screen overflow-hidden bg-deep-space">
+      <AlienBackground />
+      <div className="flex h-screen overflow-hidden bg-deep-space" style={{ position: "relative", zIndex: 10 }}>
         {/* ─── Desktop Sidebar ─────────────────────────────────────────── */}
         <aside
           className={`hidden lg:flex shrink-0 flex-col border-r border-border-glow bg-glass-dark transition-all duration-300 ${

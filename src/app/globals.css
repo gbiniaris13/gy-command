@@ -229,3 +229,95 @@ body::before {
 .kanban-scroll::-webkit-scrollbar-thumb:hover {
   background: #00ffc880;
 }
+
+/* ============================================
+   ALIEN MOTHERSHIP DESIGN SYSTEM OVERRIDES
+   ============================================ */
+
+:root {
+  --alien-bg: #010810;
+  --alien-cyan: #00ffc8;
+  --alien-cyan-glow: rgba(0, 255, 200, 0.15);
+  --alien-text: #a0ffe0;
+  --alien-text-dim: rgba(0, 255, 200, 0.4);
+  --alien-border: rgba(0, 255, 200, 0.08);
+  --alien-border-hover: rgba(0, 255, 200, 0.25);
+  --alien-surface: rgba(0, 255, 200, 0.03);
+  --alien-clip: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  --alien-font: 'JetBrains Mono', monospace;
+}
+
+h1, h2, h3, h4 {
+  color: var(--alien-cyan) !important;
+  text-shadow: 0 0 10px var(--alien-cyan-glow);
+  letter-spacing: 1.5px;
+}
+
+input, textarea, select {
+  background: rgba(0, 255, 200, 0.02) !important;
+  border: 0.5px solid var(--alien-border) !important;
+  color: var(--alien-text) !important;
+  border-radius: 0 !important;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--alien-cyan) !important;
+  box-shadow: 0 0 10px var(--alien-cyan-glow) !important;
+}
+input::placeholder, textarea::placeholder {
+  color: var(--alien-text-dim) !important;
+}
+
+th {
+  background: rgba(0, 255, 200, 0.04) !important;
+  color: var(--alien-cyan) !important;
+  font-size: 9px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 2px !important;
+}
+td {
+  border-bottom: 0.5px solid rgba(0, 255, 200, 0.04) !important;
+}
+tr:hover td {
+  background: rgba(0, 255, 200, 0.03) !important;
+}
+
+hr {
+  border: none !important;
+  height: 1px !important;
+  background: linear-gradient(90deg, transparent 2%, rgba(0,255,200,.1) 15%, rgba(0,255,200,.4) 50%, rgba(0,255,200,.1) 85%, transparent 98%) !important;
+}
+
+/* Alien animations */
+@keyframes alienScan {
+  0% { top: -2px; }
+  100% { top: 100%; }
+}
+
+@keyframes alienFlicker {
+  0%, 100% { opacity: 1; }
+  5% { opacity: 0.6; }
+  10% { opacity: 1; }
+  50% { opacity: 0.95; }
+  52% { opacity: 0.4; }
+  53% { opacity: 1; }
+}
+
+@keyframes alienGlitch {
+  0%, 90%, 100% { transform: translate(0); }
+  92% { transform: translate(-3px, 1px); }
+  95% { transform: translate(3px, -2px); }
+}
+
+@keyframes alienBreathe {
+  0%, 100% { box-shadow: 0 0 10px rgba(0,255,200,.05); }
+  50% { box-shadow: 0 0 25px rgba(0,255,200,.12); }
+}
+
+.alien-glow { text-shadow: 0 0 10px var(--alien-cyan-glow); }
+.alien-breathe { animation: alienBreathe 4s infinite; }
+.alien-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--alien-cyan);
+  box-shadow: 0 0 6px var(--alien-cyan);
+  display: inline-block;
+}
