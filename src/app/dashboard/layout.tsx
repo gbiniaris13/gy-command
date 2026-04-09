@@ -95,8 +95,14 @@ const navItems: NavItem[] = [
   },
 ];
 
-// Bottom bar items (subset for mobile)
-const bottomBarItems = navItems.slice(0, 5); // Dashboard, Contacts, Email, Calendar, Chat
+// Bottom bar items for mobile: Dashboard, Contacts, Email, Fleet, Chat
+const bottomBarItems: NavItem[] = [
+  navItems[0], // Dashboard
+  navItems[1], // Contacts
+  navItems[2], // Email
+  navItems[8], // Fleet
+  navItems[4], // Chat
+];
 
 function WelcomeGate({ children }: { children: React.ReactNode }) {
   const [showWelcome, setShowWelcome] = useState(false);
@@ -277,7 +283,7 @@ export default function DashboardLayout({
       <div className="flex h-screen overflow-hidden bg-deep-space">
         {/* ─── Desktop Sidebar ─────────────────────────────────────────── */}
         <aside
-          className={`hidden md:flex shrink-0 flex-col border-r border-border-glow bg-glass-dark transition-all duration-300 ${
+          className={`hidden lg:flex shrink-0 flex-col border-r border-border-glow bg-glass-dark transition-all duration-300 ${
             collapsed ? "w-16" : "w-60"
           }`}
         >
@@ -369,7 +375,7 @@ export default function DashboardLayout({
         </aside>
 
         {/* ─── Main content ───────────────────────────────────────────── */}
-        <main className="relative flex-1 overflow-y-auto pb-16 md:pb-0">
+        <main className="relative flex-1 overflow-y-auto pb-16 lg:pb-0">
           {/* Top bar with notification bell */}
           <div className="sticky top-0 z-40 flex items-center justify-end border-b border-border-glow bg-deep-space/80 backdrop-blur-lg px-4 sm:px-6 h-12">
             <NotificationBell />
@@ -380,7 +386,7 @@ export default function DashboardLayout({
           {!isOnChatPage && (
             <Link
               href="/dashboard/chat"
-              className="fixed bottom-20 right-4 z-50 hidden md:flex h-14 w-14 items-center justify-center rounded-full bg-electric-cyan shadow-lg shadow-electric-cyan/20 transition-all hover:scale-105 hover:shadow-xl hover:shadow-electric-cyan/30 animate-chat-pulse"
+              className="fixed bottom-20 right-4 z-50 hidden lg:flex h-14 w-14 items-center justify-center rounded-full bg-electric-cyan shadow-lg shadow-electric-cyan/20 transition-all hover:scale-105 hover:shadow-xl hover:shadow-electric-cyan/30 animate-chat-pulse"
               title="Open Boardroom Chat"
             >
               <svg
@@ -401,7 +407,7 @@ export default function DashboardLayout({
         </main>
 
         {/* ─── Mobile Bottom Tab Bar ──────────────────────────────────── */}
-        <nav className="fixed bottom-0 left-0 right-0 z-50 flex md:hidden h-16 items-stretch border-t border-border-glow bg-glass-dark/95 backdrop-blur-lg">
+        <nav className="fixed bottom-0 left-0 right-0 z-50 flex lg:hidden h-16 items-stretch border-t border-border-glow bg-glass-dark/95 backdrop-blur-lg safe-area-bottom">
           {bottomBarItems.map((item) => {
             const active = isActive(item.href);
             return (
