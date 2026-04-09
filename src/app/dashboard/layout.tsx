@@ -94,6 +94,17 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    label: "Command",
+    href: "/dashboard/command-center",
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 3.75H6A2.25 2.25 0 003.75 6v1.5M16.5 3.75H18A2.25 2.25 0 0120.25 6v1.5m0 9V18A2.25 2.25 0 0118 20.25h-1.5m-9 0H6A2.25 2.25 0 013.75 18v-1.5" />
+        <circle cx="12" cy="12" r="3" strokeLinecap="round" strokeLinejoin="round" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3.75v2.25m0 12v2.25M3.75 12H6m12 0h2.25" />
+      </svg>
+    ),
+  },
 ];
 
 // Bottom bar items for mobile: Dashboard, Contacts, Email, Fleet, Chat
