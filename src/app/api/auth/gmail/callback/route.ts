@@ -77,9 +77,11 @@ export async function GET(request: NextRequest) {
       return response;
     }
 
-    return NextResponse.redirect(`${baseUrl}/dashboard/email?connected=true`);
+    // Redirect to a page that doesn't require auth middleware
+    // The /login page with connected=true param will show success + auto-redirect
+    return NextResponse.redirect(`${baseUrl}/login?gmail_connected=true`);
   } catch (err) {
     console.error("[Gmail OAuth] Callback error:", err);
-    return NextResponse.redirect(`${baseUrl}/dashboard/email?error=callback_failed`);
+    return NextResponse.redirect(`${baseUrl}/login?gmail_error=callback_failed`);
   }
 }
