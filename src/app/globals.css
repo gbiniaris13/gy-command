@@ -321,3 +321,102 @@ hr {
   box-shadow: 0 0 6px var(--alien-cyan);
   display: inline-block;
 }
+
+/* ============================================
+   ALIEN DESIGN — GLOBAL OVERRIDES
+   Every element in the app gets alien treatment
+   ============================================ */
+
+body, html {
+  background: #010810 !important;
+  color: #a0ffe0 !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #00ffc8 !important;
+  text-shadow: 0 0 10px rgba(0,255,200,.15);
+  letter-spacing: 1.5px !important;
+}
+
+a { color: #00ffc8 !important; }
+a:hover { text-shadow: 0 0 10px rgba(0,255,200,.15) !important; }
+
+/* All cards/panels — cut corners + alien surface */
+[class*="card"], [class*="Card"],
+[class*="glass"] {
+  background: rgba(0,255,200,.015) !important;
+  border: 0.5px solid rgba(0,255,200,.08) !important;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px) !important;
+}
+[class*="card"]:hover, [class*="Card"]:hover,
+[class*="glass"]:hover {
+  border-color: rgba(0,255,200,.25) !important;
+  box-shadow: 0 0 20px rgba(0,255,200,.08) !important;
+}
+
+/* All buttons — alien treatment */
+button, [type="submit"] {
+  border-radius: 0 !important;
+  transition: all 0.3s !important;
+}
+button:hover {
+  box-shadow: 0 0 15px rgba(0,255,200,.1) !important;
+}
+
+/* All inputs — alien glow on focus */
+input, textarea, select {
+  background: rgba(0,255,200,.02) !important;
+  border: 0.5px solid rgba(0,255,200,.08) !important;
+  color: #a0ffe0 !important;
+  border-radius: 0 !important;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: #00ffc8 !important;
+  box-shadow: 0 0 10px rgba(0,255,200,.15) !important;
+}
+input::placeholder, textarea::placeholder {
+  color: rgba(0,255,200,.25) !important;
+}
+
+/* Tables */
+th {
+  background: rgba(0,255,200,.04) !important;
+  color: #00ffc8 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1.5px !important;
+  font-size: 10px !important;
+}
+td { border-bottom: 0.5px solid rgba(0,255,200,.04) !important; }
+tr:hover td { background: rgba(0,255,200,.03) !important; }
+
+/* Sidebar / Nav */
+aside, nav {
+  background: rgba(1,8,16,0.85) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* Dividers */
+hr {
+  border: none !important;
+  height: 1px !important;
+  background: linear-gradient(90deg, transparent, rgba(0,255,200,.3), transparent) !important;
+}
+
+/* Modals */
+[class*="modal"], [class*="Modal"],
+[class*="dialog"], [class*="Dialog"] {
+  background: #010810 !important;
+  border: 0.5px solid rgba(0,255,200,.15) !important;
+}
+
+/* Dropdowns */
+[class*="dropdown"], [class*="Dropdown"] {
+  background: rgba(1,8,16,0.95) !important;
+  border: 0.5px solid rgba(0,255,200,.15) !important;
+}
+
+/* Mobile bottom nav */
+[class*="bottom"] nav, .safe-area-bottom {
+  background: rgba(1,8,16,0.9) !important;
+  backdrop-filter: blur(12px) !important;
+}

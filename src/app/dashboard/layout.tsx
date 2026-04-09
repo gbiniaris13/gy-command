@@ -324,12 +324,13 @@ export default function DashboardLayout({
   return (
     <WelcomeGate>
       <AlienBackground />
-      <div className="flex h-screen overflow-hidden bg-deep-space" style={{ position: "relative", zIndex: 10 }}>
+      <div className="flex h-screen overflow-hidden" style={{ position: "relative", zIndex: 10, background: "transparent" }}>
         {/* ─── Desktop Sidebar ─────────────────────────────────────────── */}
         <aside
-          className={`hidden lg:flex shrink-0 flex-col border-r border-border-glow bg-glass-dark transition-all duration-300 ${
+          className={`hidden lg:flex shrink-0 flex-col border-r border-border-glow transition-all duration-300 ${
             collapsed ? "w-16" : "w-60"
           }`}
+          style={{ background: "rgba(1,8,16,0.85)", backdropFilter: "blur(8px)" }}
         >
           {/* Logo row + collapse toggle */}
           <div className="flex h-14 items-center justify-between px-3">
