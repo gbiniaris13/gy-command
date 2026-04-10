@@ -22,23 +22,33 @@ async function fetchAhrefs(): Promise<IntelMetric> {
   const key = process.env.AHREFS_API_KEY;
   if (!key) return { value: null, sub: "Set AHREFS_API_KEY", connected: false };
   try {
-    const url =
-      "https://api.ahrefs.com/v3/site-explorer/domain-rating" +
-      "?target=georgeyachts.com&date=" +
-      new Date().toISOString().slice(0, 10) +
-      "&protocol=https";
+    // Matches Ahrefs v3 docs exactly:
+    //   GET /v3/site-explorer/domain-rating?date=YYYY-MM-DD&target=domain%2F
+    const today = new Date().toISOString().slice(0, 10);
+    const target = encodeURIComponent("georgeyachts.com/");
+    const url = `https://api.ahrefs.com/v3/site-explorer/domain-rating?date=${today}&target=${target}`;
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
       next: { revalidate: 3600 },
     });
-    if (!res.ok) return { value: "—", sub: "API error", connected: true };
+    if (!res.ok) {
+      return {
+        value: "—",
+        sub: `API ${res.status}`,
+        connected: true,
+      };
+    }
     const json = (await res.json()) as {
-      domain_rating?: { domain_rating?: number };
+      domain_rating?: { domain_rating?: number; ahrefs_rank?: number | null };
     };
     const dr = json.domain_rating?.domain_rating;
+    const rank = json.domain_rating?.ahrefs_rank;
     return {
-      value: dr != null ? String(Math.round(dr)) : "—",
-      sub: "Domain Rating",
+      value: dr != null ? String(Math.round(dr * 10) / 10) : "—",
+      sub: rank != null ? `DR · rank #${rank.toLocaleString()}` : "Domain Rating",
       connected: true,
     };
   } catch {
