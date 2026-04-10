@@ -48,7 +48,7 @@ export default function AlienBackground() {
           mx.shadowColor = "rgba(0,255,200,.4)";
           mx.shadowBlur = 6;
         }
-        mx.font = `bold ${16 + ((Math.random() * 4) | 0)}px monospace`;
+        mx.font = `300 ${16 + ((Math.random() * 4) | 0)}px monospace`;
         mx.fillText(c, i * COL_W, drops[i] * COL_W);
         if (drops[i] * COL_W > mc.height && Math.random() > 0.975) drops[i] = 0;
         drops[i] += 0.5;
