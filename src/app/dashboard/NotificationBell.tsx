@@ -93,13 +93,67 @@ export default function NotificationBell() {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const prevUnreadRef = useRef<number | null>(null);
+  const baseTitleRef = useRef<string>("GY Command");
 
-  // Play chime when unread count increases (skip initial load)
+  // Capture the page title once so we can restore it
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      baseTitleRef.current =
+        document.title.replace(/^\(\d+\)\s*/, "") || "GY Command";
+    }
+  }, []);
+
+  // Ask for browser notification permission on first visit (one-shot)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      const t = setTimeout(() => {
+        Notification.requestPermission().catch(() => {});
+      }, 2500);
+      return () => clearTimeout(t);
+    }
+  }, []);
+
+  // Update tab title badge whenever unread changes
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const base = baseTitleRef.current;
+    document.title = unreadCount > 0 ? `(${unreadCount}) ${base}` : base;
+  }, [unreadCount]);
+
+  // Play chime + fire browser notification when unread count increases (skip initial load)
   useEffect(() => {
     if (prevUnreadRef.current !== null && unreadCount > prevUnreadRef.current) {
       playChime();
+
+      if (
+        typeof window !== "undefined" &&
+        "Notification" in window &&
+        Notification.permission === "granted"
+      ) {
+        const newest = notifications.find((n) => !n.read);
+        if (newest) {
+          try {
+            const browserNotif = new Notification(newest.title || "GY Command", {
+              body: newest.description || "New activity in your CRM",
+              tag: newest.id,
+              icon: "/favicon.ico",
+            });
+            if (newest.link) {
+              browserNotif.onclick = () => {
+                window.focus();
+                window.location.href = newest.link!;
+              };
+            }
+          } catch {
+            // Some browsers (iOS Safari) throw — ignore.
+          }
+        }
+      }
     }
     prevUnreadRef.current = unreadCount;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unreadCount]);
 
   const fetchNotifications = useCallback(async () => {

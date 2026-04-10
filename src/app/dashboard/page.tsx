@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import DashboardClient from "./DashboardClient";
 import WeatherWidget from "./WeatherWidget";
+import IntelWidget from "./IntelWidget";
 import Link from "next/link";
 import type { PipelineStage, Contact } from "@/lib/types";
 
@@ -362,6 +363,9 @@ export default async function DashboardPage() {
 
       {/* Weather Widget — Greek Charter Locations (live, Open-Meteo) */}
       <WeatherWidget />
+
+      {/* Marketing Intel — GA, GSC, Instagram, Ahrefs */}
+      <IntelWidget />
 
       {/* Pipeline Kanban */}
       <div className="glass-card p-4 sm:p-6">

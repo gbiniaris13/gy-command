@@ -40,10 +40,58 @@ export default function FleetClient() {
     return matchSearch && matchType && matchTier;
   });
 
-  const handleCopy = (name: string) => {
-    navigator.clipboard.writeText(name);
-    setCopied(name);
-    setTimeout(() => setCopied(""), 2000);
+  const buildProposal = (v: Vessel) => {
+    const today = new Date().toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    return `GEORGE YACHTS — CHARTER PROPOSAL
+${today}
+
+Dear Guest,
+
+Thank you for your interest in chartering with George Yachts. We are delighted
+to present the following vessel for your consideration:
+
+VESSEL
+  Name:     ${v.name}
+  Type:     ${v.type}
+  Length:   ${v.length}
+  Guests:   Sleeps ${v.sleeps}
+  Tier:     ${v.tier === "explorer" ? "Explorer Fleet" : "Private Fleet"}
+${v.subtitle ? `\n  "${v.subtitle}"\n` : ""}
+INDICATIVE WEEKLY CHARTER RATE
+  ${v.price}
+
+  Rate excludes APA (Advance Provisioning Allowance, typically 25-30%),
+  VAT where applicable, and any delivery/redelivery fees.
+
+WHAT'S INCLUDED
+  • Professional crew (captain, chef, stewardess, deckhand as applicable)
+  • Use of the yacht for up to ${v.sleeps} guests
+  • All onboard equipment and water toys
+  • Fully fuelled at the start of the charter
+
+NEXT STEPS
+  1. Confirm preferred dates and embarkation port
+  2. We draft the MYBA charter agreement
+  3. 50% deposit on signing, 50% one month before embarkation
+  4. APA wired to captain 5 days before the charter
+
+For availability and a tailored itinerary, simply reply to this email or
+call George directly.
+
+Warm regards,
+George P. Biniaris
+George Yachts Brokerage House LLC
+https://georgeyachts.com`;
+  };
+
+  const handleCopy = (v: Vessel) => {
+    navigator.clipboard.writeText(buildProposal(v));
+    setCopied(v.name);
+    setTimeout(() => setCopied(""), 2500);
   };
 
   const typeColor: Record<string, string> = {
@@ -126,7 +174,7 @@ export default function FleetClient() {
         {filtered.map((v) => (
           <button
             key={v.slug || v.name}
-            onClick={() => handleCopy(v.name)}
+            onClick={() => handleCopy(v)}
             className="glass-card group cursor-pointer rounded-xl p-4 text-left transition-all hover:scale-[1.01]"
             style={{ border: copied === v.name ? "1px solid #10B981" : undefined }}
           >
@@ -168,7 +216,7 @@ export default function FleetClient() {
             {/* Copy feedback */}
             {copied === v.name && (
               <p className="mt-2 text-center text-[10px] font-bold" style={{ color: "#10B981" }}>
-                ✓ Copied to clipboard
+                ✓ Proposal copied to clipboard
               </p>
             )}
           </button>

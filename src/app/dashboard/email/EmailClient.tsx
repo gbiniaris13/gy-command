@@ -294,9 +294,14 @@ export default function EmailClient() {
 
   // ── Render ──
   return (
-    <div className="flex h-full">
-      {/* Left: email list */}
-      <div className="flex w-[420px] shrink-0 flex-col border-r border-navy-lighter">
+    <div className="flex h-full" style={{ touchAction: "pan-y" }}>
+      {/* Left: email list — full width on mobile, 420px on desktop; hidden on mobile when reading */}
+      <div
+        className={`flex w-full lg:w-[420px] shrink-0 flex-col border-r border-navy-lighter ${
+          selectedId ? "hidden lg:flex" : "flex"
+        }`}
+        style={{ touchAction: "pan-y" }}
+      >
         {/* Tabs */}
         <div className="flex items-center border-b border-navy-lighter px-4">
           {(["inbox", "starred", "sent"] as Tab[]).map((t) => (
@@ -315,7 +320,10 @@ export default function EmailClient() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto">
+        <div
+          className="flex-1 overflow-y-auto overscroll-contain"
+          style={{ touchAction: "pan-y" }}
+        >
           {loading ? (
             <div className="flex h-40 items-center justify-center">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-gold border-t-transparent" />
@@ -406,8 +414,13 @@ export default function EmailClient() {
         </div>
       </div>
 
-      {/* Right: detail panel */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Right: detail panel — hidden on mobile until a message is selected */}
+      <div
+        className={`flex flex-1 flex-col overflow-hidden ${
+          selectedId ? "flex" : "hidden lg:flex"
+        }`}
+        style={{ touchAction: "pan-y" }}
+      >
         {!selectedId ? (
           <div className="flex h-full items-center justify-center text-ivory/30">
             <div className="text-center">
@@ -435,6 +448,14 @@ export default function EmailClient() {
           <>
             {/* Header */}
             <div className="border-b border-navy-lighter p-6">
+              {/* Mobile-only back button */}
+              <button
+                onClick={() => setSelectedId(null)}
+                className="mb-3 inline-flex items-center gap-1 text-xs font-medium text-gold lg:hidden"
+                aria-label="Back to inbox"
+              >
+                &larr; Back to inbox
+              </button>
               <div className="flex items-start justify-between">
                 <div>
                   <h2 className="font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory">
@@ -530,7 +551,10 @@ export default function EmailClient() {
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div
+              className="flex-1 overflow-y-auto overscroll-contain p-6"
+              style={{ touchAction: "pan-y" }}
+            >
               {detail.bodyType === "html" ? (
                 <div
                   className="prose prose-invert max-w-none text-sm text-ivory/80 [&_a]:text-gold [&_img]:max-w-full"

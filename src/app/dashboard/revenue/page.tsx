@@ -30,19 +30,28 @@ export default async function RevenuePage() {
         )
         .eq("pipeline_stages.name", "Closed Won"),
 
-      // Count pending payments
+      // Count pending payments — only deals that actually have a charter_fee set
+      // (payment_status defaults to 'pending' in DB, so we must filter by charter_fee)
       supabase
         .from("contacts")
         .select("id", { count: "exact", head: true })
-        .eq("payment_status", "pending"),
+        .eq("payment_status", "pending")
+        .not("charter_fee", "is", null)
+        .gt("charter_fee", 0),
 
-      // Sum charter_fee for pipeline stages: Hot, Meeting, Proposal
+      // Sum charter_fee for active pipeline stages (use correct stage names from schema)
       supabase
         .from("contacts")
         .select(
           "charter_fee, pipeline_stage:pipeline_stages!inner(name)"
         )
-        .in("pipeline_stages.name", ["Hot", "Meeting", "Proposal"]),
+        .not("charter_fee", "is", null)
+        .in("pipeline_stages.name", [
+          "Hot",
+          "Warm",
+          "Meeting Booked",
+          "Proposal Sent",
+        ]),
 
       // All deals with charter data for the list
       supabase

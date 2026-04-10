@@ -6,6 +6,7 @@ import { useState, useEffect, type ReactNode } from "react";
 import NotificationBell from "./NotificationBell";
 import { isSoundEnabled, toggleSound } from "@/lib/sounds";
 import AlienBackground from "@/app/components/AlienBackground";
+import AutoRefresh from "@/app/components/AutoRefresh";
 
 interface NavItem {
   label: string;
@@ -324,6 +325,7 @@ export default function DashboardLayout({
   return (
     <WelcomeGate>
       <AlienBackground />
+      <AutoRefresh intervalMs={60000} />
       <div className="flex h-screen overflow-hidden" style={{ position: "relative", zIndex: 10, background: "transparent" }}>
         {/* ─── Desktop Sidebar ─────────────────────────────────────────── */}
         <aside

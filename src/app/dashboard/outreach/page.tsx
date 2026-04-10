@@ -99,6 +99,7 @@ export default async function OutreachPage() {
     last_name: c.last_name,
     company: c.company,
     country: c.country,
+    linkedin_url: c.linkedin_url,
     last_activity_at: c.last_activity_at,
     pipeline_stage: c.pipeline_stage,
   }));

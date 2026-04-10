@@ -57,6 +57,7 @@ export default function ContactsClient({
     last_name: "",
     email: "",
     phone: "",
+    linkedin_url: "",
     company: "",
     country: "",
     source: "manual",
@@ -101,6 +102,7 @@ export default function ContactsClient({
           last_name: "",
           email: "",
           phone: "",
+          linkedin_url: "",
           company: "",
           country: "",
           source: "manual",
@@ -219,9 +221,24 @@ export default function ContactsClient({
             >
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-soft-white truncate">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-soft-white truncate">
                     {getFlagFromCountry(contact.country)}{" "}
                     {contact.first_name} {contact.last_name}
+                    {contact.linkedin_url && (
+                      <a
+                        href={contact.linkedin_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex h-5 w-5 items-center justify-center rounded text-[#0a66c2] transition-colors hover:bg-[#0a66c2]/15"
+                        title="Open LinkedIn profile"
+                        aria-label="Open LinkedIn profile"
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.063 2.063 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                        </svg>
+                      </a>
+                    )}
                   </p>
                   {contact.company && (
                     <p className="mt-0.5 text-xs text-muted-blue truncate">
@@ -289,8 +306,23 @@ export default function ContactsClient({
                   className="cursor-pointer transition-colors hover:bg-glass-light/30"
                 >
                   <td className="px-5 py-4">
-                    <p className="text-sm font-medium text-soft-white">
+                    <p className="flex items-center gap-1.5 text-sm font-medium text-soft-white">
                       {contact.first_name} {contact.last_name}
+                      {contact.linkedin_url && (
+                        <a
+                          href={contact.linkedin_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex h-5 w-5 items-center justify-center rounded text-[#0a66c2] transition-colors hover:bg-[#0a66c2]/15"
+                          title="Open LinkedIn profile"
+                          aria-label="Open LinkedIn profile"
+                        >
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.063 2.063 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
+                          </svg>
+                        </a>
+                      )}
                     </p>
                   </td>
                   <td className="px-5 py-4 text-sm text-muted-blue">
@@ -378,6 +410,17 @@ export default function ContactsClient({
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2.5 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
                   placeholder="elena@example.com"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-medium tracking-wider text-muted-blue uppercase">LinkedIn URL</label>
+                <input
+                  type="url"
+                  value={form.linkedin_url}
+                  onChange={(e) => setForm({ ...form, linkedin_url: e.target.value })}
+                  className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2.5 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                  placeholder="https://linkedin.com/in/..."
                 />
               </div>
 
