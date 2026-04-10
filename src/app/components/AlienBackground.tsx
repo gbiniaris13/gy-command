@@ -51,7 +51,7 @@ export default function AlienBackground() {
         mx.font = `bold ${16 + ((Math.random() * 4) | 0)}px monospace`;
         mx.fillText(c, i * COL_W, drops[i] * COL_W);
         if (drops[i] * COL_W > mc.height && Math.random() > 0.975) drops[i] = 0;
-        drops[i]++;
+        drops[i] += 0.5;
       }
       mx.shadowBlur = 0;
       requestAnimationFrame(drawMatrix);
