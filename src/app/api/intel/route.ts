@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGA4AccessToken, getGSCAccessToken } from "@/lib/google-intel";
 
 // Intel endpoint — aggregates marketing/SEO/social metrics from external APIs.
 // Each block is guarded by an env var so the widget degrades gracefully
@@ -57,18 +58,97 @@ async function fetchAhrefs(): Promise<IntelMetric> {
 }
 
 async function fetchGA(): Promise<IntelMetric> {
-  if (!process.env.GA_PROPERTY_ID || !process.env.GA_SERVICE_ACCOUNT) {
+  const propertyId = process.env.GA_PROPERTY_ID;
+  if (!propertyId) {
     return { value: null, sub: "Set GA_PROPERTY_ID", connected: false };
   }
-  // Wiring GA4 Data API requires OAuth/service-account flow — placeholder for now.
-  return { value: "—", sub: "Active users", connected: true };
+  if (!process.env.GA_SERVICE_ACCOUNT_JSON) {
+    return { value: null, sub: "Set GA_SERVICE_ACCOUNT_JSON", connected: false };
+  }
+  try {
+    const token = await getGA4AccessToken();
+    if (!token) return { value: "—", sub: "Auth failed", connected: true };
+
+    // Active users over the last 7 days via GA4 Data API
+    const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+        metrics: [{ name: "activeUsers" }],
+      }),
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) {
+      return { value: "—", sub: `GA4 ${res.status}`, connected: true };
+    }
+    const json = (await res.json()) as {
+      rows?: Array<{ metricValues?: Array<{ value?: string }> }>;
+    };
+    const raw = json.rows?.[0]?.metricValues?.[0]?.value;
+    const users = raw ? parseInt(raw, 10) : 0;
+    return {
+      value: users.toLocaleString(),
+      sub: "Active users (7d)",
+      connected: true,
+    };
+  } catch {
+    return { value: "—", sub: "GA4 error", connected: true };
+  }
 }
 
 async function fetchGSC(): Promise<IntelMetric> {
-  if (!process.env.GSC_REFRESH_TOKEN) {
-    return { value: null, sub: "Set GSC_REFRESH_TOKEN", connected: false };
+  const siteUrl = process.env.GSC_SITE_URL || "sc-domain:georgeyachts.com";
+  try {
+    const token = await getGSCAccessToken();
+    if (!token) {
+      return {
+        value: null,
+        sub: "Reconnect Gmail (new scope)",
+        connected: false,
+      };
+    }
+    const endDate = new Date().toISOString().slice(0, 10);
+    const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const url = `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(
+      siteUrl
+    )}/searchAnalytics/query`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        startDate,
+        endDate,
+        dimensions: [],
+        rowLimit: 1,
+      }),
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) {
+      return { value: "—", sub: `GSC ${res.status}`, connected: true };
+    }
+    const json = (await res.json()) as {
+      rows?: Array<{ clicks?: number; impressions?: number }>;
+    };
+    const clicks = json.rows?.[0]?.clicks ?? 0;
+    const impressions = json.rows?.[0]?.impressions ?? 0;
+    return {
+      value: Math.round(clicks).toLocaleString(),
+      sub: `Clicks · ${Math.round(impressions).toLocaleString()} imprs (7d)`,
+      connected: true,
+    };
+  } catch {
+    return { value: "—", sub: "GSC error", connected: true };
   }
-  return { value: "—", sub: "Clicks (7d)", connected: true };
 }
 
 async function fetchInstagram(): Promise<IntelMetric> {
@@ -78,18 +158,32 @@ async function fetchInstagram(): Promise<IntelMetric> {
     return { value: null, sub: "Set IG_ACCESS_TOKEN", connected: false };
   }
   try {
-    const url = `https://graph.facebook.com/v19.0/${igId}?fields=followers_count&access_token=${token}`;
-    const res = await fetch(url, { next: { revalidate: 3600 } });
-    if (!res.ok) return { value: "—", sub: "Followers", connected: true };
-    const json = (await res.json()) as { followers_count?: number };
+    // Graph API v19 — followers_count is on the IG Business account node.
+    const url = `https://graph.facebook.com/v19.0/${igId}?fields=followers_count,media_count,username&access_token=${encodeURIComponent(
+      token
+    )}`;
+    const res = await fetch(url, { next: { revalidate: 600 } });
+    if (!res.ok) {
+      return { value: "—", sub: `IG ${res.status}`, connected: true };
+    }
+    const json = (await res.json()) as {
+      followers_count?: number;
+      media_count?: number;
+      username?: string;
+    };
+    const followers = json.followers_count;
+    const media = json.media_count;
+    const user = json.username ? `@${json.username}` : "@georgeyachts";
     return {
-      value:
-        json.followers_count != null ? String(json.followers_count) : "—",
-      sub: "@georgeyachts followers",
+      value: followers != null ? followers.toLocaleString() : "—",
+      sub:
+        media != null
+          ? `${user} · ${media} posts`
+          : `${user} followers`,
       connected: true,
     };
   } catch {
-    return { value: "—", sub: "API error", connected: true };
+    return { value: "—", sub: "IG error", connected: true };
   }
 }
 

@@ -29,6 +29,7 @@ const SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events.readonly",
+  "https://www.googleapis.com/auth/webmasters.readonly",
 ].join(" ");
 
 export function getGoogleAuthUrl(): string {
