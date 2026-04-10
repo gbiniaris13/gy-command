@@ -22,33 +22,35 @@ export default function AlienBackground() {
     resize();
     window.addEventListener("resize", resize);
 
-    const chars = "ΓΥΘΩΣΔΛΞΠΦΨαβγδεζηθ01アイウエオ∞∑∂∆√";
-    const cols = Math.floor(mc.width / 13);
-    const drops: number[] = Array(cols).fill(0).map(() => (Math.random() * mc.height / 13) | 0);
+    const chars = "ΓΥΘΩΣΔΛΞΠΦΨαβγδεζηθ01アイウエオカキクケコサシスセソ∞∑∂∆√";
+    const COL_W = 17;
+    const cols = Math.floor(mc.width / COL_W);
+    const drops: number[] = Array(cols).fill(0).map(() => (Math.random() * mc.height / COL_W) | 0);
 
     const drawMatrix = () => {
-      mx.fillStyle = "rgba(1,8,16,.06)";
+      mx.fillStyle = "rgba(1,8,16,.08)";
       mx.fillRect(0, 0, mc.width, mc.height);
       for (let i = 0; i < cols; i++) {
         const c = chars[(Math.random() * chars.length) | 0];
         const r = Math.random();
-        const head = r > 0.985;
-        const bright = r > 0.9;
+        const head = r > 0.97;
+        const bright = r > 0.85;
         if (head) {
-          mx.fillStyle = "rgba(200,255,230,1)";
-          mx.shadowColor = "rgba(0,255,200,.95)";
-          mx.shadowBlur = 14;
+          mx.fillStyle = "rgba(220,255,240,1)";
+          mx.shadowColor = "rgba(0,255,200,1)";
+          mx.shadowBlur = 22;
         } else if (bright) {
-          mx.fillStyle = "rgba(0,255,200,.95)";
-          mx.shadowColor = "rgba(0,255,200,.6)";
-          mx.shadowBlur = 8;
+          mx.fillStyle = "rgba(0,255,200,1)";
+          mx.shadowColor = "rgba(0,255,200,.85)";
+          mx.shadowBlur = 14;
         } else {
-          mx.fillStyle = "rgba(0,255,200,.6)";
-          mx.shadowBlur = 0;
+          mx.fillStyle = "rgba(0,255,200,.85)";
+          mx.shadowColor = "rgba(0,255,200,.4)";
+          mx.shadowBlur = 6;
         }
-        mx.font = `bold ${13 + ((Math.random() * 3) | 0)}px monospace`;
-        mx.fillText(c, i * 13, drops[i] * 13);
-        if (drops[i] * 13 > mc.height && Math.random() > 0.975) drops[i] = 0;
+        mx.font = `bold ${16 + ((Math.random() * 4) | 0)}px monospace`;
+        mx.fillText(c, i * COL_W, drops[i] * COL_W);
+        if (drops[i] * COL_W > mc.height && Math.random() > 0.975) drops[i] = 0;
         drops[i]++;
       }
       mx.shadowBlur = 0;
@@ -117,7 +119,7 @@ export default function AlienBackground() {
 
   return (
     <>
-      <canvas ref={matrixRef} style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.55 }} />
+      <canvas ref={matrixRef} style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.9 }} />
       <canvas ref={particleRef} style={{ position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none" }} />
       <div style={{ position: "fixed", inset: 0, zIndex: 2, pointerEvents: "none", background: "repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,255,200,.012) 1px, rgba(0,255,200,.012) 2px)", animation: "alienFlicker 10s infinite" }} />
       <div style={{ position: "fixed", left: 0, width: "100%", height: "1.5px", zIndex: 3, pointerEvents: "none", background: "linear-gradient(90deg, transparent, rgba(0,255,200,.7), transparent)", boxShadow: "0 0 30px 8px rgba(0,255,200,.1)", animation: "alienScan 5s linear infinite" }} />
