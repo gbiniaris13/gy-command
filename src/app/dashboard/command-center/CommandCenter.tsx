@@ -550,7 +550,7 @@ export default function CommandCenter() {
         {/* ── CANVAS LAYERS ──────────────────────────────────────────────── */}
         <canvas
           ref={matrixRef}
-          style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: 1, pointerEvents: "none" }}
+          style={{ position: "fixed", inset: 0, width: "100%", height: "100%", zIndex: 1, pointerEvents: "none", opacity: 0.8 }}
         />
         <canvas
           ref={hexRef}
