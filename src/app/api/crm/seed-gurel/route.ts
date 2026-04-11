@@ -36,7 +36,10 @@ export async function GET() {
       country: "Turkey",
       city: "Istanbul",
       linkedin_url: "https://www.linkedin.com/in/halilcangürel",
-      source: "linkedin_inbound",
+      // Schema CHECK only allows: outreach_bot, website_lead, website_inquiry,
+      // manual, referral, partner. LinkedIn inbound maps best to "referral";
+      // the literal source is preserved in charter_notes for clarity.
+      source: "referral",
       pipeline_stage_id: proposalStage.id,
       // Charter / deal fields
       charter_vessel: "M/Y La Pellegrina 1 (Couach 50m)",
@@ -50,6 +53,8 @@ export async function GET() {
       commission_earned: 35250,
       payment_status: "pending",
       charter_notes: [
+        "Source: LinkedIn inbound (10 April 2026).",
+        "Role: Co-Founder, VOYAGE BY AXİOM.",
         "Broker-to-broker deal (George Yachts as introducing broker).",
         "Central agent: Istion — Eva Tsiota.",
         "Proposal sent 10 April 2026 15:00 for M/Y La Pellegrina 1 (Couach 50m).",
