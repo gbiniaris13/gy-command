@@ -552,6 +552,21 @@ export default function DashboardLayout({
           {/* Divider */}
           <div className="mx-3 h-px bg-border-glow" />
 
+          {/* Re-authorize Google */}
+          {!collapsed && (
+            <div className="px-3 py-2">
+              <a
+                href="/api/auth/gmail"
+                className="flex items-center gap-2 rounded-lg border border-amber/20 bg-amber/5 px-3 py-2 text-[10px] font-[family-name:var(--font-mono)] font-bold tracking-wider text-amber transition-colors hover:bg-amber/10 hover:border-amber/40 min-h-[44px]"
+              >
+                <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                </svg>
+                RE-AUTHORIZE GOOGLE
+              </a>
+            </div>
+          )}
+
           {/* User area */}
           <div className={`flex items-center gap-3 px-3 py-4 ${collapsed ? "justify-center" : ""}`}>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-electric-cyan/10 border border-electric-cyan/20 text-electric-cyan">

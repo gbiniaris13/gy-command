@@ -27,7 +27,20 @@ async function fetchSeoAuthority(): Promise<IntelMetric> {
     return { value: null, sub: "Set MOZ_ACCESS_ID + MOZ_SECRET_KEY", connected: false };
   }
   try {
-    const auth = Buffer.from(`${accessId}:${secretKey}`).toString("base64");
+    // Moz credentials may be pre-encoded base64 strings or raw values
+    // Try decoding to check if they're already base64(accessId:secretKey)
+    let auth: string;
+    try {
+      const decoded = Buffer.from(accessId, "base64").toString("utf-8");
+      if (decoded.includes(":")) {
+        // Already a complete base64-encoded accessId:secretKey pair
+        auth = accessId;
+      } else {
+        auth = Buffer.from(`${accessId}:${secretKey}`).toString("base64");
+      }
+    } catch {
+      auth = Buffer.from(`${accessId}:${secretKey}`).toString("base64");
+    }
     const res = await fetch("https://lsapi.seomoz.com/v2/url_metrics", {
       method: "POST",
       headers: {
