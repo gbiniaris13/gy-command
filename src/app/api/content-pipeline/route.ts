@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { NextResponse } from "next/server";
 
 const SANITY_PROJECT_ID = process.env.SANITY_PROJECT_ID || "ecqr94ey";

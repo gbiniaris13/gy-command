@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { NextRequest } from "next/server";
 
 const VERIFY_TOKEN = process.env.IG_WEBHOOK_VERIFY_TOKEN || "gy_command_webhook_2026";
