@@ -152,11 +152,14 @@ export default function RevenueClient({
     <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="mb-6 sm:mb-8">
-        <h1 className="font-[family-name:var(--font-display)] text-2xl sm:text-3xl font-bold text-soft-white">
-          Revenue
+        <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+          <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">RESTRICTED</span>
+        </div>
+        <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
+          TREASURY — FINANCIAL INTEL
         </h1>
-        <p className="mt-1 text-sm text-muted-blue">
-          Commission tracking and charter pipeline
+        <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider uppercase">
+          COMMISSION TRACKING &amp; CHARTER PIPELINE
         </p>
       </div>
 

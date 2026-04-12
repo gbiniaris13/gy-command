@@ -73,3 +73,19 @@ export function playChime() {
   playTone(660, 0.15, 'sine', 0.1);
   setTimeout(() => playTone(880, 0.2, 'sine', 0.08), 100);
 }
+
+export function playBlip() {
+  playTone(1200, 0.08, 'sine', 0.06);
+}
+
+export function playChord() {
+  playTone(523, 0.15, 'sine', 0.08);
+  setTimeout(() => playTone(659, 0.15, 'sine', 0.06), 50);
+  setTimeout(() => playTone(784, 0.2, 'sine', 0.05), 100);
+}
+
+export function playSweep() {
+  playTone(200, 0.4, 'sine', 0.04);
+  setTimeout(() => playTone(400, 0.3, 'sine', 0.03), 100);
+  setTimeout(() => playTone(800, 0.2, 'sine', 0.02), 200);
+}

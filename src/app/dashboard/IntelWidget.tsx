@@ -55,14 +55,12 @@ export default function IntelWidget() {
   return (
     <div className="mb-6 sm:mb-8 glass-card p-4 sm:p-6">
       <div className="mb-4 flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-neon-purple/10">
-          <span className="text-sm">📡</span>
-        </div>
-        <h2 className="font-[family-name:var(--font-display)] text-base sm:text-lg font-semibold text-soft-white">
-          Marketing Intel
+        <span className="h-2 w-2 rounded-full bg-neon-purple" />
+        <h2 className="font-[family-name:var(--font-mono)] text-xs sm:text-sm font-bold tracking-[2px] text-electric-cyan uppercase">
+          SIGNAL INTELLIGENCE
         </h2>
-        <span className="ml-auto text-[10px] text-muted-blue/50">
-          Live feeds &middot; refresh every 5 min
+        <span className="ml-auto font-[family-name:var(--font-mono)] text-[9px] text-muted-blue/50 tracking-wider uppercase">
+          SIGINT FEEDS — AUTO REFRESH
         </span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

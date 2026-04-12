@@ -103,11 +103,14 @@ export default function OutreachClient({
     <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="font-[family-name:var(--font-montserrat)] text-2xl font-bold text-ivory">
-          Outreach Bot
+        <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+          <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">OPERATIONAL</span>
+        </div>
+        <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
+          OUTREACH OPERATIONS
         </h1>
-        <p className="mt-1 text-sm text-ivory/50">
-          Automated prospecting pipeline &mdash; {totalContacts} total contacts
+        <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider uppercase">
+          DEPLOYMENT STATUS &mdash; {totalContacts} TARGETS INDEXED
         </p>
       </div>
 

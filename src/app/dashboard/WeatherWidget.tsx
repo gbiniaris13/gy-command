@@ -98,14 +98,12 @@ export default function WeatherWidget() {
   return (
     <div className="mb-6 sm:mb-8 glass-card p-4 sm:p-6">
       <div className="mb-4 flex items-center gap-2">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber/10">
-          <span className="text-sm">{"\u2600\uFE0F"}</span>
-        </div>
-        <h2 className="font-[family-name:var(--font-display)] text-base sm:text-lg font-semibold text-soft-white">
-          Greek Charter Weather
+        <span className="h-2 w-2 rounded-full bg-amber" />
+        <h2 className="font-[family-name:var(--font-mono)] text-xs sm:text-sm font-bold tracking-[2px] text-electric-cyan uppercase">
+          ENVIRONMENTAL SCAN
         </h2>
-        <span className="ml-auto text-[10px] text-muted-blue/50">
-          Live &middot; Open-Meteo &middot; updates every 30 min
+        <span className="ml-auto font-[family-name:var(--font-mono)] text-[9px] text-muted-blue/50 tracking-wider uppercase">
+          MARITIME THEATER — REAL-TIME
         </span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-7 gap-3">

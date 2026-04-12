@@ -131,11 +131,14 @@ https://georgeyachts.com`;
     <div className="animate-page-enter p-4 sm:p-6">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: "#00ffc8", fontFamily: "var(--font-space-grotesk)" }}>
-            Fleet
+          <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+            <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">AUTHORIZED</span>
+          </div>
+          <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
+            FLEET COMMAND
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: "14px" }}>
-            {fleet.length} vessels from Sanity CMS
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider uppercase">
+            {fleet.length} VESSELS IN REGISTRY
           </p>
         </div>
         <input

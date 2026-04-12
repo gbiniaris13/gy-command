@@ -225,9 +225,14 @@ export default function CalendarClient() {
       {/* Toolbar */}
       <div className="flex items-center justify-between border-b border-navy-lighter px-6 py-4">
         <div className="flex items-center gap-4">
-          <h1 className="font-[family-name:var(--font-montserrat)] text-xl font-bold text-ivory">
-            {title}
-          </h1>
+          <div>
+            <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+              <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">RESTRICTED</span>
+            </div>
+            <h1 className="font-[family-name:var(--font-mono)] text-xl font-black tracking-[3px] text-electric-cyan uppercase">
+              MISSION SCHEDULER
+            </h1>
+          </div>
           {loading && (
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-gold border-t-transparent" />
           )}

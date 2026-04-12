@@ -359,6 +359,16 @@ export default function EmailClient() {
         }`}
         style={{ touchAction: "pan-y" }}
       >
+        {/* Alien military header */}
+        <div className="mb-3 px-4 pt-4">
+          <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+            <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">ENCRYPTED</span>
+          </div>
+          <h1 className="font-[family-name:var(--font-mono)] text-lg font-black tracking-[3px] text-electric-cyan uppercase">
+            COMMS RELAY
+          </h1>
+        </div>
+
         {/* Tabs */}
         <div className="flex items-center border-b border-navy-lighter px-4">
           {(["inbox", "starred", "sent"] as Tab[]).map((t) => (

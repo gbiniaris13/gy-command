@@ -167,15 +167,18 @@ export default function VisitorsClient({
   ];
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="font-[family-name:var(--font-montserrat)] text-2xl font-bold text-[#F8F5F0]">
-            Site Visitors
+          <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+            <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">SURVEILLANCE</span>
+          </div>
+          <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
+            PERIMETER SURVEILLANCE
           </h1>
-          <p className="mt-1 text-sm text-[#F8F5F0]/50">
-            Real-time activity on georgeyachts.com
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider uppercase">
+            SITE TRAFFIC — REAL-TIME
           </p>
         </div>
         <div className="flex items-center gap-2">

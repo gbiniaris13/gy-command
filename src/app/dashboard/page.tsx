@@ -51,9 +51,9 @@ export default async function DashboardPage() {
 
   const stats = [
     {
-      label: "New Leads (7d)",
+      label: "INTEL DEPLOYED",
       value: String(newLeadsCount),
-      sub: "this week",
+      sub: "last 7 days",
       color: "text-emerald",
       icon: (
         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -62,9 +62,9 @@ export default async function DashboardPage() {
       ),
     },
     {
-      label: "Total Contacts",
+      label: "ASSETS IN DATABASE",
       value: String(totalContacts),
-      sub: "in CRM",
+      sub: "indexed",
       color: "text-electric-cyan",
       icon: (
         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -73,7 +73,7 @@ export default async function DashboardPage() {
       ),
     },
     {
-      label: "Hot Leads",
+      label: "PRIORITY TARGETS",
       value: String(hotLeadsCount),
       sub: "ready to close",
       color: "text-hot-red",
@@ -84,9 +84,9 @@ export default async function DashboardPage() {
       ),
     },
     {
-      label: "Pipeline Stages",
+      label: "ACTIVE OPERATIONS",
       value: String(stagesCount),
-      sub: "active stages",
+      sub: "live stages",
       color: "text-neon-purple",
       icon: (
         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -221,16 +221,26 @@ export default async function DashboardPage() {
     }
   }
 
+  const sessionTs = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      {/* Header */}
-      <div className="mb-6 sm:mb-8">
-        <h1 className="font-[family-name:var(--font-display)] text-2xl sm:text-3xl font-bold text-soft-white">
-          Dashboard
+      {/* ── CLASSIFIED HEADER ──────────────────────────────────────── */}
+      <div className="mb-6 sm:mb-8 glass-card p-4 sm:p-6">
+        <div className="mb-2 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+          <span className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[3px] text-hot-red uppercase animate-blink">
+            CLASSIFIED
+          </span>
+        </div>
+        <h1 className="font-[family-name:var(--font-display)] text-xl sm:text-2xl font-black tracking-[4px] text-electric-cyan uppercase" style={{ textShadow: "-2px 0 #ff0064, 2px 0 #0064ff, 0 0 20px rgba(0,255,200,0.4)" }}>
+          GY COMMAND — BRIDGE
         </h1>
-        <p className="mt-1 text-sm text-muted-blue">
-          Welcome back, George. Here is your overview.
-        </p>
+        <div className="mt-3 space-y-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue">
+          <p><span className="text-emerald">●</span> SYSTEM ONLINE <span className="inline-block w-2 h-3 bg-electric-cyan/60 animate-blink ml-1 align-middle" /></p>
+          <p>COMMANDER: George P. Biniaris</p>
+          <p>CLEARANCE: <span className="text-electric-cyan">LEVEL 5</span></p>
+          <p>SESSION: <span className="text-electric-cyan/60">{sessionTs}</span></p>
+        </div>
       </div>
 
       {/* Stats row */}
@@ -276,8 +286,8 @@ export default async function DashboardPage() {
                 />
               </svg>
             </div>
-            <h2 className="font-[family-name:var(--font-display)] text-base sm:text-lg font-semibold text-soft-white">
-              Today&apos;s Tasks
+            <h2 className="font-[family-name:var(--font-mono)] text-xs sm:text-sm font-bold tracking-[2px] text-electric-cyan uppercase">
+              MISSION QUEUE
             </h2>
             <span className="ml-auto rounded-full bg-electric-cyan/10 px-2.5 py-0.5 font-[family-name:var(--font-mono)] text-xs font-semibold text-electric-cyan">
               {tasks.length}
@@ -361,17 +371,47 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Weather Widget — Greek Charter Locations (live, Open-Meteo) */}
+      {/* ── ENVIRONMENTAL SCAN ──────────────────────────────────── */}
       <WeatherWidget />
 
-      {/* Marketing Intel — GA, GSC, Instagram, Ahrefs */}
+      {/* ── SIGNAL INTELLIGENCE ──────────────────────────────────── */}
       <IntelWidget />
 
-      {/* Pipeline Kanban */}
+      {/* ── SYSTEMS ARRAY ─────────────────────────────────────── */}
+      <div className="mb-6 sm:mb-8 glass-card p-4 sm:p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-emerald animate-pulse" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs sm:text-sm font-bold tracking-[2px] text-electric-cyan uppercase">
+            SYSTEMS ARRAY
+          </h2>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {[
+            { name: "CRM Matrix", status: "ONLINE" },
+            { name: "Email Relay", status: "ONLINE" },
+            { name: "Fleet Tracker", status: "ONLINE" },
+            { name: "Sat Uplink", status: "ONLINE" },
+            { name: "Neural Net", status: "TRAINING" },
+          ].map((sys) => (
+            <div key={sys.name} className="flex items-center gap-2 rounded border border-border-glow bg-glass-light/20 px-3 py-2">
+              <span className={`h-1.5 w-1.5 rounded-full ${sys.status === "ONLINE" ? "bg-emerald" : sys.status === "TRAINING" ? "bg-amber animate-pulse" : "bg-hot-red"}`} />
+              <div>
+                <p className="font-[family-name:var(--font-mono)] text-[10px] text-muted-blue">{sys.name}</p>
+                <p className={`font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-wider ${sys.status === "ONLINE" ? "text-emerald" : sys.status === "TRAINING" ? "text-amber" : "text-hot-red"}`}>{sys.status}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── MISSION PIPELINE ──────────────────────────────────────── */}
       <div className="glass-card p-4 sm:p-6">
-        <h2 className="mb-5 font-[family-name:var(--font-display)] text-base sm:text-lg font-semibold text-soft-white">
-          Pipeline
-        </h2>
+        <div className="mb-5 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-electric-cyan" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs sm:text-sm font-bold tracking-[2px] text-electric-cyan uppercase">
+            MISSION PIPELINE
+          </h2>
+        </div>
         <DashboardClient stages={stages} contacts={contacts} />
       </div>
     </div>

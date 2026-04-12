@@ -132,11 +132,11 @@ export default function ChatClient() {
           </svg>
         </div>
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-base font-semibold text-soft-white">
-            Boardroom
+          <h1 className="font-[family-name:var(--font-mono)] text-sm font-black tracking-[3px] text-electric-cyan uppercase">
+            NEURAL INTERFACE
           </h1>
-          <p className="text-xs text-muted-blue">
-            Your AI advisory team for George Yachts
+          <p className="font-[family-name:var(--font-mono)] text-[10px] text-muted-blue tracking-wider uppercase">
+            AI COMMS — BOARDROOM
           </p>
         </div>
       </div>

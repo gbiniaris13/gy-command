@@ -119,11 +119,14 @@ export default function ContactsClient({
       {/* Header */}
       <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-2xl sm:text-3xl font-bold text-soft-white">
-            Contacts
+          <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+            <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">CLASSIFIED</span>
+          </div>
+          <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
+            ASSET DATABASE
           </h1>
-          <p className="mt-1 text-sm text-muted-blue">
-            {filtered.length} of {contacts.length} contacts
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider">
+            {filtered.length} OF {contacts.length} ASSETS INDEXED
           </p>
         </div>
         <button
@@ -154,7 +157,7 @@ export default function ContactsClient({
             </svg>
             <input
               type="text"
-              placeholder="Search contacts..."
+              placeholder="SEARCH ASSETS..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-border-glow bg-glass-dark py-2.5 pl-10 pr-4 text-sm text-soft-white placeholder:text-muted-blue/50 focus:border-electric-cyan/30 focus:outline-none focus:ring-1 focus:ring-electric-cyan/20 min-h-[44px]"

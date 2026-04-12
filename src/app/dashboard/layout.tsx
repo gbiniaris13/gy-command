@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, type ReactNode } from "react";
 import NotificationBell from "./NotificationBell";
-import { isSoundEnabled, toggleSound } from "@/lib/sounds";
+import { isSoundEnabled, toggleSound, playBlip, playChord } from "@/lib/sounds";
 import AlienBackground from "@/app/components/AlienBackground";
 import AutoRefresh from "@/app/components/AutoRefresh";
 import PullToRefresh from "@/app/components/PullToRefresh";
@@ -526,6 +526,8 @@ export default function DashboardLayout({
                   key={item.href}
                   href={item.href}
                   title={collapsed ? item.label : undefined}
+                  onMouseEnter={playBlip}
+                  onClick={playChord}
                   className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-[44px] ${
                     active
                       ? "bg-[rgba(0,240,255,0.05)] text-electric-cyan"
