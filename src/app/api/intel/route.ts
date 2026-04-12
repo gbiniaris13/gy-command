@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getGA4AccessToken, getGSCAccessToken } from "@/lib/google-intel";
+import { getAccessToken } from "@/lib/google-api";
 
 // Intel endpoint — aggregates marketing/SEO/social metrics from external APIs.
 // Each block is guarded by an env var so the widget degrades gracefully
@@ -65,16 +66,14 @@ async function fetchSeoAuthority(): Promise<IntelMetric> {
 }
 
 async function fetchGA(): Promise<IntelMetric> {
-  const propertyId = process.env.GA_PROPERTY_ID;
-  if (!propertyId) {
-    return { value: null, sub: "Set GA_PROPERTY_ID", connected: false };
-  }
-  if (!process.env.GA_SERVICE_ACCOUNT_JSON) {
-    return { value: null, sub: "Set GA_SERVICE_ACCOUNT_JSON", connected: false };
-  }
+  const propertyId = process.env.GA_PROPERTY_ID || "513730342";
   try {
-    const token = await getGA4AccessToken();
-    if (!token) return { value: "—", sub: "Auth failed", connected: true };
+    // Try service account first, then fall back to OAuth token
+    let token = await getGA4AccessToken();
+    if (!token) {
+      try { token = await getAccessToken(); } catch { token = null; }
+    }
+    if (!token) return { value: null, sub: "Re-authorize Gmail for GA4 scope", connected: false };
 
     // Active users over the last 7 days via GA4 Data API
     const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
@@ -111,11 +110,15 @@ async function fetchGA(): Promise<IntelMetric> {
 async function fetchGSC(): Promise<IntelMetric> {
   const siteUrl = process.env.GSC_SITE_URL || "sc-domain:georgeyachts.com";
   try {
-    const token = await getGSCAccessToken();
+    // Try dedicated GSC token, fallback to main OAuth token
+    let token = await getGSCAccessToken();
+    if (!token) {
+      try { token = await getAccessToken(); } catch { token = null; }
+    }
     if (!token) {
       return {
         value: null,
-        sub: "Reconnect Gmail (new scope)",
+        sub: "Re-authorize Gmail for GSC scope",
         connected: false,
       };
     }

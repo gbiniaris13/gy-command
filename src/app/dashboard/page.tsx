@@ -3,6 +3,9 @@ import { createServerSupabaseClient } from "@/lib/supabase";
 import DashboardClient from "./DashboardClient";
 import WeatherWidget from "./WeatherWidget";
 import IntelWidget from "./IntelWidget";
+import WorldClockWidget from "./WorldClockWidget";
+import CurrencyWidget from "./CurrencyWidget";
+import PageSpeedWidget from "./PageSpeedWidget";
 import Link from "next/link";
 import type { PipelineStage, Contact } from "@/lib/types";
 
@@ -376,6 +379,13 @@ export default async function DashboardPage() {
 
       {/* ── SIGNAL INTELLIGENCE ──────────────────────────────────── */}
       <IntelWidget />
+
+      {/* ── WORLD TIME + CURRENCY ────────────────────────────── */}
+      <WorldClockWidget />
+      <CurrencyWidget />
+
+      {/* ── SITE PERFORMANCE ──────────────────────────────────── */}
+      <PageSpeedWidget />
 
       {/* ── SYSTEMS ARRAY ─────────────────────────────────────── */}
       <div className="mb-6 sm:mb-8 glass-card p-4 sm:p-6">
