@@ -100,7 +100,7 @@ export default function OutreachClient({
   const maxPipelineCount = Math.max(...pipelineBreakdown.map((p) => p.count), 1);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="mb-8">
         <h1 className="font-[family-name:var(--font-montserrat)] text-2xl font-bold text-ivory">
@@ -140,7 +140,7 @@ export default function OutreachClient({
       )}
 
       {/* Stat Cards */}
-      <div className="mb-8 grid grid-cols-4 gap-4">
+      <div className="mb-8 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
         {stats.map((stat) => (
           <div
             key={stat.label}

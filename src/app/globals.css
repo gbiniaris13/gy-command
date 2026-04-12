@@ -463,6 +463,30 @@ h1 {
   animation: counterGlow 3s ease-in-out infinite;
 }
 
+/* ── Typing cursor (terminal log) ──────────── */
+.typing-cursor::after {
+  content: '\2588';
+  color: #00ffc8;
+  animation: blink-cursor 0.8s infinite;
+  margin-left: 2px;
+}
+
+/* ── Vertical grid overlay (CSS alternative) ─ */
+.vertical-grid {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent calc(20% - 0.5px),
+    rgba(0, 255, 200, 0.03) calc(20% - 0.5px),
+    rgba(0, 255, 200, 0.03) calc(20% + 0.5px),
+    transparent calc(20% + 0.5px)
+  );
+}
+
 /* ── Mobile tap feedback ───────────────────── */
 @media (max-width: 1024px) {
   .safe-area-bottom a:active,

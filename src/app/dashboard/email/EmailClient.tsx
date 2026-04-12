@@ -3,6 +3,62 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
+// ─── Swipeable Email Wrapper (mobile) ───────────────────────────────────────
+
+function SwipeableEmail({
+  children,
+  onArchive,
+  onDelete,
+}: {
+  children: React.ReactNode;
+  onArchive: () => void;
+  onDelete: () => void;
+}) {
+  const [swipeX, setSwipeX] = useState(0);
+  const startX = useRef(0);
+  const touching = useRef(false);
+
+  return (
+    <div className="relative overflow-hidden lg:contents">
+      {/* Background — revealed on swipe */}
+      <div className="absolute inset-0 flex lg:hidden pointer-events-none">
+        <div className="w-1/2 bg-emerald-900/40 flex items-center pl-4">
+          <span className="text-emerald-400 text-xs font-mono tracking-wider">ARCHIVE &rarr;</span>
+        </div>
+        <div className="w-1/2 bg-red-900/40 flex items-center justify-end pr-4">
+          <span className="text-red-400 text-xs font-mono tracking-wider">&larr; DELETE</span>
+        </div>
+      </div>
+      {/* Email card — slides */}
+      <div
+        style={{
+          transform: `translateX(${swipeX}px)`,
+          transition: touching.current ? "none" : "transform 0.3s ease-out",
+        }}
+        onTouchStart={(e) => {
+          startX.current = e.touches[0].clientX;
+          touching.current = true;
+        }}
+        onTouchMove={(e) => {
+          if (!touching.current) return;
+          setSwipeX(e.touches[0].clientX - startX.current);
+        }}
+        onTouchEnd={() => {
+          touching.current = false;
+          if (swipeX > 100) {
+            onArchive();
+          } else if (swipeX < -100) {
+            onDelete();
+          }
+          setSwipeX(0);
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface EmailMessage {
@@ -143,6 +199,7 @@ export default function EmailClient() {
   const [classifications, setClassifications] = useState<
     Record<string, Classification>
   >({});
+  const [swipeToast, setSwipeToast] = useState<{ msg: string; undoFn: () => void } | null>(null);
   const [matchedContact, setMatchedContact] = useState<MatchedContact | null>(
     null
   );
@@ -343,8 +400,28 @@ export default function EmailClient() {
                 : null;
 
               return (
-                <button
+                <SwipeableEmail
                   key={msg.id}
+                  onArchive={() => {
+                    const removed = msg;
+                    setMessages((p) => p.filter((m) => m.id !== msg.id));
+                    setSwipeToast({
+                      msg: "Archived",
+                      undoFn: () => setMessages((p) => [removed, ...p]),
+                    });
+                    setTimeout(() => setSwipeToast(null), 3000);
+                  }}
+                  onDelete={() => {
+                    const removed = msg;
+                    setMessages((p) => p.filter((m) => m.id !== msg.id));
+                    setSwipeToast({
+                      msg: "Deleted",
+                      undoFn: () => setMessages((p) => [removed, ...p]),
+                    });
+                    setTimeout(() => setSwipeToast(null), 3000);
+                  }}
+                >
+                <button
                   onClick={() => setSelectedId(msg.id)}
                   className={`flex w-full gap-3 border-b border-navy-lighter px-4 py-3 text-left transition-colors hover:bg-navy-lighter/50 ${
                     selectedId === msg.id ? "bg-navy-lighter" : "bg-navy-light"
@@ -408,6 +485,7 @@ export default function EmailClient() {
                     </svg>
                   </button>
                 </button>
+                </SwipeableEmail>
               );
             })
           )}
@@ -624,6 +702,22 @@ export default function EmailClient() {
           </>
         ) : null}
       </div>
+
+      {/* Undo toast for swipe actions */}
+      {swipeToast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-lg border border-electric-cyan/20 bg-deep-space/95 backdrop-blur-lg px-4 py-3 shadow-lg lg:hidden">
+          <span className="text-sm text-soft-white">{swipeToast.msg}</span>
+          <button
+            onClick={() => {
+              swipeToast.undoFn();
+              setSwipeToast(null);
+            }}
+            className="font-mono text-xs font-bold text-electric-cyan tracking-wider"
+          >
+            UNDO
+          </button>
+        </div>
+      )}
     </div>
   );
 }

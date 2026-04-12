@@ -94,6 +94,24 @@ https://georgeyachts.com`;
     setTimeout(() => setCopied(""), 2500);
   };
 
+  const handlePDF = (v: Vessel) => {
+    const content = buildProposal(v);
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>${v.name} — Charter Proposal</title>
+<style>
+  body { font-family: 'Courier New', monospace; background: #010810; color: #a0ffe0; padding: 60px; line-height: 1.8; }
+  h1 { color: #00ffc8; font-size: 18px; letter-spacing: 3px; border-bottom: 1px solid rgba(0,255,200,0.3); padding-bottom: 10px; }
+  pre { white-space: pre-wrap; font-size: 13px; }
+  @media print { body { background: #fff; color: #000; } h1 { color: #000; } }
+</style></head><body>
+<h1>GEORGE YACHTS</h1>
+<pre>${content.replace(/</g,"&lt;")}</pre>
+</body></html>`);
+    win.document.close();
+    setTimeout(() => { win.print(); }, 300);
+  };
+
   const typeColor: Record<string, string> = {
     Sailing: "#00ffc8",
     Catamaran: "#8B5CF6",
@@ -213,12 +231,20 @@ https://georgeyachts.com`;
               {v.price}
             </p>
 
-            {/* Copy feedback */}
-            {copied === v.name && (
-              <p className="mt-2 text-center text-[10px] font-bold" style={{ color: "#10B981" }}>
-                ✓ Proposal copied to clipboard
-              </p>
-            )}
+            {/* Actions */}
+            <div className="mt-3 flex items-center gap-2">
+              <span
+                onClick={(e) => { e.stopPropagation(); handlePDF(v); }}
+                className="rounded border border-electric-cyan/20 px-2 py-1 text-[10px] font-mono text-electric-cyan/70 transition-colors hover:border-electric-cyan/40 hover:text-electric-cyan cursor-pointer"
+              >
+                PDF
+              </span>
+              {copied === v.name && (
+                <span className="text-[10px] font-bold" style={{ color: "#10B981" }}>
+                  ✓ Copied
+                </span>
+              )}
+            </div>
           </button>
         ))}
       </div>

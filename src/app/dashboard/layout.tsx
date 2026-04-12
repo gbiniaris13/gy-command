@@ -7,6 +7,7 @@ import NotificationBell from "./NotificationBell";
 import { isSoundEnabled, toggleSound } from "@/lib/sounds";
 import AlienBackground from "@/app/components/AlienBackground";
 import AutoRefresh from "@/app/components/AutoRefresh";
+import PullToRefresh from "@/app/components/PullToRefresh";
 
 interface NavItem {
   label: string;
@@ -357,6 +358,74 @@ function QuickActionsFAB() {
   );
 }
 
+function MobileMenu() {
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-blue transition-colors hover:bg-glass-light hover:text-soft-white min-h-[44px] min-w-[44px] lg:hidden"
+        aria-label="Open menu"
+      >
+        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-[100] lg:hidden">
+          <div className="absolute inset-0 bg-deep-space/95 backdrop-blur-lg" onClick={() => setOpen(false)} />
+          <div className="relative z-10 flex flex-col h-full p-6">
+            <div className="flex items-center justify-between mb-8">
+              <span className="font-[family-name:var(--font-display)] text-lg font-bold text-electric-cyan tracking-wider">GY COMMAND</span>
+              <button
+                onClick={() => setOpen(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-blue hover:text-soft-white min-h-[44px] min-w-[44px]"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <nav className="space-y-1">
+              {navItems.map((item) => {
+                const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setOpen(false)}
+                    className={`flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors min-h-[44px] ${
+                      active
+                        ? "bg-electric-cyan/5 text-electric-cyan border border-electric-cyan/20"
+                        : "text-muted-blue hover:text-soft-white hover:bg-glass-light/50"
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="font-[family-name:var(--font-sans)]">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="mt-auto pt-6 border-t border-border-glow">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-electric-cyan/10 border border-electric-cyan/20 text-electric-cyan">
+                  <span className="font-[family-name:var(--font-display)] text-xs font-semibold">GP</span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-soft-white">George P. Biniaris</p>
+                  <p className="text-[10px] font-semibold tracking-wider text-electric-cyan uppercase">Commander</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function SoundToggle() {
   const [enabled, setEnabled] = useState(true);
 
@@ -503,12 +572,25 @@ export default function DashboardLayout({
 
         {/* ─── Main content ───────────────────────────────────────────── */}
         <main className="relative flex-1 overflow-y-auto pb-16 lg:pb-0">
-          {/* Top bar with notification bell + sound toggle */}
-          <div className="sticky top-0 z-40 flex items-center justify-end gap-1 border-b border-border-glow bg-deep-space/80 backdrop-blur-lg px-4 sm:px-6 h-12">
+          {/* Top bar — compact on mobile with logo + hamburger */}
+          <div className="sticky top-0 z-40 flex items-center border-b border-border-glow bg-deep-space/95 backdrop-blur-lg px-3 sm:px-6 h-12">
+            {/* Mobile: logo + GY CMD */}
+            <div className="flex items-center gap-2 lg:hidden">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-electric-cyan/10 border border-electric-cyan/20">
+                <span className="font-[family-name:var(--font-mono)] text-[10px] font-bold text-electric-cyan">GY</span>
+              </div>
+              <span className="font-[family-name:var(--font-mono)] text-xs font-semibold text-electric-cyan tracking-wider">CMD</span>
+            </div>
+            {/* Spacer */}
+            <div className="flex-1" />
             <SoundToggle />
             <NotificationBell />
+            {/* Mobile hamburger */}
+            <MobileMenu />
           </div>
-          <div className="animate-page-enter">{children}</div>
+          <PullToRefresh>
+            <div className="animate-page-enter">{children}</div>
+          </PullToRefresh>
 
           {/* Quick Actions FAB (mobile only) */}
           <QuickActionsFAB />
