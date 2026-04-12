@@ -19,41 +19,48 @@ interface IntelResponse {
   generated_at: string;
 }
 
-async function fetchAhrefs(): Promise<IntelMetric> {
-  const key = process.env.AHREFS_API_KEY;
-  if (!key) return { value: null, sub: "Set AHREFS_API_KEY", connected: false };
+async function fetchSeoAuthority(): Promise<IntelMetric> {
+  const accessId = process.env.MOZ_ACCESS_ID;
+  const secretKey = process.env.MOZ_SECRET_KEY;
+  if (!accessId || !secretKey) {
+    return { value: null, sub: "Set MOZ_ACCESS_ID + MOZ_SECRET_KEY", connected: false };
+  }
   try {
-    // Matches Ahrefs v3 docs exactly:
-    //   GET /v3/site-explorer/domain-rating?date=YYYY-MM-DD&target=domain%2F
-    const today = new Date().toISOString().slice(0, 10);
-    const target = encodeURIComponent("georgeyachts.com/");
-    const url = `https://api.ahrefs.com/v3/site-explorer/domain-rating?date=${today}&target=${target}`;
-    const res = await fetch(url, {
+    const auth = Buffer.from(`${accessId}:${secretKey}`).toString("base64");
+    const res = await fetch("https://lsapi.seomoz.com/v2/url_metrics", {
+      method: "POST",
       headers: {
-        Authorization: `Bearer ${key}`,
+        Authorization: `Basic ${auth}`,
         "Content-Type": "application/json",
       },
-      next: { revalidate: 3600 },
+      body: JSON.stringify({
+        targets: ["georgeyachts.com"],
+      }),
+      next: { revalidate: 86400 }, // refresh every 24h (25 queries/month limit)
     });
     if (!res.ok) {
-      return {
-        value: "—",
-        sub: `API ${res.status}`,
-        connected: true,
-      };
+      return { value: "—", sub: `Moz ${res.status}`, connected: true };
     }
     const json = (await res.json()) as {
-      domain_rating?: { domain_rating?: number; ahrefs_rank?: number | null };
+      results?: Array<{
+        domain_authority?: number;
+        page_authority?: number;
+        spam_score?: number;
+        root_domains_to_root_domain?: number;
+      }>;
     };
-    const dr = json.domain_rating?.domain_rating;
-    const rank = json.domain_rating?.ahrefs_rank;
+    const result = json.results?.[0];
+    const da = result?.domain_authority;
+    const links = result?.root_domains_to_root_domain;
     return {
-      value: dr != null ? String(Math.round(dr * 10) / 10) : "—",
-      sub: rank != null ? `DR · rank #${rank.toLocaleString()}` : "Domain Rating",
+      value: da != null ? String(Math.round(da)) : "—",
+      sub: links != null
+        ? `DA · ${links.toLocaleString()} linking domains`
+        : "Domain Authority",
       connected: true,
     };
   } catch {
-    return { value: "—", sub: "API error", connected: true };
+    return { value: "—", sub: "Moz error", connected: true };
   }
 }
 
@@ -192,7 +199,7 @@ export async function GET() {
     fetchGA(),
     fetchGSC(),
     fetchInstagram(),
-    fetchAhrefs(),
+    fetchSeoAuthority(),
   ]);
   const payload: IntelResponse = {
     ga,
