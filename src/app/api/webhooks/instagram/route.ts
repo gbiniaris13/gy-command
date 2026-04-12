@@ -1,21 +1,28 @@
 // @ts-nocheck
 import { NextRequest } from "next/server";
 
-const VERIFY_TOKEN = process.env.IG_WEBHOOK_VERIFY_TOKEN || "gy_command_webhook_2026";
+const VERIFY_TOKEN = "gy_command_webhook_2026";
 
-// GET — Webhook verification (must return challenge as plain text)
+// GET — Webhook verification
+// Facebook sends: ?hub.mode=subscribe&hub.verify_token=XXX&hub.challenge=YYY
 export async function GET(request: NextRequest) {
-  const mode = request.nextUrl.searchParams.get("hub.mode");
-  const token = request.nextUrl.searchParams.get("hub.verify_token");
-  const challenge = request.nextUrl.searchParams.get("hub.challenge");
+  const url = new URL(request.url);
+
+  // Try both searchParams and manual parsing (Facebook encodes dots)
+  const mode = url.searchParams.get("hub.mode") ?? url.searchParams.get("hub%2Emode");
+  const token = url.searchParams.get("hub.verify_token") ?? url.searchParams.get("hub%2Everify_token");
+  const challenge = url.searchParams.get("hub.challenge") ?? url.searchParams.get("hub%2Echallenge");
+
+  console.log("[IG Webhook] Verify request:", { mode, token, challenge, fullUrl: request.url });
 
   if (mode === "subscribe" && token === VERIFY_TOKEN && challenge) {
-    return new Response(challenge, {
-      status: 200,
-      headers: { "Content-Type": "text/plain" },
-    });
+    // Facebook requires the challenge as the ENTIRE response body, plain text, 200
+    return new Response(challenge, { status: 200 });
   }
-  return new Response("Forbidden", { status: 403 });
+
+  // If token doesn't match, log what we got vs expected
+  console.log("[IG Webhook] Token mismatch:", { got: token, expected: VERIFY_TOKEN });
+  return new Response(`Forbidden - token mismatch`, { status: 403 });
 }
 
 // POST — Receive webhook events
@@ -27,13 +34,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ status: "no config" });
   }
 
-  // Dynamically import to avoid build-time issues
   const { createServiceClient } = await import("@/lib/supabase-server");
   const sb = createServiceClient();
 
   for (const entry of body.entry ?? []) {
-    // Handle new followers — send welcome DM
     for (const change of entry.changes ?? []) {
+      // New follower → welcome DM
       if (change.field === "followers" || change.value?.event === "follow") {
         const followerId = change.value?.from?.id;
         if (followerId) {
@@ -55,13 +61,13 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Handle comments — auto-reply to price/booking questions
+      // Comment auto-reply
       if (change.field === "comments") {
         const commentText = (change.value?.text ?? "").toLowerCase();
         const commentId = change.value?.id;
         if (commentId) {
           const priceWords = ["price", "cost", "how much", "rate"];
-          const bookWords = ["book", "reserve", "available", "availability"];
+          const bookWords = ["book", "reserve", "available"];
           const isPriceQ = priceWords.some((w) => commentText.includes(w));
           const isBookQ = bookWords.some((w) => commentText.includes(w));
 
