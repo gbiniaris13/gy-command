@@ -7,8 +7,9 @@ export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("hub.verify_token");
   const challenge = request.nextUrl.searchParams.get("hub.challenge");
 
-  if (mode === "subscribe" && token === process.env.IG_WEBHOOK_VERIFY_TOKEN) {
-    return new Response(challenge, { status: 200 });
+  const verifyToken = process.env.IG_WEBHOOK_VERIFY_TOKEN || "gy_command_webhook_2026";
+  if (mode === "subscribe" && token === verifyToken) {
+    return new Response(challenge, { status: 200, headers: { "Content-Type": "text/plain" } });
   }
   return new Response("Forbidden", { status: 403 });
 }
