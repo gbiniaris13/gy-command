@@ -6,6 +6,10 @@ import IntelWidget from "./IntelWidget";
 import WorldClockWidget from "./WorldClockWidget";
 import CurrencyWidget from "./CurrencyWidget";
 import PageSpeedWidget from "./PageSpeedWidget";
+import FollowUpWidget from "./FollowUpWidget";
+import SecurityWidget from "./SecurityWidget";
+import SitemapWidget from "./SitemapWidget";
+import MarineWidget from "./MarineWidget";
 import Link from "next/link";
 import type { PipelineStage, Contact } from "@/lib/types";
 
@@ -384,8 +388,18 @@ export default async function DashboardPage() {
       <WorldClockWidget />
       <CurrencyWidget />
 
+      {/* ── FOLLOW-UP OPS ───────────────────────────────────── */}
+      <FollowUpWidget />
+
       {/* ── SITE PERFORMANCE ──────────────────────────────────── */}
       <PageSpeedWidget />
+
+      {/* ── SECURITY + SITEMAP + MARINE (grid) ────────────────── */}
+      <div className="mb-6 sm:mb-8 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <SecurityWidget />
+        <SitemapWidget />
+        <MarineWidget />
+      </div>
 
       {/* ── SYSTEMS ARRAY ─────────────────────────────────────── */}
       <div className="mb-6 sm:mb-8 glass-card p-4 sm:p-6">
