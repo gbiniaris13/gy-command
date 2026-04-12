@@ -148,8 +148,25 @@ function WelcomeGate({ children }: { children: React.ReactNode }) {
 function WelcomeScreen({ onDismiss }: { onDismiss: () => void }) {
   const [step, setStep] = useState(0);
   const [counts, setCounts] = useState([0, 0, 0, 0]);
-  const targets = [7, 24, 3, 5]; // Hot Leads, Emails Sent, Meetings Today, New Replies
+  const [targets, setTargets] = useState([0, 0, 0, 0]);
   const labels = ["Hot Leads", "Emails Sent", "Meetings Today", "New Replies"];
+
+  // Fetch real stats from API
+  useEffect(() => {
+    fetch("/api/welcome-stats")
+      .then((r) => r.json())
+      .then((d) => {
+        setTargets([
+          d.hotLeads ?? 0,
+          d.emailsSent ?? 0,
+          d.meetingsToday ?? 0,
+          d.newReplies ?? 0,
+        ]);
+      })
+      .catch(() => {
+        // Keep zeros on error
+      });
+  }, []);
   const icons = [
     <svg key="hot" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" /></svg>,
     <svg key="email" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>,
@@ -171,7 +188,7 @@ function WelcomeScreen({ onDismiss }: { onDismiss: () => void }) {
     };
   }, []);
 
-  // Count-up animation
+  // Count-up animation — re-runs when targets load or step advances
   useEffect(() => {
     if (step < 3) return;
     let raf: number;
@@ -188,8 +205,7 @@ function WelcomeScreen({ onDismiss }: { onDismiss: () => void }) {
     }
     raf = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step]);
+  }, [step, targets]);
 
   const greeting = (() => {
     const h = new Date().getHours();
