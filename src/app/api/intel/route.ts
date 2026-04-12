@@ -103,6 +103,11 @@ async function fetchGA(): Promise<IntelMetric> {
       next: { revalidate: 300 },
     });
     if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      // If 403, the API might not be enabled on the OAuth project
+      if (res.status === 403 && errText.includes("has not been used")) {
+        return { value: "—", sub: "Enable Analytics Data API in Google Cloud", connected: true };
+      }
       return { value: "—", sub: `GA4 ${res.status}`, connected: true };
     }
     const json = (await res.json()) as {
@@ -121,7 +126,8 @@ async function fetchGA(): Promise<IntelMetric> {
 }
 
 async function fetchGSC(): Promise<IntelMetric> {
-  const siteUrl = process.env.GSC_SITE_URL || "sc-domain:georgeyachts.com";
+  // Try multiple site URL formats — domain property or URL prefix
+  const siteUrl = process.env.GSC_SITE_URL || "https://georgeyachts.com/";
   try {
     // Try dedicated GSC token, fallback to main OAuth token
     let token = await getGSCAccessToken();
