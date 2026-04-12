@@ -5,21 +5,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 export async function GET() {
   const sb = createServiceClient();
 
-  // Ensure table exists (create if not)
-  await sb.rpc("exec_sql", {
-    query: `CREATE TABLE IF NOT EXISTS ig_posts (
-      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-      image_url TEXT NOT NULL,
-      caption TEXT,
-      schedule_time TIMESTAMPTZ,
-      status TEXT DEFAULT 'draft' CHECK (status IN ('draft','scheduled','publishing','published','failed')),
-      ig_media_id TEXT,
-      published_at TIMESTAMPTZ,
-      error TEXT,
-      created_at TIMESTAMPTZ DEFAULT now(),
-      updated_at TIMESTAMPTZ DEFAULT now()
-    )`
-  }).catch(() => { /* table may already exist or rpc not available */ });
+  // Table ig_posts should be created via Supabase dashboard SQL editor
 
   const { data, error } = await sb
     .from("ig_posts")
