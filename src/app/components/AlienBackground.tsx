@@ -64,7 +64,9 @@ export default function AlienBackground() {
     if (!px) return;
 
     const pts: Array<{ x: number; y: number; vx: number; vy: number; r: number; ph: number; bright: boolean }> = [];
-    for (let i = 0; i < 120; i++) {
+    const isMobile = window.innerWidth < 768;
+    const particleCount = isMobile ? 40 : 120;
+    for (let i = 0; i < particleCount; i++) {
       pts.push({
         x: Math.random() * pc.width, y: Math.random() * pc.height,
         vx: (Math.random() - 0.5) * 0.5, vy: (Math.random() - 0.5) * 0.5,
@@ -124,6 +126,7 @@ export default function AlienBackground() {
       <div style={{ position: "fixed", inset: 0, zIndex: 2, pointerEvents: "none", background: "repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,255,200,.012) 1px, rgba(0,255,200,.012) 2px)", animation: "alienFlicker 10s infinite" }} />
       <div style={{ position: "fixed", left: 0, width: "100%", height: "1.5px", zIndex: 3, pointerEvents: "none", background: "linear-gradient(90deg, transparent, rgba(0,255,200,.7), transparent)", boxShadow: "0 0 30px 8px rgba(0,255,200,.1)", animation: "alienScan 5s linear infinite" }} />
       <div style={{ position: "fixed", left: 0, width: "100%", height: "1px", zIndex: 3, pointerEvents: "none", background: "linear-gradient(90deg, transparent, rgba(255,0,100,.3), transparent)", boxShadow: "0 0 20px 4px rgba(255,0,100,.05)", animation: "alienScan 7s linear infinite 2s" }} />
+      <div style={{ position: "fixed", left: 0, width: "100%", height: "1px", zIndex: 3, pointerEvents: "none", background: "linear-gradient(90deg, transparent, rgba(80,140,255,.25), transparent)", boxShadow: "0 0 20px 4px rgba(80,140,255,.05)", animation: "alienScan 11s linear infinite 4s" }} />
       {[15, 30, 50, 70, 85].map((pct) => (
         <div key={pct} style={{ position: "fixed", top: 0, left: `${pct}%`, height: "100%", width: "0.5px", zIndex: 1, pointerEvents: "none", background: "linear-gradient(180deg, transparent 10%, rgba(0,255,200,.04) 50%, transparent 90%)" }} />
       ))}

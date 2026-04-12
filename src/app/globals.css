@@ -82,6 +82,8 @@ body::before {
 
 /* ── Glass card ──────────────────────────────── */
 .glass-card {
+  position: relative;
+  overflow: hidden;
   background: rgba(0, 255, 200, 0.015);
   border: 0.5px solid rgba(0, 255, 200, 0.08);
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
@@ -419,4 +421,53 @@ hr {
 [class*="bottom"] nav, .safe-area-bottom {
   background: rgba(1,8,16,0.9) !important;
   backdrop-filter: blur(12px) !important;
+}
+
+/* ── Shimmer sweep on cards ────────────────── */
+@keyframes shimmerSweep {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.glass-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(0, 255, 200, 0.03) 45%,
+    rgba(0, 255, 200, 0.06) 50%,
+    rgba(0, 255, 200, 0.03) 55%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmerSweep 8s ease-in-out infinite;
+  pointer-events: none;
+  clip-path: inherit;
+  z-index: 1;
+}
+
+/* ── Glitch animation on all page titles ───── */
+h1 {
+  animation: alienGlitch 10s infinite;
+}
+
+/* ── Counter glow pulse ────────────────────── */
+@keyframes counterGlow {
+  0%, 100% { text-shadow: 0 0 8px rgba(0,255,200,.2); }
+  50% { text-shadow: 0 0 20px rgba(0,255,200,.5), 0 0 40px rgba(0,255,200,.15); }
+}
+
+.animate-counter-glow {
+  animation: counterGlow 3s ease-in-out infinite;
+}
+
+/* ── Mobile tap feedback ───────────────────── */
+@media (max-width: 1024px) {
+  .safe-area-bottom a:active,
+  .safe-area-bottom button:active {
+    transform: scale(0.92);
+    transition: transform 0.1s;
+  }
 }

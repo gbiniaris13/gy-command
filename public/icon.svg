@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#010810"/>
+  <rect x="20" y="20" width="472" height="472" fill="none" stroke="#00ffc8" stroke-width="2" opacity="0.2"/>
+  <text x="256" y="310" text-anchor="middle" font-family="monospace" font-size="200" font-weight="bold" fill="#00ffc8">GY</text>
+  <line x1="60" y1="380" x2="452" y2="380" stroke="#00ffc8" stroke-width="1" opacity="0.3"/>
+  <text x="256" y="420" text-anchor="middle" font-family="monospace" font-size="36" fill="#00ffc8" opacity="0.5">COMMAND</text>
+</svg>
