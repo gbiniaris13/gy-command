@@ -1,7 +1,7 @@
 "use client";
 
-// Sound effects using Web Audio API — no external files needed
-// Generates simple tones programmatically (< 1KB total)
+// Military/classified sound effects — Web Audio API
+// All sounds: low volume, short, mechanical, submarine/sonar style
 
 let audioContext: AudioContext | null = null;
 let soundEnabled = true;
@@ -28,64 +28,159 @@ export function toggleSound(): boolean {
   return soundEnabled;
 }
 
-function playTone(freq: number, duration: number, type: OscillatorType = 'sine', volume: number = 0.15) {
+// ── Radar Ping — sidebar nav hover ─────────────────────────────────────────
+export function playBlip() {
   if (!isSoundEnabled()) return;
   try {
     const ctx = getContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    gain.gain.value = volume;
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     osc.connect(gain);
     gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(2800, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.08);
+    gain.gain.setValueAtTime(0.04, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + duration);
-  } catch {
-    // silent fail if audio context not available
-  }
+    osc.stop(ctx.currentTime + 0.12);
+  } catch {}
 }
 
-export function playHotLead() {
-  playTone(880, 0.3, 'sine', 0.12);
-  setTimeout(() => playTone(1100, 0.2, 'sine', 0.08), 150);
-}
-
-export function playSwoosh() {
-  playTone(400, 0.15, 'sine', 0.08);
-  setTimeout(() => playTone(600, 0.25, 'sine', 0.05), 100);
-}
-
-export function playWhoosh() {
-  playTone(300, 0.2, 'triangle', 0.06);
-}
-
-export function playPop() {
-  playTone(700, 0.15, 'sine', 0.1);
-}
-
-export function playError() {
-  playTone(200, 0.3, 'square', 0.06);
-}
-
-export function playChime() {
-  playTone(660, 0.15, 'sine', 0.1);
-  setTimeout(() => playTone(880, 0.2, 'sine', 0.08), 100);
-}
-
-export function playBlip() {
-  playTone(1200, 0.08, 'sine', 0.06);
-}
-
+// ── System Confirm — button click ──────────────────────────────────────────
 export function playChord() {
-  playTone(523, 0.15, 'sine', 0.08);
-  setTimeout(() => playTone(659, 0.15, 'sine', 0.06), 50);
-  setTimeout(() => playTone(784, 0.2, 'sine', 0.05), 100);
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = getContext();
+    [0, 0.08].forEach(delay => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'square';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.03, ctx.currentTime + delay);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.06);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.06);
+    });
+  } catch {}
 }
 
+// ── System Boot — page load sweep ──────────────────────────────────────────
 export function playSweep() {
-  playTone(200, 0.4, 'sine', 0.04);
-  setTimeout(() => playTone(400, 0.3, 'sine', 0.03), 100);
-  setTimeout(() => playTone(800, 0.2, 'sine', 0.02), 200);
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = getContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(200, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1600, ctx.currentTime + 0.4);
+    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.6);
+    gain.gain.setValueAtTime(0.02, ctx.currentTime);
+    gain.gain.setValueAtTime(0.03, ctx.currentTime + 0.2);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.8);
+  } catch {}
 }
+
+// ── Alert Tone — notifications ─────────────────────────────────────────────
+export function playChime() {
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = getContext();
+    [0, 0.12, 0.24].forEach((delay, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'triangle';
+      osc.frequency.value = [1200, 900, 600][i];
+      gain.gain.setValueAtTime(0.04, ctx.currentTime + delay);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.1);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.1);
+    });
+  } catch {}
+}
+
+// ── Hot Lead Alert ─────────────────────────────────────────────────────────
+export function playHotLead() {
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = getContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.04, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+  } catch {}
+}
+
+// ── Swoosh — kanban drag ───────────────────────────────────────────────────
+export function playSwoosh() {
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = getContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.03, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.15);
+  } catch {}
+}
+
+// ── Error tone ─────────────────────────────────────────────────────────────
+export function playError() {
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = getContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'square';
+    osc.frequency.value = 200;
+    gain.gain.setValueAtTime(0.03, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.25);
+  } catch {}
+}
+
+// ── Pop — minor interaction ────────────────────────────────────────────────
+export function playPop() {
+  if (!isSoundEnabled()) return;
+  try {
+    const ctx = getContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = 1400;
+    gain.gain.setValueAtTime(0.03, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.06);
+  } catch {}
+}
+
+// Legacy aliases
+export const playWhoosh = playSwoosh;

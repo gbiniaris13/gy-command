@@ -23,7 +23,7 @@ export default function AlienBackground() {
     window.addEventListener("resize", resize);
 
     const chars = "ΓΥΘΩΣΔΛΞΠΦΨαβγδεζηθ01アイウエオカキクケコサシスセソ∞∑∂∆√";
-    const COL_W = 17;
+    const COL_W = 22;
     const cols = Math.floor(mc.width / COL_W);
     const drops: number[] = Array(cols).fill(0).map(() => (Math.random() * mc.height / COL_W) | 0);
 
@@ -36,17 +36,17 @@ export default function AlienBackground() {
         const head = r > 0.97;
         const bright = r > 0.85;
         if (head) {
-          mx.fillStyle = "rgba(220,255,240,1)";
-          mx.shadowColor = "rgba(0,255,200,1)";
-          mx.shadowBlur = 22;
+          mx.fillStyle = "rgba(220,255,240,0.5)";
+          mx.shadowColor = "rgba(0,255,200,0.4)";
+          mx.shadowBlur = 12;
         } else if (bright) {
-          mx.fillStyle = "rgba(0,255,200,1)";
-          mx.shadowColor = "rgba(0,255,200,.85)";
-          mx.shadowBlur = 14;
-        } else {
-          mx.fillStyle = "rgba(0,255,200,.85)";
-          mx.shadowColor = "rgba(0,255,200,.4)";
+          mx.fillStyle = "rgba(0,255,200,0.35)";
+          mx.shadowColor = "rgba(0,255,200,.2)";
           mx.shadowBlur = 6;
+        } else {
+          mx.fillStyle = "rgba(0,255,200,.15)";
+          mx.shadowColor = "rgba(0,255,200,.08)";
+          mx.shadowBlur = 2;
         }
         mx.font = `300 ${16 + ((Math.random() * 4) | 0)}px monospace`;
         mx.fillText(c, i * COL_W, drops[i] * COL_W);
@@ -102,26 +102,27 @@ export default function AlienBackground() {
     };
     drawParticles();
 
-    // Ambient hum
+    // Reactor idle — ultra-low hum every 30s
     const interval = setInterval(() => {
       try {
         const a = new AudioContext();
         const o = a.createOscillator();
         const g = a.createGain();
         o.connect(g); g.connect(a.destination);
-        o.type = "sine"; o.frequency.value = 180 + Math.random() * 80;
-        g.gain.setValueAtTime(0.006, a.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 1);
-        o.start(); o.stop(a.currentTime + 1);
+        o.type = "sine"; o.frequency.value = 60;
+        g.gain.setValueAtTime(0, a.currentTime);
+        g.gain.linearRampToValueAtTime(0.008, a.currentTime + 2);
+        g.gain.linearRampToValueAtTime(0, a.currentTime + 6);
+        o.start(); o.stop(a.currentTime + 6);
       } catch {}
-    }, 10000);
+    }, 30000);
 
     return () => { window.removeEventListener("resize", resize); clearInterval(interval); };
   }, []);
 
   return (
     <>
-      <canvas ref={matrixRef} style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", opacity: 0.9 }} />
+      <canvas ref={matrixRef} className="fixed inset-0 z-0 pointer-events-none opacity-50 lg:opacity-70" />
       <canvas ref={particleRef} style={{ position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none" }} />
       <div style={{ position: "fixed", inset: 0, zIndex: 2, pointerEvents: "none", background: "repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,255,200,.012) 1px, rgba(0,255,200,.012) 2px)", animation: "alienFlicker 10s infinite" }} />
       <div style={{ position: "fixed", left: 0, width: "100%", height: "1.5px", zIndex: 3, pointerEvents: "none", background: "linear-gradient(90deg, transparent, rgba(0,255,200,.7), transparent)", boxShadow: "0 0 30px 8px rgba(0,255,200,.1)", animation: "alienScan 5s linear infinite" }} />
