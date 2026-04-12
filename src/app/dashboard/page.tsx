@@ -6,6 +6,10 @@ import IntelWidget from "./IntelWidget";
 import WorldClockWidget from "./WorldClockWidget";
 import CurrencyWidget from "./CurrencyWidget";
 import PageSpeedWidget from "./PageSpeedWidget";
+import OutreachBotWidget from "./OutreachBotWidget";
+import PartnershipWidget from "./PartnershipWidget";
+import ClientIntelWidget from "./ClientIntelWidget";
+import ContentPipelineWidget from "./ContentPipelineWidget";
 import FollowUpWidget from "./FollowUpWidget";
 import SecurityWidget from "./SecurityWidget";
 import SitemapWidget from "./SitemapWidget";
@@ -377,6 +381,18 @@ export default async function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* ── CLIENT INTEL ─────────────────────────────────────── */}
+      <ClientIntelWidget />
+
+      {/* ── PARTNERSHIP OPS ───────────────────────────────────── */}
+      <PartnershipWidget />
+
+      {/* ── OUTREACH BOT ──────────────────────────────────────── */}
+      <OutreachBotWidget />
+
+      {/* ── CONTENT PIPELINE ──────────────────────────────────── */}
+      <ContentPipelineWidget />
 
       {/* ── ENVIRONMENTAL SCAN ──────────────────────────────────── */}
       <WeatherWidget />
