@@ -12,7 +12,7 @@ export async function GET() {
 
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v21.0/${igId}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,like_count,comments_count&limit=10&access_token=${encodeURIComponent(token)}`,
+      `https://graph.instagram.com/v21.0/me/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,like_count,comments_count&limit=10&access_token=${encodeURIComponent(token)}`,
       { next: { revalidate: 300 } }
     );
 
