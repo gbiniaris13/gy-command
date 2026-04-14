@@ -60,6 +60,7 @@ export async function PATCH(req: NextRequest) {
       "first_name", "last_name", "email", "phone", "company",
       "country", "city", "linkedin_url", "source", "contact_type",
       "pipeline_stage_id", "yachts_viewed", "time_on_site", "notes",
+      "nationality", "religion", "contract_signing_date", "after_sales_stage",
     ];
 
     for (const key of allowed) {

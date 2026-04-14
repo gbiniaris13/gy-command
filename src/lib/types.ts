@@ -56,6 +56,10 @@ export interface Contact {
   captain_phone: string | null;
   charter_notes: string | null;
   date_of_birth: string | null;
+  nationality: string | null;
+  religion: string | null;
+  contract_signing_date: string | null;
+  after_sales_stage: string | null;
   vip: boolean | null;
   post_charter_step: number;
   created_at: string;
