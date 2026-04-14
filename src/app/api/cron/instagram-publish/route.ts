@@ -24,9 +24,9 @@ export async function GET() {
       // Mark as publishing
       await sb.from("ig_posts").update({ status: "publishing" }).eq("id", post.id);
 
-      // Step 1: Create media container
+      // Step 1: Create media container (use "me" for Instagram Login tokens)
       const containerRes = await fetch(
-        `https://graph.instagram.com/v21.0/${igId}/media`,
+        `https://graph.instagram.com/v21.0/me/media`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -42,7 +42,7 @@ export async function GET() {
 
       // Step 2: Publish
       const publishRes = await fetch(
-        `https://graph.instagram.com/v21.0/${igId}/media_publish`,
+        `https://graph.instagram.com/v21.0/me/media_publish`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -53,6 +53,7 @@ export async function GET() {
         }
       );
       const publishData = await publishRes.json();
+      if (!publishData.id) throw new Error(publishData.error?.message || "Publish failed — no media ID returned");
 
       // Step 3: Update status
       await sb.from("ig_posts").update({
