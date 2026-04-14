@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import type { Contact, PipelineStage, Activity, Note, Tag, YachtViewed, CharterReminder } from "@/lib/types";
+import { CONTACT_TYPES, type ContactType } from "@/lib/types";
 import { getFlagFromCountry } from "@/lib/flags";
 
 interface Props {
@@ -93,6 +94,8 @@ export default function ContactDetailClient({
   const [savingNote, setSavingNote] = useState(false);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [stageLoading, setStageLoading] = useState(false);
+  const [contactType, setContactType] = useState(contact.contact_type ?? "OUTREACH_LEAD");
+  const [contactTypeLoading, setContactTypeLoading] = useState(false);
   const [charterEndDate, setCharterEndDate] = useState(
     contact.charter_end_date ?? ""
   );
@@ -171,6 +174,28 @@ export default function ContactDetailClient({
       setCurrentStageId(oldStageId);
     } finally {
       setStageLoading(false);
+    }
+  }
+
+  // ─── Contact type change ─────────────────────────────────────────────────
+
+  async function handleContactTypeChange(newType: string) {
+    if (newType === contactType) return;
+    setContactTypeLoading(true);
+    const oldType = contactType;
+    setContactType(newType);
+
+    try {
+      const res = await fetch("/api/crm/contacts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: contact.id, contact_type: newType }),
+      });
+      if (!res.ok) setContactType(oldType);
+    } catch {
+      setContactType(oldType);
+    } finally {
+      setContactTypeLoading(false);
     }
   }
 
@@ -589,6 +614,29 @@ export default function ContactDetailClient({
                 {stages.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Contact Type dropdown */}
+            <div className="mt-5">
+              <label className="mb-1.5 block text-[11px] font-medium tracking-wider text-muted-blue uppercase">
+                Contact Type
+              </label>
+              <select
+                value={contactType}
+                onChange={(e) => handleContactTypeChange(e.target.value)}
+                disabled={contactTypeLoading}
+                className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2.5 text-sm text-soft-white focus:border-electric-cyan/30 focus:outline-none disabled:opacity-50 min-h-[44px]"
+                style={{
+                  borderLeftColor: CONTACT_TYPES[contactType as ContactType]?.color ?? "#6b7280",
+                  borderLeftWidth: "3px",
+                }}
+              >
+                {Object.entries(CONTACT_TYPES).map(([key, val]) => (
+                  <option key={key} value={key}>
+                    {val.label}
                   </option>
                 ))}
               </select>

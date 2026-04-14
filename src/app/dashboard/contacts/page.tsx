@@ -32,12 +32,17 @@ export default async function ContactsPage() {
     new Set(contacts.map((c) => c.source).filter(Boolean))
   ).sort() as string[];
 
+  const contactTypes = Array.from(
+    new Set(contacts.map((c) => c.contact_type).filter(Boolean))
+  ).sort() as string[];
+
   return (
     <ContactsClient
       contacts={contacts}
       stages={stages}
       countries={countries}
       sources={sources}
+      contactTypes={contactTypes}
     />
   );
 }

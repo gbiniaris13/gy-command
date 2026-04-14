@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import type { Contact, PipelineStage } from "@/lib/types";
+import { CONTACT_TYPES, type ContactType } from "@/lib/types";
 import { getFlagFromCountry } from "@/lib/flags";
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
   stages: PipelineStage[];
   countries: string[];
   sources: string[];
+  contactTypes: string[];
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -42,6 +44,7 @@ export default function ContactsClient({
   stages,
   countries,
   sources,
+  contactTypes,
 }: Props) {
   const router = useRouter();
   const [contacts, setContacts] = useState(initialContacts);
@@ -49,6 +52,7 @@ export default function ContactsClient({
   const [filterStage, setFilterStage] = useState("");
   const [filterSource, setFilterSource] = useState("");
   const [filterCountry, setFilterCountry] = useState("");
+  const [filterType, setFilterType] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -61,6 +65,7 @@ export default function ContactsClient({
     company: "",
     country: "",
     source: "manual",
+    contact_type: "OUTREACH_LEAD",
     pipeline_stage_id: stages[0]?.id ?? "",
   });
 
@@ -77,10 +82,11 @@ export default function ContactsClient({
         !filterStage || c.pipeline_stage_id === filterStage;
       const matchesSource = !filterSource || c.source === filterSource;
       const matchesCountry = !filterCountry || c.country === filterCountry;
+      const matchesType = !filterType || c.contact_type === filterType;
 
-      return matchesSearch && matchesStage && matchesSource && matchesCountry;
+      return matchesSearch && matchesStage && matchesSource && matchesCountry && matchesType;
     });
-  }, [contacts, search, filterStage, filterSource, filterCountry]);
+  }, [contacts, search, filterStage, filterSource, filterCountry, filterType]);
 
   async function handleCreate() {
     setSaving(true);
@@ -106,6 +112,7 @@ export default function ContactsClient({
           company: "",
           country: "",
           source: "manual",
+          contact_type: "OUTREACH_LEAD",
           pipeline_stage_id: stages[0]?.id ?? "",
         });
       }
@@ -203,6 +210,19 @@ export default function ContactsClient({
                 </option>
               ))}
             </select>
+
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+            >
+              <option value="">All Types</option>
+              {contactTypes.map((t) => (
+                <option key={t} value={t}>
+                  {CONTACT_TYPES[t as ContactType]?.label ?? t}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
@@ -279,7 +299,7 @@ export default function ContactsClient({
         <table className="w-full">
           <thead>
             <tr className="border-b border-border-glow bg-glass-dark">
-              {["Name", "Company", "Country", "Email", "Stage", "Source", "Last Activity"].map(
+              {["Name", "Company", "Country", "Email", "Type", "Stage", "Source", "Last Activity"].map(
                 (h) => (
                   <th
                     key={h}
@@ -294,7 +314,7 @@ export default function ContactsClient({
           <tbody className="divide-y divide-border-glow">
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-5 py-12 text-center text-sm text-muted-blue">
+                <td colSpan={8} className="px-5 py-12 text-center text-sm text-muted-blue">
                   No contacts found
                 </td>
               </tr>
@@ -336,6 +356,21 @@ export default function ContactsClient({
                   </td>
                   <td className="px-5 py-4 text-sm text-muted-blue/70">
                     {contact.email ?? "\u2014"}
+                  </td>
+                  <td className="px-5 py-4">
+                    {contact.contact_type && CONTACT_TYPES[contact.contact_type as ContactType] ? (
+                      <span
+                        className="inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-medium"
+                        style={{
+                          backgroundColor: `${CONTACT_TYPES[contact.contact_type as ContactType].color}20`,
+                          color: CONTACT_TYPES[contact.contact_type as ContactType].color,
+                        }}
+                      >
+                        {CONTACT_TYPES[contact.contact_type as ContactType].label}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-blue/30">{"\u2014"}</span>
+                    )}
                   </td>
                   <td className="px-5 py-4">
                     {stage ? (
@@ -476,6 +511,19 @@ export default function ContactsClient({
                     <option value="partner">Partner</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] font-medium tracking-wider text-muted-blue uppercase">Contact Type</label>
+                <select
+                  value={form.contact_type}
+                  onChange={(e) => setForm({ ...form, contact_type: e.target.value })}
+                  className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+                >
+                  {Object.entries(CONTACT_TYPES).map(([key, val]) => (
+                    <option key={key} value={key}>{val.label}</option>
+                  ))}
+                </select>
               </div>
             </div>
 

@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
         city: body.city || null,
         linkedin_url: body.linkedin_url || null,
         source: body.source || "manual",
+        contact_type: body.contact_type || "OUTREACH_LEAD",
         pipeline_stage_id: body.pipeline_stage_id || null,
       })
       .select("*")
@@ -57,8 +58,8 @@ export async function PATCH(req: NextRequest) {
     const updates: Record<string, unknown> = {};
     const allowed = [
       "first_name", "last_name", "email", "phone", "company",
-      "country", "city", "linkedin_url", "source", "pipeline_stage_id",
-      "yachts_viewed", "time_on_site", "notes",
+      "country", "city", "linkedin_url", "source", "contact_type",
+      "pipeline_stage_id", "yachts_viewed", "time_on_site", "notes",
     ];
 
     for (const key of allowed) {

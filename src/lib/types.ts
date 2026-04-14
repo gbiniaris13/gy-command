@@ -1,3 +1,17 @@
+// ─── Contact Type Constants ─────────────────────────────────────────────────
+
+export const CONTACT_TYPES = {
+  CENTRAL_AGENT: { label: "Central Agent", color: "#f59e0b" },
+  B2B_PARTNER: { label: "B2B Partner", color: "#8b5cf6" },
+  BROKER_CLIENT: { label: "Broker Client", color: "#3b82f6" },
+  DIRECT_CLIENT: { label: "Direct Client", color: "#10b981" },
+  PRESS_MEDIA: { label: "Press / Media", color: "#ec4899" },
+  INDUSTRY: { label: "Industry", color: "#6b7280" },
+  OUTREACH_LEAD: { label: "Outreach Lead", color: "#06b6d4" },
+} as const;
+
+export type ContactType = keyof typeof CONTACT_TYPES;
+
 // ─── Database Types ─────────────────────────────────────────────────────────
 
 export interface PipelineStage {
@@ -19,6 +33,7 @@ export interface Contact {
   city: string | null;
   linkedin_url: string | null;
   source: string | null;
+  contact_type: string | null;
   pipeline_stage_id: string | null;
   yachts_viewed: YachtViewed[] | null;
   time_on_site: number | null;
