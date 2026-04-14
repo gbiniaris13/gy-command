@@ -187,8 +187,8 @@ async function fetchInstagram(): Promise<IntelMetric> {
     return { value: null, sub: "Set IG_ACCESS_TOKEN", connected: false };
   }
   try {
-    // Graph API v19 — followers_count is on the IG Business account node.
-    const url = `https://graph.facebook.com/v19.0/${igId}?fields=followers_count,media_count,username&access_token=${encodeURIComponent(
+    // Instagram API — profile info with follower count
+    const url = `https://graph.instagram.com/v21.0/me?fields=followers_count,media_count,username&access_token=${encodeURIComponent(
       token
     )}`;
     const res = await fetch(url, { next: { revalidate: 600 } });
