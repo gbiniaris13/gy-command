@@ -40,6 +40,25 @@ export async function GET() {
       const containerData = await containerRes.json();
       if (!containerData.id) throw new Error(containerData.error?.message || "Container failed");
 
+      // Step 1b: Wait for container to be ready (IG needs processing time)
+      let containerReady = false;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise((r) => setTimeout(r, 3000)); // wait 3s between checks
+        const statusRes = await fetch(
+          `https://graph.instagram.com/v21.0/${containerData.id}?fields=status_code&access_token=${encodeURIComponent(token)}`
+        );
+        const statusData = await statusRes.json();
+        if (statusData.status_code === "FINISHED") {
+          containerReady = true;
+          break;
+        }
+        if (statusData.status_code === "ERROR") {
+          throw new Error(`Container processing failed: ${statusData.status_code}`);
+        }
+        // IN_PROGRESS — keep polling
+      }
+      if (!containerReady) throw new Error("Container processing timed out after 30s");
+
       // Step 2: Publish
       const publishRes = await fetch(
         `https://graph.instagram.com/v21.0/me/media_publish`,
