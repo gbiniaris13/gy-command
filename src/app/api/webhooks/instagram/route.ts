@@ -122,14 +122,25 @@ export async function POST(request: NextRequest) {
       // as a duplicate, another webhook delivery is already handling
       // the same comment and we silently exit.
       if (change.field === "comments") {
-        // Race-safe comment auto-reply. The UNIQUE(comment_id)
-        // constraint on ig_comment_replies is the mutex: we INSERT a
-        // claim row FIRST, and if the DB rejects it with error 23505
-        // (unique violation) it means another webhook delivery is
-        // already handling this comment and we silently exit. Only
-        // the winning insert proceeds to the AI call, the Instagram
-        // reply POST, and the final UPDATE that stores the reply text
-        // + reply id.
+        // Race-safe comment auto-reply. TWO defences against dup replies:
+        //
+        // 1. Self-comment filter — when we POST a reply via
+        //    /{comment-id}/replies, Instagram fires a new comments
+        //    webhook for OUR own reply (it's technically a new comment
+        //    in the thread). Without this filter we'd classify our own
+        //    reply and post a reply to it, creating an infinite cascade
+        //    that surfaces as "2+ replies on the original comment".
+        //    ig_comment_replies.UNIQUE(comment_id) doesn't help here
+        //    because each cascaded reply has its own fresh id.
+        //    Fix: skip anything where from.id matches our page id OR
+        //    the username matches our handle.
+        //
+        // 2. UNIQUE(comment_id) mutex on ig_comment_replies — we INSERT
+        //    a claim row FIRST. If the DB rejects it with error 23505
+        //    (unique violation) another webhook delivery is already
+        //    handling this comment and we silently exit. Only the
+        //    winning insert proceeds to the AI call, the Instagram
+        //    reply POST, and the final UPDATE.
         const commentRaw = (change.value?.text ?? "").trim();
         const commentId = change.value?.id;
         const commenterId = change.value?.from?.id;
@@ -137,6 +148,14 @@ export async function POST(request: NextRequest) {
         const parentMediaId = change.value?.media?.id;
 
         if (!commentId || !commentRaw) continue;
+
+        // Defence #1 — never reply to ourselves. Matches by numeric
+        // page id (most reliable) with a handle fallback.
+        const isSelfComment =
+          (commenterId && String(commenterId) === String(igId)) ||
+          (commenterUsername &&
+            String(commenterUsername).toLowerCase() === "georgeyachts");
+        if (isSelfComment) continue;
 
         // Step A — Atomic claim. INSERT with status='claimed'. If the
         // comment_id already exists in the table (from a concurrent
