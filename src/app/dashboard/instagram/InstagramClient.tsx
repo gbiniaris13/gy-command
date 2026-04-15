@@ -144,6 +144,73 @@ function formatHour(h: number): string {
   return `${String(h).padStart(2, "0")}:00`;
 }
 
+// Find the next Tue/Wed/Thu evening (18:00 Athens) that's still in the
+// future. Athens evening 18:00–19:30 = NYC 11:00–12:30 EST = lunch break
+// for the UHNW US audience George Yachts targets — the peak slot from
+// the Best Time to Post research. Falls back to today 18:00 if it's
+// still in the future, else next valid weekday.
+//
+// Returns local-input strings the date/time pickers expect, NOT an ISO
+// timestamp — the form converts to ISO on save in Athens local time.
+function nextPeakSlot(): { date: string; time: string } {
+  const PEAK_HOUR = 18; // 18:00 Athens
+  const PEAK_DAYS = [2, 3, 4]; // Tue, Wed, Thu
+
+  // Build "today at 18:00 Athens" by formatting current date in Athens TZ
+  // then walking forward day by day.
+  const now = new Date();
+  for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+    const candidate = new Date(now.getTime() + dayOffset * 86_400_000);
+
+    // What weekday is `candidate` in Athens?
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Europe/Athens",
+      weekday: "short",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const parts = fmt.formatToParts(candidate);
+    const weekdayShort = parts.find((p) => p.type === "weekday")?.value ?? "Sun";
+    const year = parts.find((p) => p.type === "year")?.value ?? "";
+    const month = parts.find((p) => p.type === "month")?.value ?? "";
+    const day = parts.find((p) => p.type === "day")?.value ?? "";
+
+    const dayMap: Record<string, number> = {
+      Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+    };
+    const dow = dayMap[weekdayShort] ?? 0;
+    if (!PEAK_DAYS.includes(dow)) continue;
+
+    // Today is a peak day — but if the 18:00 Athens slot already passed,
+    // skip to the next peak day.
+    if (dayOffset === 0) {
+      const hourFmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Europe/Athens",
+        hour: "2-digit",
+        hour12: false,
+      });
+      const currentHour = parseInt(
+        hourFmt.formatToParts(now).find((p) => p.type === "hour")?.value ?? "0",
+        10
+      );
+      if (currentHour >= PEAK_HOUR) continue;
+    }
+
+    return {
+      date: `${year}-${month}-${day}`,
+      time: `${String(PEAK_HOUR).padStart(2, "0")}:00`,
+    };
+  }
+
+  // Should be unreachable — fall back to next Tue 18:00
+  const fallback = new Date(now.getTime() + 86_400_000);
+  return {
+    date: fallback.toISOString().slice(0, 10),
+    time: "18:00",
+  };
+}
+
 function formatCompact(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "0";
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
@@ -328,6 +395,22 @@ export default function InstagramClient() {
               />
             </div>
           </div>
+
+          {/* Peak slot helper — fills the date/time pickers with the next
+              Tue/Wed/Thu 18:00 Athens slot (US lunch break for our UHNW
+              audience). One click vs hand-picking every time. */}
+          <button
+            type="button"
+            onClick={() => {
+              const slot = nextPeakSlot();
+              setScheduleDate(slot.date);
+              setScheduleTime(slot.time);
+            }}
+            className="self-start rounded-lg border border-emerald/30 bg-emerald/10 px-3 py-2 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-emerald uppercase hover:bg-emerald/20 min-h-[36px]"
+            title="Athens 18:00–19:30 = NYC 11:00–12:30 EST = lunch break for the UHNW US audience. Picks the next Tue/Wed/Thu evening peak slot."
+          >
+            📈 USE NEXT PEAK SLOT (TUE/WED/THU 18:00 ATHENS)
+          </button>
 
           <div className="flex gap-3">
             <button
