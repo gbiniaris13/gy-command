@@ -59,6 +59,17 @@ Respond with ONLY the category name, nothing else.`;
 const FIRST_MESSAGE_WELCOME =
   "Hey! Thanks for the follow 🙏 If you're ever thinking about Greece by sea, I'm here.\n\n";
 
+// Auto-reply to story mentions. Instagram delivers story mentions as an
+// inbound message with an attachment of type "story_mention" — they come
+// through the same messages webhook as normal DMs, just with the sticker
+// payload attached. The Messaging API 24-hour window is opened by the
+// mention itself, so a reply is allowed immediately.
+const STORY_MENTION_REPLY =
+  "Thanks for the mention! 🙌 Love seeing Greece through your eyes. If you ever want to take it to the next level — yacht, crew, islands — you know where to find us. 🚢";
+
+// Rate limit for story-mention auto-replies, per user.
+const STORY_MENTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 // GET — Webhook verification
 // Facebook sends: ?hub.mode=subscribe&hub.verify_token=XXX&hub.challenge=YYY
 export async function GET(request: NextRequest) {
@@ -131,12 +142,82 @@ export async function POST(request: NextRequest) {
         const senderId = messaging?.sender?.id;
         const messageText = messaging?.message?.text;
 
-        // Skip if it's our own message (echo) or no text
-        if (!senderId || !messageText || senderId === igId) continue;
+        // Skip if it's our own message (echo)
+        if (!senderId || senderId === igId) continue;
 
         // Resolve the sender's @username once so every downstream
         // notification uses the same friendly handle.
         const handle = await resolveIgUsername(senderId, igToken);
+
+        // ── Story mention branch ─────────────────────────────────────
+        // Instagram delivers "@georgeyachts was mentioned in a Story"
+        // as an inbound message with an attachment whose type is
+        // "story_mention". We handle these before the regular DM flow
+        // so the 7-day rate limiter doesn't collide with the 24h DM
+        // rate limiter and the reply template is distinct.
+        const attachments = Array.isArray(messaging?.message?.attachments)
+          ? messaging.message.attachments
+          : [];
+        const storyMention = attachments.find(
+          (a) => a?.type === "story_mention"
+        );
+        if (storyMention) {
+          try {
+            const cutoff = new Date(Date.now() - STORY_MENTION_WINDOW_MS).toISOString();
+            const { data: recentStoryReplies } = await sb
+              .from("ig_dm_replies")
+              .select("id")
+              .eq("sender_id", senderId)
+              .eq("intent", "story_mention")
+              .gte("sent_at", cutoff)
+              .limit(1);
+
+            if (recentStoryReplies && recentStoryReplies.length > 0) {
+              // Still send the heads-up so George sees it in Telegram,
+              // just don't auto-reply again within the window.
+              await sendTelegram(
+                `🎬 <b>Story mention from ${escapeHtml(handle)}</b>\n<i>skipping auto-reply (already replied within 7 days)</i>`
+              ).catch(() => {});
+              continue;
+            }
+
+            await sendTelegram(
+              `🎬 <b>Story mention from ${escapeHtml(handle)}</b>\nAuto-replying with the thank-you template.`
+            ).catch(() => {});
+
+            await fetch(`https://graph.instagram.com/v21.0/me/messages`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                recipient: { id: senderId },
+                message: { text: STORY_MENTION_REPLY },
+                access_token: igToken,
+              }),
+            });
+
+            await sb.from("ig_dm_replies").insert({
+              sender_id: senderId,
+              message_text: messageText ?? "[story mention]",
+              intent: "story_mention",
+              reply_text: STORY_MENTION_REPLY,
+              sent_at: new Date().toISOString(),
+            }).catch(() => {});
+
+            await createNotification(sb, {
+              type: "ig_dm",
+              title: `🎬 Story mention from ${handle}`,
+              description: "Auto-replied with thank-you template.",
+              link: "/dashboard/instagram",
+            });
+          } catch (err) {
+            console.error("[IG Webhook] Story mention reply error:", err);
+          }
+          continue;
+        }
+
+        // Skip plain DMs with no text (e.g. unsupported media without
+        // a story-mention attachment we can't reply to anyway).
+        if (!messageText) continue;
 
         // IMMEDIATE Telegram alert — fires for EVERY inbound DM so George
         // sees activity in real time, even if the auto-reply rate limiter
