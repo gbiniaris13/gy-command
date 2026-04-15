@@ -16,18 +16,26 @@ interface FollowUp {
 export default function FollowUpWidget() {
   const [items, setItems] = useState<FollowUp[]>([]);
   const [collapsed, setCollapsed] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/crm/contacts")
-      .then(() => {
-        // Use the dashboard data — fetch contacts with activity gap
-        return fetch("/api/welcome-stats");
+    let cancelled = false;
+    fetch("/api/crm/followups", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.items)) {
+          setItems(data.items);
+        }
       })
-      .catch(() => {});
-
-    // Build follow-up data from the page's server data (we'll use a simpler approach)
-    // For now, use placeholder data that will be replaced when CRM data loads
-    setItems([]);
+      .catch(() => {
+        if (!cancelled) setItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -41,7 +49,13 @@ export default function FollowUpWidget() {
           FOLLOW-UP OPS
         </h2>
         <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/50">
-          {collapsed ? "EXPAND" : items.length > 0 ? `${items.length} PENDING` : "CLEAR"}
+          {collapsed
+            ? "EXPAND"
+            : loading
+              ? "LOADING…"
+              : items.length > 0
+                ? `${items.length} PENDING`
+                : "CLEAR"}
         </span>
         <svg className={`h-4 w-4 text-muted-blue transition-transform ${collapsed ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -49,7 +63,11 @@ export default function FollowUpWidget() {
       </button>
       {!collapsed && (
         <div className="mt-4">
-          {items.length === 0 ? (
+          {loading ? (
+            <p className="py-4 text-center font-[family-name:var(--font-mono)] text-xs text-muted-blue/40">
+              LOADING FOLLOW-UPS…
+            </p>
+          ) : items.length === 0 ? (
             <p className="py-4 text-center font-[family-name:var(--font-mono)] text-xs text-muted-blue/40">
               NO FOLLOW-UPS DUE — CHECK MISSION QUEUE
             </p>
