@@ -31,6 +31,8 @@ const AUTO_REPLY_SUBJECT_PATTERNS = [
   /\bon\s+(?:vacation|holiday|leave|annual\s+leave)\b/i,
   /\bcurrently\s+unavailable\b/i,
   /\bwill\s+be\s+back\b/i,
+  /\blimited\s+(?:access|connectivity)\b/i,
+  /\bdelayed\s+(?:response|reply)\b/i,
   /\bautomatisch(e)?\s+antwort\b/i, // German
   /\brisposta\s+automatica\b/i, // Italian
   /\bauto[-\s]?respuesta\b/i, // Spanish
