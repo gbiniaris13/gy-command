@@ -112,27 +112,176 @@ export async function POST(request: NextRequest) {
       // branch below instead — the first time a user DMs us, we prepend a
       // warm welcome before the AI-classified reply template.
 
-      // Comment auto-reply
+      // Comment auto-reply — Feature #4: AI contextual reply to ALL
+      // genuine comments. Gemini classifies each new comment as
+      // genuine / spam / emoji-only and, when genuine, generates a
+      // short warm reply in George Biniaris voice. Spam + emoji-only
+      // get silently ignored (never reply to bots — kills engagement
+      // ratio). Everything is rate-limited per commenter (24h) and
+      // deduped per comment id via the ig_dm_replies table we already
+      // use for DM rate limiting.
       if (change.field === "comments") {
-        const commentText = (change.value?.text ?? "").toLowerCase();
+        const commentRaw = (change.value?.text ?? "").trim();
         const commentId = change.value?.id;
-        if (commentId) {
-          const priceWords = ["price", "cost", "how much", "rate"];
-          const bookWords = ["book", "reserve", "available"];
-          const isPriceQ = priceWords.some((w) => commentText.includes(w));
-          const isBookQ = bookWords.some((w) => commentText.includes(w));
+        const commenterId = change.value?.from?.id;
+        const commenterUsername = change.value?.from?.username;
+        const parentMediaId = change.value?.media?.id;
 
-          if (isPriceQ || isBookQ) {
-            const reply = isPriceQ
-              ? "Thank you for your interest! Charter rates vary by yacht and season. Send us a DM or visit georgeyachts.com for personalized options"
-              : "We'd love to help! Send us a DM with your dates and group size, or visit georgeyachts.com";
+        if (!commentId || !commentRaw) continue;
 
-            await fetch(`https://graph.instagram.com/v21.0/${commentId}/replies`, {
+        try {
+          // Dedup — don't reply twice to the same comment id even if
+          // Instagram re-delivers the webhook
+          const { data: dupeRows } = await sb
+            .from("ig_dm_replies")
+            .select("id")
+            .eq("sender_id", `comment:${commentId}`)
+            .limit(1);
+          if (dupeRows && dupeRows.length > 0) continue;
+
+          // Per-commenter 24h rate limit — if we already replied to a
+          // comment from this user in the last 24h, stay quiet so we
+          // don't look spammy.
+          if (commenterId) {
+            const { data: recent } = await sb
+              .from("ig_dm_replies")
+              .select("id")
+              .eq("sender_id", `commenter:${commenterId}`)
+              .gte("sent_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+              .limit(1);
+            if (recent && recent.length > 0) continue;
+          }
+
+          // Fetch the parent post caption so the AI can be contextual
+          let postCaption = "";
+          if (parentMediaId) {
+            try {
+              const capRes = await fetch(
+                `https://graph.instagram.com/v21.0/${parentMediaId}?fields=caption&access_token=${encodeURIComponent(igToken)}`
+              );
+              const capJson = await capRes.json();
+              postCaption = (capJson?.caption ?? "").slice(0, 800);
+            } catch {
+              /* non-fatal */
+            }
+          }
+
+          const classifyPrompt = `Classify this Instagram comment and, if it's genuine engagement, write a reply from George Biniaris voice.
+
+POST CAPTION:
+${postCaption || "(unavailable)"}
+
+COMMENT (from @${commenterUsername ?? "unknown"}):
+"${commentRaw.slice(0, 400)}"
+
+Classification options:
+A) genuine — a real question, compliment, interest, or substantive reaction
+B) spam — promotional, bot-like, link farming, completely irrelevant
+C) emoji — only emojis / reactions with no text
+
+Rules for the reply when classification is "genuine":
+- 1-2 sentences max
+- Warm but professional, George Biniaris voice
+- NEVER just "Thanks!" / "Appreciate it!" — add a small, specific insight about Greek waters, the yacht, or the topic
+- NEVER include links or business names
+- NEVER mention pricing, bookings, or selling
+- If the comment is a compliment, thank them but add one personal note
+- If the comment is a question, give a brief genuine answer
+
+Return ONLY valid JSON:
+{"action": "reply" | "skip", "reply": "..."}`;
+
+          let aiVerdict: { action?: string; reply?: string } = {};
+          try {
+            const raw = await aiChat(
+              "You classify Instagram comments and return only JSON. No markdown.",
+              classifyPrompt
+            );
+            const m = raw.match(/\{[\s\S]*\}/);
+            if (m) aiVerdict = JSON.parse(m[0]);
+          } catch {
+            // If AI fails, fall back to the legacy keyword matcher so
+            // we never silently go dark on price/booking questions.
+          }
+
+          // Legacy keyword fallback if AI didn't produce a verdict
+          if (!aiVerdict.action) {
+            const lower = commentRaw.toLowerCase();
+            const priceWords = ["price", "cost", "how much", "rate"];
+            const bookWords = ["book", "reserve", "available"];
+            if (priceWords.some((w) => lower.includes(w))) {
+              aiVerdict = {
+                action: "reply",
+                reply:
+                  "Charter rates shift a lot with yacht, dates and length — happy to put real numbers against yours in a DM.",
+              };
+            } else if (bookWords.some((w) => lower.includes(w))) {
+              aiVerdict = {
+                action: "reply",
+                reply:
+                  "Send us your ideal week and guest count in a DM and we'll come back with a proper shortlist.",
+              };
+            }
+          }
+
+          if (aiVerdict.action !== "reply" || !aiVerdict.reply) {
+            // Log the skip so we don't reclassify this comment next delivery
+            await sb
+              .from("ig_dm_replies")
+              .insert({
+                sender_id: `comment:${commentId}`,
+                message_text: commentRaw,
+                intent: "comment_skip",
+                reply_text: "",
+                sent_at: new Date().toISOString(),
+              })
+              .catch(() => {});
+            continue;
+          }
+
+          const replyText = String(aiVerdict.reply).trim().slice(0, 500);
+
+          await fetch(
+            `https://graph.instagram.com/v21.0/${commentId}/replies`,
+            {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: reply, access_token: igToken }),
-            }).catch(() => {});
-          }
+              body: JSON.stringify({ message: replyText, access_token: igToken }),
+            }
+          ).catch(() => {});
+
+          // Two rate-limit records: one per comment id (idempotency),
+          // one per commenter id (24h cooldown). Both point at the
+          // same reply text for audit.
+          await sb
+            .from("ig_dm_replies")
+            .insert([
+              {
+                sender_id: `comment:${commentId}`,
+                message_text: commentRaw,
+                intent: "comment_reply",
+                reply_text: replyText,
+                sent_at: new Date().toISOString(),
+              },
+              ...(commenterId
+                ? [
+                    {
+                      sender_id: `commenter:${commenterId}`,
+                      message_text: commentRaw,
+                      intent: "comment_reply",
+                      reply_text: replyText,
+                      sent_at: new Date().toISOString(),
+                    },
+                  ]
+                : []),
+            ])
+            .catch(() => {});
+
+          await sendTelegram(
+            `💬 <b>Auto-replied to comment</b> from @${escapeHtml(commenterUsername ?? commenterId ?? "unknown")}\n<i>"${escapeHtml(commentRaw.slice(0, 120))}"</i>\n→ ${escapeHtml(replyText.slice(0, 150))}`
+          ).catch(() => {});
+        } catch (err) {
+          console.error("[IG Webhook] Comment auto-reply error:", err);
         }
       }
 
@@ -181,10 +330,14 @@ export async function POST(request: NextRequest) {
               continue;
             }
 
-            await sendTelegram(
-              `🎬 <b>Story mention from ${escapeHtml(handle)}</b>\nAuto-replying with the thank-you template.`
-            ).catch(() => {});
+            // Story mention payload carries the mentioned story's
+            // media URL in the attachment. Grab it so we can re-share.
+            const storyMediaUrl =
+              storyMention.payload?.url ??
+              storyMention.payload?.image_url ??
+              null;
 
+            // 1. Thank-you DM back to the sender
             await fetch(`https://graph.instagram.com/v21.0/me/messages`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -195,18 +348,112 @@ export async function POST(request: NextRequest) {
               }),
             });
 
-            await sb.from("ig_dm_replies").insert({
-              sender_id: senderId,
-              message_text: messageText ?? "[story mention]",
-              intent: "story_mention",
-              reply_text: STORY_MENTION_REPLY,
-              sent_at: new Date().toISOString(),
-            }).catch(() => {});
+            // 2. Feature #6 — auto-repost to our own Story using the
+            // Content Publishing API. Two steps: create a media
+            // container with media_type=STORIES, then publish it.
+            // Skips gracefully if the media URL isn't available or
+            // the publish fails (permissions vary per IG account).
+            let repostResult: {
+              ok: boolean;
+              media_id?: string;
+              reason?: string;
+            } = { ok: false, reason: "no media url" };
+
+            if (storyMediaUrl) {
+              try {
+                const createRes = await fetch(
+                  `https://graph.instagram.com/v21.0/me/media`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      image_url: storyMediaUrl,
+                      media_type: "STORIES",
+                      access_token: igToken,
+                    }),
+                  }
+                );
+                const createJson = await createRes.json();
+                if (createJson?.id) {
+                  // Quick status poll — story media processes fast
+                  let ready = false;
+                  for (let attempt = 0; attempt < 5; attempt++) {
+                    await new Promise((r) => setTimeout(r, 2000));
+                    const statusRes = await fetch(
+                      `https://graph.instagram.com/v21.0/${createJson.id}?fields=status_code&access_token=${encodeURIComponent(igToken)}`
+                    );
+                    const statusJson = await statusRes.json();
+                    if (statusJson?.status_code === "FINISHED") {
+                      ready = true;
+                      break;
+                    }
+                    if (statusJson?.status_code === "ERROR") break;
+                  }
+
+                  if (ready) {
+                    const publishRes = await fetch(
+                      `https://graph.instagram.com/v21.0/me/media_publish`,
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          creation_id: createJson.id,
+                          access_token: igToken,
+                        }),
+                      }
+                    );
+                    const publishJson = await publishRes.json();
+                    if (publishJson?.id) {
+                      repostResult = { ok: true, media_id: publishJson.id };
+                    } else {
+                      repostResult = {
+                        ok: false,
+                        reason:
+                          publishJson?.error?.message ?? "publish failed",
+                      };
+                    }
+                  } else {
+                    repostResult = { ok: false, reason: "container not ready" };
+                  }
+                } else {
+                  repostResult = {
+                    ok: false,
+                    reason: createJson?.error?.message ?? "container create failed",
+                  };
+                }
+              } catch (err) {
+                repostResult = {
+                  ok: false,
+                  reason: err instanceof Error ? err.message : "reshare exception",
+                };
+              }
+            }
+
+            // 3. Telegram alert — tell George what happened (DM sent,
+            // reshare success/fail)
+            await sendTelegram(
+              repostResult.ok
+                ? `🎬 <b>Story mention from ${escapeHtml(handle)}</b>\n✓ Thank-you DM sent\n✓ Reshared to our Story (media id ${repostResult.media_id})`
+                : `🎬 <b>Story mention from ${escapeHtml(handle)}</b>\n✓ Thank-you DM sent\n✗ Reshare skipped: ${escapeHtml(repostResult.reason ?? "unknown")}`
+            ).catch(() => {});
+
+            await sb
+              .from("ig_dm_replies")
+              .insert({
+                sender_id: senderId,
+                message_text: messageText ?? "[story mention]",
+                intent: "story_mention",
+                reply_text: STORY_MENTION_REPLY,
+                sent_at: new Date().toISOString(),
+              })
+              .catch(() => {});
 
             await createNotification(sb, {
               type: "ig_dm",
               title: `🎬 Story mention from ${handle}`,
-              description: "Auto-replied with thank-you template.",
+              description: repostResult.ok
+                ? "Auto-replied + reshared to our Story"
+                : `Auto-replied · reshare: ${repostResult.reason}`,
               link: "/dashboard/instagram",
             });
           } catch (err) {
