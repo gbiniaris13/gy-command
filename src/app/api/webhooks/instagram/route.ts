@@ -122,16 +122,14 @@ export async function POST(request: NextRequest) {
       // as a duplicate, another webhook delivery is already handling
       // the same comment and we silently exit.
       if (change.field === "comments") {
-        // 🚨 HARD DISABLE — the earlier Feature #4 SELECT-before-INSERT
-        // dedup loses every race against parallel webhook deliveries
-        // and Instagram's own event retries, which produced a 10+ reply
-        // spam on a single @eleanna_karvouni "Stunning 👏" comment.
-        // This branch is locked off until the race-safe
-        // ig_comment_replies UNIQUE(comment_id) mutex lands in the next
-        // commit. ANY return to auto-replying goes through that path.
-        continue;
-
-        // @ts-expect-error — unreachable until re-enabled below
+        // Race-safe comment auto-reply. The UNIQUE(comment_id)
+        // constraint on ig_comment_replies is the mutex: we INSERT a
+        // claim row FIRST, and if the DB rejects it with error 23505
+        // (unique violation) it means another webhook delivery is
+        // already handling this comment and we silently exit. Only
+        // the winning insert proceeds to the AI call, the Instagram
+        // reply POST, and the final UPDATE that stores the reply text
+        // + reply id.
         const commentRaw = (change.value?.text ?? "").trim();
         const commentId = change.value?.id;
         const commenterId = change.value?.from?.id;
@@ -140,27 +138,55 @@ export async function POST(request: NextRequest) {
 
         if (!commentId || !commentRaw) continue;
 
-        try {
-          // Dedup — don't reply twice to the same comment id even if
-          // Instagram re-delivers the webhook
-          const { data: dupeRows } = await sb
-            .from("ig_dm_replies")
-            .select("id")
-            .eq("sender_id", `comment:${commentId}`)
-            .limit(1);
-          if (dupeRows && dupeRows.length > 0) continue;
+        // Step A — Atomic claim. INSERT with status='claimed'. If the
+        // comment_id already exists in the table (from a concurrent
+        // delivery OR a prior successful reply) the INSERT fails with
+        // PostgREST code 23505 and we exit. No race possible.
+        const { error: claimError } = await sb
+          .from("ig_comment_replies")
+          .insert({
+            comment_id: commentId,
+            post_id: parentMediaId ?? null,
+            commenter_id: commenterId ?? null,
+            commenter_username: commenterUsername ?? null,
+            comment_text: commentRaw.slice(0, 1000),
+            status: "claimed",
+          });
 
+        if (claimError) {
+          // Unique violation → duplicate delivery. Silently stop.
+          // Any other error is logged but we also stop so we never
+          // accidentally reply without a claim row to audit.
+          const isDupe =
+            claimError.code === "23505" ||
+            /duplicate key|unique/i.test(claimError.message ?? "");
+          if (!isDupe) {
+            console.error("[IG Webhook] Claim insert failed:", claimError);
+          }
+          continue;
+        }
+
+        try {
           // Per-commenter 24h rate limit — if we already replied to a
           // comment from this user in the last 24h, stay quiet so we
-          // don't look spammy.
+          // don't look spammy. We checked AFTER the claim insert so
+          // the dedup is still race-safe; if this commenter is over
+          // the cap we update the claim row to `skipped` and move on.
           if (commenterId) {
             const { data: recent } = await sb
-              .from("ig_dm_replies")
+              .from("ig_comment_replies")
               .select("id")
-              .eq("sender_id", `commenter:${commenterId}`)
-              .gte("sent_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+              .eq("commenter_id", commenterId)
+              .eq("status", "posted")
+              .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
               .limit(1);
-            if (recent && recent.length > 0) continue;
+            if (recent && recent.length > 0) {
+              await sb
+                .from("ig_comment_replies")
+                .update({ status: "skipped", error: "commenter 24h cooldown" })
+                .eq("comment_id", commentId);
+              continue;
+            }
           }
 
           // Fetch the parent post caption so the AI can be contextual
@@ -236,63 +262,82 @@ Return ONLY valid JSON:
           }
 
           if (aiVerdict.action !== "reply" || !aiVerdict.reply) {
-            // Log the skip so we don't reclassify this comment next delivery
+            // Flip the claim row so we don't reclassify this comment
+            // next delivery and we have an audit trail for spam/emoji
+            // skips.
             await sb
-              .from("ig_dm_replies")
-              .insert({
-                sender_id: `comment:${commentId}`,
-                message_text: commentRaw,
-                intent: "comment_skip",
+              .from("ig_comment_replies")
+              .update({
+                status: "skipped",
                 reply_text: "",
-                sent_at: new Date().toISOString(),
+                error: "AI classified as spam/emoji/non-genuine",
               })
-              .catch(() => {});
+              .eq("comment_id", commentId);
             continue;
           }
 
           const replyText = String(aiVerdict.reply).trim().slice(0, 500);
 
-          await fetch(
-            `https://graph.instagram.com/v21.0/${commentId}/replies`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message: replyText, access_token: igToken }),
-            }
-          ).catch(() => {});
-
-          // Two rate-limit records: one per comment id (idempotency),
-          // one per commenter id (24h cooldown). Both point at the
-          // same reply text for audit.
-          await sb
-            .from("ig_dm_replies")
-            .insert([
+          // Post reply to Instagram. Capture the reply id from the
+          // response so we have a proof-of-post to store.
+          let replyApiId: string | null = null;
+          try {
+            const postRes = await fetch(
+              `https://graph.instagram.com/v21.0/${commentId}/replies`,
               {
-                sender_id: `comment:${commentId}`,
-                message_text: commentRaw,
-                intent: "comment_reply",
-                reply_text: replyText,
-                sent_at: new Date().toISOString(),
-              },
-              ...(commenterId
-                ? [
-                    {
-                      sender_id: `commenter:${commenterId}`,
-                      message_text: commentRaw,
-                      intent: "comment_reply",
-                      reply_text: replyText,
-                      sent_at: new Date().toISOString(),
-                    },
-                  ]
-                : []),
-            ])
-            .catch(() => {});
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: replyText, access_token: igToken }),
+              }
+            );
+            const postJson = await postRes.json();
+            replyApiId = postJson?.id ?? null;
+            if (!postRes.ok && !replyApiId) {
+              throw new Error(
+                postJson?.error?.message ?? `HTTP ${postRes.status}`
+              );
+            }
+          } catch (err) {
+            // Reply post failed — flip the claim row to `failed` so
+            // future deliveries don't re-attempt AND so we have a
+            // record for manual review.
+            await sb
+              .from("ig_comment_replies")
+              .update({
+                status: "failed",
+                error: err instanceof Error ? err.message : "post failed",
+              })
+              .eq("comment_id", commentId);
+            continue;
+          }
+
+          // Success — finalize the claim row with reply id + text
+          // + timestamp.
+          await sb
+            .from("ig_comment_replies")
+            .update({
+              status: "posted",
+              reply_id: replyApiId,
+              reply_text: replyText,
+              replied_at: new Date().toISOString(),
+            })
+            .eq("comment_id", commentId);
 
           await sendTelegram(
             `💬 <b>Auto-replied to comment</b> from @${escapeHtml(commenterUsername ?? commenterId ?? "unknown")}\n<i>"${escapeHtml(commentRaw.slice(0, 120))}"</i>\n→ ${escapeHtml(replyText.slice(0, 150))}`
           ).catch(() => {});
         } catch (err) {
           console.error("[IG Webhook] Comment auto-reply error:", err);
+          // Best-effort: if we crashed somewhere mid-flight after the
+          // claim insert, flip the row to `failed` so retries see it.
+          await sb
+            .from("ig_comment_replies")
+            .update({
+              status: "failed",
+              error: err instanceof Error ? err.message : String(err),
+            })
+            .eq("comment_id", commentId)
+            .catch(() => {});
         }
       }
 
