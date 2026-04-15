@@ -76,6 +76,38 @@ interface BestTimesResponse {
   timezone: string;
 }
 
+interface FollowerHistoryPoint {
+  date: string;
+  followers_count: number;
+  follows_count: number | null;
+  media_count: number | null;
+}
+
+interface FollowerDelta {
+  from: number;
+  to: number;
+  change: number;
+  pct: number | null;
+}
+
+interface FollowerHistoryResponse {
+  history: FollowerHistoryPoint[];
+  latest: FollowerHistoryPoint | null;
+  delta1d: FollowerDelta | null;
+  delta7d: FollowerDelta | null;
+  delta30d: FollowerDelta | null;
+}
+
+function formatDelta(d: FollowerDelta | null): {
+  text: string;
+  positive: boolean;
+} {
+  if (!d) return { text: "—", positive: true };
+  const sign = d.change > 0 ? "+" : "";
+  const pct = d.pct == null ? "" : ` (${d.pct >= 0 ? "+" : ""}${d.pct}%)`;
+  return { text: `${sign}${d.change}${pct}`, positive: d.change >= 0 };
+}
+
 function formatHour(h: number): string {
   return `${String(h).padStart(2, "0")}:00`;
 }
@@ -102,6 +134,8 @@ export default function InstagramClient() {
   const [feed, setFeed] = useState<IGFeedPost[]>([]);
   const [analytics, setAnalytics] = useState<IGAnalyticsPost[]>([]);
   const [bestTimes, setBestTimes] = useState<BestTimesResponse | null>(null);
+  const [followerHistory, setFollowerHistory] =
+    useState<FollowerHistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   // New post form
@@ -117,12 +151,14 @@ export default function InstagramClient() {
       fetch("/api/instagram/feed").then((r) => r.json()),
       fetch("/api/instagram/analytics").then((r) => r.json()),
       fetch("/api/instagram/best-times").then((r) => r.json()),
+      fetch("/api/instagram/follower-history").then((r) => r.json()),
     ])
-      .then(([postsData, feedData, analyticsData, bestTimesData]) => {
+      .then(([postsData, feedData, analyticsData, bestTimesData, followerData]) => {
         setPosts(postsData.posts ?? []);
         setFeed(feedData.posts ?? []);
         setAnalytics(analyticsData.posts ?? []);
         setBestTimes(bestTimesData ?? null);
+        setFollowerHistory(followerData ?? null);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -564,6 +600,183 @@ export default function InstagramClient() {
           </>
         )}
       </div>
+
+      {/* ── FOLLOWER GROWTH ───────────────────────────────────── */}
+      <div className="glass-card p-4 sm:p-6 mt-6">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-electric-cyan" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+            FOLLOWER GROWTH
+          </h2>
+          <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/50">
+            DAILY SNAPSHOT
+          </span>
+        </div>
+
+        {!followerHistory || followerHistory.history.length === 0 ? (
+          <p className="py-8 text-center font-[family-name:var(--font-mono)] text-xs text-muted-blue/40">
+            {loading
+              ? "LOADING FOLLOWER HISTORY..."
+              : "NO SNAPSHOTS YET — wait for the next 03:11 UTC cron tick or hit /api/cron/instagram-followers manually"}
+          </p>
+        ) : (
+          <>
+            {/* Headline tiles */}
+            <div className="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-lg border border-white/5 bg-glass-light/20 p-4">
+                <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-muted-blue/60">
+                  Followers
+                </p>
+                <p className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold text-soft-white">
+                  {(followerHistory.latest?.followers_count ?? 0).toLocaleString("en-US")}
+                </p>
+                <p className="text-[10px] text-muted-blue/40">
+                  {followerHistory.latest?.date ?? "—"}
+                </p>
+              </div>
+              {(["delta1d", "delta7d", "delta30d"] as const).map((key) => {
+                const d = followerHistory[key];
+                const f = formatDelta(d);
+                const label =
+                  key === "delta1d" ? "vs yesterday" : key === "delta7d" ? "vs 7d ago" : "vs 30d ago";
+                return (
+                  <div
+                    key={key}
+                    className="rounded-lg border border-white/5 bg-glass-light/20 p-4"
+                  >
+                    <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-muted-blue/60">
+                      {label}
+                    </p>
+                    <p
+                      className={`mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold ${
+                        f.positive ? "text-emerald" : "text-hot-red"
+                      }`}
+                    >
+                      {f.text}
+                    </p>
+                    <p className="text-[10px] text-muted-blue/40">
+                      {d ? `from ${d.from.toLocaleString("en-US")}` : "needs more snapshots"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Sparkline (no chart lib — inline SVG) */}
+            {followerHistory.history.length >= 2 ? (
+              <div className="rounded-lg border border-white/5 bg-glass-light/10 p-4">
+                <FollowerSparkline history={followerHistory.history} />
+              </div>
+            ) : (
+              <p className="rounded-lg border border-white/5 bg-glass-light/10 p-4 text-center text-[11px] text-muted-blue/50">
+                Need at least 2 daily snapshots to render the trend line — chart fills in automatically.
+              </p>
+            )}
+          </>
+        )}
+      </div>
     </div>
+  );
+}
+
+// ── FollowerSparkline (inline SVG so we don't pull in a chart lib) ────────
+function FollowerSparkline({ history }: { history: FollowerHistoryPoint[] }) {
+  const W = 760;
+  const H = 140;
+  const PAD_X = 30;
+  const PAD_Y = 16;
+
+  const counts = history.map((p) => p.followers_count);
+  const min = Math.min(...counts);
+  const max = Math.max(...counts);
+  const range = Math.max(max - min, 1);
+  const innerW = W - PAD_X * 2;
+  const innerH = H - PAD_Y * 2;
+
+  const points = history.map((p, i) => {
+    const x =
+      history.length === 1
+        ? PAD_X + innerW / 2
+        : PAD_X + (i / (history.length - 1)) * innerW;
+    const y = PAD_Y + innerH - ((p.followers_count - min) / range) * innerH;
+    return { x, y, count: p.followers_count, date: p.date };
+  });
+
+  const linePath = points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(" ");
+
+  const areaPath =
+    `M ${points[0].x.toFixed(1)} ${(H - PAD_Y).toFixed(1)} ` +
+    points
+      .map((p) => `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+      .join(" ") +
+    ` L ${points[points.length - 1].x.toFixed(1)} ${(H - PAD_Y).toFixed(1)} Z`;
+
+  const firstDate = history[0].date;
+  const lastDate = history[history.length - 1].date;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-32" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="follower-grad" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="rgb(0 217 255 / 0.4)" />
+          <stop offset="100%" stopColor="rgb(0 217 255 / 0)" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill="url(#follower-grad)" />
+      <path
+        d={linePath}
+        fill="none"
+        stroke="rgb(0 217 255)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {points.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r={2} fill="rgb(0 217 255)">
+          <title>{`${p.date}: ${p.count.toLocaleString("en-US")}`}</title>
+        </circle>
+      ))}
+      <text
+        x={PAD_X}
+        y={H - 2}
+        fontSize="10"
+        fill="rgba(255,255,255,0.4)"
+        fontFamily="monospace"
+      >
+        {firstDate}
+      </text>
+      <text
+        x={W - PAD_X}
+        y={H - 2}
+        textAnchor="end"
+        fontSize="10"
+        fill="rgba(255,255,255,0.4)"
+        fontFamily="monospace"
+      >
+        {lastDate}
+      </text>
+      <text
+        x={W - PAD_X}
+        y={PAD_Y - 4}
+        textAnchor="end"
+        fontSize="10"
+        fill="rgba(255,255,255,0.4)"
+        fontFamily="monospace"
+      >
+        {max.toLocaleString("en-US")}
+      </text>
+      <text
+        x={W - PAD_X}
+        y={H - PAD_Y + 12}
+        textAnchor="end"
+        fontSize="10"
+        fill="rgba(255,255,255,0.4)"
+        fontFamily="monospace"
+      >
+        {min.toLocaleString("en-US")}
+      </text>
+    </svg>
   );
 }
