@@ -40,9 +40,45 @@ const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
   failed: { bg: "bg-hot-red/20", text: "text-hot-red" },
 };
 
+interface IGAnalyticsPost {
+  media_id: string;
+  permalink: string | null;
+  caption: string | null;
+  media_type: string | null;
+  thumbnail_url: string | null;
+  media_url: string | null;
+  published_at: string | null;
+  fetched_at: string | null;
+  reach: number;
+  likes: number;
+  comments: number;
+  saves: number;
+  shares: number;
+  profile_visits: number;
+  total_interactions: number;
+}
+
+function formatCompact(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return String(n);
+}
+
+function hoursSince(iso: string | null): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const hours = Math.floor(diff / 3_600_000);
+  if (hours < 1) return "< 1h";
+  if (hours < 48) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
 export default function InstagramClient() {
   const [posts, setPosts] = useState<IGPost[]>([]);
   const [feed, setFeed] = useState<IGFeedPost[]>([]);
+  const [analytics, setAnalytics] = useState<IGAnalyticsPost[]>([]);
   const [loading, setLoading] = useState(true);
 
   // New post form
@@ -56,10 +92,12 @@ export default function InstagramClient() {
     Promise.all([
       fetch("/api/instagram/posts").then((r) => r.json()),
       fetch("/api/instagram/feed").then((r) => r.json()),
+      fetch("/api/instagram/analytics").then((r) => r.json()),
     ])
-      .then(([postsData, feedData]) => {
+      .then(([postsData, feedData, analyticsData]) => {
         setPosts(postsData.posts ?? []);
         setFeed(feedData.posts ?? []);
+        setAnalytics(analyticsData.posts ?? []);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -311,6 +349,93 @@ export default function InstagramClient() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── POST PERFORMANCE ──────────────────────────────────── */}
+      <div className="glass-card p-4 sm:p-6 mt-6">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-neon-purple" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+            POST PERFORMANCE
+          </h2>
+          <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/50">
+            LAST 7 DAYS · AUTO-SYNCED EVERY 6h
+          </span>
+        </div>
+
+        {analytics.length === 0 ? (
+          <p className="py-8 text-center font-[family-name:var(--font-mono)] text-xs text-muted-blue/40">
+            {loading
+              ? "LOADING ANALYTICS..."
+              : "NO ANALYTICS YET — wait for the next cron tick or run /api/cron/instagram-analytics manually"}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-[11px]">
+              <thead>
+                <tr className="border-b border-border-glow text-left font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-wider text-muted-blue/60">
+                  <th className="py-2 pr-3">Post</th>
+                  <th className="py-2 px-2 text-right">Age</th>
+                  <th className="py-2 px-2 text-right">Reach</th>
+                  <th className="py-2 px-2 text-right" title="Likes">❤</th>
+                  <th className="py-2 px-2 text-right" title="Comments">💬</th>
+                  <th className="py-2 px-2 text-right" title="Saves">🔖</th>
+                  <th className="py-2 px-2 text-right" title="Shares">↗</th>
+                  <th className="py-2 px-2 text-right" title="Profile visits">👤</th>
+                  <th className="py-2 pl-2 text-right" title="Total interactions">Σ</th>
+                </tr>
+              </thead>
+              <tbody className="font-[family-name:var(--font-mono)] text-muted-blue/80">
+                {analytics.map((p) => {
+                  const img = p.thumbnail_url || p.media_url;
+                  const captionShort = (p.caption ?? "").slice(0, 60);
+                  return (
+                    <tr
+                      key={p.media_id}
+                      className="border-b border-border-glow/50 hover:bg-glass-light/10"
+                    >
+                      <td className="py-2 pr-3">
+                        <a
+                          href={p.permalink ?? "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 min-w-0"
+                        >
+                          {img && (
+                            <img
+                              src={img}
+                              alt=""
+                              className="h-10 w-10 shrink-0 rounded object-cover"
+                            />
+                          )}
+                          <span className="truncate max-w-[260px] text-soft-white/90">
+                            {captionShort || "(no caption)"}
+                          </span>
+                        </a>
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        {hoursSince(p.published_at)}
+                      </td>
+                      <td className="py-2 px-2 text-right text-soft-white">
+                        {formatCompact(p.reach)}
+                      </td>
+                      <td className="py-2 px-2 text-right">{formatCompact(p.likes)}</td>
+                      <td className="py-2 px-2 text-right">{formatCompact(p.comments)}</td>
+                      <td className="py-2 px-2 text-right">{formatCompact(p.saves)}</td>
+                      <td className="py-2 px-2 text-right">{formatCompact(p.shares)}</td>
+                      <td className="py-2 px-2 text-right">
+                        {formatCompact(p.profile_visits)}
+                      </td>
+                      <td className="py-2 pl-2 text-right text-neon-purple">
+                        {formatCompact(p.total_interactions)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

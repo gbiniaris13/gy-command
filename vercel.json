@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/brand-radar",
       "schedule": "0 6 * * 0"
+    },
+    {
+      "path": "/api/cron/instagram-analytics",
+      "schedule": "17 */6 * * *"
     }
   ]
 }
