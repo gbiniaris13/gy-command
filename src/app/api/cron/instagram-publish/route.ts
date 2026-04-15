@@ -1,6 +1,73 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { aiChat } from "@/lib/ai";
+
+// Cron: publishes scheduled Instagram posts when their time arrives.
+//
+// Just before the media container is created on IG, we swap the
+// placeholder image_url (Pexels / Unsplash / anything not already
+// pointing at the ig-photos bucket) for a photo George actually
+// uploaded to the ROBERTO IG library. The Gemini matcher reads the
+// post's caption and picks the best unused photo from public.ig_photos,
+// then marks that photo as used_in_post_id = post.id so it can never
+// be used again. If the library is empty, we leave the placeholder as
+// a graceful fallback and keep publishing as before.
+
+const LIBRARY_HOST = "lquxemsonehfltdzdbhq.supabase.co/storage/v1/object/public/ig-photos";
+
+async function swapImageFromLibrary(sb, post) {
+  // Already points at the library? nothing to do.
+  if (typeof post.image_url === "string" && post.image_url.includes(LIBRARY_HOST)) {
+    return post.image_url;
+  }
+
+  const { data: photos } = await sb
+    .from("ig_photos")
+    .select("id, filename, public_url, description, tags")
+    .is("used_in_post_id", null)
+    .order("uploaded_at", { ascending: false })
+    .limit(50);
+
+  if (!photos || photos.length === 0) {
+    // Nothing in the library — keep whatever URL the post already had.
+    return post.image_url;
+  }
+
+  // Gemini match — same contract as /api/instagram/pick-local-image
+  let pickedId: string | null = null;
+  try {
+    const shortlist = photos
+      .map((p) => `- ${p.id} · ${p.description ?? p.filename} · [${(p.tags ?? []).join(", ")}]`)
+      .join("\n");
+    const raw = await aiChat(
+      "You return only a single photo id from the provided list. No extra words.",
+      `Match this Instagram caption to the best photo from the library.\n\nCAPTION:\n${(post.caption ?? "").slice(0, 1200)}\n\nPHOTOS (id · description · tags):\n${shortlist}\n\nReply with ONLY the photo id.`
+    );
+    const m = raw.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    if (m) pickedId = m[0];
+  } catch {
+    // fall through to default
+  }
+
+  const picked = pickedId
+    ? photos.find((p) => p.id === pickedId) ?? photos[0]
+    : photos[0];
+
+  // Atomic reserve: mark photo as used, persist new image_url on the post.
+  await sb
+    .from("ig_photos")
+    .update({ used_in_post_id: post.id })
+    .eq("id", picked.id)
+    .is("used_in_post_id", null);
+
+  await sb
+    .from("ig_posts")
+    .update({ image_url: picked.public_url })
+    .eq("id", post.id);
+
+  return picked.public_url;
+}
 
 // Cron: publishes scheduled Instagram posts when their time arrives
 export async function GET() {
@@ -21,6 +88,12 @@ export async function GET() {
 
   for (const post of posts ?? []) {
     try {
+      // Swap placeholder image for a ROBERTO IG library photo BEFORE we
+      // touch Instagram. Pure no-op if the post already points at the
+      // library or if the library is empty.
+      const resolvedImageUrl = await swapImageFromLibrary(sb, post);
+      post.image_url = resolvedImageUrl;
+
       // Mark as publishing
       await sb.from("ig_posts").update({ status: "publishing" }).eq("id", post.id);
 

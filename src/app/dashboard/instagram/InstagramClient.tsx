@@ -323,79 +323,10 @@ export default function InstagramClient() {
     }
   }
 
-  // Pick the best photo from the ROBERTO IG library, AI-matched
-  // against the current caption. Falls back to tag scoring then most
-  // recent unused if the match model can't pick.
-  const [pickingLocal, setPickingLocal] = useState(false);
-  async function pickLocalImage() {
-    setPickingLocal(true);
-    try {
-      const res = await fetch("/api/instagram/pick-local-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caption }),
-      });
-      const json = await res.json();
-      if (res.ok && json.image_url) {
-        setImageUrl(json.image_url);
-      } else {
-        alert(json.error || "Failed to pick ROBERTO IG photo");
-      }
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Pick failed");
-    } finally {
-      setPickingLocal(false);
-    }
-  }
-
-  // Upload a file into the ROBERTO IG Supabase Storage bucket + create
-  // the ig_photos row with an AI description so the picker can match it.
-  const [uploading, setUploading] = useState(false);
-  const [libraryCount, setLibraryCount] = useState<number | null>(null);
-
-  async function loadLibraryCount() {
-    try {
-      const res = await fetch("/api/instagram/photos/upload");
-      const json = await res.json();
-      if (res.ok && Array.isArray(json.photos)) {
-        const unused = json.photos.filter((p: any) => !p.used_in_post_id).length;
-        setLibraryCount(unused);
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  useEffect(() => {
-    loadLibraryCount();
-  }, []);
-
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    setUploading(true);
-    let uploaded = 0;
-    let failed = 0;
-    try {
-      for (const file of Array.from(files)) {
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await fetch("/api/instagram/photos/upload", {
-          method: "POST",
-          body: fd,
-        });
-        if (res.ok) uploaded++;
-        else failed++;
-      }
-      await loadLibraryCount();
-      alert(
-        `Uploaded ${uploaded} photo(s)${failed > 0 ? `, ${failed} failed` : ""}`
-      );
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
-  }
+  // Manual ROBERTO IG picker button / upload zone removed per George's
+  // explicit instruction — the auto-poster cron now pulls photos from
+  // the library automatically at publish time via the Gemini matcher in
+  // /api/cron/instagram-publish. No human clicks involved.
 
   async function handleDelete(id: string) {
     await fetch("/api/instagram/posts", {
@@ -440,58 +371,19 @@ export default function InstagramClient() {
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1 flex flex-wrap items-center justify-between gap-2 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-muted-blue uppercase">
-              <span>IMAGE URL (public)</span>
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  onClick={pickLocalImage}
-                  disabled={pickingLocal || libraryCount === 0}
-                  className="rounded border border-emerald/30 bg-emerald/10 px-2 py-1 text-[9px] font-bold tracking-wider text-emerald hover:bg-emerald/20 disabled:opacity-40"
-                  title="Pick from the ROBERTO IG library (AI-matched to caption, never duplicated)"
-                >
-                  {pickingLocal
-                    ? "PICKING…"
-                    : `📁 ROBERTO IG${libraryCount != null ? ` (${libraryCount})` : ""}`}
-                </button>
-                <button
-                  type="button"
-                  onClick={pickLuxuryImage}
-                  disabled={pickingImage}
-                  className="rounded border border-amber/30 bg-amber/10 px-2 py-1 text-[9px] font-bold tracking-wider text-amber hover:bg-amber/20 disabled:opacity-40"
-                  title="Fallback: luxury Pexels image if local library is empty"
-                >
-                  {pickingImage ? "PICKING…" : "📸 PEXELS"}
-                </button>
-              </div>
+            <label className="mb-1 block font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-muted-blue uppercase">
+              IMAGE URL (optional — leave blank to let the auto-poster pick)
             </label>
             <input
               type="url"
               value={imageUrl}
               onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="https://..."
+              placeholder="https://…  (leave empty — cron picks from ROBERTO IG library)"
               className="w-full rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-soft-white placeholder:text-muted-blue/40 focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
             />
-
-            {/* ROBERTO IG upload zone */}
-            <div className="mt-2 rounded-lg border border-dashed border-emerald/20 bg-emerald/5 px-3 py-2">
-              <label className="flex items-center justify-between gap-2 cursor-pointer">
-                <span className="font-[family-name:var(--font-mono)] text-[10px] text-emerald/80">
-                  {uploading
-                    ? "UPLOADING…"
-                    : `📁 ADD TO ROBERTO IG LIBRARY ${libraryCount != null ? `(${libraryCount} unused)` : ""}`}
-                </span>
-                <span className="text-[9px] text-muted-blue/50">click to select files (multi OK)</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  disabled={uploading}
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-              </label>
-            </div>
+            <p className="mt-1 text-[10px] text-muted-blue/40">
+              The publisher cron Gemini-matches a photo from the ROBERTO IG library against the caption just before posting. Leave the URL blank or paste any placeholder — the cron always swaps it.
+            </p>
           </div>
 
           <div>
