@@ -24,7 +24,22 @@ const PUBLISH_HOUR_UTC = 15;
 
 const SYSTEM_PROMPT = `You write Instagram captions for George Biniaris, Managing Broker of George Yachts. You return only valid JSON in the requested shape. No markdown fences, no preamble, no trailing commentary.`;
 
-const USER_PROMPT = `You are George Biniaris, Managing Broker of George Yachts, a luxury yacht charter brokerage in Greece.
+const STYLES = [
+  "story",
+  "data",
+  "personal",
+  "educational",
+  "reflective",
+  "behind_scenes",
+  "island_guide",
+  "lifestyle",
+] as const;
+
+function buildUserPrompt(preferredStyle: string | null): string {
+  const preferredLine = preferredStyle
+    ? `\n\nSTYLE BIAS (from engagement history):\nLean at least 3 of the 7 captions into the "${preferredStyle}" style — it has measured the highest median engagement rate for this account in the last 30 days.`
+    : "";
+  return `You are George Biniaris, Managing Broker of George Yachts, a luxury yacht charter brokerage in Greece.
 
 Write 7 Instagram captions for the upcoming week.
 
@@ -51,16 +66,21 @@ RULES:
 - NEVER repeat openings ("Last July...", "Most charterers skip...") — each caption must feel like a different voice moment
 - NEVER name specific clients, yacht brands unless educational
 
-OUTPUT — strict JSON only, no markdown, no preamble:
+STYLE TAG — every caption must be tagged with ONE of these exact
+values so the A/B engagement tracker can correlate style to reach:
+  story | data | personal | educational | reflective | behind_scenes | island_guide | lifestyle${preferredLine}
+
+OUTPUT — strict JSON only, no markdown, no preamble. Include "style":
 [
-  {"day": "Monday", "caption": "..."},
-  {"day": "Tuesday", "caption": "..."},
-  {"day": "Wednesday", "caption": "..."},
-  {"day": "Thursday", "caption": "..."},
-  {"day": "Friday", "caption": "..."},
-  {"day": "Saturday", "caption": "..."},
-  {"day": "Sunday", "caption": "..."}
+  {"day": "Monday", "caption": "...", "style": "story"},
+  {"day": "Tuesday", "caption": "...", "style": "educational"},
+  {"day": "Wednesday", "caption": "...", "style": "personal"},
+  {"day": "Thursday", "caption": "...", "style": "island_guide"},
+  {"day": "Friday", "caption": "...", "style": "reflective"},
+  {"day": "Saturday", "caption": "...", "style": "behind_scenes"},
+  {"day": "Sunday", "caption": "...", "style": "lifestyle"}
 ]`;
+}
 
 /**
  * Next Monday at 15:00 UTC. If today IS Monday and it's still before
@@ -125,13 +145,30 @@ export async function GET() {
     });
   }
 
+  // Read the last style-preference computed by Feature #7 so we can
+  // bias this week's prompt toward the style that engages most
+  const { data: styleRow } = await sb
+    .from("settings")
+    .select("value")
+    .eq("key", "ig_preferred_style")
+    .maybeSingle();
+  let preferredStyle: string | null = null;
+  if (styleRow?.value) {
+    try {
+      const parsed = JSON.parse(styleRow.value);
+      if (parsed?.style) preferredStyle = String(parsed.style);
+    } catch {
+      /* ignore */
+    }
+  }
+
   // Generate captions via Gemini — large token budget so the model
   // can finish all 7 × 150-300 word captions without truncation.
   // Gemini 2.5 Flash supports up to 65K output tokens; 8000 is a safe
   // cap that leaves room for system prompt + user prompt + slack.
   let raw: string;
   try {
-    raw = await aiChat(SYSTEM_PROMPT, USER_PROMPT, { maxTokens: 8000 });
+    raw = await aiChat(SYSTEM_PROMPT, buildUserPrompt(preferredStyle), { maxTokens: 8000 });
   } catch (err) {
     return NextResponse.json(
       { error: "AI call failed", detail: err instanceof Error ? err.message : String(err) },
@@ -170,26 +207,40 @@ export async function GET() {
   }
 
   // Map days in order — we trust the AI to return Mon..Sun but also
-  // accept any ordering because we pair by index.
-  const byDay = new Map<string, string>();
+  // accept any ordering because we pair by index. Keep the style tag
+  // so we can write it to ig_posts.metadata for Feature #7 tracking.
+  const byDay = new Map<string, { caption: string; style: string }>();
   for (const item of parsed) {
     if (!item?.day || !item?.caption) continue;
-    byDay.set(String(item.day).toLowerCase(), String(item.caption).trim());
+    const rawStyle = String(item.style ?? "").toLowerCase();
+    const style = (STYLES as readonly string[]).includes(rawStyle)
+      ? rawStyle
+      : "personal";
+    byDay.set(String(item.day).toLowerCase(), {
+      caption: String(item.caption).trim(),
+      style,
+    });
   }
 
   // Build rows ONLY for days that don't already have a post. Uses the
   // emptyDays array we computed during the idempotency check.
-  const rows: Array<{ schedule_time: string; caption: string; day: string }> = [];
+  const rows: Array<{
+    schedule_time: string;
+    caption: string;
+    day: string;
+    style: string;
+  }> = [];
   for (const i of emptyDays) {
     const dayName = DAYS[i];
-    const caption = byDay.get(dayName.toLowerCase());
-    if (!caption) continue;
+    const entry = byDay.get(dayName.toLowerCase());
+    if (!entry) continue;
     const scheduleTime = new Date(startMonday.getTime() + i * 86400000);
     scheduleTime.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
     rows.push({
       schedule_time: scheduleTime.toISOString(),
-      caption,
+      caption: entry.caption,
       day: dayName,
+      style: entry.style,
     });
   }
 
@@ -202,7 +253,7 @@ export async function GET() {
 
   // Insert — image_url is intentionally blank. swapImageFromLibrary()
   // in /api/cron/instagram-publish resolves it to a ROBERTO IG photo
-  // seconds before publishing.
+  // seconds before publishing. metadata.style feeds Feature #7.
   const { data: inserted, error: insertErr } = await sb
     .from("ig_posts")
     .insert(
@@ -211,6 +262,7 @@ export async function GET() {
         image_url: "", // placeholder — swap happens at publish time
         status: "scheduled",
         schedule_time: r.schedule_time,
+        metadata: { style: r.style, preferred_bias: preferredStyle },
       }))
     )
     .select("id, schedule_time");

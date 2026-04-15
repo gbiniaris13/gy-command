@@ -2,6 +2,32 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { sendTelegram } from "@/lib/telegram";
+
+// Feature #9 — Caption quality guard. Returns a rejection reason if
+// the caption isn't ship-worthy so the publish loop can block it,
+// flip the post back to draft, and alert George via Telegram. Reasons
+// are ordered from cheapest to most expensive so a short caption
+// exits fast.
+function captionQualityIssue(caption: string): string | null {
+  const clean = (caption ?? "").trim();
+  if (clean.length === 0) return "empty caption";
+  if (clean.length < 100)
+    return `caption too short (${clean.length} chars, need ≥100)`;
+  // Strip hashtag block before word-count so the quality check
+  // measures prose length, not hashtag padding
+  const prose = clean.replace(/#\w+/g, "").trim();
+  const wordCount = prose.split(/\s+/).filter((w) => w.length > 0).length;
+  if (wordCount < 25)
+    return `not enough prose (${wordCount} words after stripping hashtags)`;
+  // Must have some yacht / charter / Greece anchor word to stay on-brand
+  const anchors = /yacht|charter|greek|greece|aegean|ionian|cycl|hydra|mykonos|santorini|crew|sea|island|athens|broker/i;
+  if (!anchors.test(prose)) return "no brand anchor keyword found";
+  // Reject obvious placeholder text
+  if (/lorem ipsum|TODO|TBD|placeholder/i.test(prose))
+    return "contains placeholder text";
+  return null;
+}
 
 // Cron: publishes scheduled Instagram posts when their time arrives.
 //
@@ -148,6 +174,21 @@ export async function GET() {
 
   for (const post of posts ?? []) {
     try {
+      // Feature #9 — quality guard. Block anything that doesn't meet
+      // the brand floor. Flip back to draft + Telegram alert so George
+      // can fix it or cut it before the next tick.
+      const qualityIssue = captionQualityIssue(post.caption ?? "");
+      if (qualityIssue) {
+        await sb
+          .from("ig_posts")
+          .update({ status: "draft", error: `quality_guard: ${qualityIssue}` })
+          .eq("id", post.id);
+        await sendTelegram(
+          `⚠️ <b>IG post blocked by quality guard</b>\n<i>${qualityIssue}</i>\nFlipped back to draft — edit in /dashboard/instagram.`
+        ).catch(() => {});
+        continue;
+      }
+
       // Swap placeholder image for a ROBERTO IG library photo BEFORE we
       // touch Instagram. Pure no-op if the post already points at the
       // library or if the library is empty.
