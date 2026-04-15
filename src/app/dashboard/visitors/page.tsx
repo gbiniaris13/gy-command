@@ -59,6 +59,7 @@ export default async function VisitorsPage() {
     time_on_site: s.time_on_site ?? 0,
     is_hot_lead: s.is_hot_lead ?? false,
     lead_captured: s.lead_captured ?? false,
+    is_return_visitor: s.is_return_visitor ?? false,
     started_at: s.started_at,
     ended_at: s.ended_at,
     contact: s.contact

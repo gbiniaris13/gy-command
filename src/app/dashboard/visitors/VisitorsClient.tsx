@@ -31,6 +31,7 @@ interface VisitorSession {
   time_on_site: number;
   is_hot_lead: boolean;
   lead_captured: boolean;
+  is_return_visitor: boolean;
   started_at: string;
   ended_at: string | null;
   contact: SessionContact | null;
@@ -289,6 +290,11 @@ export default function VisitorsClient({
                         {isHotLeadSignal(session) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-[#C9A84C]/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#C9A84C]">
                             &#x1F525; HOT LEAD
+                          </span>
+                        )}
+                        {session.is_return_visitor && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-400/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-blue-300">
+                            &#x1F501; RETURN
                           </span>
                         )}
                       </div>
