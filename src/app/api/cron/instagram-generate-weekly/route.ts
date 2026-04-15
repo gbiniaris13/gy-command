@@ -112,10 +112,13 @@ export async function GET() {
     });
   }
 
-  // Generate captions via Gemini
+  // Generate captions via Gemini — large token budget so the model
+  // can finish all 7 × 150-300 word captions without truncation.
+  // Gemini 2.5 Flash supports up to 65K output tokens; 8000 is a safe
+  // cap that leaves room for system prompt + user prompt + slack.
   let raw: string;
   try {
-    raw = await aiChat(SYSTEM_PROMPT, USER_PROMPT);
+    raw = await aiChat(SYSTEM_PROMPT, USER_PROMPT, { maxTokens: 8000 });
   } catch (err) {
     return NextResponse.json(
       { error: "AI call failed", detail: err instanceof Error ? err.message : String(err) },

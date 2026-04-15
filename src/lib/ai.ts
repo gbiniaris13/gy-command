@@ -11,7 +11,8 @@ const MODEL = process.env.AI_MODEL || "gemini-2.5-flash";
 
 export async function aiChat(
   systemPrompt: string,
-  userMessage: string
+  userMessage: string,
+  options?: { maxTokens?: number; temperature?: number }
 ): Promise<string> {
   if (!process.env.AI_API_KEY) {
     throw new Error("AI_API_KEY not configured");
@@ -23,8 +24,8 @@ export async function aiChat(
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
-    temperature: 0.7,
-    max_tokens: 2000,
+    temperature: options?.temperature ?? 0.7,
+    max_tokens: options?.maxTokens ?? 2000,
   });
 
   return response.choices[0]?.message?.content || "";
