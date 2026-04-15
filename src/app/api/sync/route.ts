@@ -18,6 +18,18 @@ interface SheetRow {
 interface SyncBody {
   rows: SheetRow[];
   secret: string;
+  // Optional — if the Google Apps Script bot tracks opens/bounces it can
+  // push them here. If omitted, we compute what we can from the row
+  // statuses. Either way the snapshot is refreshed automatically on every
+  // sync so the dashboard never needs a manual update.
+  stats?: {
+    total_sent?: number;
+    opens?: number;
+    replies?: number;
+    bounces?: number;
+    leads_remaining?: number;
+    active_followups?: number;
+  };
 }
 
 // ─── Status → Stage mapping ────────────────────────────────────────────────
@@ -233,6 +245,52 @@ export async function POST(request: NextRequest) {
       await sendTelegram(msg);
     }
 
+    // 7. Auto-refresh the outreach stats snapshot from the rows this sync
+    // just ingested. The Google Apps Script bot already POSTs the full
+    // sheet on every run, so this gives the dashboard a live view with
+    // zero manual input. If the bot also sends an explicit `stats`
+    // object (for opens/bounces it tracks itself), those values win.
+    const rowStatuses = body.rows
+      .map((r) => (r.status ?? "").trim().toLowerCase())
+      .filter((s) => s.length >= 0); // keep empty strings — they mean "new"
+
+    const countWhere = (pred: (s: string) => boolean) =>
+      rowStatuses.filter(pred).length;
+
+    const rowsTotal = body.rows.length;
+    const rowsRemaining = countWhere((s) => s === "" || s === "new");
+    const rowsSent = rowsTotal - rowsRemaining;
+    const rowsReplied = countWhere((s) => s === "replied");
+    const rowsActiveFollowups = countWhere(
+      (s) => s === "followup1" || s === "followup2"
+    );
+    const rowsErrored = countWhere((s) => s === "error");
+
+    const snapshotPayload = {
+      total_sent: body.stats?.total_sent ?? rowsSent,
+      // opens isn't derivable from status — fall back to 0 until the bot
+      // starts pushing it.
+      opens: body.stats?.opens ?? 0,
+      replies: body.stats?.replies ?? rowsReplied,
+      // "error" status on the sheet is the closest proxy for a bounce.
+      bounces: body.stats?.bounces ?? rowsErrored,
+      leads_remaining: body.stats?.leads_remaining ?? rowsRemaining,
+      active_followups: body.stats?.active_followups ?? rowsActiveFollowups,
+      updated_at: new Date().toISOString(),
+      source: "bot" as const,
+    };
+
+    await supabase
+      .from("settings")
+      .upsert(
+        {
+          key: "outreach_stats",
+          value: JSON.stringify(snapshotPayload),
+          updated_at: snapshotPayload.updated_at,
+        },
+        { onConflict: "key" }
+      );
+
     return NextResponse.json({
       ok: true,
       synced,
@@ -240,6 +298,7 @@ export async function POST(request: NextRequest) {
       created,
       activities: activitiesToInsert.length,
       telegram_alerts: telegramMessages.length,
+      snapshot: snapshotPayload,
     });
   } catch (err) {
     console.error("[Sync API] Error:", err);

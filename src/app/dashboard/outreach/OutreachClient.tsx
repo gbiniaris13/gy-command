@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { getFlagFromCountry } from "@/lib/flags";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -83,38 +82,6 @@ export default function OutreachClient({
   snapshotUpdatedAt,
   snapshotSource,
 }: Props) {
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({
-    total_sent: totalSent,
-    opens,
-    replies,
-    bounces,
-    leads_remaining: leadsRemaining,
-    active_followups: activeFollowups,
-  });
-  const [saving, setSaving] = useState(false);
-
-  async function saveStats() {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/outreach-stats/manual", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (res.ok) {
-        // Refresh the server component so the new numbers flow through.
-        setEditing(false);
-        window.location.reload();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        alert(`Failed to save stats: ${data.error ?? res.statusText}`);
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
-
   const stats = [
     {
       label: "Total Sent",
@@ -162,29 +129,21 @@ export default function OutreachClient({
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
-          <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
-            <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">OPERATIONAL</span>
-          </div>
-          <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
-            OUTREACH OPERATIONS
-          </h1>
-          <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider uppercase">
-            DEPLOYMENT STATUS &mdash; {totalContacts} TARGETS INDEXED
-          </p>
-          {hasSnapshot && snapshotUpdatedAt && (
-            <p className="mt-1 font-[family-name:var(--font-mono)] text-[10px] text-ivory/40">
-              Stats snapshot updated {timeAgo(snapshotUpdatedAt)} ({snapshotSource ?? "manual"})
-            </p>
-          )}
+      <div className="mb-8">
+        <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
+          <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">OPERATIONAL</span>
         </div>
-        <button
-          onClick={() => setEditing(true)}
-          className="self-start rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-gold uppercase hover:bg-gold/20"
-        >
-          Edit Stats
-        </button>
+        <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
+          OUTREACH OPERATIONS
+        </h1>
+        <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider uppercase">
+          DEPLOYMENT STATUS &mdash; {totalContacts} TARGETS INDEXED
+        </p>
+        {hasSnapshot && snapshotUpdatedAt && (
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-[10px] text-ivory/40">
+            Auto-synced from Google Sheet · updated {timeAgo(snapshotUpdatedAt)} ({snapshotSource ?? "bot"})
+          </p>
+        )}
       </div>
 
       {/* Alerts — only fire on a real snapshot to avoid false "No more leads"
@@ -204,15 +163,13 @@ export default function OutreachClient({
       )}
       {!hasSnapshot && (
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-5 py-4">
-          <span className="text-xl">&#x1F4CA;</span>
+          <span className="text-xl">&#x23F3;</span>
           <div className="flex-1">
             <p className="font-[family-name:var(--font-montserrat)] text-sm font-semibold text-amber-300">
-              No stats snapshot yet &mdash; showing CRM-derived numbers
+              Waiting for the first sync from the Google Apps Script bot
             </p>
             <p className="mt-1 text-xs text-amber-200/60">
-              Opens / Bounces / real Leads Remaining live only in the bot's Google Sheet. Click
-              &ldquo;Edit Stats&rdquo; above to enter the current values from the sheet, or have the bot POST
-              to <code className="text-amber-200">/api/outreach-stats</code> with <code className="text-amber-200">SYNC_SECRET</code>.
+              Showing CRM-derived fallbacks. Stats will auto-populate on the next <code className="text-amber-200">/api/sync</code> call from the sheet.
             </p>
           </div>
         </div>
@@ -250,69 +207,6 @@ export default function OutreachClient({
           </div>
         ))}
       </div>
-
-      {/* Edit-stats modal */}
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md rounded-xl border border-gold/20 bg-navy-light p-6">
-            <h3 className="mb-4 font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory">
-              Update Outreach Stats
-            </h3>
-            <p className="mb-4 text-xs text-ivory/50">
-              Enter the current values from the Google Sheet. These replace the
-              CRM-derived numbers until the bot POSTs new values.
-            </p>
-            <div className="space-y-3">
-              {(
-                [
-                  ["total_sent", "Total Sent"],
-                  ["opens", "Opens"],
-                  ["replies", "Replies"],
-                  ["bounces", "Bounces"],
-                  ["leads_remaining", "Leads Remaining"],
-                  ["active_followups", "Active Follow-ups"],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className="block">
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-ivory/50">
-                    {label}
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form[key]}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        [key]: Number(e.target.value) || 0,
-                      }))
-                    }
-                    className="mt-1 w-full rounded border border-white/10 bg-navy/60 px-3 py-2 text-sm text-ivory focus:border-gold/40 focus:outline-none"
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                disabled={saving}
-                className="rounded-lg border border-white/10 px-4 py-2 text-xs font-medium text-ivory/60 hover:bg-white/5"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={saveStats}
-                disabled={saving}
-                className="rounded-lg bg-gold px-4 py-2 text-xs font-bold text-navy hover:bg-gold/90 disabled:opacity-50"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Pipeline Breakdown */}
       <div className="mb-8 rounded-xl border border-white/5 bg-navy-light p-6">
