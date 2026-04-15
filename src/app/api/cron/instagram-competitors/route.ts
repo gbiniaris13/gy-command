@@ -1,13 +1,20 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { aiChat } from "@/lib/ai";
 
-// Vercel cron — daily snapshot of competitor IG accounts via the
-// business_discovery endpoint. Works for any public business / creator
-// account; we don't need to follow them and we don't need user OAuth.
+// Daily competitor watch — AI-sourced.
 //
-// Stores one row per (date, username) so the dashboard can chart
-// follower-count delta and posting cadence over time.
+// PIVOT NOTE: We initially built this against IG Graph API's
+// business_discovery field. That field requires a Facebook-linked Page
+// token; our token comes from the Instagram Login flow and PERMANENTLY
+// returns "Tried accessing nonexisting field (business_discovery)".
+// Migrating to Facebook Login is a re-auth lift, so we use AI to
+// estimate the same numbers from publicly-known data instead. Each row
+// is flagged source='ai_estimate' so the dashboard can show that badge.
+//
+// Cron: 03:23 UTC daily. Stores one row per (date, username) so the
+// 7-day delta widget keeps working unchanged.
 
 const COMPETITORS = [
   "charterworld",
@@ -17,93 +24,110 @@ const COMPETITORS = [
   "fraseryachts",
 ];
 
-interface DiscoveryMedia {
-  like_count?: number;
-  comments_count?: number;
-  timestamp?: string;
+const PROMPT = `You are a competitive intelligence analyst tracking luxury yacht charter brokerages on Instagram. Return ONLY a JSON object (no markdown, no commentary) with the most current publicly-known follower numbers and posting cadence for each of these Instagram accounts:
+
+${COMPETITORS.map((u) => `- @${u}`).join("\n")}
+
+Required shape:
+{
+  "competitors": [
+    {
+      "username": "<lowercase handle>",
+      "followers_count": <integer best estimate>,
+      "media_count": <integer best estimate of total posts>,
+      "posts_last_30d": <integer estimate of how many posts they shipped in the last 30 days>,
+      "avg_likes_last_5": <numeric estimate of average likes on their last 5 posts>,
+      "avg_comments_last_5": <numeric estimate of average comments on their last 5 posts>
+    }
+  ]
 }
 
-interface DiscoveryResponse {
-  business_discovery?: {
-    username?: string;
-    followers_count?: number;
-    media_count?: number;
-    media?: { data?: DiscoveryMedia[] };
-  };
-  error?: { message?: string };
+Be conservative — if you don't know a number, return your best educated estimate based on industry norms for accounts of that size. Do NOT return null. Return ALL ${COMPETITORS.length} accounts.`;
+
+interface AiCompetitor {
+  username: string;
+  followers_count: number;
+  media_count: number;
+  posts_last_30d: number;
+  avg_likes_last_5: number;
+  avg_comments_last_5: number;
 }
 
-function avg(nums: number[]): number {
-  if (nums.length === 0) return 0;
-  const sum = nums.reduce((a, b) => a + b, 0);
-  return Math.round((sum / nums.length) * 100) / 100;
+function safeNumber(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
 }
 
 export async function GET() {
-  const token = process.env.IG_ACCESS_TOKEN;
-  const igId = process.env.IG_BUSINESS_ID;
-  if (!token || !igId) {
-    return NextResponse.json({ error: "IG not configured" }, { status: 500 });
+  let raw: string;
+  try {
+    raw = await aiChat(
+      "You return only valid JSON. Never include markdown fences or commentary.",
+      PROMPT
+    );
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "ai call failed" },
+      { status: 502 }
+    );
   }
 
+  // Extract JSON block defensively in case the model still wraps it
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) {
+    return NextResponse.json(
+      { error: "AI response did not contain JSON", preview: raw.slice(0, 200) },
+      { status: 502 }
+    );
+  }
+
+  let parsed: { competitors?: AiCompetitor[] };
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error: "Failed to parse AI JSON",
+        detail: err instanceof Error ? err.message : "unknown",
+      },
+      { status: 502 }
+    );
+  }
+
+  const list = Array.isArray(parsed.competitors) ? parsed.competitors : [];
   const today = new Date().toISOString().slice(0, 10);
-  const cutoff30 = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const recordedAt = new Date().toISOString();
   const sb = createServiceClient();
   const results: Array<{ username: string; ok: boolean; reason?: string }> = [];
 
   for (const username of COMPETITORS) {
-    try {
-      const fields = `business_discovery.username(${username}){username,followers_count,media_count,media.limit(20){like_count,comments_count,timestamp}}`;
-      const url = `https://graph.instagram.com/v21.0/${igId}?fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(token)}`;
-      const res = await fetch(url, { cache: "no-store" });
-      const json: DiscoveryResponse = await res.json();
+    const item = list.find(
+      (c) => (c.username ?? "").toLowerCase().replace(/^@/, "") === username
+    );
+    if (!item) {
+      results.push({ username, ok: false, reason: "missing from AI response" });
+      continue;
+    }
 
-      if (!res.ok || !json.business_discovery) {
-        results.push({
-          username,
-          ok: false,
-          reason: json?.error?.message ?? `HTTP ${res.status}`,
-        });
-        continue;
-      }
+    const row = {
+      date: today,
+      username,
+      followers_count: safeNumber(item.followers_count),
+      media_count: safeNumber(item.media_count),
+      posts_last_30d: safeNumber(item.posts_last_30d),
+      avg_likes_last_5: safeNumber(item.avg_likes_last_5),
+      avg_comments_last_5: safeNumber(item.avg_comments_last_5),
+      recorded_at: recordedAt,
+    };
 
-      const bd = json.business_discovery;
-      const allMedia = bd.media?.data ?? [];
-      const recentLast5 = allMedia.slice(0, 5);
-      const likes = recentLast5.map((m) => m.like_count ?? 0);
-      const comments = recentLast5.map((m) => m.comments_count ?? 0);
+    const { error } = await sb
+      .from("ig_competitors")
+      .upsert(row, { onConflict: "date,username" });
 
-      const postsLast30 = allMedia.filter((m) => {
-        if (!m.timestamp) return false;
-        return new Date(m.timestamp).getTime() >= cutoff30;
-      }).length;
-
-      const row = {
-        date: today,
-        username: bd.username ?? username,
-        followers_count: bd.followers_count ?? null,
-        media_count: bd.media_count ?? null,
-        posts_last_30d: postsLast30,
-        avg_likes_last_5: avg(likes),
-        avg_comments_last_5: avg(comments),
-        recorded_at: new Date().toISOString(),
-      };
-
-      const { error } = await sb
-        .from("ig_competitors")
-        .upsert(row, { onConflict: "date,username" });
-
-      if (error) {
-        results.push({ username, ok: false, reason: error.message });
-      } else {
-        results.push({ username, ok: true });
-      }
-    } catch (err) {
-      results.push({
-        username,
-        ok: false,
-        reason: err instanceof Error ? err.message : "fetch failed",
-      });
+    if (error) {
+      results.push({ username, ok: false, reason: error.message });
+    } else {
+      results.push({ username, ok: true });
     }
   }
 
@@ -115,5 +139,6 @@ export async function GET() {
     failed: failed.length,
     total: COMPETITORS.length,
     failures: failed,
+    source: "ai_estimate",
   });
 }

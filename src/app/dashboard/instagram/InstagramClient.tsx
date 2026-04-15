@@ -774,9 +774,15 @@ export default function InstagramClient() {
           <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
             COMPETITOR WATCH
           </h2>
-          <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/50">
-            DAILY VIA IG BUSINESS DISCOVERY
+          <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-amber/70">
+            AI-ESTIMATED · DAILY
           </span>
+        </div>
+
+        <div className="mb-4 rounded-lg border border-amber/20 bg-amber/5 p-3 text-[10px] text-amber/80 leading-relaxed">
+          ⚠ IG Graph API&apos;s <code>business_discovery</code> field requires a Facebook-linked Page token.
+          Our token comes from Instagram Login, so we use AI estimates instead. Numbers are directional, not API-exact —
+          treat them as benchmarks, not absolutes.
         </div>
 
         {!competitors || competitors.competitors.length === 0 ? (
