@@ -52,6 +52,13 @@ Classify the user's message into ONE of these categories:
 
 Respond with ONLY the category name, nothing else.`;
 
+// Warm welcome prefix prepended to the very first DM reply a sender ever
+// receives from us. Mirrors the short line George wanted for new followers
+// — Instagram's messaging policy forces us to deliver it on first inbound
+// message instead of on follow.
+const FIRST_MESSAGE_WELCOME =
+  "Hey! Thanks for the follow 🙏 If you're ever thinking about Greece by sea, I'm here.\n\n";
+
 // GET — Webhook verification
 // Facebook sends: ?hub.mode=subscribe&hub.verify_token=XXX&hub.challenge=YYY
 export async function GET(request: NextRequest) {
@@ -88,27 +95,11 @@ export async function POST(request: NextRequest) {
 
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
-      // New follower → welcome DM
-      if (change.field === "followers" || change.value?.event === "follow") {
-        const followerId = change.value?.from?.id;
-        if (followerId) {
-          const message = `Thank you for following George Yachts! We curate luxury crewed yacht charters across the Greek Islands. Planning a trip to Greece? Just send us a message anytime! Fair winds, George`;
-          await fetch(`https://graph.instagram.com/v21.0/${igId}/messages`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              recipient: { id: followerId },
-              message: { text: message },
-              access_token: igToken,
-            }),
-          }).catch(() => {});
-
-          await sb.from("ig_welcome_dms").insert({
-            recipient_id: followerId,
-            sent_at: new Date().toISOString(),
-          }).catch(() => {});
-        }
-      }
+      // NOTE: Instagram Graph API does not emit a `followers` webhook and
+      // the Messaging API refuses cold DMs to users who have not opened a
+      // conversation with the page. The welcome flow lives on the `messages`
+      // branch below instead — the first time a user DMs us, we prepend a
+      // warm welcome before the AI-classified reply template.
 
       // Comment auto-reply
       if (change.field === "comments") {
@@ -157,15 +148,25 @@ export async function POST(request: NextRequest) {
         ).catch(() => {});
 
         try {
-          // Rate limit: max 1 auto-reply per user per 24 hours
-          const { data: recent } = await sb
+          // Look up the sender's entire history with us in one query so we
+          // can answer two questions cheaply:
+          //   1. Did we already auto-reply in the last 24h? (rate limit)
+          //   2. Have we EVER replied to this sender? (first-message welcome)
+          const { data: history } = await sb
             .from("ig_dm_replies")
-            .select("id")
+            .select("id, sent_at")
             .eq("sender_id", senderId)
-            .gte("sent_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-            .limit(1);
+            .order("sent_at", { ascending: false })
+            .limit(5);
 
-          if (recent && recent.length > 0) continue; // Already replied in last 24h
+          const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+          const repliedInLast24h = (history ?? []).some(
+            (r) => new Date(r.sent_at).getTime() >= dayAgo
+          );
+          if (repliedInLast24h) continue; // Already replied in last 24h
+
+          // First-ever contact if no history row exists at all.
+          const isFirstMessage = !history || history.length === 0;
 
           // Classify intent via AI
           let intent = "general";
@@ -177,7 +178,10 @@ export async function POST(request: NextRequest) {
             intent = "general"; // Fallback if AI fails
           }
 
-          const reply = DM_TEMPLATES[intent] || DM_TEMPLATES.general;
+          const baseReply = DM_TEMPLATES[intent] || DM_TEMPLATES.general;
+          const reply = isFirstMessage
+            ? FIRST_MESSAGE_WELCOME + baseReply
+            : baseReply;
 
           // Send reply via Instagram Send API
           await fetch(`https://graph.instagram.com/v21.0/me/messages`, {
@@ -200,9 +204,12 @@ export async function POST(request: NextRequest) {
           }).catch(() => {});
 
           // Second Telegram alert — confirms the auto-reply actually fired,
-          // so George can take over manually whenever he wants.
+          // so George can take over manually whenever he wants. Flag first-
+          // time contacts explicitly so George knows a welcome just went out.
           await sendTelegram(
-            `🤖 <b>Auto-replied to ${escapeHtml(handle)}</b>\n<i>intent:</i> ${escapeHtml(intent)}`
+            isFirstMessage
+              ? `🤖 <b>Welcomed + auto-replied to ${escapeHtml(handle)}</b>\n<i>first contact · intent:</i> ${escapeHtml(intent)}`
+              : `🤖 <b>Auto-replied to ${escapeHtml(handle)}</b>\n<i>intent:</i> ${escapeHtml(intent)}`
           ).catch(() => {});
 
           // Dashboard notification so George sees the DM in the bell
