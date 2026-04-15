@@ -2,6 +2,34 @@
 import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
 import { createNotification } from "@/lib/notifications";
+import { sendTelegram } from "@/lib/telegram";
+
+// Best-effort lookup for a sender's @username. Instagram webhook payloads
+// only contain the numeric user id, so we resolve the handle via a Graph
+// API call before we build the Telegram message. Failures fall back to the
+// raw id so notifications keep firing.
+async function resolveIgUsername(
+  userId: string,
+  accessToken: string
+): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://graph.instagram.com/v21.0/${userId}?fields=username&access_token=${accessToken}`
+    );
+    if (!res.ok) return userId;
+    const json = await res.json();
+    return json?.username ? `@${json.username}` : userId;
+  } catch {
+    return userId;
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 const VERIFY_TOKEN = "gy_command_webhook_2026";
 
@@ -115,6 +143,19 @@ export async function POST(request: NextRequest) {
         // Skip if it's our own message (echo) or no text
         if (!senderId || !messageText || senderId === igId) continue;
 
+        // Resolve the sender's @username once so every downstream
+        // notification uses the same friendly handle.
+        const handle = await resolveIgUsername(senderId, igToken);
+
+        // IMMEDIATE Telegram alert — fires for EVERY inbound DM so George
+        // sees activity in real time, even if the auto-reply rate limiter
+        // later decides to stay quiet.
+        const preview =
+          messageText.length > 200 ? messageText.slice(0, 200) + "…" : messageText;
+        await sendTelegram(
+          `🟢 <b>IG DM from ${escapeHtml(handle)}</b>\n${escapeHtml(preview)}`
+        ).catch(() => {});
+
         try {
           // Rate limit: max 1 auto-reply per user per 24 hours
           const { data: recent } = await sb
@@ -158,10 +199,16 @@ export async function POST(request: NextRequest) {
             sent_at: new Date().toISOString(),
           }).catch(() => {});
 
+          // Second Telegram alert — confirms the auto-reply actually fired,
+          // so George can take over manually whenever he wants.
+          await sendTelegram(
+            `🤖 <b>Auto-replied to ${escapeHtml(handle)}</b>\n<i>intent:</i> ${escapeHtml(intent)}`
+          ).catch(() => {});
+
           // Dashboard notification so George sees the DM in the bell
           await createNotification(sb, {
             type: "ig_dm",
-            title: `📩 New Instagram DM (${intent.replace("_", " ")})`,
+            title: `📩 New Instagram DM from ${handle} (${intent.replace("_", " ")})`,
             description:
               messageText.length > 140
                 ? messageText.slice(0, 140) + "…"
