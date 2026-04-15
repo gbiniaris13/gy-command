@@ -25,3 +25,4 @@ CREATE INDEX IF NOT EXISTS idx_automated_messages_type_date ON automated_message
 
 ALTER TABLE automated_messages ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all" ON automated_messages FOR ALL USING (true) WITH CHECK (true);
+// MOZ API configured 2026-04-15
