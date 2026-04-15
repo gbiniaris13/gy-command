@@ -87,13 +87,16 @@ export async function GET() {
   const endSunday = new Date(startMonday.getTime() + 6 * 86400000);
   endSunday.setUTCHours(PUBLISH_HOUR_UTC, 59, 59, 999);
 
-  // Idempotency — if we already scheduled posts in this window, bail.
+  // Per-day idempotency: look up which days of the upcoming week
+  // already have scheduled posts so we only generate captions for the
+  // empty slots. This keeps hand-curated batches intact and never
+  // produces duplicate same-day publishes.
   const { data: existing, error: selectErr } = await sb
     .from("ig_posts")
-    .select("id, schedule_time")
+    .select("id, schedule_time, status")
     .gte("schedule_time", startMonday.toISOString())
     .lte("schedule_time", endSunday.toISOString())
-    .eq("status", "scheduled");
+    .in("status", ["scheduled", "publishing", "published"]);
 
   if (selectErr) {
     return NextResponse.json(
@@ -102,13 +105,23 @@ export async function GET() {
     );
   }
 
-  if ((existing ?? []).length >= 7) {
+  const takenDayKeys = new Set(
+    (existing ?? []).map((p) => p.schedule_time.slice(0, 10))
+  );
+  const emptyDays: number[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startMonday.getTime() + i * 86400000);
+    const key = d.toISOString().slice(0, 10);
+    if (!takenDayKeys.has(key)) emptyDays.push(i);
+  }
+
+  if (emptyDays.length === 0) {
     return NextResponse.json({
       ok: true,
       skipped: true,
-      reason: "week already filled",
-      existing_count: existing!.length,
+      reason: "every day of the upcoming week already has a post",
       window: { start: startMonday.toISOString(), end: endSunday.toISOString() },
+      taken_days: Array.from(takenDayKeys),
     });
   }
 
@@ -164,9 +177,10 @@ export async function GET() {
     byDay.set(String(item.day).toLowerCase(), String(item.caption).trim());
   }
 
-  // Build rows in Mon..Sun order using the upcoming week's dates.
+  // Build rows ONLY for days that don't already have a post. Uses the
+  // emptyDays array we computed during the idempotency check.
   const rows: Array<{ schedule_time: string; caption: string; day: string }> = [];
-  for (let i = 0; i < 7; i++) {
+  for (const i of emptyDays) {
     const dayName = DAYS[i];
     const caption = byDay.get(dayName.toLowerCase());
     if (!caption) continue;
