@@ -302,6 +302,27 @@ export default function InstagramClient() {
     }
   }
 
+  // Pick a luxury Pexels image via the locked allow-list endpoint. Auto-
+  // dedupes against already-posted images, enforces 1080+ resolution,
+  // and rejects portrait shots so feed posts always look square/landscape.
+  const [pickingImage, setPickingImage] = useState(false);
+  async function pickLuxuryImage() {
+    setPickingImage(true);
+    try {
+      const res = await fetch("/api/instagram/pick-image");
+      const json = await res.json();
+      if (res.ok && json.image_url) {
+        setImageUrl(json.image_url);
+      } else {
+        alert(json.error || "Failed to pick image");
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Pick failed");
+    } finally {
+      setPickingImage(false);
+    }
+  }
+
   async function handleDelete(id: string) {
     await fetch("/api/instagram/posts", {
       method: "DELETE",
@@ -345,8 +366,17 @@ export default function InstagramClient() {
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-muted-blue uppercase">
+            <label className="mb-1 flex items-center justify-between font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-muted-blue uppercase">
               IMAGE URL (public)
+              <button
+                type="button"
+                onClick={pickLuxuryImage}
+                disabled={pickingImage}
+                className="rounded border border-amber/30 bg-amber/10 px-2 py-1 text-[9px] font-bold tracking-wider text-amber hover:bg-amber/20 disabled:opacity-40"
+                title="Pulls a fresh luxury Pexels image (locked queries, 1080+ resolution, deduped against ig_posts)"
+              >
+                {pickingImage ? "PICKING…" : "📸 PICK LUXURY IMAGE"}
+              </button>
             </label>
             <input
               type="url"
