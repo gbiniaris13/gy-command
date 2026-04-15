@@ -7,7 +7,7 @@ export async function GET() {
     client_id: clientId,
     redirect_uri: "https://command.georgeyachts.com/api/auth/gmail/callback",
     response_type: "code",
-    scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/webmasters.readonly",
+    scope: "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/analytics.readonly",
     access_type: "offline",
     prompt: "consent",
   });
