@@ -58,7 +58,17 @@ interface IGAnalyticsPost {
   total_interactions: number;
 }
 
-interface BestTimeSlot {
+interface RecommendedWindow {
+  day: number;
+  day_name: string;
+  hour_start: number;
+  hour_end: number;
+  score: number;
+  label: string;
+  note: string;
+}
+
+interface InHouseSlot {
   day: number;
   day_name: string;
   hour: number;
@@ -67,13 +77,17 @@ interface BestTimeSlot {
 }
 
 interface BestTimesResponse {
-  slots: BestTimeSlot[];
-  bestDay: { day_name: string; avg_engagement_rate: number; posts: number } | null;
-  bestHour: { hour: number; avg_engagement_rate: number; posts: number } | null;
-  sampleSize: number;
-  minPosts: number;
-  notReadyYet: boolean;
   timezone: string;
+  peakSlot: RecommendedWindow;
+  recommended: RecommendedWindow[];
+  reelsNote: string;
+  algorithmTips: string[];
+  inHouse: {
+    enabled: boolean;
+    sampleSize: number;
+    minPosts: number;
+    slots: InHouseSlot[];
+  };
 }
 
 interface FollowerHistoryPoint {
@@ -506,97 +520,144 @@ export default function InstagramClient() {
         <div className="mb-4 flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-amber" />
           <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
-            BEST TIME TO POST
+            RECOMMENDED POSTING WINDOWS
           </h2>
           <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/50">
-            FROM YOUR ENGAGEMENT HISTORY
+            INDUSTRY 2026 + UHNW US OVERLAY
           </span>
         </div>
 
         {!bestTimes ? (
           <p className="py-8 text-center font-[family-name:var(--font-mono)] text-xs text-muted-blue/40">
-            {loading ? "ANALYSING POST HISTORY..." : "NO DATA YET"}
+            {loading ? "LOADING RECOMMENDATIONS..." : "NO DATA"}
           </p>
-        ) : bestTimes.notReadyYet ? (
-          <div className="rounded-lg border border-amber/20 bg-amber/5 p-4">
-            <p className="font-[family-name:var(--font-mono)] text-xs font-bold text-amber/80 uppercase tracking-wider">
-              Need more posts to recommend reliably
-            </p>
-            <p className="mt-1 text-[11px] text-muted-blue/70">
-              Got <span className="text-soft-white">{bestTimes.sampleSize}</span> tracked posts so far &middot; need at least{" "}
-              <span className="text-soft-white">{bestTimes.minPosts}</span> for a useful recommendation. The cron pulls insights every 6h, so this fills in automatically as you keep posting.
-            </p>
-          </div>
         ) : (
           <>
-            {/* Headline picks */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
-              {bestTimes.bestDay && (
-                <div className="rounded-lg border border-emerald/20 bg-emerald/5 p-4">
-                  <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-emerald/70">
-                    Best day
-                  </p>
-                  <p className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold text-soft-white">
-                    {bestTimes.bestDay.day_name}
-                  </p>
-                  <p className="text-[10px] text-muted-blue/60">
-                    {bestTimes.bestDay.avg_engagement_rate}% avg engagement &middot; {bestTimes.bestDay.posts} posts
-                  </p>
-                </div>
-              )}
-              {bestTimes.bestHour && (
-                <div className="rounded-lg border border-amber/20 bg-amber/5 p-4">
-                  <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-amber/70">
-                    Best hour ({bestTimes.timezone})
-                  </p>
-                  <p className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold text-soft-white">
-                    {formatHour(bestTimes.bestHour.hour)}
-                  </p>
-                  <p className="text-[10px] text-muted-blue/60">
-                    {bestTimes.bestHour.avg_engagement_rate}% avg engagement &middot; {bestTimes.bestHour.posts} posts
-                  </p>
-                </div>
-              )}
+            {/* Peak slot — the Athens evening = US lunch insight */}
+            <div className="mb-5 rounded-lg border border-emerald/30 bg-emerald/10 p-4">
+              <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-emerald/70">
+                Peak slot for George Yachts
+              </p>
+              <p className="mt-1 font-[family-name:var(--font-mono)] text-2xl font-bold text-soft-white">
+                {bestTimes.peakSlot.day_name} {formatHour(bestTimes.peakSlot.hour_start)}–
+                {formatHour(bestTimes.peakSlot.hour_end)}{" "}
+                <span className="text-sm text-emerald/70">({bestTimes.timezone})</span>
+              </p>
+              <p className="mt-1 text-[11px] text-muted-blue/80 leading-relaxed">
+                {bestTimes.peakSlot.note}
+              </p>
             </div>
 
-            {/* Top slot list */}
+            {/* Recommended windows table */}
             <p className="mb-2 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-muted-blue/60">
-              Top {bestTimes.slots.length} slots
+              All recommended windows
             </p>
-            <div className="space-y-2">
-              {bestTimes.slots.map((s, i) => {
-                const max = bestTimes.slots[0]?.avg_engagement_rate || 1;
-                const widthPct = max > 0 ? (s.avg_engagement_rate / max) * 100 : 0;
+            <div className="space-y-2 mb-5">
+              {bestTimes.recommended.map((w) => {
+                const isPeak = w.label.includes("US lunch");
                 return (
                   <div
-                    key={`${s.day}-${s.hour}`}
+                    key={`${w.day}-${w.hour_start}`}
                     className="flex items-center gap-3"
                   >
-                    <span className="w-6 shrink-0 text-right font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/40">
-                      #{i + 1}
-                    </span>
-                    <span className="w-28 shrink-0 font-[family-name:var(--font-mono)] text-[11px] text-soft-white/80">
-                      {s.day_name} {formatHour(s.hour)}
+                    <span className="w-24 shrink-0 font-[family-name:var(--font-mono)] text-[11px] text-soft-white/80">
+                      {w.day_name.slice(0, 3)} {formatHour(w.hour_start)}–{formatHour(w.hour_end)}
                     </span>
                     <div className="relative h-4 flex-1 rounded bg-glass-light/30">
                       <div
-                        className="absolute inset-y-0 left-0 rounded bg-amber/60"
-                        style={{ width: `${Math.max(widthPct, 4)}%` }}
+                        className={`absolute inset-y-0 left-0 rounded ${isPeak ? "bg-emerald/70" : "bg-amber/60"}`}
+                        style={{ width: `${w.score}%` }}
                       />
                     </div>
-                    <span className="w-16 shrink-0 text-right font-[family-name:var(--font-mono)] text-[11px] text-amber">
-                      {s.avg_engagement_rate}%
+                    <span
+                      className={`w-12 shrink-0 text-right font-[family-name:var(--font-mono)] text-[11px] ${isPeak ? "text-emerald" : "text-amber"}`}
+                    >
+                      {w.score}
                     </span>
-                    <span className="w-12 shrink-0 text-right font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/40">
-                      {s.posts}p
+                    <span
+                      className="hidden sm:inline truncate max-w-[180px] font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/60"
+                      title={w.note}
+                    >
+                      {w.label}
                     </span>
                   </div>
                 );
               })}
             </div>
-            <p className="mt-3 text-[10px] text-muted-blue/40">
-              Engagement rate = total interactions / reach. Buckets refresh as the analytics cron pulls new posts every 6h.
-            </p>
+
+            {/* Reels note */}
+            <div className="mb-5 rounded-lg border border-neon-purple/20 bg-neon-purple/5 p-3">
+              <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-neon-purple/70 mb-1">
+                Reels guidance
+              </p>
+              <p className="text-[11px] text-muted-blue/80">{bestTimes.reelsNote}</p>
+            </div>
+
+            {/* Algorithm 2026 key signals */}
+            <div className="mb-5">
+              <p className="mb-2 font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-muted-blue/60">
+                Instagram algorithm 2026 — key signals
+              </p>
+              <ul className="space-y-1.5">
+                {bestTimes.algorithmTips.map((tip, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 text-[11px] text-muted-blue/80"
+                  >
+                    <span className="text-electric-cyan/60 mt-0.5">▸</span>
+                    <span>{tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* In-house data section — only after MIN_POSTS */}
+            <div className="rounded-lg border border-white/5 bg-glass-light/10 p-4">
+              <p className="font-[family-name:var(--font-mono)] text-[10px] uppercase tracking-wider text-muted-blue/60 mb-2">
+                Your own engagement data
+              </p>
+              {bestTimes.inHouse.enabled ? (
+                <>
+                  <p className="text-[11px] text-muted-blue/80 mb-3">
+                    Top slots from {bestTimes.inHouse.sampleSize} of your tracked posts (engagement rate = total interactions / reach):
+                  </p>
+                  <div className="space-y-2">
+                    {bestTimes.inHouse.slots.map((s, i) => {
+                      const max = bestTimes.inHouse.slots[0]?.avg_engagement_rate || 1;
+                      const widthPct = max > 0 ? (s.avg_engagement_rate / max) * 100 : 0;
+                      return (
+                        <div
+                          key={`${s.day}-${s.hour}`}
+                          className="flex items-center gap-3"
+                        >
+                          <span className="w-6 shrink-0 text-right font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/40">
+                            #{i + 1}
+                          </span>
+                          <span className="w-24 shrink-0 font-[family-name:var(--font-mono)] text-[11px] text-soft-white/80">
+                            {s.day_name.slice(0, 3)} {formatHour(s.hour)}
+                          </span>
+                          <div className="relative h-3 flex-1 rounded bg-glass-light/30">
+                            <div
+                              className="absolute inset-y-0 left-0 rounded bg-electric-cyan/60"
+                              style={{ width: `${Math.max(widthPct, 4)}%` }}
+                            />
+                          </div>
+                          <span className="w-14 shrink-0 text-right font-[family-name:var(--font-mono)] text-[11px] text-electric-cyan">
+                            {s.avg_engagement_rate}%
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <p className="text-[11px] text-muted-blue/60">
+                  We'll start showing your own best slots once we've tracked{" "}
+                  <span className="text-soft-white">{bestTimes.inHouse.minPosts}+</span> posts. Currently at{" "}
+                  <span className="text-soft-white">{bestTimes.inHouse.sampleSize}</span>. The post-analytics cron auto-fills this every 6h.
+                </p>
+              )}
+            </div>
           </>
         )}
       </div>
