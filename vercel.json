@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/after-sales",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/brand-radar",
+      "schedule": "0 6 * * 0"
     }
   ]
 }
