@@ -117,10 +117,21 @@ export async function POST(request: NextRequest) {
       // genuine / spam / emoji-only and, when genuine, generates a
       // short warm reply in George Biniaris voice. Spam + emoji-only
       // get silently ignored (never reply to bots — kills engagement
-      // ratio). Everything is rate-limited per commenter (24h) and
-      // deduped per comment id via the ig_dm_replies table we already
-      // use for DM rate limiting.
+      // ratio). Race-safe via the ig_comment_replies UNIQUE(comment_id)
+      // mutex: we INSERT a claim row first, and if the DB rejects it
+      // as a duplicate, another webhook delivery is already handling
+      // the same comment and we silently exit.
       if (change.field === "comments") {
+        // 🚨 HARD DISABLE — the earlier Feature #4 SELECT-before-INSERT
+        // dedup loses every race against parallel webhook deliveries
+        // and Instagram's own event retries, which produced a 10+ reply
+        // spam on a single @eleanna_karvouni "Stunning 👏" comment.
+        // This branch is locked off until the race-safe
+        // ig_comment_replies UNIQUE(comment_id) mutex lands in the next
+        // commit. ANY return to auto-replying goes through that path.
+        continue;
+
+        // @ts-expect-error — unreachable until re-enabled below
         const commentRaw = (change.value?.text ?? "").trim();
         const commentId = change.value?.id;
         const commenterId = change.value?.from?.id;
