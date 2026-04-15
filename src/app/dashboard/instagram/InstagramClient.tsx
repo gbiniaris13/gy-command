@@ -112,6 +112,24 @@ interface FollowerHistoryResponse {
   delta30d: FollowerDelta | null;
 }
 
+interface CompetitorRow {
+  username: string;
+  latest: {
+    date: string;
+    followers_count: number | null;
+    media_count: number | null;
+    posts_last_30d: number | null;
+    avg_likes_last_5: number | null;
+    avg_comments_last_5: number | null;
+  };
+  followerDelta7d: number | null;
+  historyCount: number;
+}
+
+interface CompetitorsResponse {
+  competitors: CompetitorRow[];
+}
+
 function formatDelta(d: FollowerDelta | null): {
   text: string;
   positive: boolean;
@@ -150,6 +168,7 @@ export default function InstagramClient() {
   const [bestTimes, setBestTimes] = useState<BestTimesResponse | null>(null);
   const [followerHistory, setFollowerHistory] =
     useState<FollowerHistoryResponse | null>(null);
+  const [competitors, setCompetitors] = useState<CompetitorsResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   // New post form
@@ -166,14 +185,25 @@ export default function InstagramClient() {
       fetch("/api/instagram/analytics").then((r) => r.json()),
       fetch("/api/instagram/best-times").then((r) => r.json()),
       fetch("/api/instagram/follower-history").then((r) => r.json()),
+      fetch("/api/instagram/competitors").then((r) => r.json()),
     ])
-      .then(([postsData, feedData, analyticsData, bestTimesData, followerData]) => {
-        setPosts(postsData.posts ?? []);
-        setFeed(feedData.posts ?? []);
-        setAnalytics(analyticsData.posts ?? []);
-        setBestTimes(bestTimesData ?? null);
-        setFollowerHistory(followerData ?? null);
-      })
+      .then(
+        ([
+          postsData,
+          feedData,
+          analyticsData,
+          bestTimesData,
+          followerData,
+          competitorsData,
+        ]) => {
+          setPosts(postsData.posts ?? []);
+          setFeed(feedData.posts ?? []);
+          setAnalytics(analyticsData.posts ?? []);
+          setBestTimes(bestTimesData ?? null);
+          setFollowerHistory(followerData ?? null);
+          setCompetitors(competitorsData ?? null);
+        }
+      )
       .finally(() => setLoading(false));
   }, []);
 
@@ -734,6 +764,93 @@ export default function InstagramClient() {
               </p>
             )}
           </>
+        )}
+      </div>
+
+      {/* ── COMPETITOR WATCH ──────────────────────────────────── */}
+      <div className="glass-card p-4 sm:p-6 mt-6">
+        <div className="mb-4 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-hot-red" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+            COMPETITOR WATCH
+          </h2>
+          <span className="ml-auto font-[family-name:var(--font-mono)] text-[10px] text-muted-blue/50">
+            DAILY VIA IG BUSINESS DISCOVERY
+          </span>
+        </div>
+
+        {!competitors || competitors.competitors.length === 0 ? (
+          <p className="py-8 text-center font-[family-name:var(--font-mono)] text-xs text-muted-blue/40">
+            {loading
+              ? "LOADING COMPETITOR DATA..."
+              : "NO SNAPSHOTS YET — wait for the next 03:23 UTC cron tick or hit /api/cron/instagram-competitors manually"}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-[11px]">
+              <thead>
+                <tr className="border-b border-border-glow text-left font-[family-name:var(--font-mono)] text-[9px] uppercase tracking-wider text-muted-blue/60">
+                  <th className="py-2 pr-3">Account</th>
+                  <th className="py-2 px-2 text-right">Followers</th>
+                  <th className="py-2 px-2 text-right" title="7-day delta">7d Δ</th>
+                  <th className="py-2 px-2 text-right" title="Posts in last 30 days">Posts/30d</th>
+                  <th className="py-2 px-2 text-right" title="Avg likes on last 5 posts">Avg ❤</th>
+                  <th className="py-2 pl-2 text-right" title="Avg comments on last 5 posts">Avg 💬</th>
+                </tr>
+              </thead>
+              <tbody className="font-[family-name:var(--font-mono)] text-muted-blue/80">
+                {competitors.competitors.map((c) => {
+                  const f = c.latest.followers_count ?? 0;
+                  const d7 = c.followerDelta7d;
+                  const d7Text =
+                    d7 == null ? "—" : `${d7 >= 0 ? "+" : ""}${d7.toLocaleString("en-US")}`;
+                  return (
+                    <tr
+                      key={c.username}
+                      className="border-b border-border-glow/50 hover:bg-glass-light/10"
+                    >
+                      <td className="py-2 pr-3">
+                        <a
+                          href={`https://instagram.com/${c.username}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-soft-white/90 hover:text-electric-cyan"
+                        >
+                          @{c.username}
+                        </a>
+                      </td>
+                      <td className="py-2 px-2 text-right text-soft-white">
+                        {f.toLocaleString("en-US")}
+                      </td>
+                      <td
+                        className={`py-2 px-2 text-right ${
+                          d7 == null
+                            ? "text-muted-blue/40"
+                            : d7 >= 0
+                              ? "text-emerald"
+                              : "text-hot-red"
+                        }`}
+                      >
+                        {d7Text}
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        {c.latest.posts_last_30d ?? 0}
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        {formatCompact(Math.round(c.latest.avg_likes_last_5 ?? 0))}
+                      </td>
+                      <td className="py-2 pl-2 text-right">
+                        {formatCompact(Math.round(c.latest.avg_comments_last_5 ?? 0))}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="mt-3 text-[10px] text-muted-blue/40">
+              Daily snapshot at 03:23 UTC. 7-day delta needs at least 8 days of history. Avg likes/comments computed from each account&apos;s last 5 posts.
+            </p>
+          </div>
         )}
       </div>
     </div>
