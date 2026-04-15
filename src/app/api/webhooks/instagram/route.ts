@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
+import { createNotification } from "@/lib/notifications";
 
 const VERIFY_TOKEN = "gy_command_webhook_2026";
 
@@ -156,6 +157,17 @@ export async function POST(request: NextRequest) {
             reply_text: reply,
             sent_at: new Date().toISOString(),
           }).catch(() => {});
+
+          // Dashboard notification so George sees the DM in the bell
+          await createNotification(sb, {
+            type: "ig_dm",
+            title: `📩 New Instagram DM (${intent.replace("_", " ")})`,
+            description:
+              messageText.length > 140
+                ? messageText.slice(0, 140) + "…"
+                : messageText,
+            link: "/dashboard/instagram",
+          });
         } catch (err) {
           console.error("[IG Webhook] DM reply error:", err);
         }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { createNotification } from "@/lib/notifications";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Telegram on reply
+        // Telegram + in-app notification on reply
         if (status === "replied") {
           const name = [existing.first_name, existing.last_name]
             .filter(Boolean)
@@ -165,6 +166,15 @@ export async function POST(request: NextRequest) {
           telegramMessages.push(
             `<b>${name}</b> from ${existing.company ?? "Unknown"} (${existing.country ?? "?"}) replied!`
           );
+          await createNotification(supabase, {
+            type: "reply",
+            title: `${name} replied to outreach`,
+            description: existing.company
+              ? `${existing.company} (${existing.country ?? "?"})`
+              : existing.country ?? "",
+            link: `/dashboard/contacts/${existing.id}`,
+            contact_id: existing.id,
+          });
         }
 
         synced++;

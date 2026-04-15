@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { aiChat } from "@/lib/ai";
 import { detectAutoReply } from "@/lib/auto-reply";
+import { createNotification } from "@/lib/notifications";
 
 interface ClassifyRequest {
   messageId: string;
@@ -133,7 +134,7 @@ export async function POST(request: NextRequest) {
       suggested_response: result.suggested_response,
     });
 
-    // Send Telegram alert for HOT/WARM leads
+    // Send Telegram alert + in-app notification for HOT/WARM leads
     if (result.classification === "HOT" || result.classification === "WARM") {
       const emoji = result.classification === "HOT" ? "🔴" : "🟡";
       const senderName = from.replace(/<.*>/, "").trim() || senderEmail;
@@ -143,6 +144,14 @@ export async function POST(request: NextRequest) {
           `Subject: ${subject}\n` +
           `Reason: ${result.reason}`
       );
+
+      await createNotification(sb, {
+        type: "reply",
+        title: `${result.classification} reply from ${senderName}`,
+        description: subject || result.reason,
+        link: contactId ? `/dashboard/contacts/${contactId}` : "/dashboard/email",
+        contact_id: contactId ?? null,
+      });
     }
 
     // Update contact pipeline stage if matched
