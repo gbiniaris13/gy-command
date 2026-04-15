@@ -16,6 +16,66 @@ import { aiChat } from "@/lib/ai";
 
 const LIBRARY_HOST = "lquxemsonehfltdzdbhq.supabase.co/storage/v1/object/public/ig-photos";
 
+// Feature #3 — smart hashtag AI rotation. Just before the IG container
+// is created, ask Gemini for 3-5 niche hashtags specific to this post's
+// caption and append them. Skips if the caption already contains any
+// hashtag (so manual captions George wrote with hashtags never get
+// double-hashtagged, and retries don't pile them up).
+async function addSmartHashtags(caption: string): Promise<string> {
+  if (!caption || /#\w/.test(caption)) return caption ?? "";
+
+  const prompt = `Generate 3-5 Instagram hashtags for this caption.
+
+CAPTION:
+${caption.slice(0, 1500)}
+
+RULES:
+- NO generic hashtags (#love, #instagood, #travel, #greece, #beautiful, #summer, #photooftheday)
+- YES specific niche hashtags
+- Mix: 2 location-specific (island, region, sea) + 2 industry-specific (yacht, charter, broker, crew) + 1 unique or trending angle
+- Each hashtag starts with # and uses PascalCase
+
+GOOD EXAMPLES:
+#YachtCharterGreece #CycladesIslands #LuxuryYachtLife #SailingMykonos
+#HydraIsland #IonianSea #GreekSummer #YachtBroker #CrewedYacht
+#AmorgosIsland #SaronicGulf #MediterraneanYachting #MYBA #UHNW
+
+BAD EXAMPLES:
+#love #greece #travel #instagood #photooftheday #beautiful #summer
+
+OUTPUT — return ONLY hashtags separated by single spaces. No explanation. No numbering. No quotes.`;
+
+  try {
+    const raw = await aiChat(
+      "You return only Instagram hashtags separated by spaces. No other text.",
+      prompt
+    );
+    // Extract every #Word token, cap at 5, dedupe, reject generics as a safety belt
+    const generic = new Set([
+      "love",
+      "instagood",
+      "travel",
+      "greece",
+      "beautiful",
+      "summer",
+      "photooftheday",
+      "nature",
+      "sea",
+      "wanderlust",
+      "vacation",
+      "holiday",
+    ]);
+    const tokens = Array.from(new Set(raw.match(/#[A-Za-z0-9_]+/g) ?? []))
+      .filter((t) => !generic.has(t.slice(1).toLowerCase()))
+      .slice(0, 5);
+    if (tokens.length === 0) return caption;
+    return `${caption.trim()}\n\n${tokens.join(" ")}`;
+  } catch {
+    // Never break publishing because of hashtag generation
+    return caption;
+  }
+}
+
 async function swapImageFromLibrary(sb, post) {
   // Already points at the library? nothing to do.
   if (typeof post.image_url === "string" && post.image_url.includes(LIBRARY_HOST)) {
@@ -93,6 +153,19 @@ export async function GET() {
       // library or if the library is empty.
       const resolvedImageUrl = await swapImageFromLibrary(sb, post);
       post.image_url = resolvedImageUrl;
+
+      // Smart hashtag rotation — AI picks 3-5 niche hashtags specific
+      // to this caption. No-op if the caption already has hashtags.
+      const captionWithHashtags = await addSmartHashtags(post.caption ?? "");
+      if (captionWithHashtags !== post.caption) {
+        post.caption = captionWithHashtags;
+        // Persist so the dashboard shows what actually went out, and so
+        // a retry doesn't re-run the hashtag call
+        await sb
+          .from("ig_posts")
+          .update({ caption: captionWithHashtags })
+          .eq("id", post.id);
+      }
 
       // Mark as publishing
       await sb.from("ig_posts").update({ status: "publishing" }).eq("id", post.id);
