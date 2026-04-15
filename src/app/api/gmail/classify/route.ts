@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { aiChat } from "@/lib/ai";
+import { detectAutoReply } from "@/lib/auto-reply";
 
 interface ClassifyRequest {
   messageId: string;
   from: string;
   subject: string;
   body: string;
+  headers?: Record<string, string>;
 }
 
 interface ClassifyResult {
@@ -59,7 +61,7 @@ async function classifyWithAI(email: ClassifyRequest): Promise<ClassifyResult> {
 
 export async function POST(request: NextRequest) {
   try {
-    const { messageId, from, subject, body }: ClassifyRequest =
+    const { messageId, from, subject, body, headers }: ClassifyRequest =
       await request.json();
 
     if (!messageId || !from) {
@@ -80,6 +82,28 @@ export async function POST(request: NextRequest) {
 
     if (existing) {
       return NextResponse.json(existing);
+    }
+
+    // Short-circuit auto-replies / out-of-office BEFORE spending AI credits
+    // or touching pipeline stages. The follow-up sequence must continue
+    // as if this email had never arrived.
+    const autoCheck = detectAutoReply(subject, body, headers);
+    if (autoCheck.isAutoReply) {
+      const neutralResult: ClassifyResult = {
+        classification: "NEUTRAL",
+        reason: `Auto-reply detected (${autoCheck.reason}) — follow-up sequence will continue.`,
+        suggested_response: "",
+      };
+
+      await sb.from("email_classifications").upsert({
+        message_id: messageId,
+        contact_id: null,
+        classification: neutralResult.classification,
+        reason: neutralResult.reason,
+        suggested_response: neutralResult.suggested_response,
+      });
+
+      return NextResponse.json(neutralResult);
     }
 
     // Classify with AI

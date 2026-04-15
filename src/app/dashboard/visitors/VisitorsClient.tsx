@@ -100,6 +100,41 @@ function getDeviceIcon(type: string | null): string {
   }
 }
 
+// Derive a human-readable source label from the raw referrer URL.
+// Mirrors the labels used by the Telegram bot so both surfaces match.
+function getSourceLabel(referrer: string | null): string {
+  if (!referrer) return "Direct";
+  let host = referrer;
+  try {
+    host = new URL(referrer).hostname.replace(/^www\./, "");
+  } catch {
+    // referrer might already be a bare host — fall through
+  }
+  host = host.toLowerCase();
+  if (!host || host === "direct") return "Direct";
+  if (host.includes("google.")) return "Google Search";
+  if (host.includes("bing.")) return "Bing";
+  if (host.includes("duckduckgo.")) return "DuckDuckGo";
+  if (host.includes("chatgpt.") || host.includes("openai.")) return "ChatGPT";
+  if (host.includes("claude.ai") || host.includes("anthropic."))
+    return "Claude";
+  if (host.includes("perplexity.")) return "Perplexity";
+  if (host.includes("linkedin.")) return "LinkedIn";
+  if (host.includes("facebook.") || host.includes("fb.")) return "Facebook";
+  if (host.includes("instagram.")) return "Instagram";
+  if (host.includes("t.co") || host.includes("twitter.") || host.includes("x.com"))
+    return "Twitter/X";
+  if (host.includes("youtube.")) return "YouTube";
+  if (host.includes("reddit.")) return "Reddit";
+  return host;
+}
+
+// Mirrors the Telegram bot threshold: > 3 minutes on site = hot lead signal
+// even if the is_hot_lead flag hasn't been persisted yet.
+function isHotLeadSignal(session: VisitorSession): boolean {
+  return session.is_hot_lead || session.time_on_site > 180;
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export default function VisitorsClient({
@@ -232,7 +267,7 @@ export default function VisitorsClient({
 
                     {/* Content */}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm">
                           {getFlagFromCountry(session.country)}
                         </span>
@@ -248,7 +283,35 @@ export default function VisitorsClient({
                           {getDeviceIcon(session.device_type)}{" "}
                           {session.device_type ?? "Unknown"}
                         </span>
+                        <span className="inline-flex rounded bg-[#0D1B2A] px-1.5 py-0.5 text-[10px] font-medium text-[#F8F5F0]/60">
+                          {getSourceLabel(session.referrer)}
+                        </span>
+                        {isHotLeadSignal(session) && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#C9A84C]/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#C9A84C]">
+                            &#x1F525; HOT LEAD
+                          </span>
+                        )}
                       </div>
+
+                      {/* Pages viewed */}
+                      {session.pages_visited && session.pages_visited.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {session.pages_visited.slice(0, 6).map((page, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex rounded bg-[#0D1B2A] px-1.5 py-0.5 text-[10px] text-[#F8F5F0]/50"
+                              title={page}
+                            >
+                              {page.length > 28 ? page.slice(0, 28) + "…" : page}
+                            </span>
+                          ))}
+                          {session.pages_visited.length > 6 && (
+                            <span className="text-[10px] text-[#F8F5F0]/30">
+                              +{session.pages_visited.length - 6} more
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       {/* Yachts viewed */}
                       {session.yachts_viewed.length > 0 && (

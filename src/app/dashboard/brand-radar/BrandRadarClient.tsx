@@ -44,8 +44,18 @@ export default function BrandRadarClient() {
     try {
       const res = await fetch("/api/cron/brand-radar");
       const result = await res.json();
+
+      const mentions = result.brand_mentions ?? 0;
+      const scanned = result.scanned ?? 0;
+      const sov = result.share_of_voice ?? "0%";
+      const topComp = result.top_competitor ?? "N/A";
+      const header =
+        result.status === "already_scanned"
+          ? "Already scanned today — showing latest results:"
+          : "Scan complete!";
+
       alert(
-        `Scan complete!\n\nBrand mentions: ${result.brand_mentions}/${result.scanned}\nShare of Voice: ${result.share_of_voice}\nTop competitor: ${result.top_competitor}`
+        `${header}\n\nBrand mentions: ${mentions}/${scanned}\nShare of Voice: ${sov}\nTop competitor: ${topComp}`
       );
       // Reload data
       const updated = await fetch("/api/analytics/brand-radar").then((r) =>

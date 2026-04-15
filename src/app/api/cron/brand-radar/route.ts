@@ -13,7 +13,8 @@ export async function GET() {
   const sb = createServiceClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  // Check if already scanned today
+  // Check if already scanned today — return the latest weekly summary so the
+  // client can still display real numbers instead of "undefined".
   const { data: existing } = await sb
     .from("brand_radar_scans")
     .select("id")
@@ -21,7 +22,23 @@ export async function GET() {
     .limit(1);
 
   if (existing?.length) {
-    return NextResponse.json({ status: "already_scanned", date: today });
+    const { data: latestWeekly } = await sb
+      .from("brand_radar_weekly")
+      .select("*")
+      .order("week_start", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return NextResponse.json({
+      status: "already_scanned",
+      date: today,
+      scanned: latestWeekly?.total_queries ?? QUERIES.length,
+      brand_mentions: latestWeekly?.brand_mentions ?? 0,
+      share_of_voice: `${latestWeekly?.share_of_voice ?? 0}%`,
+      top_competitor: latestWeekly?.top_competitor ?? "N/A",
+      top_competitor_mentions: latestWeekly?.top_competitor_mentions ?? 0,
+      competitor_breakdown: latestWeekly?.competitor_breakdown ?? {},
+    });
   }
 
   let scanned = 0;
@@ -101,10 +118,12 @@ export async function GET() {
   });
 
   return NextResponse.json({
+    status: "ok",
     scanned,
     brand_mentions: brandMentions,
     share_of_voice: `${sov}%`,
-    top_competitor: topCompetitor?.[0],
+    top_competitor: topCompetitor?.[0] ?? "N/A",
+    top_competitor_mentions: topCompetitor?.[1] ?? 0,
     competitor_breakdown: competitorCounts,
     date: today,
   });
