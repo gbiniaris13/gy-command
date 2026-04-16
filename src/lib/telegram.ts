@@ -2,7 +2,10 @@
  * Send a message to the configured Telegram chat via Bot API.
  * Falls back to hardcoded credentials if env vars are missing.
  */
-export async function sendTelegram(message: string): Promise<boolean> {
+export async function sendTelegram(
+  message: string,
+  opts?: { disablePreview?: boolean },
+): Promise<boolean> {
   const token =
     process.env.TELEGRAM_BOT_TOKEN ||
     "8773911706:AAFixtS_3kQLWB4G3FL9vMt4v5AKh9sNtqo";
@@ -23,6 +26,7 @@ export async function sendTelegram(message: string): Promise<boolean> {
           chat_id: chatId,
           text: message,
           parse_mode: "HTML",
+          ...(opts?.disablePreview && { disable_web_page_preview: true }),
         }),
       }
     );
