@@ -186,27 +186,13 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-          // Per-commenter 24h rate limit — if we already replied to a
-          // comment from this user in the last 24h, stay quiet so we
-          // don't look spammy. We checked AFTER the claim insert so
-          // the dedup is still race-safe; if this commenter is over
-          // the cap we update the claim row to `skipped` and move on.
-          if (commenterId) {
-            const { data: recent } = await sb
-              .from("ig_comment_replies")
-              .select("id")
-              .eq("commenter_id", commenterId)
-              .eq("status", "posted")
-              .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-              .limit(1);
-            if (recent && recent.length > 0) {
-              await sb
-                .from("ig_comment_replies")
-                .update({ status: "skipped", error: "commenter 24h cooldown" })
-                .eq("comment_id", commentId);
-              continue;
-            }
-          }
+          // NOTE: The per-commenter 24h cooldown was removed. It made
+          // the bot feel broken for low-volume accounts — if a fan
+          // commented on two posts the same day, only the first got a
+          // reply. The UNIQUE(comment_id) mutex + self-comment filter
+          // are enough: "1 comment = 1 reply, and we never talk to
+          // ourselves". Every genuine comment from every user now
+          // gets its own contextual reply, classified independently.
 
           // Fetch the parent post caption so the AI can be contextual
           let postCaption = "";
