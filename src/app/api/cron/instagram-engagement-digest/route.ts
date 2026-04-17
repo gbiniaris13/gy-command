@@ -1,122 +1,142 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { sendTelegram } from "@/lib/telegram";
+import { aiChat } from "@/lib/ai";
 
 // Cron: 11:07 UTC daily (= 14:07 Athens in summer).
 //
 // Feature #5 — Strategic engagement digest (RELATIONSHIP BUILDING).
-//
-// Sends 16 separate Telegram messages: 1 intro + 15 individual targets,
-// each with a copy-paste-ready comment. George taps the handle link to
-// open Instagram, switches back to Telegram, long-presses the comment
-// to copy, switches to Instagram, pastes. The comment is ALWAYS the
-// last thing in the message so long-press grabs clean text.
-//
-// disable_web_page_preview is ON for every message — without it Telegram
-// auto-generates an Instagram preview card that adds clutter AFTER the
-// comment, breaking the copy-paste UX.
+// DAILY ROTATION: picks 15 targets from a pool of 45+, different each day.
+// FRESH COMMENTS: Gemini generates new comments daily (not hardcoded).
 
-const TARGETS = [
-  // Travel advisors
-  {
-    handle: "@virtuoso.travel",
-    url: "https://www.instagram.com/virtuoso.travel/",
-    category: "\u{1F6CE} Travel advisors",
-    comment: `The "Virtuoso lens" on destinations is what separates advisors from aggregators. Greece's quiet archipelagos \u2014 Lefkada, Folegandros \u2014 are where discerning clients are heading next. Beautifully curated feed.`,
-  },
-  {
-    handle: "@signaturetravelnetwork",
-    url: "https://www.instagram.com/signaturetravelnetwork/",
-    category: "\u{1F6CE} Travel advisors",
-    comment: `Signature's advisor-first model is exactly why the luxury travel market still belongs to humans, not algorithms. Love seeing the member spotlights \u2014 that personal expertise is the product.`,
-  },
-  {
-    handle: "@mrandmrssmith",
-    url: "https://www.instagram.com/mrandmrssmith/",
-    category: "\u{1F6CE} Travel advisors",
-    comment: `Mr & Mrs Smith has always understood that "boutique" is about point of view, not square meterage. The Greek island selections on your platform are some of the most thoughtfully edited out there.`,
-  },
-  {
-    handle: "@tlmagazine",
-    url: "https://www.instagram.com/tlmagazine/",
-    category: "\u{1F6CE} Travel advisors",
-    comment: `T+L's reporting on the Mediterranean shift this year has been spot-on \u2014 the itineraries clients are asking for now look nothing like 2019. Appreciate the editorial depth.`,
-  },
-  {
-    handle: "@cntraveler",
-    url: "https://www.instagram.com/cntraveler/",
-    category: "\u{1F6CE} Travel advisors",
-    comment: `Cond\u00e9 Nast Traveler consistently writes about Greece the way locals would \u2014 not the postcard version. That's rare and worth saying out loud.`,
-  },
+// ── FULL TARGET POOL (45 accounts across 6 categories) ─────────────────
 
-  // Greek luxury hotels
-  {
-    handle: "@hotelgrandebretagne",
-    url: "https://www.instagram.com/hotelgrandebretagne/",
-    category: "\u{1F3DB} Greek luxury hotels",
-    comment: `The GB remains the quiet benchmark for Athens hospitality \u2014 the kind of place where service is felt, not performed. A fixed point on the map for our clients arriving in the city.`,
-  },
-  {
-    handle: "@amanzoe",
-    url: "https://www.instagram.com/amanzoe/",
-    category: "\u{1F3DB} Greek luxury hotels",
-    comment: `Aman Zoe's restraint is what makes it extraordinary \u2014 the Peloponnese land speaks, and the architecture gets out of the way. Monastic luxury at its most honest.`,
-  },
-  {
-    handle: "@cavotagoohotel",
-    url: "https://www.instagram.com/cavotagoohotel/",
-    category: "\u{1F3DB} Greek luxury hotels",
-    comment: `Cavo Tagoo rewrote the vocabulary of Mykonos design. Every angle of the property photographs like it was built for this exact light.`,
-  },
-  {
-    handle: "@canavessantorini",
-    url: "https://www.instagram.com/canavessantorini/",
-    category: "\u{1F3DB} Greek luxury hotels",
-    comment: `Canaves continues to prove that Oia luxury doesn't need to shout. The caldera suites and the attention to the guest journey \u2014 from arrival to departure \u2014 is masterclass-level.`,
-  },
-  {
-    handle: "@bluepalaceresort",
-    url: "https://www.instagram.com/bluepalaceresort/",
-    category: "\u{1F3DB} Greek luxury hotels",
-    comment: `Blue Palace's Elounda positioning is underrated \u2014 the eastern Crete coastline is one of the most cinematic stretches of the Aegean, and the resort captures it beautifully.`,
-  },
+const ALL_TARGETS = [
+  // Travel advisors (10)
+  { handle: "@virtuoso.travel", url: "https://www.instagram.com/virtuoso.travel/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@signaturetravelnetwork", url: "https://www.instagram.com/signaturetravelnetwork/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@mrandmrssmith", url: "https://www.instagram.com/mrandmrssmith/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@tlmagazine", url: "https://www.instagram.com/tlmagazine/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@cntraveler", url: "https://www.instagram.com/cntraveler/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@taboragency", url: "https://www.instagram.com/taboragency/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@frosch_travel", url: "https://www.instagram.com/frosch_travel/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@luxurytraveladvisor", url: "https://www.instagram.com/luxurytraveladvisor/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@departures_mag", url: "https://www.instagram.com/departures_mag/", category: "\u{1F6CE} Travel advisors" },
+  { handle: "@robbreport", url: "https://www.instagram.com/robbreport/", category: "\u{1F6CE} Travel advisors" },
 
-  // Private aviation
-  {
-    handle: "@vistajet",
-    url: "https://www.instagram.com/vistajet/",
-    category: "\u2708\uFE0F Private aviation",
-    comment: `The VistaJet fleet philosophy \u2014 global consistency, locally tuned service \u2014 translates perfectly into how UHNW clients think about their entire journey. Athens and Mykonos are increasingly the second leg of that itinerary.`,
-  },
-  {
-    handle: "@netjets",
-    url: "https://www.instagram.com/netjets/",
-    category: "\u2708\uFE0F Private aviation",
-    comment: `NetJets' commitment to crew continuity is something the yachting world studies closely. The same faces, trip after trip \u2014 that's where trust actually lives.`,
-  },
+  // Greek luxury hotels (10)
+  { handle: "@hotelgrandebretagne", url: "https://www.instagram.com/hotelgrandebretagne/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@amanzoe", url: "https://www.instagram.com/amanzoe/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@cavotagoohotel", url: "https://www.instagram.com/cavotagoohotel/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@canavessantorini", url: "https://www.instagram.com/canavessantorini/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@bluepalaceresort", url: "https://www.instagram.com/bluepalaceresort/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@costanavarino", url: "https://www.instagram.com/costanavarino/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@nikki_beach_porto_heli", url: "https://www.instagram.com/nikki_beach_porto_heli/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@oneandonlykeanisland", url: "https://www.instagram.com/oneandonlykeanisland/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@fourseasons", url: "https://www.instagram.com/fourseasons/", category: "\u{1F3DB} Greek luxury hotels" },
+  { handle: "@belmondhotels", url: "https://www.instagram.com/belmondhotels/", category: "\u{1F3DB} Greek luxury hotels" },
 
-  // Mediterranean lifestyle
-  {
-    handle: "@discovergreece",
-    url: "https://www.instagram.com/discovergreece/",
-    category: "\u{1F30A} Mediterranean lifestyle",
-    comment: `Discover Greece does the quiet work of reminding people that the country is 6,000 islands, not five. The off-peak and off-map features are some of the most valuable tourism content out there.`,
-  },
-  {
-    handle: "@greeceofficial_",
-    url: "https://www.instagram.com/greeceofficial_/",
-    category: "\u{1F30A} Mediterranean lifestyle",
-    comment: `Love seeing the Greek tourism board highlight the shoulder seasons \u2014 May and September are when the country actually breathes. The best time to experience it, honestly.`,
-  },
-  {
-    handle: "@mediterranean_lifestyle",
-    url: "https://www.instagram.com/mediterranean_lifestyle/",
-    category: "\u{1F30A} Mediterranean lifestyle",
-    comment: `The Med lifestyle is a philosophy, not a geography \u2014 slow meals, long sea days, no urgency. This feed captures that rhythm without falling into clich\u00e9. Well done.`,
-  },
+  // Private aviation (5)
+  { handle: "@vistajet", url: "https://www.instagram.com/vistajet/", category: "\u2708\uFE0F Private aviation" },
+  { handle: "@netjets", url: "https://www.instagram.com/netjets/", category: "\u2708\uFE0F Private aviation" },
+  { handle: "@xabordjets", url: "https://www.instagram.com/xabordjets/", category: "\u2708\uFE0F Private aviation" },
+  { handle: "@flyexclusive", url: "https://www.instagram.com/flyexclusive/", category: "\u2708\uFE0F Private aviation" },
+  { handle: "@jetsmarter", url: "https://www.instagram.com/jetsmarter/", category: "\u2708\uFE0F Private aviation" },
+
+  // Mediterranean lifestyle (5)
+  { handle: "@discovergreece", url: "https://www.instagram.com/discovergreece/", category: "\u{1F30A} Mediterranean lifestyle" },
+  { handle: "@greeceofficial_", url: "https://www.instagram.com/greeceofficial_/", category: "\u{1F30A} Mediterranean lifestyle" },
+  { handle: "@mediterranean_lifestyle", url: "https://www.instagram.com/mediterranean_lifestyle/", category: "\u{1F30A} Mediterranean lifestyle" },
+  { handle: "@visitgreece.gr", url: "https://www.instagram.com/visitgreece.gr/", category: "\u{1F30A} Mediterranean lifestyle" },
+  { handle: "@aegeanislands", url: "https://www.instagram.com/aegeanislands/", category: "\u{1F30A} Mediterranean lifestyle" },
+
+  // Yacht industry (10)
+  { handle: "@boatinternational", url: "https://www.instagram.com/boatinternational/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@burgabordjets", url: "https://www.instagram.com/burgessyachts/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@fraseryachts", url: "https://www.instagram.com/fraseryachts/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@camperandnicholsons", url: "https://www.instagram.com/camperandnicholsons/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@abordjachtingen", url: "https://www.instagram.com/yachtcharterfleet/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@superyachttimes", url: "https://www.instagram.com/superyachttimes/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@myabordjacht", url: "https://www.instagram.com/theyachtguy/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@charterworld", url: "https://www.instagram.com/charterworld/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@yachtingmagazine", url: "https://www.instagram.com/yachtingmagazine/", category: "\u{1F6F3} Yacht industry" },
+  { handle: "@dockwalk", url: "https://www.instagram.com/dockwalk/", category: "\u{1F6F3} Yacht industry" },
+
+  // Luxury lifestyle (5)
+  { handle: "@quintessentially", url: "https://www.instagram.com/quintessentially/", category: "\u{1F48E} Luxury lifestyle" },
+  { handle: "@christies", url: "https://www.instagram.com/christies/", category: "\u{1F48E} Luxury lifestyle" },
+  { handle: "@sothebys", url: "https://www.instagram.com/sothebys/", category: "\u{1F48E} Luxury lifestyle" },
+  { handle: "@monocle_magazine", url: "https://www.instagram.com/monocle_magazine/", category: "\u{1F48E} Luxury lifestyle" },
+  { handle: "@wallpapermag", url: "https://www.instagram.com/wallpapermag/", category: "\u{1F48E} Luxury lifestyle" },
 ];
 
-/** Escape &, <, > for Telegram HTML parse_mode */
+const DAILY_PICK_COUNT = 15;
+
+/** Pick N targets using date-based rotation (different 15 each day) */
+function pickDailyTargets(count: number): typeof ALL_TARGETS {
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+  const pool = [...ALL_TARGETS];
+
+  // Deterministic shuffle using day as seed
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = (dayOfYear * 31 + i * 7) % (i + 1);
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+
+  // Ensure category diversity: at least 2 from each category if possible
+  const categories = [...new Set(pool.map(t => t.category))];
+  const picked: typeof ALL_TARGETS = [];
+  const used = new Set<string>();
+
+  // Round 1: 2 per category
+  for (const cat of categories) {
+    const catTargets = pool.filter(t => t.category === cat && !used.has(t.handle));
+    for (const t of catTargets.slice(0, 2)) {
+      if (picked.length >= count) break;
+      picked.push(t);
+      used.add(t.handle);
+    }
+  }
+
+  // Round 2: fill remaining
+  for (const t of pool) {
+    if (picked.length >= count) break;
+    if (!used.has(t.handle)) {
+      picked.push(t);
+      used.add(t.handle);
+    }
+  }
+
+  return picked;
+}
+
+/** Generate a fresh comment using Gemini */
+async function generateComment(handle: string, category: string): Promise<string> {
+  try {
+    const prompt = `Write a single Instagram comment from George Biniaris (Greek yacht charter broker) for ${handle} (${category}).
+
+RULES:
+- ONE genuine insight, specific to their industry/niche
+- Reference something concrete about their brand or what they're known for
+- NO sales pitch, NO links, NO hashtags, NO emojis overuse (max 1)
+- Sound like a knowledgeable peer, not a fan
+- 2-3 sentences max
+- DO NOT start with "Love" or "Great" or "Amazing"
+- Reference Greece/Mediterranean/yachting naturally if it fits
+
+COMMENT:`;
+
+    const result = await aiChat(
+      "You write authentic Instagram comments. One comment only, no quotes, no explanation.",
+      prompt
+    );
+    return result.replace(/^["']|["']$/g, "").trim();
+  } catch {
+    // Fallback: generic but still decent
+    return `The attention to detail here is something the yachting world could learn from. Quality content that respects the audience's time.`;
+  }
+}
+
 function esc(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -125,44 +145,40 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TG = { disablePreview: true } as const;
 
 export async function GET() {
-  const total = TARGETS.length;
+  const targets = pickDailyTargets(DAILY_PICK_COUNT);
   let sent = 0;
 
-  // Message 1 — Intro
   const intro = [
     `\u{1F440} <b>Daily Engagement Targets \u2014 Relationship Builders</b>`,
     ``,
-    `These are the accounts whose followers are our future clients.`,
+    `Today's ${targets.length} targets (rotated daily from pool of ${ALL_TARGETS.length}):`,
     ``,
     `<b>Rule of thumb:</b>`,
     `\u2022 ONE genuine insight per comment`,
-    `\u2022 Specific to their post`,
+    `\u2022 Specific to their latest post`,
     `\u2022 No sales language, no links`,
     `\u2022 10\u201315 min total, ~1 min per account`,
     ``,
-    `I\u2019m sending ${total} messages below \u2014 one per target. Tap the handle to open Instagram, then switch back here and long-press \u2192 copy the comment.`,
+    `Tap handle \u2192 open IG \u2192 come back \u2192 long-press comment \u2192 copy \u2192 paste.`,
     ``,
     `Let\u2019s build relationships. \u{1F30A}`,
   ].join("\n");
 
   if (await sendTelegram(intro, TG)) sent++;
 
-  // Messages 2–16 — One per target, 500ms apart
-  for (let i = 0; i < TARGETS.length; i++) {
-    await sleep(500);
+  for (let i = 0; i < targets.length; i++) {
+    await sleep(800);
 
-    const t = TARGETS[i];
-    const pos = i + 1;
+    const t = targets[i];
+    const comment = await generateComment(t.handle, t.category);
 
-    // Comment is the LAST thing in the message — no footer after it —
-    // so George can long-press at the bottom and copy clean text.
     const msg = [
-      `<b>${pos}/${total} \u2014 <a href="${t.url}">${esc(t.handle)}</a></b>`,
+      `<b>${i + 1}/${targets.length} \u2014 <a href="${t.url}">${esc(t.handle)}</a></b>`,
       t.category,
       ``,
       `\u{1F4AC} Ready-to-paste comment:`,
       ``,
-      esc(t.comment),
+      esc(comment),
     ].join("\n");
 
     if (await sendTelegram(msg, TG)) sent++;
@@ -171,8 +187,8 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     messages_sent: sent,
-    messages_expected: total + 1,
-    target_count: total,
-    window: "daily 11:07 UTC",
+    target_count: targets.length,
+    pool_size: ALL_TARGETS.length,
+    rotation: "daily",
   });
 }
