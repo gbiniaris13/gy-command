@@ -17,10 +17,10 @@ import { aiChat } from "@/lib/ai";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 
-// The same 15:00 UTC slot the existing hand-curated batch uses.
-// That maps to 18:00 Athens in summer (EEST) and 17:00 Athens in winter.
-// Peak slot per Best-Time-to-Post research.
-const PUBLISH_HOUR_UTC = 15;
+// 08:00 UTC = 11:00 Athens (EEST). Research shows mid-morning is peak
+// for luxury travel content: users browse during work breaks, plan trips.
+// Carousels get 114% more engagement than single images (Buffer 2026).
+const PUBLISH_HOUR_UTC = 8;
 
 const SYSTEM_PROMPT = `You write Instagram captions for George Biniaris, Managing Broker of George Yachts. You return only valid JSON in the requested shape. No markdown fences, no preamble, no trailing commentary.`;
 
