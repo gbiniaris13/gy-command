@@ -50,17 +50,15 @@ const ALL_TARGETS = [
   { handle: "@visitgreece.gr", url: "https://www.instagram.com/visitgreece.gr/", category: "\u{1F30A} Mediterranean lifestyle" },
   { handle: "@aegeanislands", url: "https://www.instagram.com/aegeanislands/", category: "\u{1F30A} Mediterranean lifestyle" },
 
-  // Yacht industry (10)
-  { handle: "@boatinternational", url: "https://www.instagram.com/boatinternational/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@burgabordjets", url: "https://www.instagram.com/burgessyachts/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@fraseryachts", url: "https://www.instagram.com/fraseryachts/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@camperandnicholsons", url: "https://www.instagram.com/camperandnicholsons/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@abordjachtingen", url: "https://www.instagram.com/yachtcharterfleet/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@superyachttimes", url: "https://www.instagram.com/superyachttimes/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@myabordjacht", url: "https://www.instagram.com/theyachtguy/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@charterworld", url: "https://www.instagram.com/charterworld/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@yachtingmagazine", url: "https://www.instagram.com/yachtingmagazine/", category: "\u{1F6F3} Yacht industry" },
-  { handle: "@dockwalk", url: "https://www.instagram.com/dockwalk/", category: "\u{1F6F3} Yacht industry" },
+  // Yacht media & shipyards (NOT brokers — no competitors)
+  { handle: "@boatinternational", url: "https://www.instagram.com/boatinternational/", category: "\u{1F6F3} Yacht media" },
+  { handle: "@superyachttimes", url: "https://www.instagram.com/superyachttimes/", category: "\u{1F6F3} Yacht media" },
+  { handle: "@yachtingmagazine", url: "https://www.instagram.com/yachtingmagazine/", category: "\u{1F6F3} Yacht media" },
+  { handle: "@dockwalk", url: "https://www.instagram.com/dockwalk/", category: "\u{1F6F3} Yacht media" },
+  { handle: "@babordjets", url: "https://www.instagram.com/benettiyachts/", category: "\u{1F6F3} Yacht builders" },
+  { handle: "@ferrabordjets", url: "https://www.instagram.com/ferrettiyachts/", category: "\u{1F6F3} Yacht builders" },
+  { handle: "@azimutaberetti", url: "https://www.instagram.com/azabordjets/", category: "\u{1F6F3} Yacht builders" },
+  { handle: "@sunseeker_intl", url: "https://www.instagram.com/sunseeker_intl/", category: "\u{1F6F3} Yacht builders" },
 
   // Luxury lifestyle (5)
   { handle: "@quintessentially", url: "https://www.instagram.com/quintessentially/", category: "\u{1F48E} Luxury lifestyle" },
