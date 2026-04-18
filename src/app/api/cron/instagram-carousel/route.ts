@@ -57,7 +57,7 @@ export async function GET() {
   let caption = "";
   try {
     const raw = await aiChat(
-      "You write Instagram captions as George Biniaris, Greek yacht charter broker. Return only the caption text.",
+      "You write Instagram captions as George Yachts (brand voice, NOT personal). Use 'we' not 'I'. Never claim personal experience. Return only the caption text.",
       `Write a carousel post caption for: "${topic}"
 
 Rules:

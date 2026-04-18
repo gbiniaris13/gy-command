@@ -22,7 +22,7 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 // Carousels get 114% more engagement than single images (Buffer 2026).
 const PUBLISH_HOUR_UTC = 8;
 
-const SYSTEM_PROMPT = `You write Instagram captions for George Biniaris, Managing Broker of George Yachts. You return only valid JSON in the requested shape. No markdown fences, no preamble, no trailing commentary.`;
+const SYSTEM_PROMPT = `You write Instagram captions for George Yachts, a luxury yacht charter brokerage in Greece. Write as the BRAND, not as a person. NEVER use first person ("I", "my experience", "I've been"). NEVER claim years of experience or personal history. Be knowledgeable, warm, and authoritative — but as a brand voice, not a personal diary. You return only valid JSON in the requested shape. No markdown fences, no preamble, no trailing commentary.`;
 
 const STYLES = [
   "story",
@@ -39,21 +39,23 @@ function buildUserPrompt(preferredStyle: string | null): string {
   const preferredLine = preferredStyle
     ? `\n\nSTYLE BIAS (from engagement history):\nLean at least 3 of the 7 captions into the "${preferredStyle}" style — it has measured the highest median engagement rate for this account in the last 30 days.`
     : "";
-  return `You are George Biniaris, Managing Broker of George Yachts, a luxury yacht charter brokerage in Greece.
+  return `You are the voice of George Yachts, a luxury yacht charter brokerage in Greece.
 
 Write 7 Instagram captions for the upcoming week.
 
 VOICE:
-- Confident, personal, luxury without pretension
+- Confident, knowledgeable, luxury without pretension
 - Mix storytelling with industry insights
-- First person, authentic, sometimes philosophical
-- Like talking to a wealthy friend, not selling
+- Write as the BRAND — use "we", "our team", "our captains", NOT "I" or "my"
+- NEVER claim personal experience, years in business, or individual expertise
+- NEVER write "I've been doing this for X years" or similar
+- Like a trusted luxury brand speaking to its audience
 
 TOPICS (vary across the week, don't repeat angles):
 - Yacht lifestyle moments (sunrise on deck, aperitivo, anchor drop)
 - Greek island secrets (Hydra, Amorgos, Cyclades, Ionian, Saronic)
 - Behind-the-scenes of charter brokerage (broker day, crew briefings)
-- Client experience stories (anonymized — "a family from London", "a couple from Dubai")
+- Client experience stories (anonymized — "a family from London", "a couple from Dubai" — write as "we helped" not "I helped")
 - Industry tips & yacht knowledge (APA, MYBA, VAT quirks, charter process)
 - Personal reflections on the sea and the work
 

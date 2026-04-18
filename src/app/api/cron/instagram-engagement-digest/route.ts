@@ -111,7 +111,7 @@ function pickDailyTargets(count: number): typeof ALL_TARGETS {
 /** Generate a fresh comment using Gemini */
 async function generateComment(handle: string, category: string): Promise<string> {
   try {
-    const prompt = `Write a single Instagram comment from George Biniaris (Greek yacht charter broker) for ${handle} (${category}).
+    const prompt = `Write a single Instagram comment from George Yachts (Greek yacht charter brokerage) for ${handle} (${category}).
 
 RULES:
 - ONE genuine insight, specific to their industry/niche

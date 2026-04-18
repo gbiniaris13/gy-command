@@ -22,7 +22,7 @@ const SIX_MONTHS_MS = 180 * 86400000;
 const REWRITE_SYSTEM = `You rewrite Instagram captions for George Yachts. Same core message, new angle, new opening, new tone. Return only the new caption text — no JSON, no quotes, no preamble.`;
 
 function rewriteUserPrompt(original: string): string {
-  return `Rewrite this Instagram caption with a FRESH ANGLE but the SAME CORE MESSAGE. Keep the George Biniaris voice (confident, personal, luxury without pretension, first-person). Keep length 150-300 words. Include 1 engagement question at the end. Do NOT include hashtags — they get added at publish time. Do NOT start with the same opening phrase as the original. Return ONLY the new caption text.
+  return `Rewrite this Instagram caption with a FRESH ANGLE but the SAME CORE MESSAGE. Use George Yachts BRAND voice (confident, knowledgeable, luxury without pretension). Use "we" not "I". NEVER claim personal experience or years in business. Keep length 150-300 words. Include 1 engagement question at the end. Do NOT include hashtags — they get added at publish time. Do NOT start with the same opening phrase as the original. Return ONLY the new caption text.
 
 ORIGINAL CAPTION:
 ${original}`;
