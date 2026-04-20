@@ -139,15 +139,26 @@ export async function logRateLimitAction(
 }
 
 /**
- * Add a random 0-15 minute delay to a cron execution. Every IG-facing
- * publish cron calls this once at the start. Spreads our activity across
- * the clock so we don't look like a bot firing at X:00:00.
+ * Add a random 0-120 second delay to a cron execution. Every IG-facing
+ * publish cron calls this once at the start. Spreads our activity
+ * across the clock so we don't look like a bot firing at X:00:00.
+ *
+ * Why 120s and not 15 minutes like the brief suggested:
+ * Vercel serverless functions cap at 300s on Pro (our plan) and 60s
+ * on Hobby. A jitter up to 15 min (900s) silently killed ~40% of
+ * publish invocations with 504 Gateway Timeout — confirmed by
+ * runtime logs on 2026-04-20. With jitter capped at 120s, we still
+ * break the exact-on-the-minute bot signal (Meta's detection) while
+ * leaving plenty of headroom (180s) for carousel container creation,
+ * processing poll, and publish.
  *
  * For local dev, set DISABLE_IG_JITTER=1 to skip the wait.
  */
+const JITTER_MAX_MS = 120 * 1000;
+
 export async function applyPublishJitter(): Promise<void> {
   if (process.env.DISABLE_IG_JITTER === "1") return;
-  const jitterMs = Math.floor(Math.random() * 15 * 60 * 1000);
+  const jitterMs = Math.floor(Math.random() * JITTER_MAX_MS);
   if (jitterMs < 100) return; // trivial, skip the log noise
   console.log(`[jitter] sleeping ${(jitterMs / 1000).toFixed(1)}s`);
   await new Promise((r) => setTimeout(r, jitterMs));

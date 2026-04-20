@@ -1,5 +1,10 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+
+// Story container create+poll+publish can hit 30-60s. Raise Vercel's
+// function timeout so jitter + processing don't get 504'd.
+export const maxDuration = 300;
+
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";

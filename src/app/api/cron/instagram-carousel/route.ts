@@ -1,5 +1,11 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+
+// Carousel create+process+publish can take 60-90s with our 3s poll
+// loop × 12. Raise Vercel's function timeout so jitter + processing
+// don't trip the default 60s limit.
+export const maxDuration = 300;
+
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";

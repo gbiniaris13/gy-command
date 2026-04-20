@@ -1,5 +1,11 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+
+// Carousel creation + processing + publish can take 60-90s even
+// without jitter. Bump the Vercel serverless max duration (Pro cap
+// is 300s) so we never get 504'd mid-publish.
+export const maxDuration = 300;
+
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import {

@@ -1,5 +1,11 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+
+// Feed publish loops over multiple scheduled posts. With jitter +
+// processing, runtime can exceed the default 60s Vercel cap. Raise
+// it so we don't 504 mid-batch.
+export const maxDuration = 300;
+
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";

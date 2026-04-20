@@ -1,5 +1,10 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+
+// Reels take the longest to process on IG's side (up to 100s). Raise
+// Vercel's function timeout to cover jitter + polling + publish.
+export const maxDuration = 300;
+
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";
