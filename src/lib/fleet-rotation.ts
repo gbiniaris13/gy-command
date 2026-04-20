@@ -102,12 +102,13 @@ export function angleEligibleForYacht(
       // carry enough story to anchor a post.
       //
       // Fix 2026-04-20: the regex was case-sensitive ("captain") but
-      // Sanity data has "Captain" capitalised. Added /i flag. Also
-      // strengthened the name check: must have "Captain <Name>" where
-      // <Name> is a proper noun (starts with capital, ≥3 chars).
+      // Sanity data has "Captain" capitalised. Single regex with /i
+      // flag, requiring a proper-noun-looking name (≥3 chars, the
+      // first of which — thanks to /i — can be either case).
+      // Prior attempt AND-ed a case-sensitive variant, which negated
+      // the fix for all "Captain George"-style entries. Simpler wins.
       const crew = (yacht.crew ?? "").trim();
-      const hasNamedCaptain = /\bcaptain\s+[A-Z][a-z]{2,}/i.test(crew) &&
-        /captain\s+[A-Z][a-z]{2,}/.test(crew);
+      const hasNamedCaptain = /\bcaptain\s+[a-z]{3,}/i.test(crew);
       return crew.length >= 60 && hasNamedCaptain
         ? { eligible: true }
         : {
