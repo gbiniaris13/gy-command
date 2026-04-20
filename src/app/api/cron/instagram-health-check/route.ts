@@ -324,6 +324,18 @@ async function reportToTelegram(
     );
   }
 
+  // One-shot infrastructure callout (per George 2026-04-20). Expires
+  // after the first Monday past 2026-05-04 so the note shows on the
+  // next 1-2 weekly reports and then disappears forever.
+  const INFRA_NOTE_EXPIRES = new Date("2026-05-04T23:59:59Z").getTime();
+  if (Date.now() < INFRA_NOTE_EXPIRES) {
+    lines.push(
+      "",
+      "🔧 <b>Infra note (one-time):</b>",
+      "Fixed 2026-04-20: Vercel serverless function cap was silently killing ~40% of publish / stories / carousel invocations for the past week (504 timeout inside the 0-900s jitter window). Engagement numbers above compare against that artificially-low baseline — expect a natural bump this week as the fix takes effect.",
+    );
+  }
+
   await sendTelegram(lines.join("\n"));
 }
 
