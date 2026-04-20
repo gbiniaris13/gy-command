@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";
+import {
+  applyPublishJitter,
+  checkRateLimitHealth,
+  logRateLimitAction,
+} from "@/lib/rate-limit-guard";
+import { stripBannedHashtags } from "@/lib/hashtag-guard";
 
 // Feature #9 — Caption quality guard. Returns a rejection reason if
 // the caption isn't ship-worthy so the publish loop can block it,
@@ -163,6 +169,16 @@ export async function GET() {
     return NextResponse.json({ error: "IG not configured", processed: 0 });
   }
 
+  // Phase A — rate-limit circuit breaker. Exits early + Telegram alert
+  // if we're near Meta's hourly/daily cap for post publishing, or if
+  // the global crons_paused flag is set (health check RED).
+  if (!(await checkRateLimitHealth("post_publish"))) {
+    return NextResponse.json({ skipped: "rate_limit", processed: 0 });
+  }
+  // Phase A — anti-bot timing jitter. 0-15 min random delay so the IG
+  // API doesn't see us firing at exactly the cron scheduled time.
+  await applyPublishJitter();
+
   const sb = createServiceClient();
   const { data: posts } = await sb
     .from("ig_posts")
@@ -206,6 +222,17 @@ export async function GET() {
           .from("ig_posts")
           .update({ caption: captionWithHashtags })
           .eq("id", post.id);
+      }
+
+      // Phase A — banned hashtag guard. Strip anything on the Meta
+      // shadowban blocklist before we hand the caption to IG.
+      const { cleaned, stripped } = await stripBannedHashtags(post.caption ?? "");
+      if (stripped.length > 0) {
+        post.caption = cleaned;
+        await sb.from("ig_posts").update({ caption: cleaned }).eq("id", post.id);
+        await sendTelegram(
+          `⚠ Stripped banned hashtags from post ${post.id}: ${stripped.join(" ")}`,
+        );
       }
 
       // Mark as publishing
@@ -267,6 +294,12 @@ export async function GET() {
         ig_media_id: publishData.id,
         published_at: new Date().toISOString(),
       }).eq("id", post.id);
+
+      // Phase A — log successful publish for rate-limit accounting.
+      await logRateLimitAction("post_publish", {
+        post_id: post.id,
+        ig_media_id: publishData.id,
+      });
 
       processed++;
     } catch (err) {

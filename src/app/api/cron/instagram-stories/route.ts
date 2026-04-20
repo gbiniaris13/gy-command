@@ -3,6 +3,11 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";
+import {
+  applyPublishJitter,
+  checkRateLimitHealth,
+  logRateLimitAction,
+} from "@/lib/rate-limit-guard";
 
 // Cron: daily 09:00 UTC (12:00 Athens) — publishes 1 Story per day.
 // Uses a photo from the ROBERTO IG library + AI-generated quote overlay.
@@ -34,6 +39,12 @@ export async function GET() {
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });
   }
+
+  // Phase A — rate-limit breaker + jitter.
+  if (!(await checkRateLimitHealth("story_publish"))) {
+    return NextResponse.json({ skipped: "rate_limit" });
+  }
+  await applyPublishJitter();
 
   const sb = createServiceClient();
 
@@ -192,6 +203,10 @@ export async function GET() {
         )
         .catch(() => {});
 
+      await logRateLimitAction("story_publish", {
+        media_id: publishData.id,
+        photo_id: photo.id,
+      });
       await sendTelegram(`📱 <b>Story published</b>\nTheme: ${theme}`);
       return NextResponse.json({ ok: true, media_id: publishData.id, theme });
     }

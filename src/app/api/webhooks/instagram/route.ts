@@ -3,6 +3,10 @@ import { NextRequest } from "next/server";
 import { aiChat } from "@/lib/ai";
 import { createNotification } from "@/lib/notifications";
 import { sendTelegram } from "@/lib/telegram";
+import {
+  checkRateLimitHealth,
+  logRateLimitAction,
+} from "@/lib/rate-limit-guard";
 
 // Best-effort lookup for a sender's @username. Instagram webhook payloads
 // only contain the numeric user id, so we resolve the handle via a Graph
@@ -285,6 +289,13 @@ Return ONLY valid JSON:
 
           const replyText = String(aiVerdict.reply).trim().slice(0, 500);
 
+          // Phase A — rate-limit breaker. If we're near Meta's hourly
+          // reply cap, skip this one. The UNIQUE(comment_id) mutex already
+          // keeps us idempotent so skipping is safe — we just won't reply.
+          if (!(await checkRateLimitHealth("comment_reply"))) {
+            continue;
+          }
+
           // Post reply to Instagram. Capture the reply id from the
           // response so we have a proof-of-post to store.
           let replyApiId: string | null = null;
@@ -303,6 +314,13 @@ Return ONLY valid JSON:
               throw new Error(
                 postJson?.error?.message ?? `HTTP ${postRes.status}`
               );
+            }
+            // Log for rate-limit accounting (only on real success).
+            if (replyApiId) {
+              await logRateLimitAction("comment_reply", {
+                comment_id: commentId,
+                reply_id: replyApiId,
+              });
             }
           } catch (err) {
             // Reply post failed — flip the claim row to `failed` so
@@ -400,16 +418,22 @@ Return ONLY valid JSON:
               storyMention.payload?.image_url ??
               null;
 
-            // 1. Thank-you DM back to the sender
-            await fetch(`https://graph.instagram.com/v21.0/me/messages`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                recipient: { id: senderId },
-                message: { text: STORY_MENTION_REPLY },
-                access_token: igToken,
-              }),
-            });
+            // 1. Thank-you DM back to the sender — gated on dm_send cap.
+            if (await checkRateLimitHealth("dm_send")) {
+              await fetch(`https://graph.instagram.com/v21.0/me/messages`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  recipient: { id: senderId },
+                  message: { text: STORY_MENTION_REPLY },
+                  access_token: igToken,
+                }),
+              });
+              await logRateLimitAction("dm_send", {
+                kind: "story_mention_thanks",
+                sender_id: senderId,
+              });
+            }
 
             // 2. Feature #6 — auto-repost to our own Story using the
             // Content Publishing API. Two steps: create a media
@@ -574,16 +598,27 @@ Return ONLY valid JSON:
             ? FIRST_MESSAGE_WELCOME + baseReply
             : baseReply;
 
-          // Send reply via Instagram Send API
-          await fetch(`https://graph.instagram.com/v21.0/me/messages`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              recipient: { id: senderId },
-              message: { text: reply },
-              access_token: igToken,
-            }),
-          });
+          // Phase A — rate-limit breaker. If near dm_send cap, skip
+          // the auto-reply. The manual Telegram alert below still fires
+          // so George sees the DM and can respond personally.
+          const dmSendAllowed = await checkRateLimitHealth("dm_send");
+          if (dmSendAllowed) {
+            // Send reply via Instagram Send API
+            await fetch(`https://graph.instagram.com/v21.0/me/messages`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                recipient: { id: senderId },
+                message: { text: reply },
+                access_token: igToken,
+              }),
+            });
+            await logRateLimitAction("dm_send", {
+              kind: "auto_reply",
+              intent,
+              sender_id: senderId,
+            });
+          }
 
           // Log for rate limiting
           await sb.from("ig_dm_replies").insert({

@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";
+import {
+  applyPublishJitter,
+  checkRateLimitHealth,
+  logRateLimitAction,
+} from "@/lib/rate-limit-guard";
+import { stripBannedHashtags } from "@/lib/hashtag-guard";
 
 // Cron: Wednesday 14:00 UTC (17:00 Athens) — weekly carousel post.
 // Carousels get 3x more reach than single images on Instagram.
@@ -29,6 +35,13 @@ export async function GET() {
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });
   }
+
+  // Phase A — rate-limit breaker + jitter. Carousels count as feed posts
+  // for Meta's cap so we share the post_publish action bucket.
+  if (!(await checkRateLimitHealth("post_publish"))) {
+    return NextResponse.json({ skipped: "rate_limit" });
+  }
+  await applyPublishJitter();
 
   const sb = createServiceClient();
 
@@ -71,6 +84,17 @@ Rules:
     caption = raw.replace(/^["']|["']$/g, "").trim();
   } catch {
     caption = `${topic}\n\nSwipe through to discover more. Every detail matters when you're planning the perfect Greek island charter.\n\nFree consultation → link in bio\n\n#yachtcharter #greekislands #greece #luxurytravel #charterlife #georgeyachts`;
+  }
+
+  // Phase A — banned hashtag guard on the AI-generated caption.
+  {
+    const { cleaned, stripped } = await stripBannedHashtags(caption);
+    if (stripped.length > 0) {
+      await sendTelegram(
+        `⚠ Stripped banned hashtags from carousel: ${stripped.join(" ")}`,
+      );
+      caption = cleaned;
+    }
   }
 
   try {
@@ -155,6 +179,10 @@ Rules:
         schedule_time: new Date().toISOString(),
       });
 
+      await logRateLimitAction("post_publish", {
+        media_id: publishData.id,
+        kind: "carousel",
+      });
       await sendTelegram(
         `🎠 <b>Carousel published!</b>\n\nTopic: ${topic}\n${childIds.length} slides\n\nCaption preview: "${caption.slice(0, 100)}..."`
       );
