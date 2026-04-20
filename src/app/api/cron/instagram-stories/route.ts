@@ -7,6 +7,13 @@ import { sendTelegram } from "@/lib/telegram";
 // Cron: daily 09:00 UTC (12:00 Athens) — publishes 1 Story per day.
 // Uses a photo from the ROBERTO IG library + AI-generated quote overlay.
 // Instagram Stories API: media_type=STORIES with image_url.
+//
+// Rotation state is stored in the `settings` key-value table under the
+// key ROTATION_KEY below. No DDL required — works out of the box on
+// any project that already has the settings table (every gy-command
+// env does). The value is a JSON blob:
+//   { lastByPhotoId: { "<uuid>": "<iso>", ... }, lastStoryPhotoId: "<uuid>" }
+// See `instagram-trending/route.ts` for the same key-value pattern.
 
 const QUOTE_THEMES = [
   "Greek sea wisdom — a poetic one-liner about the Aegean",
@@ -17,6 +24,9 @@ const QUOTE_THEMES = [
   "Sailing wisdom — something the sea teaches you",
   "Guest moment — a beautiful unnamed client moment on a yacht",
 ];
+
+const ROTATION_KEY = "story_rotation_v1";
+const COOLDOWN_DAYS = 30;
 
 export async function GET() {
   const igToken = process.env.IG_ACCESS_TOKEN;
@@ -31,82 +41,84 @@ export async function GET() {
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
   const theme = QUOTE_THEMES[dayOfYear % QUOTE_THEMES.length];
 
-  // ── Photo rotation: no back-to-back duplicates, 30-day cooldown ──
-  // Pool = photos never used in a feed post AND (never shown in a story
-  // OR shown > 30 days ago). Ordered least-recently-used first so a
-  // photo used yesterday won't reappear until every other eligible
-  // photo has had its turn.
-  const COOLDOWN_DAYS = 30;
-  const cooldownCutoff = new Date(Date.now() - COOLDOWN_DAYS * 86400000).toISOString();
+  // ── Load rotation state ──
+  // Single JSON row in `settings` that tracks the last_used_at for
+  // every photo and the most recent photo id (for the back-to-back
+  // guard). If the row doesn't exist yet we start from scratch.
+  const { data: stateRow } = await sb
+    .from("settings")
+    .select("value")
+    .eq("key", ROTATION_KEY)
+    .maybeSingle();
 
-  let { data: photos, error: queryError } = await sb
+  let state: { lastByPhotoId: Record<string, string>; lastStoryPhotoId: string | null } = {
+    lastByPhotoId: {},
+    lastStoryPhotoId: null,
+  };
+  if (stateRow?.value) {
+    try {
+      const parsed = JSON.parse(stateRow.value);
+      if (parsed && typeof parsed === "object") {
+        state = {
+          lastByPhotoId: parsed.lastByPhotoId ?? {},
+          lastStoryPhotoId: parsed.lastStoryPhotoId ?? null,
+        };
+      }
+    } catch {
+      // Corrupt JSON — fall back to empty state, we'll overwrite it
+      // on the next successful publish below.
+    }
+  }
+
+  // ── Pull the full eligible library ──
+  // Feed dedup lives on `used_in_post_id` — a photo already used in a
+  // feed post is excluded from Stories too, matching the previous
+  // behaviour. Library is expected to be a few hundred photos max,
+  // so pulling them all is cheap and lets us sort LRU in memory.
+  const { data: allPhotos } = await sb
     .from("ig_photos")
-    .select("id, public_url, last_story_at")
-    .is("used_in_post_id", null)
-    .or(`last_story_at.is.null,last_story_at.lt.${cooldownCutoff}`)
-    .order("last_story_at", { ascending: true, nullsFirst: true })
-    .limit(20);
+    .select("id, public_url")
+    .is("used_in_post_id", null);
 
-  // Self-heal: if the rotation column hasn't been migrated yet, fall
-  // back to the old "newest-first random-pick" behavior so today's
-  // story still publishes, and ping George to run the SQL.
-  let migrationPending = false;
-  if (queryError && /last_story_at/i.test(queryError.message || "")) {
-    migrationPending = true;
-    const { data: legacy } = await sb
-      .from("ig_photos")
-      .select("id, public_url")
-      .is("used_in_post_id", null)
-      .order("uploaded_at", { ascending: false })
-      .limit(10);
-    photos = legacy ? legacy.map((p) => ({ ...p, last_story_at: null })) : [];
-    await sendTelegram(
-      "⚠️ <b>Story rotation fix pending</b>\n\nRun this in Supabase SQL editor to stop duplicate stories:\n\n<code>ALTER TABLE public.ig_photos ADD COLUMN IF NOT EXISTS last_story_at timestamptz;\nCREATE INDEX IF NOT EXISTS idx_ig_photos_last_story_at ON public.ig_photos(last_story_at ASC NULLS FIRST);</code>\n\nUntil then, using old picker (may still repeat)."
-    );
-  }
-
-  // Fallback: library is smaller than the cooldown window. Instead of
-  // failing, pick from the LEAST recently used photos overall.
-  if (!migrationPending && (!photos || photos.length === 0)) {
-    const { data: fallback } = await sb
-      .from("ig_photos")
-      .select("id, public_url, last_story_at")
-      .is("used_in_post_id", null)
-      .order("last_story_at", { ascending: true, nullsFirst: true })
-      .limit(10);
-    photos = fallback || [];
-  }
-
-  if (!photos || photos.length === 0) {
+  if (!allPhotos || allPhotos.length === 0) {
     await sendTelegram("⚠️ No photos available for Stories. Add more to ~/Desktop/ROBERTO IG/");
     return NextResponse.json({ error: "no photos" });
   }
 
-  // Back-to-back guard: never pick the photo used in the most recent
-  // story, even if the cooldown window would otherwise allow it (tiny
-  // library edge case). Skipped when the migration hasn't run yet.
-  let lastStoryPhotoId: string | null = null;
-  if (!migrationPending) {
-    const { data: lastUsed } = await sb
-      .from("ig_photos")
-      .select("id")
-      .not("last_story_at", "is", null)
-      .order("last_story_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    lastStoryPhotoId = lastUsed?.id ?? null;
+  // ── Enrich + rank ──
+  // lastUsedMs = 0 for photos never shown in a story, which sorts them
+  // ahead of any used photo (LRU first).
+  const now = Date.now();
+  const cooldownMs = COOLDOWN_DAYS * 86400000;
+  const enriched = allPhotos.map((p) => {
+    const ts = state.lastByPhotoId[p.id];
+    return {
+      id: p.id,
+      public_url: p.public_url,
+      lastUsedMs: ts ? new Date(ts).getTime() : 0,
+    };
+  });
+
+  // 1. Cooldown filter: prefer photos outside the 30-day window.
+  let pool = enriched.filter((p) => now - p.lastUsedMs >= cooldownMs);
+  // 2. If the filter empties the pool (small library), fall back to
+  //    everyone — the LRU sort below still keeps repetition minimal.
+  if (pool.length === 0) pool = enriched;
+
+  // 3. Sort LRU: least recently used (or never used) first.
+  pool.sort((a, b) => a.lastUsedMs - b.lastUsedMs);
+
+  // 4. Back-to-back guard: never pick the literal previous photo, even
+  //    if somehow the cooldown would allow it (tiny library edge).
+  if (state.lastStoryPhotoId && pool.length > 1) {
+    pool = pool.filter((p) => p.id !== state.lastStoryPhotoId);
   }
 
-  const eligible = lastStoryPhotoId
-    ? photos.filter((p) => p.id !== lastStoryPhotoId)
-    : photos;
-  // If the guard drained the pool (pool of 1 that equals lastId), fall
-  // back to the original list so we still publish something.
-  const pool = eligible.length > 0 ? eligible : photos;
-
-  // Pick from the top of the LRU-ordered pool with a little randomness
-  // so the sequence isn't perfectly deterministic.
-  const photo = pool[Math.floor(Math.random() * Math.min(pool.length, 5))];
+  // 5. Pick from the top of the LRU-ordered pool with a little
+  //    randomness so the sequence isn't perfectly deterministic when
+  //    several never-used photos are tied.
+  const topSlice = pool.slice(0, Math.min(pool.length, 5));
+  const photo = topSlice[Math.floor(Math.random() * topSlice.length)];
 
   try {
     // Create Story container
@@ -155,17 +167,30 @@ export async function GET() {
     const publishData = await publishRes.json();
 
     if (publishData.id) {
-      // Stamp last_story_at so the rotation logic knows this photo is
-      // now on cooldown. We still do NOT set used_in_post_id — that
-      // column is for feed posts only, so stories can reuse photos
-      // once the 30-day cooldown expires. Skipped silently if the
-      // migration hasn't run yet (the Telegram nudge already fired).
-      if (!migrationPending) {
-        await sb
-          .from("ig_photos")
-          .update({ last_story_at: new Date().toISOString() })
-          .eq("id", photo.id);
-      }
+      // ── Persist rotation state ──
+      // Stamp this photo as "used now" in the map and record it as the
+      // last-picked id so the back-to-back guard works tomorrow.
+      // Feed dedup (used_in_post_id) is intentionally NOT touched —
+      // that column is for feed posts only, so stories can reuse
+      // photos once the 30-day cooldown expires.
+      const nextState = {
+        lastByPhotoId: {
+          ...state.lastByPhotoId,
+          [photo.id]: new Date().toISOString(),
+        },
+        lastStoryPhotoId: photo.id,
+      };
+      await sb
+        .from("settings")
+        .upsert(
+          {
+            key: ROTATION_KEY,
+            value: JSON.stringify(nextState),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "key" }
+        )
+        .catch(() => {});
 
       await sendTelegram(`📱 <b>Story published</b>\nTheme: ${theme}`);
       return NextResponse.json({ ok: true, media_id: publishData.id, theme });
