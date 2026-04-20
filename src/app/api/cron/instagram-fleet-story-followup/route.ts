@@ -42,17 +42,17 @@ async function readSetting(sb: any, key: string): Promise<string | null> {
 }
 
 async function writeQueue(sb: any, queue: any[]): Promise<void> {
-  await sb
-    .from("settings")
-    .upsert(
+  // PostgREST builder doesn't expose .catch() — wrap in try/catch.
+  try {
+    await sb.from("settings").upsert(
       {
         key: STORY_QUEUE_KEY,
         value: JSON.stringify(queue),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" },
-    )
-    .catch(() => {});
+    );
+  } catch {}
 }
 
 export async function GET() {

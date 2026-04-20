@@ -211,24 +211,23 @@ Rules:
 
     // Mark the video as used — same semantic as photos in feed.
     // We need to re-upsert the full settings row with updated JSON.
+    // PostgREST builder doesn't expose .catch(); use try/catch.
     const key = `video_${video.id}`;
     const updatedValue = { ...video, used_in_post_id: publishData.id };
-    await sb
-      .from("settings")
-      .upsert(
+    try {
+      await sb.from("settings").upsert(
         {
           key,
           value: JSON.stringify(updatedValue),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "key" },
-      )
-      .catch(() => {});
+      );
+    } catch {}
 
     // Log the post in ig_posts for analytics.
-    await sb
-      .from("ig_posts")
-      .insert({
+    try {
+      await sb.from("ig_posts").insert({
         image_url: video.public_url,
         caption,
         status: "published",
@@ -236,8 +235,8 @@ Rules:
         published_at: new Date().toISOString(),
         schedule_time: new Date().toISOString(),
         metadata: { kind: "reel", video_id: video.id },
-      })
-      .catch(() => {});
+      });
+    } catch {}
 
     await logRateLimitAction("post_publish", {
       media_id: publishData.id,

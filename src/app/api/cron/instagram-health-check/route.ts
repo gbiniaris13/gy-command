@@ -107,20 +107,18 @@ async function maybeAutoDowngradeTier(
   }
 
   const newTier = Math.max(1, currentTier - 1);
-  await sb
-    .from("settings")
-    .upsert(
+  try {
+    await sb.from("settings").upsert(
       {
         key: "content_tier",
         value: String(newTier),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" },
-    )
-    .catch(() => {});
-  await sb
-    .from("settings")
-    .upsert(
+    );
+  } catch {}
+  try {
+    await sb.from("settings").upsert(
       {
         key: "content_tier_history",
         value: JSON.stringify({
@@ -132,8 +130,8 @@ async function maybeAutoDowngradeTier(
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" },
-    )
-    .catch(() => {});
+    );
+  } catch {}
 
   return {
     downgraded: true,
@@ -239,23 +237,21 @@ async function applyAutoPause(sb: any, health: Health): Promise<void> {
   // on every invocation and short-circuits, so every outbound cron
   // stops within one tick. Webhooks keep responding (replies in-flight
   // are OK; the guard there only stops NEW outbound actions).
-  await sb
-    .from("settings")
-    .upsert(
+  try {
+    await sb.from("settings").upsert(
       {
         key: "crons_paused",
         value: "true",
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" },
-    )
-    .catch(() => {});
+    );
+  } catch {}
 
   // Also persist a reason + timestamp so the dashboard can explain
   // the pause later.
-  await sb
-    .from("settings")
-    .upsert(
+  try {
+    await sb.from("settings").upsert(
       {
         key: "crons_paused_reason",
         value: JSON.stringify({
@@ -265,20 +261,19 @@ async function applyAutoPause(sb: any, health: Health): Promise<void> {
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" },
-    )
-    .catch(() => {});
+    );
+  } catch {}
 }
 
 async function persistBaselines(sb: any, health: Health): Promise<void> {
   // Snapshot this week's follower count for next week's comparison.
-  await sb
-    .from("ig_follower_history")
-    .insert({
+  try {
+    await sb.from("ig_follower_history").insert({
       follower_count: health.metrics.followers_now,
       recorded_at: new Date().toISOString(),
       source: "health_check",
-    })
-    .catch(() => {});
+    });
+  } catch {}
 }
 
 async function reportToTelegram(

@@ -143,17 +143,17 @@ export async function loadRotationState(): Promise<RotationState> {
 
 export async function persistRotationState(state: RotationState): Promise<void> {
   const sb = createServiceClient();
-  await sb
-    .from("settings")
-    .upsert(
+  // PostgREST builder doesn't expose .catch() — wrap in try/catch.
+  try {
+    await sb.from("settings").upsert(
       {
         key: ROTATION_KEY,
         value: JSON.stringify(state),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" },
-    )
-    .catch(() => {});
+    );
+  } catch {}
 }
 
 /**

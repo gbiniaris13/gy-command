@@ -88,17 +88,19 @@ async function queueStoryFollowup(
   // Prune old already-fired entries (fireAt > 5d past) so the blob stays small.
   const cutoff = Date.now() - 5 * 86400000;
   queue = queue.filter((q) => new Date(q.fireAt).getTime() >= cutoff);
-  await sb
-    .from("settings")
-    .upsert(
+  // NOTE: the Supabase PostgREST builder doesn't expose .catch() — wrap
+  // in try/catch so a transient settings write failure doesn't bubble up
+  // and blow the whole fleet-post flow after a successful publish.
+  try {
+    await sb.from("settings").upsert(
       {
         key: STORY_QUEUE_KEY,
         value: JSON.stringify(queue),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "key" },
-    )
-    .catch(() => {});
+    );
+  } catch {}
 }
 
 export async function GET() {
@@ -278,10 +280,10 @@ export async function GET() {
     // ── Success path ──
     const utmUrl = buildFleetUTM(yacht, angle);
 
-    // Log into ig_posts for analytics coverage.
-    await sb
-      .from("ig_posts")
-      .insert({
+    // Log into ig_posts for analytics coverage. PostgREST builder
+    // doesn't expose .catch(), so we swallow errors with try/catch.
+    try {
+      await sb.from("ig_posts").insert({
         image_url: photos[0],
         caption,
         status: "published",
@@ -297,13 +299,12 @@ export async function GET() {
           photos_count: photos.length,
           fleet_tier: yacht.fleetTier,
         },
-      })
-      .catch(() => {});
+      });
+    } catch {}
 
     // Log into settings KV for the fleet_post_% index (rotation + cap counting).
-    await sb
-      .from("settings")
-      .insert({
+    try {
+      await sb.from("settings").insert({
         key: `fleet_post_${publishData.id}`,
         value: JSON.stringify({
           sanity_yacht_id: yacht._id,
@@ -316,8 +317,8 @@ export async function GET() {
           posted_at: new Date().toISOString(),
         }),
         updated_at: new Date().toISOString(),
-      })
-      .catch(() => {});
+      });
+    } catch {}
 
     // Update rotation state.
     const nextState = updateStateAfterPost(state, yacht._id, angle);
