@@ -9,6 +9,7 @@ import {
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
+import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 
 // Cron: Wednesday 14:00 UTC (17:00 Athens) — weekly carousel post.
 // Carousels get 3x more reach than single images on Instagram.
@@ -94,6 +95,16 @@ Rules:
         `⚠ Stripped banned hashtags from carousel: ${stripped.join(" ")}`,
       );
       caption = cleaned;
+    }
+  }
+
+  // Phase B — caption similarity check (fail-open, alert only).
+  {
+    const sim = await isCaptionTooSimilar(caption);
+    if (sim.similar) {
+      await sendTelegram(
+        `⚠ <b>Carousel caption similarity flag</b>\nReason: ${sim.reason ?? "n/a"}\nMatched: "${sim.matchedCaptionPreview ?? ""}..."\n\nPublishing anyway.`,
+      );
     }
   }
 

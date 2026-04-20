@@ -54,9 +54,93 @@ export async function GET() {
   const health = await computeHealth(sb, igToken);
   await persistBaselines(sb, health);
   await applyAutoPause(sb, health);
-  await reportToTelegram(health);
+  const tierAction = await maybeAutoDowngradeTier(sb, health);
+  await reportToTelegram(health, tierAction);
 
-  return NextResponse.json({ ok: true, ...health });
+  return NextResponse.json({ ok: true, ...health, tierAction });
+}
+
+/**
+ * Phase B — auto-tier-downgrade.
+ *
+ * Per George's stated success metric: HOT-classified DMs are the
+ * primary signal, NOT engagement rate. If HOT DMs drop >50% week-over-
+ * week AND we published ≥7 posts this week (so it's not a
+ * low-activity artifact), auto-downgrade content_tier by one step
+ * and Telegram the change.
+ *
+ * Tiers: 1.5 (current cautious launch) → 2 → 3 (max aggressive).
+ * Downgrade floor is tier 1 (baseline). Upgrade is NEVER automatic —
+ * that's a manual George decision after reviewing HOT DM trend.
+ */
+async function maybeAutoDowngradeTier(
+  sb: any,
+  health: Health,
+): Promise<{ downgraded: boolean; from?: string; to?: string; reason?: string }> {
+  const { hot_dms_this_week, hot_dms_last_week, posts_this_week } = health.metrics;
+
+  // Guard against noise from low-activity weeks.
+  if (posts_this_week < 7) {
+    return { downgraded: false, reason: "low activity week — skipping" };
+  }
+  // Need at least 3 HOT DMs baseline to compute a meaningful drop.
+  if (hot_dms_last_week < 3) {
+    return { downgraded: false, reason: "baseline too small" };
+  }
+  // 50% threshold per George's "HOT-flat or down → hold tier" stance.
+  if (hot_dms_this_week >= hot_dms_last_week * 0.5) {
+    return { downgraded: false };
+  }
+
+  // Pull current tier (default 1).
+  const { data: tierRow } = await sb
+    .from("settings")
+    .select("value")
+    .eq("key", "content_tier")
+    .maybeSingle();
+  const currentTier = Number(tierRow?.value ?? 1);
+  if (currentTier <= 1) {
+    return {
+      downgraded: false,
+      reason: "already at tier 1 baseline — cannot go lower",
+    };
+  }
+
+  const newTier = Math.max(1, currentTier - 1);
+  await sb
+    .from("settings")
+    .upsert(
+      {
+        key: "content_tier",
+        value: String(newTier),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" },
+    )
+    .catch(() => {});
+  await sb
+    .from("settings")
+    .upsert(
+      {
+        key: "content_tier_history",
+        value: JSON.stringify({
+          downgraded_at: new Date().toISOString(),
+          from: currentTier,
+          to: newTier,
+          reason: `HOT DMs ${hot_dms_this_week}/${hot_dms_last_week} — dropped >50%`,
+        }),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" },
+    )
+    .catch(() => {});
+
+  return {
+    downgraded: true,
+    from: String(currentTier),
+    to: String(newTier),
+    reason: `HOT DMs dropped ${hot_dms_this_week}/${hot_dms_last_week} week-over-week`,
+  };
 }
 
 async function computeHealth(sb: any, igToken: string): Promise<Health> {
@@ -197,7 +281,10 @@ async function persistBaselines(sb: any, health: Health): Promise<void> {
     .catch(() => {});
 }
 
-async function reportToTelegram(health: Health): Promise<void> {
+async function reportToTelegram(
+  health: Health,
+  tierAction?: { downgraded: boolean; from?: string; to?: string; reason?: string },
+): Promise<void> {
   const emoji =
     health.level === "GREEN" ? "✅" : health.level === "YELLOW" ? "⚠" : "🚨";
   const lines = [
@@ -218,6 +305,15 @@ async function reportToTelegram(health: Health): Promise<void> {
   if (health.flags.length > 0) {
     lines.push("", "<b>Flags:</b>");
     for (const f of health.flags) lines.push(`• ${f}`);
+  }
+
+  if (tierAction?.downgraded) {
+    lines.push(
+      "",
+      `📉 <b>Auto-downgraded content tier:</b> ${tierAction.from} → ${tierAction.to}`,
+      `<i>${tierAction.reason}</i>`,
+      "Manual override: upsert settings.content_tier via dashboard.",
+    );
   }
 
   if (health.level === "RED") {

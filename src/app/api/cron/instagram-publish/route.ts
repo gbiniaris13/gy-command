@@ -9,6 +9,7 @@ import {
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
+import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 
 // Feature #9 — Caption quality guard. Returns a rejection reason if
 // the caption isn't ship-worthy so the publish loop can block it,
@@ -232,6 +233,17 @@ export async function GET() {
         await sb.from("ig_posts").update({ caption: cleaned }).eq("id", post.id);
         await sendTelegram(
           `⚠ Stripped banned hashtags from post ${post.id}: ${stripped.join(" ")}`,
+        );
+      }
+
+      // Phase B — caption similarity check. Reject near-duplicates of
+      // anything published in the last 50 posts. Non-blocking: if the
+      // check fires, we log + alert but still publish (fail-open keeps
+      // the feed alive; the alert tells George to nudge the voice).
+      const sim = await isCaptionTooSimilar(post.caption ?? "");
+      if (sim.similar) {
+        await sendTelegram(
+          `⚠ <b>Caption similarity flag</b>\nPost: ${post.id}\nReason: ${sim.reason ?? "n/a"}\nMatched: "${sim.matchedCaptionPreview ?? "n/a"}..."\n\nPublishing anyway (fail-open). Consider tweaking the weekly generator prompt if this repeats.`,
         );
       }
 

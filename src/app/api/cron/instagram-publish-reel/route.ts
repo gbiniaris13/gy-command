@@ -9,6 +9,7 @@ import {
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
+import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 
 // Cron: publishes 1 Instagram Reel per firing, picking an unused video
 // from the library + generating a fresh caption.
@@ -133,6 +134,16 @@ Rules:
       caption = cleaned;
       await sendTelegram(
         `⚠ Stripped banned hashtags from reel: ${stripped.join(" ")}`,
+      );
+    }
+  }
+
+  // Phase B caption similarity (fail-open).
+  {
+    const sim = await isCaptionTooSimilar(caption);
+    if (sim.similar) {
+      await sendTelegram(
+        `⚠ Reel caption similarity flag — ${sim.reason ?? "n/a"}`,
       );
     }
   }
