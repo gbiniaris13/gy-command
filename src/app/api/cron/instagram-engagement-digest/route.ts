@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { sendTelegram } from "@/lib/telegram";
 import { aiChat } from "@/lib/ai";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: 11:07 UTC daily (= 14:07 Athens in summer).
 //
@@ -142,7 +143,7 @@ function esc(s: string) {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TG = { disablePreview: true } as const;
 
-export async function GET() {
+async function _observedImpl() {
   const targets = pickDailyTargets(DAILY_PICK_COUNT);
   let sent = 0;
 
@@ -189,4 +190,11 @@ export async function GET() {
     pool_size: ALL_TARGETS.length,
     rotation: "daily",
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-engagement-digest", () => (_observedImpl as any)(...args));
 }

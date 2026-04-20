@@ -15,6 +15,7 @@ import {
 } from "@/lib/rate-limit-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: publishes 1 Instagram Reel per firing, picking an unused video
 // from the library + generating a fresh caption.
@@ -49,7 +50,7 @@ const REEL_ANGLES = [
 
 const FLAG_KEY = "reels_enabled";
 
-export async function GET() {
+async function _observedImpl() {
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -257,4 +258,11 @@ Rules:
     await sendTelegram(`❌ Reel publish error: ${err?.message ?? err}`);
     return NextResponse.json({ error: err?.message ?? "unknown" });
   }
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-publish-reel", () => (_observedImpl as any)(...args));
 }

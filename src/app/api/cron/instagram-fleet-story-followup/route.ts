@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 import {
   checkRateLimitHealth,
   logRateLimitAction,
@@ -55,7 +56,7 @@ async function writeQueue(sb: any, queue: any[]): Promise<void> {
   } catch {}
 }
 
-export async function GET() {
+async function _observedImpl() {
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -187,4 +188,11 @@ export async function GET() {
     results,
     pending: stillPending.length,
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-fleet-story-followup", () => (_observedImpl as any)(...args));
 }

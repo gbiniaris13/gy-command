@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: every 4 hours (cadence from the brief).
 //
@@ -61,7 +62,7 @@ async function topMedia(hashtagId: string, igUserId: string, token: string) {
   }
 }
 
-export async function GET() {
+async function _observedImpl() {
   const token = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!token || !igId) {
@@ -206,4 +207,11 @@ export async function GET() {
       permalink: v.permalink,
     })),
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-trending", () => (_observedImpl as any)(...args));
 }

@@ -8,6 +8,7 @@ export const maxDuration = 300;
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 import {
   applyPublishJitter,
   checkRateLimitHealth,
@@ -38,7 +39,7 @@ const QUOTE_THEMES = [
 const ROTATION_KEY = "story_rotation_v1";
 const COOLDOWN_DAYS = 30;
 
-export async function GET() {
+async function _observedImpl() {
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -220,4 +221,11 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({ error: err.message });
   }
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-stories", () => (_observedImpl as any)(...args));
 }

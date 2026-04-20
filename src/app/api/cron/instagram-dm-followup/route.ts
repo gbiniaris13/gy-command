@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: daily 10:00 UTC (13:00 Athens).
 // Sends soft follow-up DM to people who received a welcome DM 5 days ago
@@ -16,7 +17,7 @@ const FOLLOW_UP_MESSAGES = [
   "Just a friendly nudge — summer in Greece is something else. If you're curious about chartering, even just exploring what's possible, I'm here. No rush. 🌊",
 ];
 
-export async function GET() {
+async function _observedImpl() {
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -107,4 +108,11 @@ export async function GET() {
   }
 
   return NextResponse.json({ ok: true, followed_up: sent });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-dm-followup", () => (_observedImpl as any)(...args));
 }

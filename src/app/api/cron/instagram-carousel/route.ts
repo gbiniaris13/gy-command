@@ -16,6 +16,7 @@ import {
 } from "@/lib/rate-limit-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: Wednesday 14:00 UTC (17:00 Athens) — weekly carousel post.
 // Carousels get 3x more reach than single images on Instagram.
@@ -36,7 +37,7 @@ const CAROUSEL_TOPICS = [
   "Greek yacht cuisine: 5 dishes your chef will prepare",
 ];
 
-export async function GET() {
+async function _observedImpl() {
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -211,4 +212,11 @@ Rules:
   } catch (err) {
     return NextResponse.json({ error: err.message });
   }
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-carousel", () => (_observedImpl as any)(...args));
 }

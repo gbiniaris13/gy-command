@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: daily 09:00 UTC (12:00 Athens).
 //
@@ -23,7 +24,7 @@ const WINDOW_DAYS = 30;
 const MIN_POSTS_PER_STYLE = 2;
 const PREFERRED_STYLE_KEY = "ig_preferred_style";
 
-export async function GET() {
+async function _observedImpl() {
   const sb = createServiceClient();
 
   const since = new Date(Date.now() - WINDOW_DAYS * 86400000).toISOString();
@@ -129,4 +130,11 @@ export async function GET() {
       samples: r.sample_size,
     })),
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-style-preference", () => (_observedImpl as any)(...args));
 }

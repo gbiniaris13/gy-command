@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { observeCron } from "@/lib/cron-observer";
 
 // Daily competitor watch — AI-sourced.
 //
@@ -58,7 +59,7 @@ function safeNumber(v: unknown): number {
   return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
 }
 
-export async function GET() {
+async function _observedImpl() {
   let raw: string;
   try {
     raw = await aiChat(
@@ -141,4 +142,11 @@ export async function GET() {
     failures: failed,
     source: "ai_estimate",
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-competitors", () => (_observedImpl as any)(...args));
 }

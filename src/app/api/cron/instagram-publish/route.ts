@@ -16,6 +16,7 @@ import {
 } from "@/lib/rate-limit-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
+import { observeCron } from "@/lib/cron-observer";
 
 // Feature #9 — Caption quality guard. Returns a rejection reason if
 // the caption isn't ship-worthy so the publish loop can block it,
@@ -169,7 +170,7 @@ async function swapImageFromLibrary(sb, post) {
 }
 
 // Cron: publishes scheduled Instagram posts when their time arrives
-export async function GET() {
+async function _observedImpl() {
   const token = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!token || !igId) {
@@ -329,4 +330,11 @@ export async function GET() {
   }
 
   return NextResponse.json({ processed });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-publish", () => (_observedImpl as any)(...args));
 }

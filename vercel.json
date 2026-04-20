@@ -115,6 +115,10 @@
     {
       "path": "/api/cron/instagram-fleet-story-followup",
       "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/cron/instagram-weekly-ops-report",
+      "schedule": "0 7 * * 4"
     }
   ]
 }

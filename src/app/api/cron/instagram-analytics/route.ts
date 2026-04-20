@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { observeCron } from "@/lib/cron-observer";
 
 // Vercel cron — pulls insights for every post published in the last 7
 // days and upserts them into ig_post_analytics. Runs every 6 hours so
@@ -29,7 +30,7 @@ function valueOf(rows: InsightRow[], name: string): number {
   return row?.values?.[0]?.value ?? 0;
 }
 
-export async function GET() {
+async function _observedImpl() {
   const token = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!token || !igId) {
@@ -140,4 +141,11 @@ export async function GET() {
     total: posts.length,
     failures: failed.slice(0, 5), // trim to avoid noisy payloads
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-analytics", () => (_observedImpl as any)(...args));
 }

@@ -16,6 +16,7 @@ import {
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { fetchFleetPool, buildFleetUTM } from "@/lib/sanity-fleet";
+import { observeCron } from "@/lib/cron-observer";
 import {
   loadRotationState,
   persistRotationState,
@@ -103,7 +104,7 @@ async function queueStoryFollowup(
   } catch {}
 }
 
-export async function GET() {
+async function _observedImpl() {
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -369,4 +370,11 @@ export async function GET() {
     await sendTelegram(`❌ Fleet post exception (${yacht.name}): ${err?.message ?? err}`);
     return NextResponse.json({ error: err?.message ?? "unknown" });
   }
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-fleet-post", () => (_observedImpl as any)(...args));
 }

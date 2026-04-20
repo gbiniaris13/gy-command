@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: daily 08:00 UTC (11:00 Athens).
 //
@@ -28,7 +29,7 @@ const WINDOW_START_DAYS = 14;
 const WINDOW_END_DAYS = 60;
 const DEDUP_KEY_PREFIX = "ig_underperformer_flagged:";
 
-export async function GET() {
+async function _observedImpl() {
   const sb = createServiceClient();
 
   const now = Date.now();
@@ -164,4 +165,11 @@ export async function GET() {
       caption_preview: (p.caption ?? "").slice(0, 60),
     })),
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-underperformers", () => (_observedImpl as any)(...args));
 }

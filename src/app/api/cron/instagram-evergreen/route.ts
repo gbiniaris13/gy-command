@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: 1st of every month at 07:00 UTC (10:00 Athens).
 // Pulls the top-20%-engagement posts older than 6 months from
@@ -43,7 +44,7 @@ function pickSpreadDates(now: Date, count: number): Date[] {
   return out;
 }
 
-export async function GET() {
+async function _observedImpl() {
   const sb = createServiceClient();
 
   // 1. Gather signal — oldest first so we can filter > 6 months,
@@ -188,4 +189,11 @@ export async function GET() {
       error: r.error ?? null,
     })),
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-evergreen", () => (_observedImpl as any)(...args));
 }

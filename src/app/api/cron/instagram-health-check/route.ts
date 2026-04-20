@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: Monday 07:00 UTC (10:00 Athens) — weekly account health check.
 //
@@ -42,7 +43,7 @@ type Health = {
   };
 };
 
-export async function GET() {
+async function _observedImpl() {
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -430,4 +431,11 @@ async function countPostsPublished(sb: any, windowMs: number): Promise<number> {
 
 function fmtPct(n: number): string {
   return `${(n * 100).toFixed(2)}%`;
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-health-check", () => (_observedImpl as any)(...args));
 }

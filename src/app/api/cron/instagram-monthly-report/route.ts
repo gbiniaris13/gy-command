@@ -2,11 +2,12 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: 1st of every month, 08:00 UTC.
 // Monthly Instagram performance report via Telegram.
 
-export async function GET() {
+async function _observedImpl() {
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -102,4 +103,11 @@ ${(unusedPhotos || 0) <= 10 ? "⚠️ LOW — add more photos!" : "✅ Healthy"}
   } catch (err) {
     return NextResponse.json({ error: err.message });
   }
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-monthly-report", () => (_observedImpl as any)(...args));
 }

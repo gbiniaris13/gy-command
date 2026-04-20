@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: every Sunday at 07:00 UTC (10:00 Athens) Gemini generates 7
 // captions in George Biniaris voice and schedules them for Mon-Sun of
@@ -103,7 +104,7 @@ function upcomingMondayUtc(now = new Date()): Date {
   return d;
 }
 
-export async function GET() {
+async function _observedImpl() {
   const sb = createServiceClient();
   const startMonday = upcomingMondayUtc();
   const endSunday = new Date(startMonday.getTime() + 6 * 86400000);
@@ -287,4 +288,11 @@ export async function GET() {
       caption_preview: r.caption.slice(0, 100),
     })),
   });
+}
+
+
+// Observability wrapper — records success/error/skipped/timeout
+// outcomes to settings KV for the Thursday ops report.
+export async function GET(...args: any[]) {
+  return observeCron("instagram-generate-weekly", () => (_observedImpl as any)(...args));
 }
