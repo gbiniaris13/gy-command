@@ -100,9 +100,15 @@ export function angleEligibleForYacht(
       // Rich crew string with at least a captain name and some context.
       // Weak crew strings like "3" or "Captain, Chef, Stewardess" don't
       // carry enough story to anchor a post.
+      //
+      // Fix 2026-04-20: the regex was case-sensitive ("captain") but
+      // Sanity data has "Captain" capitalised. Added /i flag. Also
+      // strengthened the name check: must have "Captain <Name>" where
+      // <Name> is a proper noun (starts with capital, ≥3 chars).
       const crew = (yacht.crew ?? "").trim();
-      const hasName = /captain\s+[A-Z][a-z]/.test(crew);
-      return crew.length >= 60 && hasName
+      const hasNamedCaptain = /\bcaptain\s+[A-Z][a-z]{2,}/i.test(crew) &&
+        /captain\s+[A-Z][a-z]{2,}/.test(crew);
+      return crew.length >= 60 && hasNamedCaptain
         ? { eligible: true }
         : {
             eligible: false,
