@@ -25,13 +25,31 @@ const BUCKET = "ig-videos";
 const MAX_BYTES = 100 * 1024 * 1024;
 
 async function ensureBucket(sb: ReturnType<typeof createServiceClient>) {
+  // Create if missing. Supabase returns a "already exists" error we swallow.
   try {
-    const { error } = await sb.storage.createBucket(BUCKET, { public: true });
+    const { error } = await sb.storage.createBucket(BUCKET, {
+      public: true,
+      fileSizeLimit: MAX_BYTES,
+    });
     if (error && !/already exists/i.test(error.message || "")) {
       throw error;
     }
   } catch (err: any) {
     if (!/already exists/i.test(err?.message || "")) throw err;
+  }
+
+  // Idempotent: always raise the file-size limit to 100 MB. Supabase's
+  // default is 50 MB, which kills any reel clip over that size with a
+  // 413 "object exceeded maximum allowed size". Updating an existing
+  // bucket's limit is a no-op if it already matches.
+  try {
+    await sb.storage.updateBucket(BUCKET, {
+      public: true,
+      fileSizeLimit: MAX_BYTES,
+    });
+  } catch {
+    // Fail-open — worst case the upload itself returns 413 and the
+    // script reports it per-file. We still attempt the upload.
   }
 }
 
