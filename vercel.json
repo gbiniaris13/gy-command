@@ -107,6 +107,14 @@
     {
       "path": "/api/cron/instagram-health-check",
       "schedule": "0 7 * * 1"
+    },
+    {
+      "path": "/api/cron/instagram-fleet-post",
+      "schedule": "0 6 * * 1,3,5,0"
+    },
+    {
+      "path": "/api/cron/instagram-fleet-story-followup",
+      "schedule": "0 */3 * * *"
     }
   ]
 }
