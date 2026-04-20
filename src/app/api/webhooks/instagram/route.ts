@@ -7,6 +7,87 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
+import {
+  VOICE_GUARDRAILS,
+  detectBannedPhrases,
+} from "@/lib/ai-voice-guardrails";
+
+// Heuristic: flag comments that look like content-scraper spam.
+// Triggered by: copy-paste "send me this" patterns, one-word price
+// probes, botlike usernames + hype-only text. Runs BEFORE the AI
+// classifier so we never pay for a call on these — and short-circuits
+// the whole reply+DM path (silent drop, logged for analysis).
+//
+// Introduced 2026-04-20 after @europebuzz "Send me this post ❤️"
+// triggered an auto-reply. That opens 24h message windows with bot
+// accounts, risks Meta spam flags, and burns scarce DM bandwidth.
+function isLikelyScraperSpam(
+  commentText: string,
+  commenterUsername: string | null,
+): { scraper: boolean; reason?: string } {
+  const text = (commentText ?? "").trim().toLowerCase();
+  const user = (commenterUsername ?? "").toLowerCase();
+
+  if (!text) return { scraper: false };
+
+  // 1. Classic "send me this" / "DM me this" scraper copy-paste.
+  const sendMePatterns = [
+    /\bsend\s+(?:me|to\s+me)\s+(?:this|the\s+)?post\b/,
+    /\bsend\s+it\s+to\s+me\b/,
+    /\bdm\s+me\s+this\b/,
+    /\bshare\s+(?:it|this)\s+to\s+me\b/,
+    /\bcan\s+you\s+send\s+(?:me|this)\b/,
+  ];
+  for (const p of sendMePatterns) {
+    if (p.test(text)) {
+      return {
+        scraper: true,
+        reason: `send-me-this pattern: "${text.slice(0, 60)}"`,
+      };
+    }
+  }
+
+  // 2. One-word price / info probes — mass automation signature.
+  // (NB: full-sentence price questions in DMs are fine — this is
+  // comments only, where a one-word "Price?" is near-zero intent.)
+  const oneWordProbes = ["price?", "info?", "link?", "cost?"];
+  if (oneWordProbes.includes(text)) {
+    return { scraper: true, reason: `one-word probe: "${text}"` };
+  }
+
+  // 3. "Link in bio?" ask when link-in-bio is obvious — scraper tell.
+  if (/^link\s+in\s+bio\s*\??$/i.test(text)) {
+    return { scraper: true, reason: "redundant link-in-bio ask" };
+  }
+
+  // 4. Username patterns typical of repost farms, combined with
+  // hype-only text. Neither signal alone is enough — together they are.
+  const botUserPatterns = [
+    /_buzz$/,
+    /_daily$/,
+    /^travel_\w+_\d+$/,
+    /^luxury_\w+_\w+$/,
+    /^\w+_vibes(_\w+)?$/,
+    /^\w+city_\w+$/,
+    /\d{4,}$/, // trailing 4+ digit suffix — content-farm marker
+  ];
+  const botUserMatch = botUserPatterns.some((p) => p.test(user));
+  if (botUserMatch) {
+    const hypeOnly =
+      text.length < 50 &&
+      /^[\s❤️🤍🖤💕❤️‍🔥💯🔥✨🙌👏👌😍🤩💃😘😁😂❗❣️]+$|\b(?:beautiful|amazing|stunning|incredible|wow|gorgeous|lovely|perfect|nice)[\s.!❤️🔥✨👏]*$/i.test(
+        text,
+      );
+    if (hypeOnly) {
+      return {
+        scraper: true,
+        reason: `botlike username "${user}" + hype-only comment`,
+      };
+    }
+  }
+
+  return { scraper: false };
+}
 
 // Best-effort lookup for a sender's @username. Instagram webhook payloads
 // only contain the numeric user id, so we resolve the handle via a Graph
@@ -198,6 +279,24 @@ export async function POST(request: NextRequest) {
           // ourselves". Every genuine comment from every user now
           // gets its own contextual reply, classified independently.
 
+          // ── CONTENT_SCRAPER_SPAM gate (Phase F, 2026-04-20) ──
+          // Run a heuristic scraper-spam check BEFORE we spend an AI
+          // call or open a messaging window. Silent drop — no reply,
+          // no DM, no Telegram. Just flip the claim row to skipped
+          // with a distinct status so retro analysis can count these.
+          const scraperCheck = isLikelyScraperSpam(commentRaw, commenterUsername);
+          if (scraperCheck.scraper) {
+            await sb
+              .from("ig_comment_replies")
+              .update({
+                status: "scraper_spam",
+                reply_text: "",
+                error: scraperCheck.reason ?? "scraper spam heuristic",
+              })
+              .eq("comment_id", commentId);
+            continue;
+          }
+
           // Fetch the parent post caption so the AI can be contextual
           let postCaption = "";
           if (parentMediaId) {
@@ -212,7 +311,9 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          const classifyPrompt = `Classify this Instagram comment and, if it's genuine engagement, write a reply from George Biniaris voice.
+          const classifyPrompt = `${VOICE_GUARDRAILS}
+
+Classify this Instagram comment and, if it's genuine engagement, write a reply in the George Yachts brand voice.
 
 POST CAPTION:
 ${postCaption || "(unavailable)"}
@@ -228,13 +329,10 @@ C) emoji — only emojis / reactions with no text
 Rules for the reply when classification is "genuine":
 - 1-2 sentences max
 - Warm but professional, George Yachts brand voice (NOT personal "I")
-- Use "we" when referring to the company, or just speak generally
-- NEVER claim personal experience ("I've been...", "my X years...")
-- NEVER just "Thanks!" / "Appreciate it!" — add a small, specific insight about Greek waters or the topic
+- NEVER just "Thanks!" / "Appreciate it!" — add ONE small, specific Greek-waters insight relevant to the post. Concrete detail, not superlatives.
 - NEVER include links or business names
 - NEVER mention pricing, bookings, or selling
-- If the comment is a compliment, thank them but add a relevant fact or insight
-- If the comment is a question, give a brief genuine answer
+- Obey every BRAND VOICE RULE above — especially banned fillers ("unparalleled", "unforgettable", "exceptional", "stunning", etc.) and the emoji whitelist.
 
 Return ONLY valid JSON:
 {"action": "reply" | "skip", "reply": "..."}`;
@@ -287,7 +385,38 @@ Return ONLY valid JSON:
             continue;
           }
 
-          const replyText = String(aiVerdict.reply).trim().slice(0, 500);
+          let replyText = String(aiVerdict.reply).trim().slice(0, 500);
+
+          // Phase F — banned-phrase check on the reply. If the model
+          // slipped in filler ("unparalleled", "unforgettable", etc.),
+          // try ONE regeneration with the offending phrases called out.
+          // If still bad, log to Telegram and publish anyway (fail-open).
+          const repliesBanned = detectBannedPhrases(replyText);
+          if (repliesBanned.length > 0) {
+            try {
+              const retryPrompt = `${classifyPrompt}\n\nAVOID these filler words that slipped in: ${repliesBanned.join(", ")}. Replace each with a concrete specific.`;
+              const retryRaw = await aiChat(
+                "You classify Instagram comments and return only JSON. No markdown.",
+                retryPrompt,
+              );
+              const rm = retryRaw.match(/\{[\s\S]*\}/);
+              if (rm) {
+                const retryVerdict = JSON.parse(rm[0]);
+                if (retryVerdict?.action === "reply" && retryVerdict?.reply) {
+                  replyText = String(retryVerdict.reply).trim().slice(0, 500);
+                }
+              }
+            } catch {
+              // retry failed — keep first attempt
+            }
+            // Final check — alert if still dirty.
+            const stillBanned = detectBannedPhrases(replyText);
+            if (stillBanned.length > 0) {
+              await sendTelegram(
+                `⚠ Comment reply voice audit — banned filler slipped through to @${commenterUsername ?? "unknown"}: ${stillBanned.join(", ")}. Tighten the classifier prompt.`,
+              );
+            }
+          }
 
           // Phase A — rate-limit breaker. If we're near Meta's hourly
           // reply cap, skip this one. The UNIQUE(comment_id) mutex already

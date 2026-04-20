@@ -21,24 +21,29 @@
 import { aiChat } from "./ai";
 import type { FleetYacht } from "./sanity-fleet";
 import type { FleetAngle } from "./fleet-rotation";
+import {
+  VOICE_GUARDRAILS,
+  detectBannedPhrases,
+  detectEmojiViolations,
+} from "./ai-voice-guardrails";
 
 // ── Brand system prompt (post-live-review corrections 2026-04-20) ──
-// 5 hard rules baked into every angle prompt. Originally the prompts
-// let Gemini drift into pricing-apologetic phrasings ("surprisingly
-// accessible", "budget-conscious luxury") which is wrong for UHNW
-// audiences — and into "If..." / "Imagine..." openers that waste the
-// first 125 chars (preview cutoff). These are now forbidden explicitly.
+// Shared VOICE_GUARDRAILS cover pronoun / register / filler phrases /
+// pricing apologetics / emoji policy. Fleet-specific rules layer on top.
 const BRAND_SYSTEM = `You write Instagram captions for George Yachts (luxury yacht brokerage, Greek waters). UHNW audience: travel advisors, charter clients, yacht enthusiasts.
 
-Voice rules (all mandatory):
-1. Brand voice: 'we' / 'our team'. NEVER 'I'. NEVER claim personal years of experience.
-2. FIRST SENTENCE: must begin with the yacht name, yacht type, or a concrete differentiator (e.g. "S/CAT World's End — Fountaine Pajot Galathea 65, 10 guests"). NEVER start with "If", "Imagine", "Picture", or any hypothetical framing. The first 125 characters are the preview before "…more"; spend them on substance.
-3. PRICING: NEVER apologize for or soften the price. Forbidden phrases: "budget-conscious", "surprisingly accessible", "affordable luxury", "smart investment", "smartly priced", "value-conscious", "price-sensitive". Quote the rate straight, in passing, once. UHNW guests don't need reassurance they can afford it.
-4. SAVE CTA: near the end, include one of these verbatim variants (pick naturally, rotate):
+${VOICE_GUARDRAILS}
+
+FLEET-CAPTION-SPECIFIC RULES:
+
+1. FIRST SENTENCE must begin with the yacht name, yacht type, or a concrete differentiator (e.g. "S/CAT World's End — Fountaine Pajot Galathea 65, 10 guests"). NEVER start with "If", "Imagine", "Picture", or any hypothetical framing. The first 125 characters are the preview before "…more" — spend them on substance.
+
+2. SAVE CTA: near the end, include one of these verbatim variants (rotate naturally):
    - "Save this for your summer planning."
    - "Know someone planning Greek summer? Send them this."
    - "Save for when you're ready to plan your voyage."
-5. Editorial, insider, warm. Return ONLY the caption text — no preface, no hashtag block (caller appends).`;
+
+3. Editorial, insider, warm. Return ONLY the caption text — no preface, no hashtag block (the caller appends).`;
 
 // Parse the weeklyRatePrice string into an optional per-person line.
 // Format the prompt will use: "from €X/week (≈€Y/person for N guests)".
@@ -104,7 +109,8 @@ Write a 3–5 sentence caption:
 - Weave the Inside Info angle into the second or third sentence.
 - Mention pricing once in passing (the rate line above, including the per-person figure if provided).
 - End with a save CTA variant from the system prompt.
-- At most one nautical emoji. No hashtags.`,
+- At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
+- No hashtags.`,
   }),
 
   ideal_guest: (y) => ({
@@ -124,7 +130,8 @@ Write a 3–5 sentence caption:
 - Paint one scene that fits that guest (morning deck, sunset anchorage, children's cabin, etc.).
 - Pricing once in passing, including the per-person figure if provided.
 - Save CTA variant near the end.
-- At most one emoji. No hashtags.`,
+- At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
+- No hashtags.`,
   }),
 
   toys_tour: (y) => ({
@@ -140,24 +147,55 @@ Write a 3–5 sentence caption:
 - Weave 3–4 of the actual toys into flowing prose (NOT a bullet list).
 - Pricing once in passing, with per-person figure if provided.
 - Save CTA variant — strongly favor "Save this for your summer planning." for toy-heavy posts.
-- One emoji. No hashtags.`,
+- At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
+- No hashtags.`,
   }),
 
-  builder_heritage: (y) => ({
-    prompt: `Yacht: ${y.name}${y.subtitle ? ` (${y.subtitle})` : ""}
+  builder_heritage: (y) => {
+    // Rotating opener templates — pick one deterministically from
+    // day-of-year so the same yacht re-posted weeks apart doesn't
+    // recycle the same frame. Five templates = 5× less pattern-
+    // recognition signal for Meta's similarity detector.
+    const OPENER_TEMPLATES = [
+      // 0. Spec-first: "${name} — a ${builder} build, ${year}..."
+      `Open with: "${y.name} — a ${y.builder ?? "custom"} build${y.yearBuiltRefit ? `, ${y.yearBuiltRefit}` : ""}...". State the build fact first, follow with ONE specific design or engineering detail in the second sentence.`,
+      // 1. Workshop-first: focus on the shipyard's concrete identity
+      `Open with: "${y.builder ?? "This"} ${y.subtitle ?? "yacht"} now works the Greek coast as ${y.name}...". Tie the shipyard's concrete identity (naval architecture choice, hull form, engine layout — something specific) into the second sentence.`,
+      // 2. Timeline-first: year/refit drives the opening
+      y.yearBuiltRefit
+        ? `Open with: "${y.name} carries ${y.yearBuiltRefit.includes("/") ? "a " + y.yearBuiltRefit.split("/")[1].trim() + " refit" : "the " + y.yearBuiltRefit + " build"} onto her ${y.yearBuiltRefit.split("/")[0]?.trim() ?? "original"} ${y.builder ?? "hull"}...". Let the timeline carry the opening, then name one specific upgrade or original feature that still matters.`
+        : `Open with "${y.name} — ${y.subtitle ?? y.builder}...". Put one specific build detail in the opening beat.`,
+      // 3. Owner-eye: describe what a charterer will actually notice
+      `Open with: "${y.name}'s ${y.category === "sailing-catamarans" ? "deck layout" : y.category === "power-catamarans" ? "twin hulls" : "profile"} reveals the ${y.builder ?? "shipyard"} signature at a glance...". Name the single most distinctive thing about the build that a guest would notice boarding for the first time.`,
+      // 4. Comparative: where she sits in the brand's catalogue
+      `Open with: "Among the ${y.builder ?? "builder"} fleet in Greek waters, ${y.name} stands apart because...". Give one concrete reason (size class, refit year, unusual spec) — no superlatives, just the fact.`,
+    ];
+    const tpl =
+      OPENER_TEMPLATES[
+        Math.abs(
+          (y._id ?? "").split("").reduce((a, c) => a + c.charCodeAt(0), 0) +
+            Math.floor(Date.now() / 86400000),
+        ) % OPENER_TEMPLATES.length
+      ];
+
+    return {
+      prompt: `Yacht: ${y.name}${y.subtitle ? ` (${y.subtitle})` : ""}
 Builder / shipyard: ${y.builder ?? "n/a"}
 Year built / refit: ${y.yearBuiltRefit ?? "n/a"}
 Specs: ${yachtSpecsLine(y) || "n/a"}
 ${describePricing(y)}
 
-Write a 3–5 sentence caption celebrating the craftsmanship:
-- Open with the yacht name + builder/year (e.g. "${y.name} — a ${y.builder ?? "custom"} build, ${y.yearBuiltRefit ?? "fully refit"}..."). Do NOT start with "A classic hull" or similar hypothetical.
-- Mention one thing the builder/shipyard is known for — factual, no invention.
-- Place her in Greek waters in a later sentence.
+Write a 3–5 sentence caption celebrating the craftsmanship.
+
+OPENER PATTERN FOR THIS POST: ${tpl}
+
+- After the opener, place her in Greek waters in one sentence.
 - Pricing once in passing, with per-person figure if provided.
-- Save CTA variant.
-- One emoji. No hashtags.`,
-  }),
+- Save CTA variant near the end.
+- At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
+- No hashtags.`,
+    };
+  },
 
   cruising_canvas: (y) => ({
     prompt: `Yacht: ${y.name}${y.subtitle ? ` (${y.subtitle})` : ""}
@@ -171,7 +209,8 @@ Write a 3–5 sentence caption about the cruising canvas:
 - Suggest 1–2 island / coast ideas that could be strung together — keep general, no fake specific itineraries.
 - Pricing once in passing with per-person figure if provided.
 - Save CTA variant.
-- One emoji. No hashtags.`,
+- At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
+- No hashtags.`,
   }),
 
   crew_spotlight: (y) => ({
@@ -189,8 +228,9 @@ Write a 3–5 sentence caption that spotlights the crew:
 - Add one sentence on what makes the crew stand out (from source only).
 - Scene-setting sentence placing them on the yacht.
 - Pricing once in passing, with per-person figure if provided.
-- Save CTA variant.
-- One emoji. No hashtags.`,
+- Save CTA variant near the end.
+- At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
+- No hashtags.`,
   }),
 };
 
@@ -198,6 +238,11 @@ Write a 3–5 sentence caption that spotlights the crew:
  * Generate a caption for a yacht × angle. Returns the text only; the
  * caller is expected to run it through the banned-hashtag guard and
  * append its own hashtag block separately.
+ *
+ * One regeneration retry if the first output trips the banned-phrase
+ * detector (filler words that prompt-level rules didn't catch). After
+ * one retry we accept whatever we have and let the caller's Telegram
+ * alert path flag it — never block a publish on voice polish.
  */
 export async function generateFleetCaption(
   yacht: FleetYacht,
@@ -208,8 +253,38 @@ export async function generateFleetCaption(
     throw new Error(`Unknown fleet angle: ${angle}`);
   }
   const { prompt } = builder(yacht);
-  const raw = await aiChat(BRAND_SYSTEM, prompt);
-  return raw.replace(/^["']|["']$/g, "").trim();
+
+  let raw = await aiChat(BRAND_SYSTEM, prompt);
+  let cleaned = raw.replace(/^["']|["']$/g, "").trim();
+
+  const banned = detectBannedPhrases(cleaned);
+  if (banned.length > 0) {
+    // One retry with an explicit callout of what to avoid.
+    const retryPrompt = `${prompt}\n\nAVOID these filler words that slipped into the previous attempt: ${banned.join(", ")}. Replace each with a concrete specific.`;
+    try {
+      raw = await aiChat(BRAND_SYSTEM, retryPrompt);
+      cleaned = raw.replace(/^["']|["']$/g, "").trim();
+    } catch {
+      // Retry failed — keep the first attempt; banned phrases logged by caller.
+    }
+  }
+
+  return cleaned;
+}
+
+/**
+ * Quality check on the final caption body. Runs AFTER generation and
+ * AFTER the banned-hashtag strip. Reports violations the caller can
+ * Telegram without blocking the publish (fail-open).
+ */
+export function captionVoiceAudit(caption: string): {
+  bannedPhrases: string[];
+  emojiViolations: string[];
+} {
+  return {
+    bannedPhrases: detectBannedPhrases(caption),
+    emojiViolations: detectEmojiViolations(caption),
+  };
 }
 
 /**

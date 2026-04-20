@@ -29,6 +29,7 @@ import {
   generateFleetCaption,
   fallbackFleetCaption,
   fleetHashtagBlock,
+  captionVoiceAudit,
 } from "@/lib/fleet-caption";
 
 // Cron: Instagram Fleet Post (Phase D.1).
@@ -181,6 +182,25 @@ async function _observedImpl() {
   }
 
   const caption = `${captionBody}\n\n${fleetHashtagBlock(yacht)}`;
+
+  // Phase F — voice audit (banned fillers + emoji policy). Alert only,
+  // never blocks the publish. If this fires repeatedly for the same
+  // phrase, tighten the prompt in fleet-caption.ts.
+  {
+    const audit = captionVoiceAudit(captionBody);
+    const notes: string[] = [];
+    if (audit.bannedPhrases.length > 0) {
+      notes.push(`filler phrases: ${audit.bannedPhrases.join(", ")}`);
+    }
+    if (audit.emojiViolations.length > 0) {
+      notes.push(`emoji violations: ${audit.emojiViolations.join(" ")}`);
+    }
+    if (notes.length > 0) {
+      await sendTelegram(
+        `⚠ Voice audit flag (${yacht.name} · ${angle}) — ${notes.join(" · ")}. Publishing anyway.`,
+      );
+    }
+  }
 
   // Phase B similarity check — alert only (fail-open, we still publish).
   {
