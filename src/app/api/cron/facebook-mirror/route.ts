@@ -1,0 +1,124 @@
+// Facebook Page mirror cron.
+//
+// Same principle as tiktok-mirror: pulls freshly-published ig_posts and
+// re-publishes the same asset to the corporate FB Page. Scheduled 15
+// minutes after the TikTok mirror (19:30 Athens) so IG → TT → FB lands
+// in a natural rhythm without tripping spam filters.
+//
+// No Telegram re-approval: if the caption cleared the IG gate, it's
+// cleared for FB. Caption adaptation is lighter than TikTok's — we just
+// drop IG-handle mentions and the carousel-only call to action.
+
+import { NextResponse } from "next/server";
+import { createServiceClient } from "@/lib/supabase-server";
+import { sendTelegram } from "@/lib/telegram";
+import {
+  publishPhoto,
+  publishPhotoCarousel,
+  publishVideo,
+} from "@/lib/facebook-client";
+import { assertPublishAllowed } from "@/lib/ig-window-guard";
+
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+function adaptCaptionForFacebook(igCaption: string): string {
+  let out = igCaption;
+  // Drop "Link in bio" — FB Page posts can just link directly.
+  out = out.replace(/link in bio\.?/gi, "→ georgeyachts.com");
+  // Trim the giant hashtag ladder common on IG — FB Page audiences
+  // tune out after 4-5 tags.
+  out = out.replace(/(#\w+\s*){6,}/g, (m) => {
+    const tags = m.trim().split(/\s+/).slice(0, 5);
+    return tags.join(" ");
+  });
+  // FB post body limit is 63k chars so no slicing needed, but trim
+  // trailing whitespace.
+  return out.trim();
+}
+
+async function _impl() {
+  const gate = await assertPublishAllowed({ postType: "reel" });
+  if (!gate.allowed) {
+    return NextResponse.json({
+      skipped: "window_guard",
+      reason: gate.reason,
+      detail: gate.detail,
+    });
+  }
+
+  const sb = createServiceClient();
+  const since = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+  const { data: candidates } = await sb
+    .from("ig_posts")
+    .select("*")
+    .eq("status", "published")
+    .in("post_type", ["reel", "fleet_yacht", "image"])
+    .is("facebook_status", null)
+    .gte("published_at", since)
+    .limit(2);
+
+  if (!candidates || candidates.length === 0) {
+    return NextResponse.json({ skipped: "no_candidates" });
+  }
+
+  const results: any[] = [];
+  for (const row of candidates) {
+    const caption = adaptCaptionForFacebook(row.caption ?? "");
+    let publishRes: any;
+    if (row.post_type === "reel") {
+      publishRes = await publishVideo({
+        videoUrl: row.image_url,
+        caption,
+      });
+    } else if (row.post_type === "fleet_yacht") {
+      const photos: string[] = Array.isArray(row?.metadata?.photos)
+        ? row.metadata.photos
+        : [row.image_url].filter(Boolean);
+      publishRes =
+        photos.length > 1
+          ? await publishPhotoCarousel({ photoUrls: photos, caption })
+          : await publishPhoto({ photoUrl: photos[0], caption });
+    } else {
+      publishRes = await publishPhoto({
+        photoUrl: row.image_url,
+        caption,
+      });
+    }
+
+    if (!publishRes.ok) {
+      await sb
+        .from("ig_posts")
+        .update({
+          facebook_status: "failed",
+          facebook_error: publishRes.error ?? "unknown",
+        })
+        .eq("id", row.id);
+      await sendTelegram(
+        `⚠️ Facebook mirror failed for post ${row.id.slice(0, 8)}: ${publishRes.error}`
+      ).catch(() => {});
+      results.push({ id: row.id, ok: false, error: publishRes.error });
+      continue;
+    }
+
+    await sb
+      .from("ig_posts")
+      .update({
+        facebook_status: "published",
+        facebook_post_id: publishRes.post_id,
+      })
+      .eq("id", row.id);
+
+    await sendTelegram(
+      `📘 <b>Facebook mirror OK</b>\nPost: ${row.id.slice(0, 8)}\nFB post: ${publishRes.post_id}`
+    ).catch(() => {});
+
+    results.push({ id: row.id, ok: true, post_id: publishRes.post_id });
+  }
+
+  return NextResponse.json({ mirrored: results.length, results });
+}
+
+export async function GET() {
+  return _impl();
+}
