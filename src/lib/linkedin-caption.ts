@@ -121,16 +121,78 @@ ${article.fullBody.slice(0, 3500)}
     maxTokens: 2000,
   });
 
-  // Parse JSON — be defensive, the model occasionally wraps in code fences.
+  // Parse JSON — be defensive. The model occasionally wraps in code
+  // fences OR emits raw unescaped newlines inside string values (which
+  // breaks strict JSON.parse). First try a clean parse; if that fails,
+  // fall back to extracting the fields via regex from the raw text.
   let raw = response.trim();
   if (raw.startsWith("```")) {
     raw = raw.replace(/^```(?:json)?\s*/, "").replace(/```\s*$/, "");
   }
-  const parsed = JSON.parse(raw) as LinkedInDraft;
-  if (!parsed.mainPost) {
+  let parsed: Partial<LinkedInDraft> | null = null;
+  try {
+    parsed = JSON.parse(raw) as LinkedInDraft;
+  } catch {
+    // Fallback: pull fields out manually. Common failure is real
+    // newlines inside the mainPost string that JSON.parse rejects.
+    // Walk the string and grab the content of the first top-level
+    // "mainPost", "firstComment", "hashtags" keys.
+    const extractString = (key: string): string | null => {
+      const idx = raw.indexOf(`"${key}"`);
+      if (idx === -1) return null;
+      const colon = raw.indexOf(":", idx);
+      const firstQuote = raw.indexOf('"', colon + 1);
+      if (firstQuote === -1) return null;
+      // Walk forward, respecting escaped quotes but ignoring raw
+      // newlines inside the value.
+      let i = firstQuote + 1;
+      let buf = "";
+      while (i < raw.length) {
+        const ch = raw[i];
+        if (ch === "\\" && i + 1 < raw.length) {
+          // Handle escaped sequences — pass through to JSON unescape later.
+          buf += raw.slice(i, i + 2);
+          i += 2;
+          continue;
+        }
+        if (ch === '"') {
+          // End of string — but only if followed by , or } or newline+key
+          const rest = raw.slice(i + 1).trimStart();
+          if (rest.startsWith(",") || rest.startsWith("}")) break;
+        }
+        buf += ch;
+        i += 1;
+      }
+      // Now try to parse the captured substring as a JSON string.
+      try {
+        return JSON.parse('"' + buf.replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r") + '"');
+      } catch {
+        return buf;
+      }
+    };
+    const extractArray = (key: string): string[] => {
+      const idx = raw.indexOf(`"${key}"`);
+      if (idx === -1) return [];
+      const open = raw.indexOf("[", idx);
+      const close = raw.indexOf("]", open);
+      if (open === -1 || close === -1) return [];
+      const inner = raw.slice(open + 1, close);
+      return (inner.match(/"([^"]+)"/g) ?? []).map((s) => s.slice(1, -1));
+    };
+    parsed = {
+      mainPost: extractString("mainPost") ?? "",
+      firstComment: extractString("firstComment") ?? "",
+      hashtags: extractArray("hashtags"),
+    };
+  }
+  if (!parsed?.mainPost) {
     throw new Error("linkedin-caption: mainPost missing from model output");
   }
-  return parsed;
+  return {
+    mainPost: parsed.mainPost,
+    firstComment: parsed.firstComment ?? "",
+    hashtags: parsed.hashtags ?? [],
+  };
 }
 
 export function generatePersonalDraft(article: BlogArticle): Promise<LinkedInDraft> {
