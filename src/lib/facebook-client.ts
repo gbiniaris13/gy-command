@@ -12,13 +12,18 @@
 import { createServiceClient } from "@/lib/supabase-server";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
-const PAGE_ID = process.env.FB_PAGE_ID || "61579547047989";
+const PAGE_ID = process.env.FB_PAGE_ID || "1056750427517361";
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };
 type Result<T> = Ok<T> | Err;
 
+// Token strategy: prefer the permanent Page Access Token minted via the
+// System User flow (FB_PAGE_ACCESS_TOKEN — never expires). If absent,
+// fall back to exchanging IG_ACCESS_TOKEN via /me/accounts and caching.
 async function getPageToken(): Promise<string> {
+  const direct = process.env.FB_PAGE_ACCESS_TOKEN;
+  if (direct) return direct;
   const sb = createServiceClient();
   const { data: row } = await sb
     .from("settings")
@@ -30,8 +35,9 @@ async function getPageToken(): Promise<string> {
 }
 
 async function refreshPageToken(): Promise<string> {
-  const userToken = process.env.IG_ACCESS_TOKEN;
-  if (!userToken) throw new Error("IG_ACCESS_TOKEN missing");
+  const userToken =
+    process.env.FB_USER_ACCESS_TOKEN || process.env.IG_ACCESS_TOKEN;
+  if (!userToken) throw new Error("FB_USER_ACCESS_TOKEN / IG_ACCESS_TOKEN missing");
   const res = await fetch(`${GRAPH}/me/accounts?access_token=${userToken}`);
   const json = await res.json();
   if (!res.ok) throw new Error(`/me/accounts failed: ${JSON.stringify(json)}`);
@@ -63,8 +69,13 @@ async function callGraph(
   });
   const json = await res.json();
   if (res.ok) return json;
-  // OAuth token invalid → refresh and retry once.
-  if (!retried && json?.error?.code === 190) {
+  // OAuth token invalid → refresh and retry once. Skipped when
+  // FB_PAGE_ACCESS_TOKEN is hardcoded (permanent token can't be refreshed).
+  if (
+    !retried &&
+    json?.error?.code === 190 &&
+    !process.env.FB_PAGE_ACCESS_TOKEN
+  ) {
     await refreshPageToken();
     return callGraph(path, body, true);
   }
