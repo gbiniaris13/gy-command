@@ -17,7 +17,6 @@ import {
   publishPhotoCarousel,
   publishVideo,
 } from "@/lib/facebook-client";
-import { assertPublishAllowed } from "@/lib/ig-window-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -38,15 +37,9 @@ function adaptCaptionForFacebook(igCaption: string): string {
 }
 
 async function _impl() {
-  const gate = await assertPublishAllowed({ postType: "reel" });
-  if (!gate.allowed) {
-    return NextResponse.json({
-      skipped: "window_guard",
-      reason: gate.reason,
-      detail: gate.detail,
-    });
-  }
-
+  // No window guard here — the FB mirror only picks up rows that
+  // already published to IG, which means IG's own window guard has
+  // already cleared them. Safe by construction.
   const sb = createServiceClient();
   const since = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
   const { data: candidates } = await sb
