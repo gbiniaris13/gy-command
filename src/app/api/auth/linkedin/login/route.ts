@@ -34,15 +34,14 @@ export async function GET(request: Request) {
     );
   }
 
-  const scopes = [
-    "openid",
-    "profile",
-    "email",
-    "w_member_social",
-    "w_organization_social",
-    "r_organization_admin",
-    "r_organization_social",
-  ].join(" ");
+  // Community Management API (w_organization_social + r_organization_admin)
+  // is still pending LinkedIn approval. Until it's granted, request only
+  // the scopes we actually have — Sign In with LinkedIn (openid profile
+  // email) + Share on LinkedIn (w_member_social). Personal profile
+  // posting works end to end with these; Company Page auto-post is on
+  // hold until the CMA approval lands, at which point we append the
+  // org scopes here and George re-runs OAuth once.
+  const scopes = ["openid", "profile", "email", "w_member_social"].join(" ");
 
   const state = Math.random().toString(36).slice(2);
   const params = new URLSearchParams({

@@ -53,25 +53,13 @@ export async function GET(request: Request) {
   const me = await meRes.json();
   const memberUrn = `urn:li:person:${me.sub}`;
 
-  // 3. Fetch organizations the member administers (find George Yachts).
-  //    Endpoint: /v2/organizationalEntityAcls?q=roleAssignee&role=ADMINISTRATOR
-  let organizationUrn: string | undefined;
-  try {
-    const orgRes = await fetch(
-      "https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
-      { headers: { Authorization: `Bearer ${accessToken}` } },
-    );
-    const orgJson = await orgRes.json();
-    const elements = (orgJson.elements ?? []) as Array<{ organizationalTarget: string }>;
-    // Prefer the George Yachts Page if we can match the known id, otherwise first admin org.
-    const match = elements.find((e) =>
-      e.organizationalTarget?.endsWith(`:${LINKEDIN_ORG_ID_HINT}`),
-    );
-    organizationUrn = (match ?? elements[0])?.organizationalTarget;
-  } catch (e) {
-    // Non-fatal — we can still do personal profile posting without this.
-    console.error("[linkedin callback] organization lookup failed:", e);
-  }
+  // 3. Organization lookup skipped until Community Management API is
+  //    approved (the r_organization_admin scope isn't on this token
+  //    yet). We hardcode the known org id hint from the admin URL —
+  //    it's only used by the future Company Page publish crons, which
+  //    are also gated on that approval. Post-approval, re-run OAuth and
+  //    this block flips to the live /organizationalEntityAcls query.
+  const organizationUrn: string | undefined = `urn:li:organization:${LINKEDIN_ORG_ID_HINT}`;
 
   // 4. Persist
   const sb = createServiceClient();
