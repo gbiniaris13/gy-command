@@ -14,6 +14,7 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
+import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
@@ -177,6 +178,20 @@ async function _observedImpl() {
     return NextResponse.json({ error: "IG not configured", processed: 0 });
   }
 
+  // ROBERTO 2026-04-22 fix — hard window + daily-limit + 18h gap guard.
+  // Blocks the post if we're outside 18:00–19:30 Athens, already posted
+  // today, or closer than 18h to the last post. Telegrams George and
+  // leaves scheduled rows intact so the next valid tick picks them up.
+  const gate = await assertPublishAllowed({ postType: "feed" });
+  if (!gate.allowed) {
+    return NextResponse.json({
+      skipped: "window_guard",
+      reason: gate.reason,
+      detail: gate.detail,
+      processed: 0,
+    });
+  }
+
   // Phase A — rate-limit circuit breaker. Exits early + Telegram alert
   // if we're near Meta's hourly/daily cap for post publishing, or if
   // the global crons_paused flag is set (health check RED).
@@ -218,6 +233,44 @@ async function _observedImpl() {
       // library or if the library is empty.
       const resolvedImageUrl = await swapImageFromLibrary(sb, post);
       post.image_url = resolvedImageUrl;
+
+      // Brand-integrity guard. 2026-04-22 a P/CAT ALENA fleet post went
+      // live with an Unsplash stock photo because the source image URL
+      // wasn't a real yacht photo — violated the no-fake-photos rule.
+      // Block any image whose URL contains a known stock-photo tell, and
+      // block fleet_yacht posts whose metadata doesn't carry a yacht id.
+      const STOCK_PHOTO_PATTERNS = /unsplash|pexels|pixabay|shutterstock|getty|istockphoto|stock[-_ ]photo|placeholder/i;
+      if (STOCK_PHOTO_PATTERNS.test(post.image_url ?? "")) {
+        await sb
+          .from("ig_posts")
+          .update({
+            status: "draft",
+            error: `stock_photo_guard: image URL matched stock-photo deny list (${post.image_url})`,
+          })
+          .eq("id", post.id);
+        await sendTelegram(
+          `🚫 <b>IG post blocked — stock photo detected</b>\nPost: ${post.id.slice(0, 8)}\nURL: <code>${(post.image_url ?? "").slice(-60)}</code>\nFlipped to draft.`,
+        ).catch(() => {});
+        continue;
+      }
+      if (
+        post.post_type === "fleet_yacht" &&
+        (!post.metadata ||
+          Object.keys(post.metadata).length === 0 ||
+          !(post.metadata as { yacht_id?: string }).yacht_id)
+      ) {
+        await sb
+          .from("ig_posts")
+          .update({
+            status: "draft",
+            error: "fleet_yacht_metadata_missing: no yacht_id in metadata",
+          })
+          .eq("id", post.id);
+        await sendTelegram(
+          `🚫 <b>Fleet post blocked — missing yacht metadata</b>\nPost: ${post.id.slice(0, 8)}\nFleet posts must carry yacht_id + photos in metadata. Flipped to draft.`,
+        ).catch(() => {});
+        continue;
+      }
 
       // Smart hashtag rotation — AI picks 3-5 niche hashtags specific
       // to this caption. No-op if the caption already has hashtags.
