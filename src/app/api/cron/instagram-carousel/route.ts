@@ -14,6 +14,7 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
+import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
@@ -42,6 +43,33 @@ async function _observedImpl() {
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });
+  }
+
+  // ROBERTO brief v2 (2026-04-22) — this cron auto-publishes a
+  // ChatGPT-generated carousel to IG with NO approval step. That's
+  // the exact pattern that put us in trouble. Gate behind an explicit
+  // settings flag (default off) until a proper brand-compliant slide
+  // design system exists. George flips the flag when ready.
+  const sbFlag = createServiceClient();
+  const { data: flagRow } = await sbFlag
+    .from("settings")
+    .select("value")
+    .eq("key", "carousel_auto_publish_enabled")
+    .maybeSingle();
+  if (flagRow?.value !== "true") {
+    return NextResponse.json({ skipped: "carousel_auto_publish_disabled" });
+  }
+
+  // ROBERTO brief v2 (2026-04-22) — window + day guard. Carousels only
+  // Mon + Thu within 18:00-19:30 Athens. Blocks silently at any other
+  // time so the cron still runs cleanly without auto-publishing.
+  const gate = await assertPublishAllowed({ postType: "carousel" });
+  if (!gate.allowed) {
+    return NextResponse.json({
+      skipped: "window_guard",
+      reason: gate.reason,
+      detail: gate.detail,
+    });
   }
 
   // Phase A — rate-limit breaker + jitter. Carousels count as feed posts

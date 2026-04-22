@@ -13,6 +13,7 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
+import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
@@ -67,6 +68,17 @@ async function _observedImpl() {
     .maybeSingle();
   if (flagRow?.value !== "true") {
     return NextResponse.json({ skipped: "reels_disabled" });
+  }
+
+  // ROBERTO 2026-04-22 fix — reels follow the same 18:00–19:30 Athens
+  // window + 1/day + 18h gap rules as the feed.
+  const gate = await assertPublishAllowed({ postType: "reel" });
+  if (!gate.allowed) {
+    return NextResponse.json({
+      skipped: "window_guard",
+      reason: gate.reason,
+      detail: gate.detail,
+    });
   }
 
   // Phase A rate-limit guard + jitter. Reels count against the feed
@@ -152,6 +164,27 @@ Rules:
         `⚠ Reel caption similarity flag — ${sim.reason ?? "n/a"}`,
       );
     }
+  }
+
+  // ROBERTO brief v2 (2026-04-22) — reels auto-publish is OFF by
+  // default. The cron generates the caption + selects the video,
+  // enqueues a pending_approval row with a Telegram button message,
+  // and exits. A reel-specific auto-publish worker (not yet built)
+  // picks up approved reels at the next Wed/Fri 18:15 window.
+  const autoFlag = await (async () => {
+    const { data } = await sb.from("settings").select("value").eq("key", "reel_auto_publish_without_approval").maybeSingle();
+    return data?.value;
+  })();
+  if (autoFlag !== "true") {
+    const { enqueuePendingApproval } = await import("@/lib/caption-approval-gate");
+    const { id } = await enqueuePendingApproval({
+      image_url: video.public_url,
+      caption,
+      schedule_time: new Date().toISOString(),
+      scheduled_for: new Date().toISOString(),
+      post_type: "reel",
+    });
+    return NextResponse.json({ skipped: "approval_gate", id, type: "reel" });
   }
 
   try {

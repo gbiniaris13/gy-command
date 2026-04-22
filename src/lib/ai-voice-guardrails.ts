@@ -45,6 +45,23 @@ export const BANNED_FILLER_PHRASES = [
   "smartly priced",
   "value-conscious",
   "price-sensitive",
+  // Roberto 2026-04-22 additions — cheap-Instagram voice
+  "amazing",
+  "moment stands out",
+  "there's a moment",
+  "behind the scenes",
+  "vibes",
+  "awaits",
+  "into perspective",
+  "the sea has a way",
+  "glamorous spreadsheets",
+  // Fabricated client stories = brand risk (UHNW NDA culture)
+  "couple from dubai",
+  "couple from dallas",
+  "family from",
+  "i had the pleasure of assisting",
+  "last season, i had",
+  "last season i had",
 ];
 
 // Allowed emoji whitelist — strict 4. Everything else forbidden.
@@ -59,9 +76,15 @@ export const VOICE_GUARDRAILS = `BRAND VOICE RULES (mandatory — these apply to
 
 PRONOUN: 'we' / 'our team'. NEVER 'I'. NEVER claim personal years of experience.
 
-REGISTER: Write in the voice of Condé Nast Traveler or Robb Report. UHNW audience — discerning, skeptical of hype. Avoid tech/startup vocabulary like "primed", "unlocks", "leverages", "platform", or "journey" used as metaphor.
+REGISTER: Write in the voice of Condé Nast Traveler or Robb Report. UHNW audience (net worth $50M+) — discerning, skeptical of hype. Greek hospitality (filotimo) at the core: quiet luxury, restraint, service through presence not performance. Avoid tech/startup vocabulary like "primed", "unlocks", "leverages", "platform", or "journey" used as metaphor.
 
-CONCRETE > ABSTRACT. Empty luxury superlatives weaken credibility and are BANNED: "exceptional", "unparalleled", "renowned", "pedigree", "high standards", "incredible", "stunning", "elevated", "iconic", "unforgettable", "primed for discovery". Replace each with a specific concrete moment — instead of "exceptional experience", write "breakfast on deck as the sun rises behind Hydra".
+CONCRETE > ABSTRACT. Empty luxury superlatives weaken credibility and are BANNED: "exceptional", "unparalleled", "renowned", "pedigree", "high standards", "incredible", "stunning", "elevated", "iconic", "unforgettable", "amazing", "primed for discovery", "moment stands out", "there's a moment", "behind the scenes", "vibes", "awaits", "into perspective", "the sea has a way". Replace each with a specific concrete detail — instead of "exceptional experience", write "breakfast on deck as the sun rises behind Hydra".
+
+ONE IDEA PER POST. A caption has exactly one sensory detail + one clear offer (the yacht, the route, the feature). No list of three things. No meta-narration about the broker's life.
+
+CLIENT PRIVACY (MYBA CONFIDENTIALITY): Never fabricate or reference specific past clients. BANNED: "couple from Dubai/Dallas/anywhere", "family from X", "last season I had the pleasure of", "I helped a family", anything that implies a real private charter. UHNW clients' NDAs forbid this. If a general anecdote is needed, use aggregate framing: "agencies we work with tell us…" not "a client told me…".
+
+CTA: Single soft CTA at the end. Use: "Charter inquiries → link in bio", or "Save this for your summer planning", or a MYBA-appropriate invitation. Never "Book now", never "Don't miss out", never "Limited time".
 
 PRICING: Never apologize for the price. Banned phrases: "budget-conscious", "surprisingly accessible", "affordable luxury", "smart investment", "smartly priced", "value-conscious", "price-sensitive". Quote the rate straight, once, in passing. UHNW guests do not need reassurance they can afford the boat.
 

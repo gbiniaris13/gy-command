@@ -13,6 +13,7 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
+import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { fetchFleetPool, buildFleetUTM } from "@/lib/sanity-fleet";
@@ -120,6 +121,18 @@ async function _observedImpl() {
     return NextResponse.json({ skipped: "fleet_posts_disabled" });
   }
 
+  // ROBERTO 2026-04-22 fix — fleet yachts are prime assets and only
+  // go live Tue/Wed/Thu inside 18:00–19:30 Athens. Guard also enforces
+  // the 1/day + 18h gap rules shared with the generic publish route.
+  const gate = await assertPublishAllowed({ postType: "fleet_yacht" });
+  if (!gate.allowed) {
+    return NextResponse.json({
+      skipped: "window_guard",
+      reason: gate.reason,
+      detail: gate.detail,
+    });
+  }
+
   // Phase A rate limit + jitter.
   if (!(await checkRateLimitHealth("post_publish"))) {
     return NextResponse.json({ skipped: "rate_limit" });
@@ -210,6 +223,72 @@ async function _observedImpl() {
         `⚠ Fleet caption similarity flag (${yacht.name} · ${angle}) — ${sim.reason ?? "n/a"}. Publishing anyway.`,
       );
     }
+  }
+
+  // ROBERTO brief v2 (2026-04-22) — default to approval gate. The cron
+  // no longer auto-publishes to IG. It generates the caption + collects
+  // the Sanity photo URLs + enqueues a pending_approval row in ig_posts,
+  // pings Telegram with ✅/❌/🔄 buttons, and exits. The standard
+  // /api/cron/instagram-publish cron picks up approved rows at the
+  // next window and publishes them normally.
+  //
+  // Opt-out: set settings.fleet_auto_publish_without_approval = 'true'
+  // to restore the old immediate-publish behaviour. Default (flag
+  // unset or any non-'true' value) = safe, approval-gated.
+  const approvalFlag = await readSetting(sb, "fleet_auto_publish_without_approval");
+  if (approvalFlag !== "true") {
+    const { enqueuePendingApproval } = await import("@/lib/caption-approval-gate");
+    // Schedule for the next Tue/Wed/Thu 18:30 Athens window. The
+    // approval webhook flips status to 'scheduled', then the regular
+    // publish cron fires it.
+    const next1830Athens = (() => {
+      const now = new Date();
+      for (let i = 0; i < 8; i++) {
+        const cand = new Date(now.getTime() + i * 86400000);
+        const weekday = Number(
+          new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Europe/Athens",
+            weekday: "short",
+          })
+            .formatToParts(cand)
+            .find((p) => p.type === "weekday")?.value === "Tue" ? 2
+          : 0
+        );
+        const wd = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Europe/Athens",
+          weekday: "short",
+        })
+          .formatToParts(cand)
+          .find((p) => p.type === "weekday")?.value;
+        const wdMap: Record<string, number> = { Tue: 2, Wed: 3, Thu: 4 };
+        if (wd && wd in wdMap && (i > 0 || weekday > 0)) {
+          const athensYmd = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Europe/Athens",
+          }).format(cand);
+          // 18:30 Athens = 15:30 UTC in summer DST. Build ISO from
+          // Athens date + "T15:30:00.000Z" — the constraint check in
+          // the DB does its own AT TIME ZONE conversion, so exact
+          // summer/winter offset isn't critical for scheduling intent.
+          return `${athensYmd}T15:30:00.000Z`;
+        }
+      }
+      return new Date().toISOString();
+    })();
+
+    const { id } = await enqueuePendingApproval({
+      image_url: (yacht.images?.[0]?.url as string) ?? "",
+      caption,
+      schedule_time: next1830Athens,
+      scheduled_for: next1830Athens,
+      post_type: "fleet_yacht",
+    });
+    return NextResponse.json({
+      skipped: "approval_gate",
+      id,
+      yacht: yacht.name,
+      angle,
+      scheduled_for: next1830Athens,
+    });
   }
 
   // Build carousel from Sanity photos. Instagram max: 10.

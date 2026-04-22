@@ -154,8 +154,9 @@ async function _observedImpl() {
     .map((r) => ({
       caption: r.caption,
       image_url: "",
-      status: "scheduled",
       schedule_time: r.schedule_time,
+      scheduled_for: r.schedule_time,
+      post_type: "image" as const,
     }));
 
   if (inserts.length === 0) {
@@ -170,10 +171,19 @@ async function _observedImpl() {
     );
   }
 
-  const { error: insertErr } = await sb.from("ig_posts").insert(inserts);
-  if (insertErr) {
+  // ROBERTO brief v2 (2026-04-22) — route every new caption through
+  // the approval gate instead of writing status='scheduled' directly.
+  // Each insert becomes a pending_approval row + a Telegram buttons
+  // message. Nothing publishes without George's tap.
+  const { enqueuePendingApproval } = await import("@/lib/caption-approval-gate");
+  let enqueued = 0;
+  for (const row of inserts) {
+    const { id } = await enqueuePendingApproval(row);
+    if (id) enqueued += 1;
+  }
+  if (enqueued === 0) {
     return NextResponse.json(
-      { error: "insert failed", detail: insertErr.message },
+      { error: "approval-gate insert failed", attempted: inserts.length },
       { status: 500 }
     );
   }

@@ -254,25 +254,25 @@ async function _observedImpl() {
     );
   }
 
-  // Insert — image_url is intentionally blank. swapImageFromLibrary()
-  // in /api/cron/instagram-publish resolves it to a ROBERTO IG photo
-  // seconds before publishing. metadata.style feeds Feature #7.
-  const { data: inserted, error: insertErr } = await sb
-    .from("ig_posts")
-    .insert(
-      rows.map((r) => ({
-        caption: r.caption,
-        image_url: "", // placeholder — swap happens at publish time
-        status: "scheduled",
-        schedule_time: r.schedule_time,
-        metadata: { style: r.style, preferred_bias: preferredStyle },
-      }))
-    )
-    .select("id, schedule_time");
-
-  if (insertErr) {
+  // ROBERTO brief v2 (2026-04-22) — approval gate before scheduling.
+  // Each generated caption becomes a pending_approval row + Telegram
+  // buttons. Only taps ✅ flip to scheduled. image_url is intentionally
+  // blank; the publish cron runs swapImageFromLibrary() at publish time.
+  const { enqueuePendingApproval } = await import("@/lib/caption-approval-gate");
+  let enqueued = 0;
+  for (const r of rows) {
+    const { id } = await enqueuePendingApproval({
+      caption: r.caption,
+      image_url: "",
+      schedule_time: r.schedule_time,
+      scheduled_for: r.schedule_time,
+      post_type: "image",
+    });
+    if (id) enqueued += 1;
+  }
+  if (enqueued === 0) {
     return NextResponse.json(
-      { error: "Insert failed", detail: insertErr.message },
+      { error: "approval-gate insert failed", attempted: rows.length },
       { status: 500 }
     );
   }
@@ -280,7 +280,7 @@ async function _observedImpl() {
   return NextResponse.json({
     ok: true,
     generated: rows.length,
-    inserted: inserted?.length ?? 0,
+    inserted: enqueued,
     window: { start: startMonday.toISOString(), end: endSunday.toISOString() },
     previews: rows.map((r) => ({
       day: r.day,

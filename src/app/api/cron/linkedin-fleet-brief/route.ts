@@ -148,7 +148,7 @@ export async function GET() {
     // Persist cooldown (14-day) so the same yacht won't be re-picked too soon.
     try {
       await persistRotationState(
-        updateStateAfterPost(state, yacht.id, "commercial_snapshot" as any),
+        updateStateAfterPost(state, yacht._id, "commercial_snapshot" as any),
       );
     } catch (e) {
       console.error("[linkedin-fleet-brief] state persist failed", e);
