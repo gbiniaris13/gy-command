@@ -131,6 +131,18 @@
     {
       "path": "/api/cron/facebook-mirror",
       "schedule": "30 16 * * 1-5"
+    },
+    {
+      "path": "/api/cron/linkedin-blog-digest",
+      "schedule": "45 5 * * 2,4"
+    },
+    {
+      "path": "/api/cron/linkedin-company-amplify",
+      "schedule": "0 8 * * 2,4"
+    },
+    {
+      "path": "/api/cron/linkedin-fleet-brief",
+      "schedule": "0 7 * * 5"
     }
   ]
 }
