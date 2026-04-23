@@ -51,13 +51,28 @@ async function deleteFbPost(postId: string): Promise<{ ok: boolean; detail?: any
   return { ok: res.ok, detail: json };
 }
 
+async function probeIgCaption(mediaId: string): Promise<any> {
+  const token = process.env.IG_ACCESS_TOKEN;
+  if (!token) return { ok: false, detail: "IG_ACCESS_TOKEN missing" };
+  const res = await fetch(
+    `https://graph.instagram.com/v21.0/${mediaId}?fields=id,caption,permalink,media_type,timestamp&access_token=${encodeURIComponent(token)}`,
+  );
+  const json = await res.json().catch(() => ({}));
+  return { ok: res.ok, detail: json };
+}
+
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get("url");
   const deleteFb = request.nextUrl.searchParams.get("fb_post_id");
   const deleteIgFeed = request.nextUrl.searchParams.get("ig_feed_id");
   const deleteIgStory = request.nextUrl.searchParams.get("ig_story_id");
+  const probeId = request.nextUrl.searchParams.get("probe_ig");
 
   const results: any = { deletions: {} };
+
+  if (probeId) {
+    results.probe = await probeIgCaption(probeId);
+  }
 
   if (deleteFb) results.deletions.fb = await deleteFbPost(deleteFb);
   if (deleteIgFeed) results.deletions.ig_feed = await deleteIgMedia(deleteIgFeed);
