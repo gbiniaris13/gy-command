@@ -80,12 +80,26 @@ export async function GET() {
     }
 
     // Fire broadcasters in parallel; swallow per-platform errors so one
-    // failure doesn't block the others.
-    const [fb, igFeed, igStory] = await Promise.all([
-      publishBlogToFacebook(article).catch((e) => ({ ok: false, error: e?.message ?? "fb exception" })),
-      publishBlogToInstagramFeed(article).catch((e) => ({ ok: false, error: e?.message ?? "ig feed exception" })),
-      publishBlogToInstagramStory(article).catch((e) => ({ ok: false, error: e?.message ?? "ig story exception" })),
-    ]);
+    // failure doesn't block the others. Catch branch shape matches the
+    // publisher Result type so downstream narrowing works in the
+    // summary block.
+    type PlatformResult =
+      | { ok: true; id?: string }
+      | { ok: false; error: string };
+    const [fb, igFeed, igStory] = (await Promise.all([
+      publishBlogToFacebook(article).catch<PlatformResult>((e) => ({
+        ok: false,
+        error: e?.message ?? "fb exception",
+      })),
+      publishBlogToInstagramFeed(article).catch<PlatformResult>((e) => ({
+        ok: false,
+        error: e?.message ?? "ig feed exception",
+      })),
+      publishBlogToInstagramStory(article).catch<PlatformResult>((e) => ({
+        ok: false,
+        error: e?.message ?? "ig story exception",
+      })),
+    ])) as [PlatformResult, PlatformResult, PlatformResult];
 
     // Always mark the article as broadcast so we don't retry tomorrow
     // even if one platform failed — a partial broadcast is still more
