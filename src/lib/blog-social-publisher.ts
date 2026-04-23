@@ -29,20 +29,24 @@ type Result<T> = { ok: true; id?: string; detail?: T } | { ok: false; error: str
 
 const CAPTION_SYSTEM = `
 You write short-form social captions for George Yachts, a MYBA yacht
-charter brokerage operating in Greece (Cyclades / Ionian / Saronic).
-George's writing voice: data-first, honest, specific numbers, no
-superlatives, no emoji clusters. Never use: "stunning", "iconic",
-"unparalleled", "exceptional", "pedigree", "curated experience",
-"elevate", "unlocks", "leverages", "primed".
+charter brokerage operating in Greek waters (Cyclades / Ionian /
+Saronic). George's voice is data-first, honest, specific. He never
+uses these words: stunning, iconic, unparalleled, exceptional,
+pedigree, curated, experience (as noun), elevate, unlock, leverage,
+primed, breathtaking, hidden gem, tailored. No emoji clusters. Max
+one emoji per caption, and only from this set: ⛵ 🌊 ⚓ ✨ — used at
+the very end only, never mid-sentence.
 
-You are given a blog article title + URL + lead paragraphs. Produce a
-caption for the target platform that matches its length and tone.
-Always include the article URL at the bottom as the call to action.
-Hashtags are industry-specific only (#YachtCharter, #MYBACharter,
-#CycladesCharter, #MediterraneanYachting, #LuxuryCharter) — 3 to 5,
-never consumer-y like #YachtLife or #Goals.
-
-Output plain text only. No quotes, no markdown.
+CRITICAL output contract (violating any of these = broken):
+  - Plain text, no markdown, no code fences, no surrounding quotes.
+  - FULL caption must be present. Never stop mid-sentence.
+  - Must end with a clear call to action and hashtag block as
+    specified by the platform brief.
+  - Hashtags only from this industry set: #YachtCharter #MYBACharter
+    #CycladesCharter #IonianCharter #MediterraneanYachting
+    #LuxuryCharter #YachtBrokerage. Pick 4 or 5.
+  - Absolutely no consumer-y tags like #YachtLife, #Goals,
+    #InstaYacht.
 `.trim();
 
 async function generateCaption(
@@ -50,26 +54,118 @@ async function generateCaption(
   platform: "facebook" | "instagram_feed" | "instagram_story",
 ): Promise<string> {
   const platformBrief = {
-    facebook: `Platform: Facebook Page. Length: 120-220 words. Structure: data-first hook (one strong sentence), 1-2 paragraphs of insight from the article, closing CTA with the article URL. The URL will render as a rich preview card so don't waste words describing it — just drop the URL on its own line.`,
-    instagram_feed: `Platform: Instagram feed post caption. Length: 80-130 words. Open with a sharp hook pulled from the article's data. Body: 2-3 short lines, single-focus. Close with a line that says: "Full article → georgeyachts.com/blog" and the 4 hashtags.`,
-    instagram_story: `Platform: Instagram Story. Length: 12-25 words. One tight hook line + "Read on georgeyachts.com/blog". No hashtags.`,
+    facebook: `PLATFORM: Facebook Page post.
+LENGTH: 120-220 words.
+STRUCTURE:
+  1. Data-first hook (one strong sentence with a number or concrete contrast).
+  2. 2-3 short paragraphs pulled from the article's actual insight.
+  3. Close with ONE blank line, then the article URL on its own line
+     (Facebook will render a rich preview card off og:image).
+  4. Blank line, then 4-5 industry hashtags on a single final line.
+
+The URL MUST be: ${article.url}`,
+
+    instagram_feed: `PLATFORM: Instagram feed caption.
+LENGTH: 90-130 words.
+REQUIRED STRUCTURE (do not skip any step):
+  1. Opening hook: one sentence with the article's strongest number
+     or counter-intuitive observation.
+  2. 3-5 short lines — one thought each, NOT a paragraph. Use em-dashes
+     or bullets for readability.
+  3. One "why it matters for yacht charter" line tying the trend to
+     Greek waters specifically.
+  4. Blank line.
+  5. LITERAL TEXT: "Full article → georgeyachts.com/blog"
+  6. Blank line.
+  7. Hashtag block: 4-5 industry hashtags separated by single spaces.
+
+The URL stays visible but not clickable on IG — readers will type it.`,
+
+    instagram_story: `PLATFORM: Instagram Story caption.
+LENGTH: 15-30 words, single paragraph.
+STRUCTURE: one tight hook sentence + "Read on georgeyachts.com/blog".
+No hashtags, no URL besides the domain mention.`,
   }[platform];
 
   const userPrompt = `${platformBrief}
 
 ARTICLE TITLE: ${article.title}
 ARTICLE URL: ${article.url}
-ARTICLE LEAD:
-${article.leadParagraphs.slice(0, 3).join("\n\n")}
+ARTICLE LEAD PARAGRAPHS:
+${article.leadParagraphs.slice(0, 4).join("\n\n")}
 
-Write the caption now.`;
+Write the complete caption now. Do not add any explanation before or
+after. Do not wrap in quotes or code fences. Just the caption text.`;
 
-  const raw = await aiChat(CAPTION_SYSTEM, userPrompt, { maxTokens: 900, temperature: 0.65 });
-  return raw
-    .replace(/^```[\s\S]*?\n/, "")
-    .replace(/```$/, "")
-    .replace(/^["']|["']$/g, "")
+  const raw = await aiChat(CAPTION_SYSTEM, userPrompt, {
+    maxTokens: 2000,
+    temperature: 0.55,
+  });
+
+  return cleanAndGuarantee(raw, article, platform);
+}
+
+// Post-processing safety net. We never trust the model to always
+// obey the output contract — so we enforce it here by:
+//   - stripping markdown / quotes / code fences
+//   - detecting truncated output (ends mid-word or without CTA)
+//   - appending the required CTA + hashtags if the model forgot them
+// Guarantees the caption is never published broken.
+function cleanAndGuarantee(
+  raw: string,
+  article: BlogArticle,
+  platform: "facebook" | "instagram_feed" | "instagram_story",
+): string {
+  let out = (raw || "")
+    .replace(/^```[a-z]*\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .replace(/^\s*["']|["']\s*$/g, "")
     .trim();
+
+  // Truncation heuristic: ends with a preposition/article/conjunction
+  // mid-phrase (classic max-tokens cutoff).
+  const endsMidSentence = /\b(in|on|at|to|of|for|the|a|an|and|or|but|as|by|with|that|which|this|these|those)\s*$/i.test(
+    out,
+  );
+  if (endsMidSentence) {
+    // Drop the dangling last sentence fragment so we don't publish half-a-thought.
+    out = out.replace(/[^.!?\n]+$/, "").trim();
+  }
+
+  const hashtagSet = [
+    "#YachtCharter",
+    "#MYBACharter",
+    "#CycladesCharter",
+    "#MediterraneanYachting",
+    "#LuxuryCharter",
+  ];
+
+  if (platform === "instagram_feed") {
+    // Guarantee CTA line present
+    if (!/georgeyachts\.com\/blog/i.test(out)) {
+      out = `${out}\n\nFull article → georgeyachts.com/blog`;
+    }
+    // Guarantee hashtag block present
+    const hasHashtagBlock = /(^|\n)\s*#\w+(\s+#\w+){2,}/m.test(out);
+    if (!hasHashtagBlock) {
+      out = `${out}\n\n${hashtagSet.slice(0, 4).join(" ")}`;
+    }
+  } else if (platform === "facebook") {
+    // Ensure the full article URL is literally present (for the link preview).
+    if (!out.includes(article.url)) {
+      out = `${out}\n\n${article.url}`;
+    }
+    const hasHashtagBlock = /(^|\n)\s*#\w+(\s+#\w+){2,}/m.test(out);
+    if (!hasHashtagBlock) {
+      out = `${out}\n\n${hashtagSet.slice(0, 4).join(" ")}`;
+    }
+  } else if (platform === "instagram_story") {
+    if (!/georgeyachts\.com\/blog/i.test(out)) {
+      out = `${out}\n\nRead on georgeyachts.com/blog`;
+    }
+  }
+
+  return out.trim();
 }
 
 // ── Platform publishers ────────────────────────────────────────────────────
