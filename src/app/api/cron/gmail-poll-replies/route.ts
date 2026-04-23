@@ -1,27 +1,39 @@
-// Gmail auto-classifier cron — every 5 minutes.
+// Gmail auto-classifier + inbox-CRM cron — every 5 minutes.
 //
-// Polls the authed inbox (george@georgeyachts.com via gmail_refresh_token)
-// for replies on outreach threads. For each new reply:
-//   1. Skip if already classified (Gmail label gy-classified/* applied)
-//   2. Extract from/subject/body
-//   3. Call /api/gmail/classify internally — the classify route already
-//      handles HOT/WARM pipeline updates, Telegram alerts, and
-//      email_classifications storage. This cron is the TRIGGER that was
-//      missing.
-//   4. Apply a Gmail label based on the classification so the next tick
-//      doesn't re-process the same email.
+// The inbox IS the CRM. Every real inbound email either:
+//   (a) matches an existing contact → activity logged + stage updated
+//       on HOT/WARM per /api/gmail/classify, OR
+//   (b) doesn't match → a NEW contact is created on the fly with data
+//       mined from the signature block (name, title, company, phone,
+//       LinkedIn) + domain-derived company fallback, then classified
+//       and stage-set identically.
 //
 // Pipeline behavior (Option B agreed 23/04):
-//   HOT      → contact stage = Hot, Telegram 🔴 alert, activity logged
-//   WARM     → contact stage = Warm, Telegram 🟡 alert, activity logged
-//   COLD     → NO stage change (history preserved), activity note added:
-//              "replied: declined — <AI reason>"
-//   NEUTRAL  → skip (auto-reply / OOO / newsletter); follow-up continues
+//   HOT      → contact stage = Hot, Telegram 🔴 alert
+//   WARM     → stage = Warm, Telegram 🟡 alert
+//   COLD     → activity note "replied: declined — <reason>" (no stage move)
+//   NEUTRAL  → silent; follow-up sequence continues
+//
+// Noise filter (see email-signature-parser.ts):
+//   - no-reply / notifications / billing / newsletters → skipped
+//   - bulk headers (List-Unsubscribe, Precedence: bulk) → skipped
+//   - mailer-daemon, bounces → skipped
+//
+// Every real email also gets an `activities` row of type `email_inbound`
+// linked to the contact — full thread history visible on the contact
+// detail page.
 
 import { NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import {
+  companyFromEmail,
+  isNoiseEmail,
+  mergeContactFields,
+  parseFromHeader,
+  parseSignature,
+} from "@/lib/email-signature-parser";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -46,6 +58,7 @@ const LABEL_NAMES = {
   warm: "gy-classified/warm",
   cold: "gy-classified/cold",
   neutral: "gy-classified/neutral",
+  noise: "gy-classified/noise",
 } as const;
 
 function getHeader(headers: GmailHeader[] | undefined, name: string): string {
@@ -55,8 +68,6 @@ function getHeader(headers: GmailHeader[] | undefined, name: string): string {
   );
 }
 
-// Recursively extract text body from a Gmail payload. Prefer text/plain,
-// fall back to text/html with crude tag stripping.
 function extractBody(payload: GmailMessage["payload"]): string {
   if (!payload) return "";
   const walk = (part: any): string => {
@@ -68,18 +79,21 @@ function extractBody(payload: GmailMessage["payload"]): string {
       return raw.replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ");
     }
     if (Array.isArray(part.parts)) {
-      // Prefer plain over html
-      const plain = part.parts.find((p: any) => (p.mimeType || "").toLowerCase() === "text/plain");
+      const plain = part.parts.find(
+        (p: any) => (p.mimeType || "").toLowerCase() === "text/plain",
+      );
       if (plain) return walk(plain);
       return part.parts.map(walk).join("\n");
     }
     return "";
   };
-  return walk(payload).slice(0, 8000);
+  return walk(payload).slice(0, 12000);
 }
 
-// Ensure a Gmail label exists — create if missing — return its id.
-async function ensureLabel(name: string, cache: Map<string, string>): Promise<string | null> {
+async function ensureLabel(
+  name: string,
+  cache: Map<string, string>,
+): Promise<string | null> {
   if (cache.has(name)) return cache.get(name)!;
   const listRes = await gmailFetch("/labels");
   if (!listRes.ok) return null;
@@ -89,7 +103,6 @@ async function ensureLabel(name: string, cache: Map<string, string>): Promise<st
     cache.set(name, existing.id);
     return existing.id;
   }
-  // Create it
   const createRes = await gmailFetch("/labels", {
     method: "POST",
     body: JSON.stringify({
@@ -109,6 +122,121 @@ async function applyLabels(messageId: string, labelIds: string[]): Promise<void>
   await gmailFetch(`/messages/${messageId}/modify`, {
     method: "POST",
     body: JSON.stringify({ addLabelIds: labelIds }),
+  });
+}
+
+// Split a name string into first/last, being forgiving about middle
+// names and suffixes.
+function splitName(full: string): { first: string; last: string } {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first: "", last: "" };
+  if (parts.length === 1) return { first: parts[0], last: "" };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
+}
+
+// Upsert a contact from an inbound email. Returns the contact id, plus
+// whether it was newly created (for Telegram messaging).
+async function upsertContactFromEmail(args: {
+  senderEmail: string;
+  fromName: string | null;
+  signature: ReturnType<typeof parseSignature>;
+}): Promise<{ id: string; created: boolean } | null> {
+  const sb = createServiceClient();
+
+  // Pre-compute proposed fields from the email + signature.
+  const sigName = args.signature.name;
+  const pickedName = sigName || args.fromName || "";
+  const { first, last } = splitName(pickedName);
+  const companyFromSig = args.signature.company;
+  const companyFromDomain = companyFromEmail(args.senderEmail);
+
+  const { data: existing } = await sb
+    .from("contacts")
+    .select("*")
+    .ilike("email", args.senderEmail)
+    .maybeSingle();
+
+  if (existing) {
+    const proposed: Record<string, any> = {
+      first_name: first || null,
+      last_name: last || null,
+      company: companyFromSig || companyFromDomain || null,
+      phone: args.signature.phone,
+      linkedin_url: args.signature.linkedinUrl,
+    };
+    const updates = mergeContactFields(existing as any, proposed);
+    if (Object.keys(updates).length > 0) {
+      updates.last_activity_at = new Date().toISOString();
+      await sb.from("contacts").update(updates).eq("id", existing.id);
+    }
+    return { id: existing.id, created: false };
+  }
+
+  // Find default pipeline stage "New" or fall back to the lowest-position stage.
+  const { data: stages } = await sb
+    .from("pipeline_stages")
+    .select("id, name, position")
+    .order("position", { ascending: true });
+  const newStage =
+    stages?.find((s: any) => s.name === "New") ?? stages?.[0];
+
+  const insertBody: Record<string, any> = {
+    first_name: first || null,
+    last_name: last || null,
+    email: args.senderEmail,
+    phone: args.signature.phone,
+    company: companyFromSig || companyFromDomain || null,
+    linkedin_url: args.signature.linkedinUrl,
+    source: "outreach_bot", // table constraint accepts: outreach_bot | referral
+    pipeline_stage_id: newStage?.id ?? null,
+    contact_type: "OUTREACH_LEAD",
+    notes: args.signature.title
+      ? `Title (from signature): ${args.signature.title}`
+      : null,
+    last_activity_at: new Date().toISOString(),
+  };
+  const { data: inserted, error } = await sb
+    .from("contacts")
+    .insert(insertBody)
+    .select("id")
+    .single();
+  if (error) {
+    console.error("[gmail-poll] contact insert failed:", error.message);
+    return null;
+  }
+  return { id: inserted.id, created: true };
+}
+
+async function logInboundActivity(args: {
+  contactId: string;
+  messageId: string;
+  threadId: string;
+  subject: string;
+  snippet: string;
+  classification: string;
+  reason?: string;
+}): Promise<void> {
+  const sb = createServiceClient();
+  const type =
+    args.classification === "COLD"
+      ? "email_reply_cold"
+      : args.classification === "HOT" || args.classification === "WARM"
+        ? "email_reply_hot_or_warm"
+        : "email_inbound";
+  await sb.from("activities").insert({
+    contact_id: args.contactId,
+    type,
+    description:
+      args.classification === "COLD"
+        ? `Replied: declined — ${args.reason ?? ""}`.slice(0, 500)
+        : `Inbound email — ${args.subject}`.slice(0, 500),
+    metadata: {
+      message_id: args.messageId,
+      thread_id: args.threadId,
+      subject: args.subject,
+      snippet: args.snippet.slice(0, 300),
+      classification: args.classification,
+    },
   });
 }
 
@@ -138,46 +266,11 @@ async function classifyViaApi(payload: {
   return res.json();
 }
 
-// For COLD classifications: log an activity note on the matched contact
-// but DON'T change pipeline_stage (Option B — history preserved).
-async function logColdActivity(args: {
-  fromEmail: string;
-  subject: string;
-  reason: string;
-  messageId: string;
-}): Promise<void> {
-  const sb = createServiceClient();
-  const { data: contact } = await sb
-    .from("contacts")
-    .select("id, pipeline_stage_id")
-    .ilike("email", args.fromEmail)
-    .maybeSingle();
-  if (!contact?.id) return;
-
-  await sb.from("activities").insert({
-    contact_id: contact.id,
-    type: "email_reply_cold",
-    description: `Replied: declined — ${args.reason}`.slice(0, 500),
-    metadata: {
-      message_id: args.messageId,
-      subject: args.subject,
-      classification: "COLD",
-    },
-  });
-  await sb
-    .from("contacts")
-    .update({ last_activity_at: new Date().toISOString() })
-    .eq("id", contact.id);
-}
-
 async function processMessage(
   messageId: string,
   labelCache: Map<string, string>,
-): Promise<{ ok: boolean; classification?: string; reason?: string }> {
-  // Fetch full message
-  const res = await gmailFetch(
-    `/messages/${messageId}?format=full`,
-  );
+): Promise<{ ok: boolean; classification?: string; created?: boolean; reason?: string }> {
+  const res = await gmailFetch(`/messages/${messageId}?format=full`);
   if (!res.ok) return { ok: false, reason: `fetch ${res.status}` };
   const msg = (await res.json()) as GmailMessage;
 
@@ -189,6 +282,39 @@ async function processMessage(
   const headersMap: Record<string, string> = {};
   for (const h of headers) headersMap[h.name.toLowerCase()] = h.value;
 
+  const { name: fromName, email: fromEmail } = parseFromHeader(from);
+  if (!fromEmail) {
+    // Can't parse sender — label as neutral and move on
+    const n = await ensureLabel(LABEL_NAMES.classified, labelCache);
+    const b = await ensureLabel(LABEL_NAMES.neutral, labelCache);
+    await applyLabels(messageId, [n, b].filter(Boolean) as string[]);
+    return { ok: true, reason: "no_sender_email" };
+  }
+
+  // Noise gate: skip notifications/bulk/transactional before touching CRM
+  const noise = isNoiseEmail({
+    from,
+    fromEmail,
+    subject,
+    headers: headersMap,
+  });
+  if (noise.noise) {
+    const c = await ensureLabel(LABEL_NAMES.classified, labelCache);
+    const n = await ensureLabel(LABEL_NAMES.noise, labelCache);
+    await applyLabels(messageId, [c, n].filter(Boolean) as string[]);
+    return { ok: true, classification: "NOISE", reason: noise.reason };
+  }
+
+  // Parse signature + upsert contact FIRST so the classify route has a
+  // matched contact to update, and so HOT alerts include the new name.
+  const signature = parseSignature(body);
+  const contact = await upsertContactFromEmail({
+    senderEmail: fromEmail,
+    fromName,
+    signature,
+  });
+
+  // Classify
   const result = await classifyViaApi({
     messageId,
     from,
@@ -198,25 +324,35 @@ async function processMessage(
   });
   if (!result) return { ok: false, reason: "classify api failed" };
 
-  // Extract sender email for COLD handling
-  const emailMatch = from.match(/<([^>]+)>/);
-  const senderEmail = (emailMatch?.[1] ?? from).toLowerCase().trim();
-
-  // Option B: COLD logs activity, does NOT move stage.
-  // The classify route already skips CRM updates for COLD/NEUTRAL, so we
-  // only need to ADD the cold-reply activity here.
-  if (result.classification === "COLD") {
-    await logColdActivity({
-      fromEmail: senderEmail,
-      subject,
-      reason: result.reason ?? "declined",
+  // Log inbound activity on every real email (not just HOT/WARM).
+  if (contact?.id) {
+    await logInboundActivity({
+      contactId: contact.id,
       messageId,
+      threadId: msg.threadId,
+      subject,
+      snippet: msg.snippet ?? body.slice(0, 300),
+      classification: result.classification,
+      reason: result.reason,
     });
   }
 
+  // Extra Telegram alert on newly created contacts from HOT/WARM replies
+  // — the classify route already fires a per-email alert but we add a
+  // "new contact created" footer if this was previously unknown.
+  if (contact?.created && (result.classification === "HOT" || result.classification === "WARM")) {
+    await sendTelegram(
+      `🆕 <b>New contact created from inbound email</b>\n` +
+        `Name: ${[signature.name, fromName].filter(Boolean)[0] ?? fromEmail}\n` +
+        `Company: ${signature.company ?? companyFromEmail(fromEmail) ?? "—"}\n` +
+        `Email: ${fromEmail}\n` +
+        `Classification: ${result.classification}`,
+    ).catch(() => {});
+  }
+
   // Apply dedup labels
-  const classifiedLabelId = await ensureLabel(LABEL_NAMES.classified, labelCache);
-  const bucketLabelName =
+  const classifiedId = await ensureLabel(LABEL_NAMES.classified, labelCache);
+  const bucketName =
     result.classification === "HOT"
       ? LABEL_NAMES.hot
       : result.classification === "WARM"
@@ -224,18 +360,19 @@ async function processMessage(
         : result.classification === "COLD"
           ? LABEL_NAMES.cold
           : LABEL_NAMES.neutral;
-  const bucketLabelId = await ensureLabel(bucketLabelName, labelCache);
-  const labels = [classifiedLabelId, bucketLabelId].filter(Boolean) as string[];
-  await applyLabels(messageId, labels);
+  const bucketId = await ensureLabel(bucketName, labelCache);
+  await applyLabels(
+    messageId,
+    [classifiedId, bucketId].filter(Boolean) as string[],
+  );
 
-  return { ok: true, classification: result.classification };
+  return { ok: true, classification: result.classification, created: contact?.created };
 }
 
 export async function GET() {
   try {
-    // Search for inbox replies that we haven't classified yet.
-    // We exclude our own outgoing mail via -from:me.
-    // Exclude explicit spam/trash + already-labeled.
+    // Inbox replies from the last 2 days that haven't been classified yet.
+    // Excluding our own outgoing + already-labeled ones.
     const query = [
       "in:inbox",
       "-from:me",
@@ -244,7 +381,7 @@ export async function GET() {
     ].join(" ");
 
     const listRes = await gmailFetch(
-      `/messages?${new URLSearchParams({ q: query, maxResults: "25" })}`,
+      `/messages?${new URLSearchParams({ q: query, maxResults: "40" })}`,
     );
     if (!listRes.ok) {
       const text = await listRes.text();
@@ -273,17 +410,16 @@ export async function GET() {
 
     const summary = results.reduce(
       (acc, r) => {
-        if (!r.ok) acc.failed += 1;
-        else if (r.classification) acc[r.classification.toLowerCase()] = (acc[r.classification.toLowerCase()] ?? 0) + 1;
+        if (!r.ok) acc.failed = (acc.failed ?? 0) + 1;
+        else {
+          const key = (r.classification ?? "unknown").toLowerCase();
+          acc[key] = (acc[key] ?? 0) + 1;
+          if (r.created) acc.new_contacts = (acc.new_contacts ?? 0) + 1;
+        }
         return acc;
       },
-      { failed: 0 } as Record<string, number>,
+      {} as Record<string, number>,
     );
-
-    // Silent unless something hot or many processed; daily summary runs elsewhere.
-    if ((summary.hot ?? 0) > 0) {
-      // The classify route already fired per-HOT Telegram alerts; keep this cron silent.
-    }
 
     return NextResponse.json({ processed: results.length, summary, results });
   } catch (e: any) {
