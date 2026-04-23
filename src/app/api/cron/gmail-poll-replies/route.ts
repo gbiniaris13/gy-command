@@ -360,7 +360,15 @@ async function processMessage(
     body,
     headers: headersMap,
   });
-  if (!result) return { ok: false, reason: "classify api failed" };
+  if (!result) {
+    // Classify API failed — label the message as neutral so it doesn't
+    // re-enter the poll every 5 minutes forever. Contact (if created) is
+    // still in the CRM; re-classification can be done manually if needed.
+    const cid = await ensureLabel(LABEL_NAMES.classified, labelCache);
+    const nid = await ensureLabel(LABEL_NAMES.neutral, labelCache);
+    await applyLabels(messageId, [cid, nid].filter(Boolean) as string[]);
+    return { ok: false, reason: "classify api failed — labelled neutral" };
+  }
 
   // Log inbound activity on every real email (not just HOT/WARM).
   if (contact?.id) {

@@ -51,13 +51,26 @@ async function classifyWithAI(email: ClassifyRequest): Promise<ClassifyResult> {
     prompt
   );
 
-  // Extract JSON from response
+  // Extract JSON from response. Be forgiving: on any parse failure, fall
+  // back to NEUTRAL so the caller doesn't 500 (which previously caused
+  // the 5-min poll to hammer the same message forever).
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error("Failed to parse AI response as JSON");
+    return {
+      classification: "NEUTRAL",
+      reason: "AI returned non-JSON content — defaulted to NEUTRAL",
+      suggested_response: "",
+    };
   }
-
-  return JSON.parse(jsonMatch[0]) as ClassifyResult;
+  try {
+    return JSON.parse(jsonMatch[0]) as ClassifyResult;
+  } catch {
+    return {
+      classification: "NEUTRAL",
+      reason: "AI JSON parse failed — defaulted to NEUTRAL",
+      suggested_response: "",
+    };
+  }
 }
 
 export async function POST(request: NextRequest) {
