@@ -113,5 +113,12 @@ async function _impl() {
 }
 
 export async function GET() {
-  return _impl();
+  try {
+    return await _impl();
+  } catch (e: any) {
+    await sendTelegram(
+      `⚠️ <b>Facebook mirror crashed</b>\n<code>${(e?.message ?? "unknown").slice(0, 400)}</code>`,
+    ).catch(() => {});
+    return NextResponse.json({ error: e?.message ?? "unknown" }, { status: 500 });
+  }
 }

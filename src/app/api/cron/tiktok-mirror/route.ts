@@ -125,5 +125,30 @@ async function _impl() {
 }
 
 export async function GET() {
-  return _impl();
+  // Flag-gate: until TikTok app review completes + tiktok_oauth token
+  // is stored in settings, every daily invocation just burns compute
+  // + risks 500s. Flip settings.tiktok_enabled=true after first OAuth
+  // to activate.
+  try {
+    const sb = createServiceClient();
+    const { data: flag } = await sb
+      .from("settings")
+      .select("value")
+      .eq("key", "tiktok_enabled")
+      .maybeSingle();
+    if (flag?.value !== "true") {
+      return NextResponse.json({ skipped: "tiktok_disabled_flag_off" });
+    }
+  } catch {
+    // If settings lookup fails, fall through rather than block silently.
+  }
+
+  try {
+    return await _impl();
+  } catch (e: any) {
+    await sendTelegram(
+      `⚠️ <b>TikTok mirror crashed</b>\n<code>${(e?.message ?? "unknown").slice(0, 400)}</code>`,
+    ).catch(() => {});
+    return NextResponse.json({ error: e?.message ?? "unknown" }, { status: 500 });
+  }
 }

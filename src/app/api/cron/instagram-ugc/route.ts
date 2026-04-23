@@ -77,7 +77,12 @@ async function _observedImpl() {
       mentions: recentMentions.length,
     });
   } catch (err) {
-    return NextResponse.json({ error: err.message });
+    // Return HTTP 500 (was 200) so Vercel cron UI + runtime observer
+    // surfaces UGC errors instead of silently marking them "ok".
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
   }
 }
 
