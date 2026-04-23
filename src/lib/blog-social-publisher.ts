@@ -290,14 +290,20 @@ export async function publishBlogToInstagramStory(
   article: BlogArticle,
 ): Promise<Result<{ media_id: string }>> {
   try {
-    if (!article.coverImageUrl) return { ok: false, error: "no cover image" };
-    // Note: IG Graph API does not support story link stickers. The
-    // caption is ignored by IG on story uploads anyway — we still
-    // generate one because it is logged for analytics.
-    await generateCaption(article, "instagram_story");
+    if (!article.slug) return { ok: false, error: "no article slug" };
+    // IG Graph API blocks text overlays + link stickers on stories
+    // (UI-only features). To make the story actually informative we
+    // pre-render a 1080x1920 image with the title + CTA burned in,
+    // served from our own /api/og/blog-story?slug=... endpoint. IG's
+    // fetcher pulls the PNG when creating the container. IG ignores
+    // story captions so we don't pass one.
+    const origin = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_SITE_URL || "https://gy-command.vercel.app";
+    const storyImageUrl = `${origin}/api/og/blog-story?slug=${encodeURIComponent(article.slug)}`;
     return await igCreateAndPublish({
       mediaType: "STORIES",
-      imageUrl: article.coverImageUrl,
+      imageUrl: storyImageUrl,
     });
   } catch (e: any) {
     return { ok: false, error: e.message ?? "ig story exception" };
