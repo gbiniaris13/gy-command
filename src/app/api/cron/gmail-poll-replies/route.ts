@@ -34,6 +34,7 @@ import {
   parseFromHeader,
   parseSignature,
 } from "@/lib/email-signature-parser";
+import { detectWarmup } from "@/lib/email-warmup-detector";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -59,6 +60,7 @@ const LABEL_NAMES = {
   cold: "gy-classified/cold",
   neutral: "gy-classified/neutral",
   noise: "gy-classified/noise",
+  warmup: "gy-warmup",
 } as const;
 
 function getHeader(headers: GmailHeader[] | undefined, name: string): string {
@@ -122,6 +124,18 @@ async function applyLabels(messageId: string, labelIds: string[]): Promise<void>
   await gmailFetch(`/messages/${messageId}/modify`, {
     method: "POST",
     body: JSON.stringify({ addLabelIds: labelIds }),
+  });
+}
+
+// Archive = remove INBOX label. Email disappears from inbox view but
+// stays searchable under its applied labels (gy-warmup/*).
+async function archiveMessage(messageId: string, addLabelIds: string[] = []): Promise<void> {
+  await gmailFetch(`/messages/${messageId}/modify`, {
+    method: "POST",
+    body: JSON.stringify({
+      addLabelIds,
+      removeLabelIds: ["INBOX", "UNREAD"],
+    }),
   });
 }
 
@@ -291,6 +305,28 @@ async function processMessage(
     return { ok: true, reason: "no_sender_email" };
   }
 
+  // ── WARMUP GATE ────────────────────────────────────────────────
+  // Run this BEFORE the noise gate + BEFORE any CRM work. Warmup
+  // emails are the #1 source of inbox pollution — they must never
+  // reach the CRM, never create contacts, never log activities,
+  // and never sit in the inbox. We:
+  //   1. detect via service headers / message-id domain / template body
+  //   2. apply gy-warmup label (plus gy-classified for dedup)
+  //   3. remove INBOX + UNREAD labels → vanishes from primary view
+  //      but stays searchable under 'label:gy-warmup'
+  // Also catches warmup mail forwarded from eleanna@ since the
+  // detector inspects the original headers + body content.
+  const warmup = detectWarmup({ from, subject, body, headers: headersMap });
+  if (warmup.isWarmup) {
+    const classifiedId = await ensureLabel(LABEL_NAMES.classified, labelCache);
+    const warmupId = await ensureLabel(LABEL_NAMES.warmup, labelCache);
+    await archiveMessage(
+      messageId,
+      [classifiedId, warmupId].filter(Boolean) as string[],
+    );
+    return { ok: true, classification: "WARMUP", reason: warmup.reason };
+  }
+
   // Noise gate: skip notifications/bulk/transactional before touching CRM
   const noise = isNoiseEmail({
     from,
@@ -301,7 +337,9 @@ async function processMessage(
   if (noise.noise) {
     const c = await ensureLabel(LABEL_NAMES.classified, labelCache);
     const n = await ensureLabel(LABEL_NAMES.noise, labelCache);
-    await applyLabels(messageId, [c, n].filter(Boolean) as string[]);
+    // Noise emails (billing/notifications) also archived — no reason
+    // to keep them in the main inbox once we've seen them.
+    await archiveMessage(messageId, [c, n].filter(Boolean) as string[]);
     return { ok: true, classification: "NOISE", reason: noise.reason };
   }
 
