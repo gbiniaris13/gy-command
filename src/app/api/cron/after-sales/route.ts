@@ -29,6 +29,26 @@ function getHolidays2026(): Array<{ date: string; type: string; religions: strin
 
 export async function GET() {
   const sb = createServiceClient();
+
+  // 2026-04-24 audit: this cron OVERLAPS with /api/cron/birthdays and
+  // /api/cron/holidays — all three fire at 08:00 UTC and read the
+  // same `contacts` table. To avoid duplicate emails to clients we
+  // flag-gate this cron OFF by default. Birthdays + holidays already
+  // run from their dedicated crons (which have CRON_SECRET + Telegram
+  // telemetry — this one has neither). Flip
+  // settings.after_sales_enabled = "true" if you ever want to
+  // consolidate everything back into this single cron.
+  const { data: flag } = await sb
+    .from("settings")
+    .select("value")
+    .eq("key", "after_sales_enabled")
+    .maybeSingle();
+  if (flag?.value !== "true") {
+    return NextResponse.json({
+      skipped: "after_sales_disabled — birthdays + holidays crons handle this. Flip flag to consolidate.",
+    });
+  }
+
   const today = new Date().toISOString().slice(0, 10);
   const messages: AutoMessage[] = [];
 

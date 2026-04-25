@@ -1,14 +1,32 @@
 import { NextResponse } from "next/server";
+import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { aiChat } from "@/lib/ai";
 
 /**
  * Weekly competitor scan cron (Sundays at 10:00).
- * Uses Anthropic API to generate a competitor intelligence report
- * and sends it to Telegram.
+ *
+ * 2026-04-24: This cron asks Gemini to "research" competitors, but
+ * Gemini in our endpoint has NO browsing capability — it answers from
+ * training data only, which means the "intel" is hallucinated when
+ * it's anything more recent than the model cutoff. Disabled by default
+ * to avoid false-confidence reports landing in Telegram. Flip
+ * settings.competitor_scan_enabled = "true" once we wire a real
+ * search API (Brave / SerpAPI / Tavily — all have free tiers).
  */
 export async function GET() {
   try {
+    const sb = createServiceClient();
+    const { data: flag } = await sb
+      .from("settings")
+      .select("value")
+      .eq("key", "competitor_scan_enabled")
+      .maybeSingle();
+    if (flag?.value !== "true") {
+      return NextResponse.json({
+        skipped: "competitor_scan_disabled — Gemini cannot browse, reports were hallucinated. Wire real search API + flip flag to re-enable.",
+      });
+    }
     const competitors = [
       "CharterWorld",
       "Boatbookings",

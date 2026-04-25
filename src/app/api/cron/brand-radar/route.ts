@@ -117,6 +117,23 @@ export async function GET() {
     competitor_breakdown: competitorCounts,
   });
 
+  // Weekly Telegram summary — added 2026-04-24. Was silent before;
+  // tracking SoV that nobody reads defeats the purpose. Now George
+  // gets one Telegram every Sunday morning with the headline numbers.
+  try {
+    const { sendTelegram } = await import("@/lib/telegram");
+    const lines = [
+      `🛰️ <b>Brand Radar — Weekly</b>`,
+      `Share of Voice: <b>${sov}%</b> (${brandMentions}/${QUERIES.length} queries)`,
+      `Top competitor: <b>${topCompetitor?.[0] ?? "—"}</b> (${topCompetitor?.[1] ?? 0} mentions)`,
+      `Scanned: ${scanned}`,
+      `Week of: ${weekStart.toISOString().slice(0, 10)}`,
+    ];
+    await sendTelegram(lines.join("\n"));
+  } catch (e) {
+    console.error("[brand-radar] Telegram summary failed:", e);
+  }
+
   return NextResponse.json({
     status: "ok",
     scanned,

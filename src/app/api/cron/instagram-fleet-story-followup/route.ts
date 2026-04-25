@@ -44,6 +44,9 @@ async function readSetting(sb: any, key: string): Promise<string | null> {
 
 async function writeQueue(sb: any, queue: any[]): Promise<void> {
   // PostgREST builder doesn't expose .catch() — wrap in try/catch.
+  // If the queue write fails silently we'd risk processing the SAME
+  // queue entries on the next 3h tick → duplicate stories. So we
+  // alert via Telegram (and log) instead of swallowing.
   try {
     await sb.from("settings").upsert(
       {
@@ -53,7 +56,17 @@ async function writeQueue(sb: any, queue: any[]): Promise<void> {
       },
       { onConflict: "key" },
     );
-  } catch {}
+  } catch (err: any) {
+    console.error("[fleet-story-followup] writeQueue failed:", err?.message ?? err);
+    try {
+      const { sendTelegram } = await import("@/lib/telegram");
+      await sendTelegram(
+        `⚠️ <b>fleet-story-followup writeQueue failed</b>\nQueue length: ${queue.length}\nError: <code>${(err?.message ?? "unknown").slice(0, 200)}</code>\n\nNext tick may re-process same entries — check Supabase settings table.`,
+      );
+    } catch {
+      /* nothing more we can do */
+    }
+  }
 }
 
 async function _observedImpl() {
