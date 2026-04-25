@@ -8,7 +8,11 @@ import { sendTelegram } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 
-const LINKEDIN_ORG_ID_HINT = "110876447"; // George Yachts Company Page (from admin URL)
+// George Yachts Company Page ID. Configurable via env so we don't have
+// to redeploy if LinkedIn ever issues a new org URN. Falls back to the
+// known ID (extracted from the admin URL) for backwards compatibility
+// with existing deployments where the env wasn't set.
+const LINKEDIN_ORG_ID_HINT = process.env.LINKEDIN_ORG_ID || "110876447";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
