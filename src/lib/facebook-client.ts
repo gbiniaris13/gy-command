@@ -12,7 +12,12 @@
 import { createServiceClient } from "@/lib/supabase-server";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
-const PAGE_ID = process.env.FB_PAGE_ID || "1056750427517361";
+// Single source of truth for the FB Page ID. Re-exported so other
+// modules (blog-social-publisher.ts, future FB integrations) read from
+// here rather than hardcoding the literal — prevents drift if the
+// Page ID ever changes.
+export const FB_PAGE_ID = process.env.FB_PAGE_ID || "1056750427517361";
+const PAGE_ID = FB_PAGE_ID;
 
 type Ok<T> = { ok: true } & T;
 type Err = { ok: false; error: string };

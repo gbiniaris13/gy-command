@@ -193,7 +193,8 @@ export async function publishBlogToFacebook(
     }
     // Fallback: pure link post via feed — requires a direct Graph call
     // since facebook-client doesn't expose /feed. We'll inline here.
-    const pageId = process.env.FB_PAGE_ID || "1056750427517361";
+    // Page ID single-sourced from facebook-client to avoid drift.
+    const { FB_PAGE_ID: pageId } = await import("@/lib/facebook-client");
     const token = process.env.FB_PAGE_ACCESS_TOKEN;
     if (!token) return { ok: false, error: "FB_PAGE_ACCESS_TOKEN missing" };
     const res = await fetch(`https://graph.facebook.com/v21.0/${pageId}/feed`, {
