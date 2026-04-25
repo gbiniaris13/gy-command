@@ -151,6 +151,10 @@
     {
       "path": "/api/cron/blog-to-social",
       "schedule": "30 14 * * 2,4"
+    },
+    {
+      "path": "/api/cron/cockpit-briefing",
+      "schedule": "0 4 * * *"
     }
   ]
 }
