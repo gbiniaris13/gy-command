@@ -1,19 +1,24 @@
+// Legacy 14-widget dashboard. Replaced as the home page on 2026-04-25
+// by the GY Cockpit (/dashboard/page.tsx). Kept available at
+// /dashboard/legacy for any drill-down George wants to do. Widgets
+// remain in /dashboard/* — imports use ../ since this file is now
+// nested one level deeper.
 import { cookies } from "next/headers";
 import { createServerSupabaseClient } from "@/lib/supabase";
-import DashboardClient from "./DashboardClient";
-import WeatherWidget from "./WeatherWidget";
-import IntelWidget from "./IntelWidget";
-import WorldClockWidget from "./WorldClockWidget";
-import CurrencyWidget from "./CurrencyWidget";
-import PageSpeedWidget from "./PageSpeedWidget";
-import OutreachBotWidget from "./OutreachBotWidget";
-import PartnershipWidget from "./PartnershipWidget";
-import ClientIntelWidget from "./ClientIntelWidget";
-import ContentPipelineWidget from "./ContentPipelineWidget";
-import FollowUpWidget from "./FollowUpWidget";
-import SecurityWidget from "./SecurityWidget";
-import SitemapWidget from "./SitemapWidget";
-import MarineWidget from "./MarineWidget";
+import DashboardClient from "../DashboardClient";
+import WeatherWidget from "../WeatherWidget";
+import IntelWidget from "../IntelWidget";
+import WorldClockWidget from "../WorldClockWidget";
+import CurrencyWidget from "../CurrencyWidget";
+import PageSpeedWidget from "../PageSpeedWidget";
+import OutreachBotWidget from "../OutreachBotWidget";
+import PartnershipWidget from "../PartnershipWidget";
+import ClientIntelWidget from "../ClientIntelWidget";
+import ContentPipelineWidget from "../ContentPipelineWidget";
+import FollowUpWidget from "../FollowUpWidget";
+import SecurityWidget from "../SecurityWidget";
+import SitemapWidget from "../SitemapWidget";
+import MarineWidget from "../MarineWidget";
 import Link from "next/link";
 import type { PipelineStage, Contact } from "@/lib/types";
 
