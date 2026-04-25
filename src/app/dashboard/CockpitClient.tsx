@@ -386,6 +386,23 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
           </section>
         )}
 
+        {/* DEVIL'S ADVOCATE — uninvited contrarian challenge */}
+        {briefing.devils_advocate && (
+          <section>
+            <h2 className="text-xs uppercase tracking-[0.3em] text-red-400/80 mb-4">
+              🔪 Devil's Advocate
+            </h2>
+            <div className="border-l-2 border-red-400/60 bg-red-500/[0.04] rounded-r-lg p-5">
+              <p className="font-serif text-lg text-white/90 leading-relaxed italic">
+                "{briefing.devils_advocate}"
+              </p>
+              <p className="text-[10px] uppercase tracking-widest text-white/30 mt-3">
+                Σου το λέω επειδή κανείς άλλος δεν σου το λέει.
+              </p>
+            </div>
+          </section>
+        )}
+
         {/* BRAINSTORM */}
         <section>
           <Brainstorm initialPrompt={briefing.brainstorm_prompt} />

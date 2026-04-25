@@ -163,6 +163,14 @@
     {
       "path": "/api/cron/weekly-strategy",
       "schedule": "0 14 * * 5"
+    },
+    {
+      "path": "/api/cron/charter-whispers",
+      "schedule": "0 4 * * 0"
+    },
+    {
+      "path": "/api/cron/founders-friday",
+      "schedule": "0 15 * * 5"
     }
   ]
 }
