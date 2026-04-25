@@ -140,32 +140,53 @@ function ActionCard({ action }: { action: CockpitAction }) {
 }
 
 function PipelinePulse({ p }: { p: CockpitBriefing["pulse"] }) {
+  // Each stat is now a Link to a filtered contacts view. Tappable on
+  // mobile, satisfying the natural "I tapped the number, show me what
+  // it means" reflex (per George's 25/04 feedback).
   return (
     <div className="grid grid-cols-2 gap-3 text-center">
-      <div className="border border-white/10 rounded-lg p-4">
+      <Link
+        href="/dashboard/contacts?filter=active_deals"
+        className="border border-white/10 rounded-lg p-4 hover:border-[#DAA520] transition"
+      >
         <div className="text-2xl font-serif text-[#DAA520]">{formatEur(p.total_pipeline_value_eur)}</div>
-        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Pipeline value</div>
-      </div>
-      <div className="border border-white/10 rounded-lg p-4">
+        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Pipeline value →</div>
+      </Link>
+      <Link
+        href="/dashboard/revenue"
+        className="border border-white/10 rounded-lg p-4 hover:border-[#DAA520] transition"
+      >
         <div className="text-2xl font-serif text-[#DAA520]">{formatEur(p.total_commission_upside_eur)}</div>
-        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Commission upside</div>
-      </div>
-      <div className="border border-white/10 rounded-lg p-3">
+        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Commission upside →</div>
+      </Link>
+      <Link
+        href="/dashboard/contacts?filter=active_deals"
+        className="border border-white/10 rounded-lg p-3 hover:border-[#DAA520] transition"
+      >
         <div className="text-lg font-serif text-white">{p.active_deals_count}</div>
-        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Active deals</div>
-      </div>
-      <div className="border border-white/10 rounded-lg p-3">
+        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Active deals →</div>
+      </Link>
+      <Link
+        href="/dashboard/contacts?stage=Hot"
+        className="border border-white/10 rounded-lg p-3 hover:border-[#DAA520] transition"
+      >
         <div className="text-lg font-serif text-white">{p.hot_leads_count}</div>
-        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Hot leads</div>
-      </div>
-      <div className="border border-white/10 rounded-lg p-3">
+        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Hot leads →</div>
+      </Link>
+      <Link
+        href="/dashboard/contacts?stage=Warm&stale=7"
+        className="border border-white/10 rounded-lg p-3 hover:border-[#DAA520] transition"
+      >
         <div className="text-lg font-serif text-white">{p.stale_warm_leads_count}</div>
-        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Stale warm</div>
-      </div>
-      <div className="border border-white/10 rounded-lg p-3">
+        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Stale warm →</div>
+      </Link>
+      <Link
+        href="/dashboard/revenue?filter=pending"
+        className="border border-white/10 rounded-lg p-3 hover:border-[#DAA520] transition"
+      >
         <div className="text-lg font-serif text-white">{p.pending_payments_count}</div>
-        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Pending payments</div>
-      </div>
+        <div className="text-[10px] uppercase tracking-widest text-white/50 mt-1">Pending payments →</div>
+      </Link>
     </div>
   );
 }
@@ -320,22 +341,47 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
           <PipelinePulse p={briefing.pulse} />
         </section>
 
-        {/* OPPORTUNITIES */}
+        {/* OPPORTUNITIES — each card has a primary action */}
         {briefing.opportunities.length > 0 && (
           <section>
             <h2 className="text-xs uppercase tracking-[0.3em] text-[#DAA520] mb-4">
               💡 Opportunities Today
             </h2>
             <div className="space-y-3">
-              {briefing.opportunities.map((o, i) => (
-                <div
-                  key={i}
-                  className="border border-white/10 rounded-lg p-4 bg-white/[0.02]"
-                >
-                  <div className="font-serif text-white mb-1">{o.title}</div>
-                  <div className="text-sm text-white/60 leading-relaxed">{o.detail}</div>
-                </div>
-              ))}
+              {briefing.opportunities.map((o, i) => {
+                // Decide each card's primary action based on opportunity kind
+                let actionHref = "/dashboard/contacts";
+                let actionLabel = "Δες λίστα →";
+                if (o.kind === "stale_b2b_partner") {
+                  actionHref = "/dashboard/contacts?stage=Warm&stale=7";
+                  actionLabel = "Δες τους 22 stale partners →";
+                } else if (o.kind === "calendar_today") {
+                  actionHref = "/dashboard/calendar";
+                  actionLabel = "Άνοιξε ημερολόγιο →";
+                } else if (o.kind === "season_window") {
+                  actionHref = "/dashboard/contacts?stage=Warm";
+                  actionLabel = "Δες όλους τους warm →";
+                } else if (o.kind === "press_mention") {
+                  actionHref = "/dashboard/contacts?category=press";
+                  actionLabel = "Press contacts →";
+                } else if (o.kind === "ig_warm_signal") {
+                  actionHref = "/dashboard/instagram";
+                  actionLabel = "Άνοιξε Instagram →";
+                }
+                return (
+                  <Link
+                    href={actionHref}
+                    key={i}
+                    className="block border border-white/10 rounded-lg p-4 bg-white/[0.02] hover:border-[#DAA520] transition"
+                  >
+                    <div className="font-serif text-white mb-1">{o.title}</div>
+                    <div className="text-sm text-white/60 leading-relaxed mb-3">{o.detail}</div>
+                    <div className="text-xs text-[#DAA520] uppercase tracking-widest">
+                      {actionLabel}
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           </section>
         )}

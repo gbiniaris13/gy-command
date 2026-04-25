@@ -326,8 +326,18 @@ export async function buildBriefing(sb: SupabaseClient): Promise<CockpitBriefing
     (s, c) => s + (c.commission_earned || 0),
     0,
   );
+  // Pending payments = ACTUAL invoiced-but-unpaid amounts. Only count
+  // contacts where a contract has been signed (stage in Contract Sent /
+  // Closed Won / Negotiation). Proposal Sent contacts default to
+  // payment_status='pending' in the DB schema, but that's NOT an
+  // outstanding invoice — it's just a default value because the
+  // proposal hasn't been signed. Counting those as "pending payments"
+  // misleads the operator (per George's 25/04 feedback).
+  const PAYMENT_PENDING_STAGES = ["Contract Sent", "Closed Won", "Negotiation"];
   const pendingPayments = allDeals.filter(
-    (c) => (c.payment_status ?? "").toLowerCase() === "pending",
+    (c) =>
+      (c.payment_status ?? "").toLowerCase() === "pending" &&
+      PAYMENT_PENDING_STAGES.includes(c.pipeline_stage_name || ""),
   );
   const pendingPaymentsEur = pendingPayments.reduce(
     (s, c) => s + (c.charter_fee || 0),
