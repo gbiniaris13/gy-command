@@ -298,9 +298,19 @@ function suggestedActionFor(stage: InboxStage): "reply" | "follow_up" | "wait" {
 }
 
 /**
- * Rank score for inbox threads. Higher = more urgent. Encoded so the
- * stage order from the brief is enforced (Owed > Needs > Awaiting),
- * with deal value and gap as tie-breakers within each band.
+ * Rank score for inbox threads. Higher = more urgent.
+ *
+ * Order encoded:
+ *   1. owed_reply         — George owes the contact a reply
+ *   2. new_lead           — fresh outreach, no second touch yet (highest
+ *                           leverage — every brokerage win starts here,
+ *                           per 27/04 benchmark Ane Lowe / QD Luxx)
+ *   3. needs_followup     — silent 7-30d, George sent last (money tie-break)
+ *   4. cold               — silent 30d+ (deals only)
+ *   5. active             — back-and-forth in last 14d (informational)
+ *   6. awaiting_reply     — silent <7d, George just sent (informational)
+ *
+ * Within each band: deal value + gap as tie-breakers.
  */
 function inboxRankScore(row: InboxRow): number {
   const stage = row.inbox_inferred_stage ?? "unknown";
@@ -313,6 +323,12 @@ function inboxRankScore(row: InboxRow): number {
       // George owes them. Older owed > newer owed.
       base = 1_000_000 + Math.min(gap, 60) * 1000;
       break;
+    case "new_lead":
+      // First-touch leads need the second touch — most leveraged action
+      // in a brokerage. Bump above needs_followup so a fresh prospect
+      // never gets buried by the 50th partner re-engagement.
+      base = 700_000 + Math.min(fee, 1_000_000) * 0.5;
+      break;
     case "needs_followup":
       // 7-30d gap, George sent last. Money first, then gap.
       base = 500_000 + Math.min(fee, 1_000_000) * 0.5 + Math.min(gap, 30) * 100;
@@ -320,9 +336,6 @@ function inboxRankScore(row: InboxRow): number {
     case "cold":
       // > 30d. Deals worth chasing only.
       base = 200_000 + Math.min(fee, 1_000_000) * 0.2;
-      break;
-    case "new_lead":
-      base = 400_000;
       break;
     case "active":
       base = 50_000;
