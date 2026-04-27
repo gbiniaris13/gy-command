@@ -36,8 +36,18 @@ import {
   extractPif,
   isContractReadyForActivation,
   type ContractExtraction,
+  type PassportExtraction,
+  type GuestListExtraction,
+  type PifExtraction,
 } from "@/lib/charter-doc-extractor";
 import { activateCharterFromContract } from "@/lib/charter-activation";
+import {
+  cascadeGuests,
+  normalizeFromPassport,
+  normalizeFromGuestList,
+  normalizeFromPif,
+  type CascadeSummary,
+} from "@/lib/charter-guest-cascade";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -220,6 +230,7 @@ export async function POST(req: NextRequest) {
   let aiModel = "";
   let extractionError: string | null = null;
   let activationSummary: unknown = null;
+  let guestCascade: CascadeSummary | null = null;
 
   try {
     if (input.document_type === "contract") {
@@ -259,6 +270,12 @@ export async function POST(req: NextRequest) {
         extractedData = result.data;
         if (confidence < (input.threshold ?? 0.8)) {
           extractionStatus = "manual_review";
+        } else if (input.deal_id && result.data) {
+          guestCascade = await cascadeGuests(sb, {
+            deal_id: input.deal_id,
+            guests: normalizeFromPassport(result.data as PassportExtraction),
+            primary_contact_id: input.primary_contact_id ?? null,
+          });
         }
       }
     } else if (input.document_type === "guest_list") {
@@ -272,6 +289,12 @@ export async function POST(req: NextRequest) {
         extractedData = result.data;
         if (confidence < (input.threshold ?? 0.8)) {
           extractionStatus = "manual_review";
+        } else if (input.deal_id && result.data) {
+          guestCascade = await cascadeGuests(sb, {
+            deal_id: input.deal_id,
+            guests: normalizeFromGuestList(result.data as GuestListExtraction),
+            primary_contact_id: input.primary_contact_id ?? null,
+          });
         }
       }
     } else if (input.document_type === "pif") {
@@ -285,6 +308,18 @@ export async function POST(req: NextRequest) {
         extractedData = result.data;
         if (confidence < (input.threshold ?? 0.8)) {
           extractionStatus = "manual_review";
+        } else if (input.deal_id && result.data) {
+          // PIF preferences also land on the deal (charter_preferences jsonb).
+          const pif = result.data as PifExtraction;
+          await sb
+            .from("deals")
+            .update({ charter_preferences: pif })
+            .eq("id", input.deal_id);
+          guestCascade = await cascadeGuests(sb, {
+            deal_id: input.deal_id,
+            guests: normalizeFromPif(pif),
+            primary_contact_id: input.primary_contact_id ?? null,
+          });
         }
       }
     } else {
@@ -320,6 +355,7 @@ export async function POST(req: NextRequest) {
     extraction_errors: extractionError,
     extracted_data: extractedData,
     activation: activationSummary,
+    guest_cascade: guestCascade,
   });
 }
 
