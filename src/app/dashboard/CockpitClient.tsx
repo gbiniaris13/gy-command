@@ -20,6 +20,7 @@ import type {
   CockpitAction,
   InboxThread,
   CommitmentRow,
+  CharterMilestoneRow,
 } from "@/lib/cockpit-engine";
 
 const INBOX_STAGE_STYLE: Record<
@@ -519,6 +520,66 @@ function CommitmentsList({
   );
 }
 
+// v3 Pillar 7 — Charter lifecycle milestones for today + the next 7d.
+// Color-coded by milestone family (T-* = pre-charter, T+0/midpoint =
+// during, T+disembark+ = post). Each row links into the deal workspace.
+function CharterMilestonesList({
+  rows,
+  today,
+}: {
+  rows: CharterMilestoneRow[];
+  today: string;
+}) {
+  function milestoneColor(t: string) {
+    if (t.startsWith("T-")) return "border-cyan-500/30 bg-cyan-500/[0.04]";
+    if (t === "T+0") return "border-amber-500/40 bg-amber-500/[0.05]";
+    if (t === "T+midpoint") return "border-amber-500/30 bg-amber-500/[0.04]";
+    return "border-emerald-500/30 bg-emerald-500/[0.03]";
+  }
+  function badge(r: CharterMilestoneRow) {
+    if (r.due_date < today) return { dot: "🔴", text: "Overdue" };
+    if (r.due_date === today) return { dot: "🟡", text: "Today" };
+    return { dot: "🟢", text: r.due_date };
+  }
+  return (
+    <div className="space-y-2">
+      {rows.map((r) => {
+        const b = badge(r);
+        return (
+          <Link
+            key={r.id}
+            href={`/dashboard/charters/${r.deal_id}`}
+            className={`block rounded-lg border ${milestoneColor(r.milestone_type)} p-3 hover:border-cyan-300/60 transition`}
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-[12px]">{b.dot}</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-[10px] uppercase tracking-widest text-white/40 mb-0.5">
+                  {r.milestone_type} · {b.text} ·{" "}
+                  {r.vessel_name ?? "(unnamed)"}
+                  {r.client_name && <> · {r.client_name}</>}
+                </div>
+                <div className="text-sm text-white/90">
+                  {r.auto_action ?? "—"}
+                </div>
+              </div>
+              <span
+                className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded ${
+                  r.gmail_draft_id
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                    : "bg-white/5 text-white/40 border border-white/10"
+                }`}
+              >
+                {r.gmail_draft_id ? "draft ready" : "no draft"}
+              </span>
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 function PipelinePulse({ p }: { p: CockpitBriefing["pulse"] }) {
   // Each stat is now a Link to a filtered contacts view. Tappable on
   // mobile, satisfying the natural "I tapped the number, show me what
@@ -707,6 +768,35 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
                 rows={briefing.commitments_ready.rows}
                 overdue={briefing.commitments_ready.overdue_count}
                 today={briefing.commitments_ready.due_today_count}
+              />
+            </section>
+          )}
+
+        {/* v3 PILLAR 7 — Charter pipeline. Today's + this-week's
+            lifecycle touchpoints with their auto-generated Gmail drafts.
+            Renders nothing if the v3 schema isn't applied yet. */}
+        {briefing.charters_ready &&
+          briefing.charters_ready.due_this_week_count > 0 && (
+            <section>
+              <div className="flex items-baseline justify-between mb-4">
+                <h2 className="text-xs uppercase tracking-[0.3em] text-cyan-300">
+                  🛥️ Charter Pipeline (
+                  {briefing.charters_ready.due_today_count} today ·{" "}
+                  {briefing.charters_ready.due_this_week_count} this week ·{" "}
+                  {briefing.charters_ready.drafted_count} drafted)
+                </h2>
+                <a
+                  href={briefing.charters_ready.gmail_label_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-cyan-300/70 underline"
+                >
+                  Open Gmail label
+                </a>
+              </div>
+              <CharterMilestonesList
+                rows={briefing.charters_ready.rows}
+                today={today}
               />
             </section>
           )}
