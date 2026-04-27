@@ -252,6 +252,17 @@ export default function ContactsClient({
                 </option>
               ))}
             </select>
+
+            {/* Pillar 2: CSV export of the current filtered set. */}
+            <a
+              href={`/api/crm/contacts/export${
+                filterTagV2 ? `?tag=${filterTagV2}` : ""
+              }`}
+              className="inline-flex items-center rounded-lg border border-electric-cyan/40 bg-electric-cyan/10 px-3 py-2.5 text-sm text-electric-cyan hover:bg-electric-cyan/20 min-h-[44px]"
+              title="Download CSV of contacts (apply tag filter first if you want a subset)"
+            >
+              ↓ CSV
+            </a>
           </div>
         </div>
       </div>

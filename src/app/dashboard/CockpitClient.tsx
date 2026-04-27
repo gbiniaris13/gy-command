@@ -574,6 +574,34 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
           )}
         </section>
 
+        {/* PILLAR 3 — Greetings ready surface (per refocus brief). */}
+        {briefing.greetings_ready && briefing.greetings_ready.count_for_tomorrow > 0 && (
+          <section>
+            <h2 className="text-xs uppercase tracking-[0.3em] text-[#DAA520] mb-4">
+              📬 Greetings Ready for Tomorrow
+            </h2>
+            <a
+              href={briefing.greetings_ready.gmail_label_url}
+              target="_blank"
+              rel="noreferrer"
+              className="block border border-emerald-500/30 rounded-lg p-4 bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08] transition"
+            >
+              <div className="font-serif text-white text-lg mb-1">
+                {briefing.greetings_ready.count_for_tomorrow} drafts in Gmail —
+                review and send
+              </div>
+              <div className="text-xs text-white/60">
+                {Object.entries(briefing.greetings_ready.by_kind)
+                  .map(([k, n]) => `${n}× ${k.replace(/_/g, " ")}`)
+                  .join(" · ")}
+              </div>
+              <div className="text-[10px] uppercase tracking-widest text-emerald-300/80 mt-2">
+                Open Gmail → gy-greetings →
+              </div>
+            </a>
+          </section>
+        )}
+
         {/* PIPELINE PULSE */}
         <section>
           <h2 className="text-xs uppercase tracking-[0.3em] text-[#DAA520] mb-4">

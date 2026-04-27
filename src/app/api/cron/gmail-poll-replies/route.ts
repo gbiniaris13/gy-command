@@ -36,6 +36,7 @@ import {
 } from "@/lib/email-signature-parser";
 import { detectWarmup } from "@/lib/email-warmup-detector";
 import { refreshContactInbox } from "@/lib/inbox-analyzer";
+import { tagOneContact } from "@/lib/pillar2-tagger";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -404,6 +405,18 @@ async function processMessage(
       }
     } catch (err) {
       console.error("[gmail-poll] inbox refresh failed:", err);
+    }
+  }
+
+  // Pillar 2 — auto-tag NEW contacts within 5 min of first email (per
+  // refocus brief acceptance criteria). Skip already-known contacts;
+  // they get re-tagged on the next force-tag pass.
+  if (contact?.created && contact.id) {
+    try {
+      const sb = createServiceClient();
+      await tagOneContact(sb, contact.id);
+    } catch (err) {
+      console.error("[gmail-poll] auto-tag failed:", err);
     }
   }
 

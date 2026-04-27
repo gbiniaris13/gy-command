@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import type { Contact, PipelineStage, Activity, Note, Tag, YachtViewed, CharterReminder } from "@/lib/types";
-import { CONTACT_TYPES, type ContactType } from "@/lib/types";
+import { CONTACT_TYPES, type ContactType, TAG_V2_LABELS, type TagAssignmentV2 } from "@/lib/types";
 import { getFlagFromCountry } from "@/lib/flags";
 
 interface Props {
@@ -642,6 +642,9 @@ export default function ContactDetailClient({
               </select>
             </div>
 
+            {/* Pillar 2 — AI tags + manual override */}
+            <Pillar2TagEditor contact={contact} />
+
             {/* Charter End Date */}
             <div className="mt-5">
               <label className="mb-1.5 block text-[11px] font-medium tracking-wider text-muted-blue uppercase">
@@ -1180,6 +1183,118 @@ export default function ContactDetailClient({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Pillar 2 — AI tag editor ───────────────────────────────────────
+// Reads contact.tags_v2 (set by /api/admin/inbox-tag), shows chips,
+// lets George toggle each tag on/off. Save calls
+// /api/crm/contacts/:id/tags-v2 PUT which also flips tags_overridden=
+// true, so the AI tagger never reverts the choice.
+function Pillar2TagEditor({ contact }: { contact: Contact }) {
+  const initial: Set<string> = new Set(
+    Array.isArray(contact.tags_v2)
+      ? contact.tags_v2.map((t: TagAssignmentV2) => t.tag)
+      : [],
+  );
+  const [selected, setSelected] = useState<Set<string>>(initial);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [overridden, setOverridden] = useState<boolean>(
+    !!contact.tags_overridden,
+  );
+
+  function toggle(tag: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/crm/contacts/${contact.id}/tags-v2`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: Array.from(selected) }),
+      });
+      if (res.ok) {
+        setSavedAt(Date.now());
+        setOverridden(true);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const initialList = Array.from(initial).sort().join(",");
+  const currentList = Array.from(selected).sort().join(",");
+  const dirty = initialList !== currentList;
+
+  return (
+    <div className="mt-5">
+      <label className="mb-1.5 block text-[11px] font-medium tracking-wider text-muted-blue uppercase">
+        AI Tags
+        {overridden && (
+          <span
+            className="ml-2 inline-flex items-center text-[9px] text-electric-cyan/80 normal-case tracking-normal"
+            title="Tags manually overridden — AI tagger will not revert"
+          >
+            ✎ overridden
+          </span>
+        )}
+      </label>
+      <div className="flex flex-wrap gap-1.5">
+        {Object.entries(TAG_V2_LABELS).map(([key, meta]) => {
+          const on = selected.has(key);
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggle(key)}
+              className="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-medium transition"
+              style={{
+                backgroundColor: on ? `${meta.color}30` : "transparent",
+                color: on ? meta.color : "#6b7280",
+                border: `1px solid ${on ? meta.color : "#374151"}`,
+              }}
+            >
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
+      {dirty && (
+        <button
+          onClick={save}
+          disabled={saving}
+          className="mt-2 inline-flex items-center rounded-md bg-electric-cyan px-3 py-1.5 text-[11px] font-semibold text-deep-space hover:bg-electric-cyan/90 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save tags"}
+        </button>
+      )}
+      {savedAt && Date.now() - savedAt < 3000 && !dirty && (
+        <span className="mt-2 inline-block text-[10px] text-emerald-400">
+          ✓ Saved
+        </span>
+      )}
+      {Array.isArray(contact.tags_v2) && contact.tags_v2.length > 0 && (
+        <div className="mt-2 text-[9px] text-muted-blue/60">
+          AI confidence:{" "}
+          {(contact.tags_v2 as TagAssignmentV2[])
+            .map(
+              (t) =>
+                `${t.tag} ${(t.confidence * 100).toFixed(0)}%${
+                  t.source === "manual" ? " (manual)" : ""
+                }`,
+            )
+            .join(" · ")}
+        </div>
+      )}
     </div>
   );
 }
