@@ -13,6 +13,10 @@ interface NavItem {
   label: string;
   href: string;
   icon: ReactNode;
+  /** Parked per refocus brief — accessible via direct URL but
+   *  hidden from the main nav until the underlying data flow is
+   *  rebuilt or verified-in-use. */
+  parked?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -64,6 +68,7 @@ const navItems: NavItem[] = [
   {
     label: "Outreach",
     href: "/dashboard/outreach",
+    parked: true,
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
@@ -73,6 +78,7 @@ const navItems: NavItem[] = [
   {
     label: "Visitors",
     href: "/dashboard/visitors",
+    parked: true,
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5a17.92 17.92 0 01-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
@@ -128,6 +134,7 @@ const navItems: NavItem[] = [
   {
     label: "Command",
     href: "/dashboard/command-center",
+    parked: true, // mock-data decorative page; real cockpit is /dashboard
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 3.75H6A2.25 2.25 0 003.75 6v1.5M16.5 3.75H18A2.25 2.25 0 0120.25 6v1.5m0 9V18A2.25 2.25 0 0118 20.25h-1.5m-9 0H6A2.25 2.25 0 013.75 18v-1.5" />
@@ -417,7 +424,7 @@ function MobileMenu() {
               </button>
             </div>
             <nav className="space-y-1">
-              {navItems.map((item) => {
+              {navItems.filter((item) => !item.parked).map((item) => {
                 const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
                 return (
                   <Link

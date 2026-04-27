@@ -23,7 +23,7 @@ import {
   HOLIDAY_RELIGION_MAP,
   type HolidayDate,
 } from "@/lib/pillar3-holidays";
-import { templateFor } from "@/lib/pillar3-greeting-templates";
+import { templateFor, shouldSkipForMissingName } from "@/lib/pillar3-greeting-templates";
 import { inferReligion } from "@/lib/pillar3-religion-inferrer";
 
 export const runtime = "nodejs";
@@ -169,7 +169,7 @@ export async function GET() {
       .limit(5000);
 
     for (const c of (contacts ?? []) as ContactRow[]) {
-      if (!c.email || !c.first_name) continue;
+      if (!c.email || shouldSkipForMissingName(c.first_name)) continue;
 
       const candidates: string[] = [];
 

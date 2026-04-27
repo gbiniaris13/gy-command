@@ -35,7 +35,27 @@ function fillTemplate(
 ): GreetingTemplate {
   const fill = (s: string) =>
     s.replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? "");
-  return { subject: fill(tpl.subject), body: fill(tpl.body) };
+  // Defensive cleanup: missing first_name leaves trailing punctuation
+  // like "Wishing you a great year ahead, " or "{first_name},". Trim
+  // those visual artifacts so drafts stay polite even with no name.
+  const polish = (s: string) =>
+    s
+      .replace(/,\s*$/, "")
+      .replace(/^,\s+/, "")
+      .replace(/^,\n/, "")
+      .replace(/\n,\n/g, "\n")
+      .replace(/  +/g, " ")
+      .trim();
+  return { subject: polish(fill(tpl.subject)), body: polish(fill(tpl.body)) };
+}
+
+/**
+ * Skip generating a greeting if the contact has no usable first
+ * name. A draft starting with "{first_name}," looks like an unsent
+ * mail-merge — embarrassing. Better to just not draft.
+ */
+export function shouldSkipForMissingName(firstName: string | null): boolean {
+  return !firstName || firstName.trim().length === 0;
 }
 
 // ─── Templates ──────────────────────────────────────────────────────

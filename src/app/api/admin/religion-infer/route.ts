@@ -17,10 +17,13 @@ export async function GET(request: NextRequest) {
   const dry = sp.get("dry") === "1";
   const sb = createServiceClient();
 
-  // Walk all contacts (paginated past the 1000-row Supabase cap).
+  // Walk all contacts, group required updates by target religion,
+  // then issue ONE bulk update per religion group via .in('id', […]).
+  // Avoids the 1800 round-trips that hit Vercel's 300s cap.
   const counts: Record<string, number> = {};
-  let updated = 0;
   let skipped = 0;
+  const updatesByReligion = new Map<string, string[]>();
+
   const PAGE = 1000;
   let p = 0;
   while (true) {
@@ -44,17 +47,31 @@ export async function GET(request: NextRequest) {
       });
       counts[rel] = (counts[rel] ?? 0) + 1;
       if (rel !== c.inferred_religion) {
-        if (!dry) {
-          await sb
-            .from("contacts")
-            .update({ inferred_religion: rel })
-            .eq("id", c.id);
-        }
-        updated++;
+        const list = updatesByReligion.get(rel) ?? [];
+        list.push(c.id as string);
+        updatesByReligion.set(rel, list);
       }
     }
     if (rows.length < PAGE) break;
     p++;
+  }
+
+  let updated = 0;
+  if (!dry) {
+    for (const [rel, ids] of updatesByReligion.entries()) {
+      // Chunk to keep PostgREST URL length reasonable.
+      const CHUNK = 200;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const slice = ids.slice(i, i + CHUNK);
+        await sb
+          .from("contacts")
+          .update({ inferred_religion: rel })
+          .in("id", slice);
+        updated += slice.length;
+      }
+    }
+  } else {
+    for (const ids of updatesByReligion.values()) updated += ids.length;
   }
 
   return NextResponse.json({
