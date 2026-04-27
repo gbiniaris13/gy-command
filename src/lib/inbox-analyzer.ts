@@ -242,19 +242,36 @@ export async function refreshAllContactsInbox(
   let processed = 0;
   let cursor = startOffset;
 
+  // Cost guard: only process contacts that have at least one email
+  // activity (sent OR received). The "unknown" bucket of 1100+ contacts
+  // with zero email history was burning Supabase quota for zero
+  // analytical value — they always come back with stage='unknown'.
+  // We fetch the eligible contact_ids in one cheap distinct query
+  // and then walk them with the same offset/cursor pattern.
+  const { data: emailedContacts } = await sb
+    .from("activities")
+    .select("contact_id")
+    .in("type", [
+      "email_sent",
+      "email_inbound",
+      "email_received",
+      "email_reply_hot_or_warm",
+      "email_reply_cold",
+      "reply",
+    ])
+    .not("contact_id", "is", null);
+
+  const uniqueIds = Array.from(
+    new Set(
+      (emailedContacts ?? [])
+        .map((r) => r.contact_id as string)
+        .filter(Boolean),
+    ),
+  ).sort();
+
   while (Date.now() - startedAt < budgetMs) {
-    const from = cursor;
-    const to = cursor + PAGE - 1;
-    const { data: contacts, error } = await sb
-      .from("contacts")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .range(from, to);
-    if (error) {
-      console.error("[inbox-analyzer] page fetch failed:", error.message);
-      break;
-    }
-    if (!contacts || contacts.length === 0) {
+    const slice = uniqueIds.slice(cursor, cursor + PAGE);
+    if (slice.length === 0) {
       return {
         processed,
         by_stage: counts,
@@ -262,7 +279,7 @@ export async function refreshAllContactsInbox(
         start_offset: startOffset,
       };
     }
-    for (const c of contacts) {
+    for (const id of slice) {
       if (Date.now() - startedAt >= budgetMs) {
         return {
           processed,
@@ -272,15 +289,15 @@ export async function refreshAllContactsInbox(
         };
       }
       try {
-        const s = await refreshContactInbox(sb, c.id as string);
+        const s = await refreshContactInbox(sb, id);
         counts[s.inferred_stage] = (counts[s.inferred_stage] ?? 0) + 1;
         processed++;
       } catch (err) {
-        console.error("[inbox-analyzer] contact failed:", c.id, err);
+        console.error("[inbox-analyzer] contact failed:", id, err);
       }
       cursor++;
     }
-    if (contacts.length < PAGE) {
+    if (slice.length < PAGE) {
       return {
         processed,
         by_stage: counts,
