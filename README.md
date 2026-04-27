@@ -8,93 +8,98 @@ Live: https://command.georgeyachts.com
 
 ---
 
-## Architecture
+## Architecture (refocus brief v2)
 
 ```
 src/
 ├── app/
 │   ├── dashboard/                # Cockpit + module UIs
 │   │   ├── page.tsx              # Cockpit (the ONE page)
-│   │   ├── CockpitClient.tsx     # Inbox Brain + actions + greetings + pulse
-│   │   ├── contacts/             # CRM contact list + detail
+│   │   ├── CockpitClient.tsx     # Commitments + Inbox Brain + Greetings + Pulse
+│   │   ├── contacts/             # CRM contact list + detail (with tag editor + health)
 │   │   ├── email/                # Gmail inbox UI (classify/star/send)
 │   │   ├── instagram/            # IG publishing + analytics
 │   │   ├── ...
-│   │   └── legacy/               # Pre-cockpit 14-widget kitchen sink
+│   │   └── legacy/               # Pre-cockpit 14-widget kitchen sink (parked)
 │   └── api/
 │       ├── cockpit/              # Briefing + draft + chat endpoints
-│       ├── crm/                  # Contacts CRUD, charter, tags-v2
-│       ├── cron/                 # 47 Vercel-scheduled jobs (see vercel.json)
+│       ├── crm/                  # Contacts CRUD, charter, tags-v2, commitments fulfill/dismiss
+│       ├── cron/                 # 50 Vercel-scheduled jobs (see vercel.json)
 │       ├── admin/                # One-shot ops endpoints (see below)
 │       ├── gmail/                # Inbox / send / star / classify
 │       ├── instagram/            # Publish / analytics / DM
 │       ├── linkedin/             # Comment / safety / log
 │       └── webhooks/             # ManyChat / Telegram / IG
 └── lib/
-    ├── cockpit-engine.ts         # Central decision engine (Pillar 1+1.5)
-    ├── inbox-analyzer.ts         # Per-contact thread state
-    ├── pillar2-tagger.ts         # AI category tagger
+    ├── cockpit-engine.ts         # Central decision engine (Pillars 1+1.5+4+5)
+    ├── inbox-analyzer.ts         # Per-contact thread state (filters noise classes)
+    ├── message-classifier.ts     # auto_response/reaction/closing/declined/parked/etc
+    ├── pillar2-tagger.ts         # AI category tagger (travel_advisor/b2b_partner/...)
     ├── pillar3-holidays.ts       # Easter/Eid/Diwali/Hanukkah dates
     ├── pillar3-greek-namedays.ts # Greek Orthodox name day calendar
-    ├── pillar3-religion-inferrer.ts
+    ├── pillar3-religion-inferrer.ts (Greek-name-first, no Western default)
     ├── pillar3-greeting-templates.ts
+    ├── commitment-extractor.ts   # Pillar 4 — promises in outbound
+    ├── sentiment-classifier.ts   # Pillar 5 — per-message warmth/engagement/intent
+    ├── health-scorer.ts          # Pillar 5 — composite 0-100 with components
+    ├── thread-suggester.ts       # Sprint 2.2 — AI one-line suggestions + composite priority
     └── *-migration.sql           # Paste each into Supabase Studio once
 ```
 
 ---
 
-## The three pillars
-
-The 27/04/2026 refocus brief reorganised the system around three pillars:
+## The five pillars
 
 ### 1. Inbox Brain
 Cockpit reads Gmail thread state per contact (gap, direction,
-owed-reply detection) — not just CRM stage. Surfaces what George
-needs to reply to today, ranked.
-
-**Powered by:**
-- `src/lib/inbox-analyzer.ts` — derives stage from activities timeline
-- `src/lib/cockpit-engine.ts` — banded rank score (fresh > stale)
-- `/api/cron/gmail-poll-replies` — every 5 min, ingests inbox + classifies
-- `/api/cron/inbox-refresh` — nightly + chunked, recomputes states
-- `/api/admin/inbox-backfill` — one-shot historical Gmail import
+owed-reply detection on the **last meaningful message** — auto-
+responses, reactions, closing pleasantries, explicit declines, and
+self-parking are filtered). Surfaces what George needs to reply to
+today, ranked.
 
 ### 1.5 Gmail STAR signal
 George stars threads in Gmail. Starred contacts rocket to the top
 of the cockpit (+5,000,000 boost) regardless of other heuristics.
-
-**Powered by:**
-- `/api/cron/inbox-star-sync` — every 15 min, mirrors Gmail's
-  `is:starred` label onto `contacts.inbox_starred`
-- `gmail-poll-replies` also propagates STARRED on each new inbound
+Sync runs every 15 min.
 
 ### 2. Smart Contact Database
-Every contact gets multi-tag categorised: `travel_advisor`,
-`charter_client`, `b2b_partner`, `press`, `vendor`, `cold_lead`.
-Confidence per tag; manual override (UI) is permanent.
-
-**Powered by:**
-- `src/lib/pillar2-tagger.ts` — Gemini call with strict JSON output
-- `gmail-poll-replies` — auto-tags new contacts within 5 min
-- `/api/admin/inbox-tag` — bulk re-tag (chunked, resumable, ?force=1)
-- `Pillar2TagEditor` component — chip toggle UI on contact detail page
-- `/api/crm/contacts/:id/tags-v2` PUT — manual override
-- `/api/crm/contacts/export?tag=...` — CSV scoped by tag
+Multi-tag categories per contact: `travel_advisor`, `charter_client`,
+`b2b_partner`, `press`, `vendor`, `cold_lead`. Confidence per tag,
+chip toggle UI on contact detail page, manual override permanent
+(AI tagger never reverts). New contacts auto-tagged within 5 min
+of first email.
 
 ### 3. Relationship Maintenance Engine
-Auto-DRAFTS (never sends) culturally-appropriate greetings on
-birthdays, name days, and 12 holiday types per contact's inferred
-religion + country.
+Auto-DRAFTS culturally-appropriate greetings on birthdays, name
+days (Greek), and 12 holiday types per inferred religion + country.
+Never auto-sends. Cockpit shows "📬 N drafts ready" with deep link
+to Gmail label.
 
-**Powered by:**
-- `src/lib/pillar3-holidays.ts` — Easter computus + variable-date table
-- `src/lib/pillar3-greek-namedays.ts` — ~120 Greek first names → MM-DD
-- `src/lib/pillar3-religion-inferrer.ts` — country + name → religion
-- `src/lib/pillar3-greeting-templates.ts` — bilingual templates
-- `/api/cron/inbox-greetings` — nightly 03:00 Athens, drafts for tomorrow
-- `/api/admin/religion-infer` — one-shot populate `inferred_religion`
-- `/api/admin/greetings-smoketest?email=X&keep=1` — pipeline check
-- Cockpit "📬 Greetings Ready" surface
+### 4. Promised Commitments Tracker
+Every outbound email gets scanned for commitment language ("I'll
+send X by Monday"). Promises with deadlines surface at the TOP of
+the cockpit (broken promises trump unread emails). Auto-fulfilled
+when George sends a follow-up in the same thread; one-click
+"✓ Done" / "✕ Skip" buttons.
+
+### 5. Relationship Health Score
+0-100 score per contact computed nightly. Combines recency +
+sentiment + reply rate + deal velocity + commitment penalty +
+greetings bonus. Trend (↑↓→) computed against 7-day-old history.
+Weekly Telegram digest of top 10 warming + top 10 cooling
+contacts. Color-coded chip on every cockpit thread row.
+
+---
+
+## Sprint 2.2 quality refinements (v2 brief)
+
+- **Composite priority score 0-100** per thread (separate from
+  rank_score) — surfaced as P{N} chip on the cockpit row with a
+  hover tooltip explaining why this thread is here.
+- **AI-generated suggested action** per top-30 thread, in italic
+  green above the snippet. "Reply to Villy's meeting request —
+  offer 3 slots in her 20-24 April window (now overdue)".
+- **Default cockpit cap 25** (was 60), with "Show all N" expander.
 
 ---
 
@@ -104,6 +109,8 @@ religion + country.
 |---|---|
 | `/api/admin/inbox-backfill?days=180` | Import Gmail history (chunked via `?pageToken=`) |
 | `/api/admin/inbox-debug?email=X` | Inspect one contact's state + Gmail probe |
+| `/api/admin/inbox-classify?ai=1` | Backfill message_class (heuristics + AI fallback) |
+| `/api/admin/inbox-classify-debug?email=X` | Per-activity message_class dump |
 | `/api/admin/inbox-tag-debug?email=X` | See raw AI tagger response for one contact |
 | `/api/admin/inbox-tag` | Bulk re-tag (`?force=1` to ignore 30-day skip) |
 | `/api/admin/inbox-cleanup-warmup?apply=1` | Delete cold-email warmup contacts |
@@ -111,18 +118,25 @@ religion + country.
 | `/api/admin/inbox-create-contact?email=X&first=Y&last=Z` | Manual contact + Gmail import |
 | `/api/admin/religion-infer` | Populate `inferred_religion` |
 | `/api/admin/greetings-smoketest?email=X` | End-to-end Pillar 3 verification |
+| `/api/admin/commitments-backfill?days=14` | Pillar 4 backfill from Gmail history |
+| `/api/admin/sentiment-backfill?limit=200` | Pillar 5 sentiment on inbound emails |
+| `/api/cron/health-score-recompute` | Recompute health for all eligible contacts |
+| `/api/cron/thread-suggestions` | Refresh AI suggestions on top-30 threads |
 
 ---
 
-## Migrations to apply (Supabase Studio → SQL Editor)
+## Migrations to apply (Supabase Studio → SQL Editor, in order)
 
-In order, paste each file:
-1. `src/lib/inbox-state-migration.sql`
-2. `src/lib/inbox-starred-migration.sql`
-3. `src/lib/pillar2-tagging-migration.sql`
-4. `src/lib/pillar3-greetings-migration.sql`
+All idempotent (`IF NOT EXISTS`).
 
-All migrations are idempotent (`IF NOT EXISTS`).
+1. `src/lib/inbox-state-migration.sql`             (Pillar 1)
+2. `src/lib/inbox-starred-migration.sql`           (Pillar 1.5)
+3. `src/lib/pillar2-tagging-migration.sql`         (Pillar 2)
+4. `src/lib/pillar3-greetings-migration.sql`       (Pillar 3)
+5. `src/lib/v2-message-class-migration.sql`        (Sprint 2.1 bug fixes)
+6. `src/lib/v2-commitments-migration.sql`          (Pillar 4)
+7. `src/lib/v2-health-score-migration.sql`         (Pillar 5)
+8. `src/lib/v2-thread-suggestion-migration.sql`    (Sprint 2.2 quality)
 
 ---
 
