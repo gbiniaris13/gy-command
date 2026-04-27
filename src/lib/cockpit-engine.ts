@@ -325,17 +325,19 @@ function isAutoReplyThread(row: InboxRow): boolean {
  * Rank score for inbox threads. Higher = more urgent.
  *
  * Order encoded:
- *   1. owed_reply         — George owes the contact a reply
- *   2. new_lead           — fresh outreach, no second touch yet
- *   3. needs_followup     — silent 7-30d, George sent last
- *   4. cold               — silent 30d+ (deals only)
- *   5. active             — back-and-forth in last 14d (informational)
- *   6. awaiting_reply     — silent <7d (informational)
+ *   1. fresh owed_reply (gap ≤ 7d)       — conversation still warm
+ *   2. new_lead                           — first-touch leads
+ *   3. medium owed_reply (gap 7-30d)      — needs nudge
+ *   4. needs_followup                     — silent 7-30d, George sent last
+ *   5. stale owed_reply (gap 30-60d)      — likely needs re-engage, not reply
+ *   6. cold                               — silent 30d+ (deals only)
+ *   7. active                             — informational
+ *   8. awaiting_reply / very stale owed   — informational
  *
  * Modifiers:
  *   + 200_000 if contact is in a priority CRM stage (Hot/Warm/etc)
  *   - 600_000 if subject looks like an auto-reply / OOO
- *   + deal value, gap as tie-breakers within each band
+ *   + deal value as tie-breakers within each band
  */
 function inboxRankScore(row: InboxRow): number {
   const stage = row.inbox_inferred_stage ?? "unknown";
@@ -345,7 +347,18 @@ function inboxRankScore(row: InboxRow): number {
   let base: number;
   switch (stage) {
     case "owed_reply":
-      base = 1_000_000 + Math.min(gap, 60) * 1000;
+      // Banded by gap. Fresh owed (today/yesterday) ranks ABOVE
+      // old owed (3-month-old auto-reply) — the conversation is
+      // still warm, the reply is high-leverage.
+      if (gap <= 7) {
+        base = 1_000_000 + (7 - gap) * 5_000;
+      } else if (gap <= 30) {
+        base = 600_000 - (gap - 7) * 500;
+      } else if (gap <= 60) {
+        base = 300_000 - (gap - 30) * 200;
+      } else {
+        base = 80_000;
+      }
       break;
     case "new_lead":
       base = 700_000 + Math.min(fee, 1_000_000) * 0.5;
