@@ -96,6 +96,7 @@ export async function GET(request: NextRequest) {
   const CHUNK = 500;
   for (let i = 0; i < safeToDelete.length; i += CHUNK) {
     const slice = safeToDelete.slice(i, i + CHUNK);
+    await sb.from("email_classifications").delete().in("contact_id", slice);
     const { error } = await sb.from("contacts").delete().in("id", slice);
     if (error) {
       return NextResponse.json(

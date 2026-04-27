@@ -63,10 +63,14 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // Delete dependent rows first — email_classifications doesn't have
+  // ON DELETE CASCADE configured, so contact deletes hit a FK error
+  // unless we clear it manually.
   let deleted = 0;
   const CHUNK = 500;
   for (let i = 0; i < candidateIds.length; i += CHUNK) {
     const slice = candidateIds.slice(i, i + CHUNK);
+    await sb.from("email_classifications").delete().in("contact_id", slice);
     const { error } = await sb.from("contacts").delete().in("id", slice);
     if (error) {
       return NextResponse.json(
