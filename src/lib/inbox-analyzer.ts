@@ -213,24 +213,38 @@ export async function refreshContactInbox(
 }
 
 /**
- * Recompute inbox_* for every contact. Used by the nightly cron and
- * the one-off backfill route. Returns per-stage counts for logging.
+ * Recompute inbox_* for every contact. Returns per-stage counts plus
+ * a `next_offset` cursor so callers can resume past Vercel's 300s
+ * function timeout — at ~200ms per contact, 1605 contacts won't fit
+ * in a single invocation.
  *
  * Supabase REST hard-caps any single .select() at 1000 rows by default,
- * so we paginate explicitly with .range() — without this, contacts past
- * row 1000 (alphabetical / insert order) silently never get processed
- * and their inbox_inferred_stage stays NULL forever.
+ * so we paginate with .range() inside the offset window.
+ *
+ * Time-budgeted: stops cleanly at 250s wall clock and returns the
+ * next offset to resume from. Pass startOffset=0 on first call,
+ * then use the returned next_offset until null.
  */
 export async function refreshAllContactsInbox(
   sb: SupabaseClient,
-): Promise<{ processed: number; by_stage: Record<string, number> }> {
+  options: { startOffset?: number; budgetMs?: number } = {},
+): Promise<{
+  processed: number;
+  by_stage: Record<string, number>;
+  next_offset: number | null;
+  start_offset: number;
+}> {
+  const startOffset = options.startOffset ?? 0;
+  const budgetMs = options.budgetMs ?? 250_000;
+  const startedAt = Date.now();
   const PAGE = 500;
   const counts: Record<string, number> = {};
   let processed = 0;
-  let page = 0;
-  while (true) {
-    const from = page * PAGE;
-    const to = from + PAGE - 1;
+  let cursor = startOffset;
+
+  while (Date.now() - startedAt < budgetMs) {
+    const from = cursor;
+    const to = cursor + PAGE - 1;
     const { data: contacts, error } = await sb
       .from("contacts")
       .select("id")
@@ -240,8 +254,23 @@ export async function refreshAllContactsInbox(
       console.error("[inbox-analyzer] page fetch failed:", error.message);
       break;
     }
-    if (!contacts || contacts.length === 0) break;
+    if (!contacts || contacts.length === 0) {
+      return {
+        processed,
+        by_stage: counts,
+        next_offset: null,
+        start_offset: startOffset,
+      };
+    }
     for (const c of contacts) {
+      if (Date.now() - startedAt >= budgetMs) {
+        return {
+          processed,
+          by_stage: counts,
+          next_offset: cursor,
+          start_offset: startOffset,
+        };
+      }
       try {
         const s = await refreshContactInbox(sb, c.id as string);
         counts[s.inferred_stage] = (counts[s.inferred_stage] ?? 0) + 1;
@@ -249,9 +278,21 @@ export async function refreshAllContactsInbox(
       } catch (err) {
         console.error("[inbox-analyzer] contact failed:", c.id, err);
       }
+      cursor++;
     }
-    if (contacts.length < PAGE) break;
-    page++;
+    if (contacts.length < PAGE) {
+      return {
+        processed,
+        by_stage: counts,
+        next_offset: null,
+        start_offset: startOffset,
+      };
+    }
   }
-  return { processed, by_stage: counts };
+  return {
+    processed,
+    by_stage: counts,
+    next_offset: cursor,
+    start_offset: startOffset,
+  };
 }

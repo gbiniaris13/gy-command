@@ -19,11 +19,19 @@ import { sendTelegram } from "@/lib/telegram";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const sb = createServiceClient();
-    const result = await refreshAllContactsInbox(sb);
-    return NextResponse.json({ ok: true, ...result });
+    const url = new URL(request.url);
+    const startOffset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+    const result = await refreshAllContactsInbox(sb, { startOffset });
+    return NextResponse.json({
+      ok: true,
+      ...result,
+      hint: result.next_offset
+        ? `Resume with ?offset=${result.next_offset}`
+        : "All contacts processed.",
+    });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "unknown";
     await sendTelegram(
