@@ -243,31 +243,43 @@ export async function refreshAllContactsInbox(
   let cursor = startOffset;
 
   // Cost guard: only process contacts that have at least one email
-  // activity (sent OR received). The "unknown" bucket of 1100+ contacts
-  // with zero email history was burning Supabase quota for zero
-  // analytical value — they always come back with stage='unknown'.
-  // We fetch the eligible contact_ids in one cheap distinct query
-  // and then walk them with the same offset/cursor pattern.
-  const { data: emailedContacts } = await sb
-    .from("activities")
-    .select("contact_id")
-    .in("type", [
-      "email_sent",
-      "email_inbound",
-      "email_received",
-      "email_reply_hot_or_warm",
-      "email_reply_cold",
-      "reply",
-    ])
-    .not("contact_id", "is", null);
-
-  const uniqueIds = Array.from(
-    new Set(
-      (emailedContacts ?? [])
-        .map((r) => r.contact_id as string)
-        .filter(Boolean),
-    ),
-  ).sort();
+  // activity. The "unknown" bucket of 1100+ contacts with zero email
+  // history was burning Supabase quota for zero analytical value.
+  //
+  // CAUTION: Supabase REST hard-caps any single .select() at 1000
+  // rows even with .in() + .limit(). The activities table has
+  // thousands of email rows, so we MUST paginate this lookup with
+  // .range() — otherwise we silently miss contacts whose activities
+  // happen to be past row 1000 (typically the older, more important
+  // ones).
+  const EMAIL_TYPES = [
+    "email_sent",
+    "email_inbound",
+    "email_received",
+    "email_reply_hot_or_warm",
+    "email_reply_cold",
+    "reply",
+  ];
+  const idSet = new Set<string>();
+  let actPage = 0;
+  const ACT_PAGE = 1000;
+  while (true) {
+    const { data: rows, error } = await sb
+      .from("activities")
+      .select("contact_id")
+      .in("type", EMAIL_TYPES)
+      .not("contact_id", "is", null)
+      .order("created_at", { ascending: false })
+      .range(actPage * ACT_PAGE, (actPage + 1) * ACT_PAGE - 1);
+    if (error || !rows || rows.length === 0) break;
+    for (const r of rows) {
+      const id = r.contact_id as string | null;
+      if (id) idSet.add(id);
+    }
+    if (rows.length < ACT_PAGE) break;
+    actPage++;
+  }
+  const uniqueIds = Array.from(idSet).sort();
 
   while (Date.now() - startedAt < budgetMs) {
     const slice = uniqueIds.slice(cursor, cursor + PAGE);
