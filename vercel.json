@@ -166,7 +166,7 @@
     },
     {
       "path": "/api/cron/inbox-star-sync",
-      "schedule": "0 4 * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/linkedin-intel",
