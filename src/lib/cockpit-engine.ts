@@ -101,6 +101,9 @@ export interface InboxThread {
   suggested_action: "reply" | "follow_up" | "wait";
   /** True if George has starred any thread with this contact in Gmail. */
   starred: boolean;
+  /** Pillar 5 — relationship health 0-100 (null if not yet scored). */
+  health_score: number | null;
+  health_trend: "up" | "down" | "flat" | null;
   /** Higher = more urgent. Lets the UI sort & color a flat list. */
   rank_score: number;
 }
@@ -337,6 +340,9 @@ interface InboxRow {
   parked_until: string | null;
   declined_at: string | null;
   lifecycle_state: string | null;
+  /** Sprint 2.4 — Pillar 5 health score. */
+  health_score: number | null;
+  health_score_trend: string | null;
 }
 
 function suggestedActionFor(stage: InboxStage): "reply" | "follow_up" | "wait" {
@@ -475,7 +481,7 @@ async function buildInboxThreads(
   const { data: rows } = await sb
     .from("contacts")
     .select(
-      "id, first_name, last_name, email, charter_fee, commission_earned, charter_vessel, charter_start_date, charter_end_date, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id, inbox_starred, parked_until, declined_at, lifecycle_state",
+      "id, first_name, last_name, email, charter_fee, commission_earned, charter_vessel, charter_start_date, charter_end_date, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id, inbox_starred, parked_until, declined_at, lifecycle_state, health_score, health_score_trend",
     )
     .not("inbox_inferred_stage", "is", null)
     .neq("inbox_inferred_stage", "unknown")
@@ -498,6 +504,8 @@ async function buildInboxThreads(
     parked_until: c.parked_until,
     declined_at: c.declined_at,
     lifecycle_state: c.lifecycle_state,
+    health_score: c.health_score ?? null,
+    health_score_trend: c.health_score_trend ?? null,
   }));
 
   const summary: InboxSummary = {
@@ -571,6 +579,9 @@ async function buildInboxThreads(
       charter_dates: dates,
       suggested_action: suggestedActionFor(r.inbox_inferred_stage as InboxStage),
       starred: !!r.inbox_starred,
+      health_score: r.health_score,
+      health_trend:
+        (r.health_score_trend as "up" | "down" | "flat" | null) ?? null,
       rank_score: score,
     };
   });

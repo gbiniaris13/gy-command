@@ -110,6 +110,23 @@ function ThreadRow({ t }: { t: InboxThread }) {
                 {t.pipeline_stage}
               </span>
             )}
+            {typeof t.health_score === "number" && (
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                  t.health_score >= 70
+                    ? "border-emerald-500/30 text-emerald-300 bg-emerald-500/10"
+                    : t.health_score >= 40
+                      ? "border-yellow-500/30 text-yellow-300 bg-yellow-500/10"
+                      : "border-red-500/30 text-red-300 bg-red-500/10"
+                }`}
+                title={`Relationship health 0-100 · trend ${t.health_trend ?? "—"}`}
+              >
+                {t.health_score}
+                {t.health_trend === "up" && " ↑"}
+                {t.health_trend === "down" && " ↓"}
+                {t.health_trend === "flat" && " →"}
+              </span>
+            )}
           </div>
           <div className="font-serif text-white truncate">{t.contact_name}</div>
           {t.last_subject && (
