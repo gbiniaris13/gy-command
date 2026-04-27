@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
   });
 
   const raw = await aiChat(SYSTEM, userMsg, {
-    maxTokens: 500,
+    maxTokens: 2000,
     temperature: 0.2,
   });
 

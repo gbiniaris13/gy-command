@@ -89,7 +89,10 @@ export async function tagContactWithAI(input: ContactInput): Promise<TagAssignme
   });
   let raw: string;
   try {
-    raw = await aiChat(SYSTEM, userMsg, { maxTokens: 500, temperature: 0.2 });
+    // Gemini's OpenAI-compat layer truncates aggressively at low
+    // max_tokens — bump to 2000 so a multi-tag response with up to
+    // 4 tags fits comfortably.
+    raw = await aiChat(SYSTEM, userMsg, { maxTokens: 2000, temperature: 0.2 });
   } catch (err) {
     console.error("[pillar2-tagger] AI call failed:", err);
     return [{ tag: "cold_lead", confidence: 0.3, source: "ai" }];
