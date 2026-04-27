@@ -1,13 +1,12 @@
 // /api/admin/inbox-cleanup-warmup — purge warmup-only contacts.
 //
-// The first backfill rounds (before the warmup-subject guard landed)
-// auto-created ~50 contacts whose only activities are cold-email
-// warmup pings. They flooded the cockpit's owed_reply pile and
-// pushed real benchmark contacts off the top-60.
+// Deletes contacts whose ONLY email_* activities are cold-email warmup
+// pings (subject contains a 'wbx XXX' / 'wbx-XXX' / 'wbx_XXX' token).
+// Cascades activities.
 //
-// Targets: contacts whose ONLY activities have a "wbx " token in
-// the subject metadata, source=outreach_bot, no notes, no
-// charter_fee. Activities cascade-delete.
+// Implementation: one paginated bulk fetch of email activities,
+// grouped per contact_id in memory, classified as
+// warmup-only / mixed / clean. No per-contact queries.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
@@ -15,79 +14,88 @@ import { createServiceClient } from "@/lib/supabase-server";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
+const EMAIL_TYPES = [
+  "email_sent",
+  "email_inbound",
+  "email_received",
+  "email_reply_hot_or_warm",
+  "email_reply_cold",
+  "reply",
+];
+
+const WARMUP_RE = /\bwbx[\s_-]/i;
+
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const apply = sp.get("apply") === "1";
   const sb = createServiceClient();
 
-  // 1. Find candidate contact_ids: source=outreach_bot, no notes, no fee
-  const candidateIds: string[] = [];
-  let page = 0;
-  const PAGE = 1000;
+  // 1. Pull all email activities, paginated. We need both a "looks
+  //    like warmup?" classification AND a "do they have any non-
+  //    warmup email?" check per contact.
+  const counts = new Map<string, { total: number; warmup: number }>();
+  let actPage = 0;
+  const ACT_PAGE = 1000;
   while (true) {
     const { data: rows, error } = await sb
-      .from("contacts")
-      .select("id, email")
-      .eq("source", "outreach_bot")
-      .is("notes", null)
-      .or("charter_fee.is.null,charter_fee.eq.0")
-      .order("created_at", { ascending: true })
-      .range(page * PAGE, (page + 1) * PAGE - 1);
+      .from("activities")
+      .select("contact_id, metadata")
+      .in("type", EMAIL_TYPES)
+      .not("contact_id", "is", null)
+      .order("created_at", { ascending: false })
+      .range(actPage * ACT_PAGE, (actPage + 1) * ACT_PAGE - 1);
     if (error || !rows || rows.length === 0) break;
-    for (const r of rows) candidateIds.push(r.id as string);
-    if (rows.length < PAGE) break;
-    page++;
+    for (const r of rows) {
+      const cid = r.contact_id as string;
+      const subj = (r.metadata as { subject?: string } | null)?.subject ?? "";
+      const isWarmup = WARMUP_RE.test(subj);
+      const cur = counts.get(cid) ?? { total: 0, warmup: 0 };
+      cur.total++;
+      if (isWarmup) cur.warmup++;
+      counts.set(cid, cur);
+    }
+    if (rows.length < ACT_PAGE) break;
+    actPage++;
   }
 
-  // 2. For each, check if EVERY email_* activity has 'wbx' in
-  //    metadata.subject. If yes → warmup-only contact, eligible.
+  // 2. Eligible: total>0 AND warmup === total (every activity is warmup).
   const warmupOnly: string[] = [];
-  for (const id of candidateIds) {
-    const { data: acts } = await sb
-      .from("activities")
-      .select("metadata, type")
-      .eq("contact_id", id)
-      .in("type", [
-        "email_sent",
-        "email_inbound",
-        "email_received",
-        "email_reply_hot_or_warm",
-        "email_reply_cold",
-        "reply",
-      ]);
-    if (!acts || acts.length === 0) continue;
-    const allWarmup = acts.every((a) => {
-      const subj = (a.metadata as { subject?: string } | null)?.subject ?? "";
-      return /\bwbx[\s_-]/i.test(subj);
-    });
-    if (allWarmup) warmupOnly.push(id);
+  for (const [cid, c] of counts.entries()) {
+    if (c.total > 0 && c.warmup === c.total) warmupOnly.push(cid);
+  }
+
+  // 3. Restrict to safe-to-delete contacts (source=outreach_bot, no
+  //    notes, no charter_fee). Walk paginated.
+  const safeToDelete: string[] = [];
+  if (warmupOnly.length > 0) {
+    for (let i = 0; i < warmupOnly.length; i += 200) {
+      const slice = warmupOnly.slice(i, i + 200);
+      const { data: rows } = await sb
+        .from("contacts")
+        .select("id, email")
+        .in("id", slice)
+        .eq("source", "outreach_bot")
+        .is("notes", null)
+        .or("charter_fee.is.null,charter_fee.eq.0");
+      for (const r of rows ?? []) safeToDelete.push(r.id as string);
+    }
   }
 
   if (!apply) {
-    // Sample
-    const sample: Array<{ id: string; email: string | null }> = [];
-    if (warmupOnly.length > 0) {
-      const { data } = await sb
-        .from("contacts")
-        .select("id, email")
-        .in("id", warmupOnly.slice(0, 10));
-      for (const r of data ?? [])
-        sample.push({ id: r.id as string, email: r.email as string });
-    }
     return NextResponse.json({
       ok: true,
       dry: true,
-      candidates_checked: candidateIds.length,
-      warmup_only_eligible: warmupOnly.length,
-      sample,
+      total_emailed_contacts: counts.size,
+      warmup_only_classified: warmupOnly.length,
+      safe_to_delete: safeToDelete.length,
       hint: "Add &apply=1 to delete (cascades activities).",
     });
   }
 
   let deleted = 0;
   const CHUNK = 500;
-  for (let i = 0; i < warmupOnly.length; i += CHUNK) {
-    const slice = warmupOnly.slice(i, i + CHUNK);
+  for (let i = 0; i < safeToDelete.length; i += CHUNK) {
+    const slice = safeToDelete.slice(i, i + CHUNK);
     const { error } = await sb.from("contacts").delete().in("id", slice);
     if (error) {
       return NextResponse.json(
