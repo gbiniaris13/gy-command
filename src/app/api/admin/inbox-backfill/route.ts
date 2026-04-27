@@ -216,6 +216,18 @@ export async function GET(request: NextRequest) {
       skippedNoEmail++;
       continue;
     }
+
+    // Warmup-subject guard: cold-email warmup services attach a
+    // unique-per-thread token like " - wbx XXX" or " - wbx-XXX" to
+    // the subject. The live gmail-poll cron already detects warmup
+    // via headers; the backfill uses lightweight metadata so we
+    // catch them here by subject pattern. Drop the activity entirely
+    // (don't insert, don't auto-create the contact).
+    if (/\bwbx[\s_-]/i.test(subject)) {
+      skippedNoMatch++;
+      continue;
+    }
+
     let contactId = contactsByEmail.get(counterparty);
 
     if (!contactId) {
