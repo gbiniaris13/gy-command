@@ -54,23 +54,56 @@ export async function GET(request: NextRequest) {
       })),
     );
 
-    // Probe Gmail directly for threads with this email.
-    let gmailHits: Array<{ id: string; snippet?: string; date?: string }> = [];
+    // Probe Gmail directly for threads with this email — and fetch
+    // each message's From/To/Subject so we can see how the backfill
+    // would (or wouldn't) match it.
+    let gmailHits: Array<{
+      id: string;
+      from?: string;
+      to?: string;
+      subject?: string;
+      labels?: string[];
+    }> = [];
     if (c.email) {
       try {
         const probeRes = await gmailFetch(
           `/messages?${new URLSearchParams({
             q: `(from:${c.email} OR to:${c.email}) newer_than:180d`,
-            maxResults: "10",
+            maxResults: "5",
           })}`,
         );
         if (probeRes.ok) {
           const probe = (await probeRes.json()) as {
             messages?: { id: string }[];
           };
-          gmailHits = (probe.messages ?? []).slice(0, 10).map((m) => ({
-            id: m.id,
-          }));
+          for (const m of (probe.messages ?? []).slice(0, 5)) {
+            try {
+              const metaRes = await gmailFetch(
+                `/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`,
+              );
+              if (metaRes.ok) {
+                const meta = (await metaRes.json()) as {
+                  payload?: { headers?: { name: string; value: string }[] };
+                  labelIds?: string[];
+                };
+                const h = meta.payload?.headers ?? [];
+                const get = (n: string) =>
+                  h.find((x) => x.name.toLowerCase() === n.toLowerCase())
+                    ?.value ?? "";
+                gmailHits.push({
+                  id: m.id,
+                  from: get("From"),
+                  to: get("To"),
+                  subject: get("Subject"),
+                  labels: meta.labelIds,
+                });
+              } else {
+                gmailHits.push({ id: m.id });
+              }
+            } catch {
+              gmailHits.push({ id: m.id });
+            }
+          }
         }
       } catch {}
     }
