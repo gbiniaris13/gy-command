@@ -297,20 +297,45 @@ function suggestedActionFor(stage: InboxStage): "reply" | "follow_up" | "wait" {
   return "wait"; // awaiting_reply, unknown
 }
 
+// CRM stages that signal "George cares about this person" — boost
+// them so they always surface above noise of equal stage.
+const PRIORITY_CRM_STAGES = new Set([
+  "Hot",
+  "Warm",
+  "Negotiation",
+  "Proposal Sent",
+  "Meeting Booked",
+  "Contract Sent",
+  "Closed Won",
+]);
+
+// Auto-reply / out-of-office subject patterns. Threads stuck in
+// owed_reply just because the contact's vacation auto-responder fired
+// shouldn't outrank real owed-reply threads — they need a calendar
+// follow-up after the return date, not an immediate reply.
+const AUTO_REPLY_SUBJECT_RE =
+  /\b(automatic\s+reply|auto\s*[-_]?\s*reply|out\s+of\s+office|out\s+of\s+the\s+office|away\s+from\s+the\s+office|thank\s+you\s+for\s+reaching\s+out|currently\s+out|will\s+be\s+out\s+of\s+office)\b/i;
+
+function isAutoReplyThread(row: InboxRow): boolean {
+  const subj = row.inbox_last_subject ?? "";
+  return AUTO_REPLY_SUBJECT_RE.test(subj);
+}
+
 /**
  * Rank score for inbox threads. Higher = more urgent.
  *
  * Order encoded:
  *   1. owed_reply         — George owes the contact a reply
- *   2. new_lead           — fresh outreach, no second touch yet (highest
- *                           leverage — every brokerage win starts here,
- *                           per 27/04 benchmark Ane Lowe / QD Luxx)
- *   3. needs_followup     — silent 7-30d, George sent last (money tie-break)
+ *   2. new_lead           — fresh outreach, no second touch yet
+ *   3. needs_followup     — silent 7-30d, George sent last
  *   4. cold               — silent 30d+ (deals only)
  *   5. active             — back-and-forth in last 14d (informational)
- *   6. awaiting_reply     — silent <7d, George just sent (informational)
+ *   6. awaiting_reply     — silent <7d (informational)
  *
- * Within each band: deal value + gap as tie-breakers.
+ * Modifiers:
+ *   + 200_000 if contact is in a priority CRM stage (Hot/Warm/etc)
+ *   - 600_000 if subject looks like an auto-reply / OOO
+ *   + deal value, gap as tie-breakers within each band
  */
 function inboxRankScore(row: InboxRow): number {
   const stage = row.inbox_inferred_stage ?? "unknown";
@@ -320,33 +345,41 @@ function inboxRankScore(row: InboxRow): number {
   let base: number;
   switch (stage) {
     case "owed_reply":
-      // George owes them. Older owed > newer owed.
       base = 1_000_000 + Math.min(gap, 60) * 1000;
       break;
     case "new_lead":
-      // First-touch leads need the second touch — most leveraged action
-      // in a brokerage. Bump above needs_followup so a fresh prospect
-      // never gets buried by the 50th partner re-engagement.
       base = 700_000 + Math.min(fee, 1_000_000) * 0.5;
       break;
     case "needs_followup":
-      // 7-30d gap, George sent last. Money first, then gap.
       base = 500_000 + Math.min(fee, 1_000_000) * 0.5 + Math.min(gap, 30) * 100;
       break;
     case "cold":
-      // > 30d. Deals worth chasing only.
       base = 200_000 + Math.min(fee, 1_000_000) * 0.2;
       break;
     case "active":
       base = 50_000;
       break;
     case "awaiting_reply":
-      // Informational — gap < 7d, George just sent.
       base = 10_000;
       break;
     default:
       base = 0;
   }
+
+  // CRM stage boost: people George has actively curated rank above
+  // unvetted contacts of the same inbox stage.
+  if (
+    row.pipeline_stage_name &&
+    PRIORITY_CRM_STAGES.has(row.pipeline_stage_name)
+  ) {
+    base += 200_000;
+  }
+
+  // Auto-reply penalty: shift the thread down a tier.
+  if (isAutoReplyThread(row)) {
+    base -= 600_000;
+  }
+
   return base;
 }
 

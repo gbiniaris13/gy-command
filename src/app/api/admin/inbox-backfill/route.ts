@@ -251,30 +251,46 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      // Require at least one prior message from the same counterparty
-      // in the current batch. Single-shot promotional pings get
-      // dropped; recurring senders (real conversations + auto-reply
-      // sequences) get a contact. This keeps the auto-create count
-      // closer to "people George actually corresponds with".
-      const seenAlready = inserts.some(
-        (r) =>
-          (r.metadata as { thread_id?: string } | null)?.thread_id ===
-          msg.threadId,
-      );
-      const repeatSender =
-        seenAlready ||
-        metas.filter((m) => {
-          const h2 = m.payload?.headers ?? [];
-          const f2 = getHeader(h2, "From");
-          const t2 = getHeader(h2, "To");
-          const sent2 = m.labelIds?.includes("SENT") ?? false;
-          const cp2 = sent2 ? extractEmail(t2) : extractEmail(f2);
-          return cp2 === counterparty;
-        }).length >= 2;
-      if (!repeatSender) {
-        skippedNoMatch++;
-        unmatchedCounterparties.add(counterparty);
-        continue;
+      // Two-track admission for auto-create:
+      //   - Personal domains (gmail.com / icloud / yahoo / hotmail / etc)
+      //     auto-create on a single message. These are real humans;
+      //     newsletters don't ship from gmail.
+      //   - Business domains require either ≥2 messages in the chunk
+      //     OR a CATEGORY_PERSONAL label (which Gmail uses for genuine
+      //     1:1 mail). This keeps single-shot promotional blasts from
+      //     pet-shop@somecompany.com out, while still admitting people
+      //     George traded one substantive email with.
+      const PERSONAL_DOMAINS_LOCAL = new Set([
+        "gmail.com", "googlemail.com", "yahoo.com", "ymail.com",
+        "hotmail.com", "outlook.com", "live.com", "icloud.com",
+        "me.com", "aol.com", "protonmail.com", "proton.me",
+        "hey.com", "fastmail.com", "gmx.com", "gmx.de",
+      ]);
+      const cpDomain = counterparty.split("@")[1] ?? "";
+      const isPersonalDomain = PERSONAL_DOMAINS_LOCAL.has(cpDomain);
+
+      if (!isPersonalDomain) {
+        const seenAlready = inserts.some(
+          (r) =>
+            (r.metadata as { thread_id?: string } | null)?.thread_id ===
+            msg.threadId,
+        );
+        const repeatSender =
+          seenAlready ||
+          metas.filter((m) => {
+            const h2 = m.payload?.headers ?? [];
+            const f2 = getHeader(h2, "From");
+            const t2 = getHeader(h2, "To");
+            const sent2 = m.labelIds?.includes("SENT") ?? false;
+            const cp2 = sent2 ? extractEmail(t2) : extractEmail(f2);
+            return cp2 === counterparty;
+          }).length >= 2;
+        const looksPersonal = labels.includes("CATEGORY_PERSONAL");
+        if (!repeatSender && !looksPersonal) {
+          skippedNoMatch++;
+          unmatchedCounterparties.add(counterparty);
+          continue;
+        }
       }
 
       if (dry) {
