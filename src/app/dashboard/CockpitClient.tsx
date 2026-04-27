@@ -76,6 +76,14 @@ function ThreadRow({ t }: { t: InboxThread }) {
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
+            {t.starred && (
+              <span
+                className="text-[12px] leading-none"
+                title="Starred in Gmail — top priority"
+              >
+                ⭐
+              </span>
+            )}
             <span
               className={`text-[9px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded border ${style.tag}`}
             >

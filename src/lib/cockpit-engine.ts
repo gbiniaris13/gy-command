@@ -92,6 +92,8 @@ export interface InboxThread {
   pipeline_stage: string | null;
   charter_fee: number | null;
   suggested_action: "reply" | "follow_up" | "wait";
+  /** True if George has starred any thread with this contact in Gmail. */
+  starred: boolean;
   /** Higher = more urgent. Lets the UI sort & color a flat list. */
   rank_score: number;
 }
@@ -288,6 +290,7 @@ interface InboxRow {
   inbox_last_subject: string | null;
   inbox_last_snippet: string | null;
   inbox_thread_id: string | null;
+  inbox_starred: boolean | null;
 }
 
 function suggestedActionFor(stage: InboxStage): "reply" | "follow_up" | "wait" {
@@ -393,6 +396,13 @@ function inboxRankScore(row: InboxRow): number {
     base -= 600_000;
   }
 
+  // Pillar 1.5 — Gmail STAR boost. George's manual signal beats every
+  // heuristic. A starred contact rockets to the absolute top regardless
+  // of stage / gap / CRM. He stars threads he wants to keep eyes on.
+  if (row.inbox_starred) {
+    base += 5_000_000;
+  }
+
   return base;
 }
 
@@ -412,7 +422,7 @@ async function buildInboxThreads(
   const { data: rows } = await sb
     .from("contacts")
     .select(
-      "id, first_name, last_name, email, charter_fee, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id",
+      "id, first_name, last_name, email, charter_fee, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id, inbox_starred",
     )
     .not("inbox_inferred_stage", "is", null)
     .neq("inbox_inferred_stage", "unknown")
@@ -431,6 +441,7 @@ async function buildInboxThreads(
     inbox_last_subject: c.inbox_last_subject,
     inbox_last_snippet: c.inbox_last_snippet,
     inbox_thread_id: c.inbox_thread_id,
+    inbox_starred: c.inbox_starred ?? false,
   }));
 
   const summary: InboxSummary = {
@@ -470,6 +481,7 @@ async function buildInboxThreads(
     pipeline_stage: r.pipeline_stage_name,
     charter_fee: r.charter_fee,
     suggested_action: suggestedActionFor(r.inbox_inferred_stage as InboxStage),
+    starred: !!r.inbox_starred,
     rank_score: score,
   }));
 

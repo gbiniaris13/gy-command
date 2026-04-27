@@ -165,6 +165,10 @@
       "schedule": "0 3 * * *"
     },
     {
+      "path": "/api/cron/inbox-star-sync",
+      "schedule": "0 4 * * *"
+    },
+    {
       "path": "/api/cron/linkedin-intel",
       "schedule": "0 6 * * 1"
     },

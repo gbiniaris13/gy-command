@@ -388,6 +388,20 @@ async function processMessage(
     try {
       const sb = createServiceClient();
       await refreshContactInbox(sb, contact.id);
+      // Pillar 1.5 — propagate Gmail STAR signal. If the inbound
+      // carries STARRED label, mark the contact starred (top-of-
+      // cockpit boost). Star-removal is reconciled by the nightly
+      // inbox-star-sync cron.
+      if (msg.labelIds?.includes("STARRED")) {
+        await sb
+          .from("contacts")
+          .update({
+            inbox_starred: true,
+            inbox_starred_at: new Date().toISOString(),
+            inbox_starred_thread_id: msg.threadId,
+          })
+          .eq("id", contact.id);
+      }
     } catch (err) {
       console.error("[gmail-poll] inbox refresh failed:", err);
     }
