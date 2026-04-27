@@ -54,24 +54,29 @@ function domainKind(email: string | null): ContactInput["domain_kind"] {
 
 const SYSTEM = `You categorize George Yachts contacts. George is a yacht charter broker in Greece.
 
-Output ONE JSON object, nothing else. Schema:
-  { "tags": [ { "tag": "<one of: travel_advisor|charter_client|b2b_partner|press|vendor|cold_lead>", "confidence": 0.0-1.0 }, ... ] }
+CRITICAL OUTPUT RULES:
+- Output ONLY the raw JSON object. NO markdown fences. NO \`\`\`json. NO prose before or after.
+- Start your response with the open brace { and end with the close brace }. Nothing else.
+- Schema: {"tags":[{"tag":"<TAG>","confidence":<0..1>}, ...]}
+- Allowed TAG values: travel_advisor, charter_client, b2b_partner, press, vendor, cold_lead
+- Multi-tag fine (a person can be travel_advisor AND b2b_partner).
+- If no clear signal: {"tags":[{"tag":"cold_lead","confidence":0.3}]}
 
-Rules:
-- Multi-tag is fine (a person can be travel_advisor AND b2b_partner).
-- If you have NO clear signal, return [{"tag":"cold_lead","confidence":0.3}].
+Tag definitions:
 - travel_advisor: agency name in signature/email domain, IATA/CLIA mentioned, "advisor"/"agent"/"travel" in title.
 - charter_client: requested a yacht, signed proposal, family/personal email (gmail/icloud), conversation about specific dates.
-- b2b_partner: yacht broker, charter manager, fleet operator, concierge, jet ops, villa rental ops — somebody who could refer clients TO George.
+- b2b_partner: yacht broker, charter manager, fleet operator, concierge, jet ops, villa rental ops, anyone who could refer clients TO George.
 - press: media outlet domain, journalist/editor title, podcast/blog mention.
 - vendor: invoicing, service provider (printing, photography, marketing).
 - cold_lead: single inbound, unclear category.
 
-Confidence calibration:
+Confidence:
 - 0.9+: explicit signal (IATA number visible, magazine domain, signed contract).
 - 0.7-0.8: strong inference (agency in company field + replies to outreach).
 - 0.4-0.6: weak signal (gmail domain + first email).
-- 0.3 or below: pure guess; only for cold_lead fallback.`;
+- 0.3 or below: pure guess; only for cold_lead fallback.
+
+REMEMBER: raw JSON only. No fences.`;
 
 export async function tagContactWithAI(input: ContactInput): Promise<TagAssignment[]> {
   const userMsg = JSON.stringify({
@@ -84,14 +89,22 @@ export async function tagContactWithAI(input: ContactInput): Promise<TagAssignme
   });
   let raw: string;
   try {
-    raw = await aiChat(SYSTEM, userMsg, { maxTokens: 200, temperature: 0.2 });
+    raw = await aiChat(SYSTEM, userMsg, { maxTokens: 500, temperature: 0.2 });
   } catch (err) {
     console.error("[pillar2-tagger] AI call failed:", err);
     return [{ tag: "cold_lead", confidence: 0.3, source: "ai" }];
   }
-  // Extract first JSON object from the response (the model may add fences).
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return [{ tag: "cold_lead", confidence: 0.3, source: "ai" }];
+  // Strip markdown fences if Gemini ignores the no-fence rule, then
+  // extract the first {...} block.
+  const cleaned = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+  const m = cleaned.match(/\{[\s\S]*\}/);
+  if (!m) {
+    console.error("[pillar2-tagger] no JSON in response:", raw.slice(0, 200));
+    return [{ tag: "cold_lead", confidence: 0.3, source: "ai" }];
+  }
   try {
     const parsed = JSON.parse(m[0]) as {
       tags?: Array<{ tag?: string; confidence?: number }>;

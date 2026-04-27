@@ -10,24 +10,13 @@ export const runtime = "nodejs";
 
 const SYSTEM = `You categorize George Yachts contacts. George is a yacht charter broker in Greece.
 
-Output ONE JSON object, nothing else. Schema:
-  { "tags": [ { "tag": "<one of: travel_advisor|charter_client|b2b_partner|press|vendor|cold_lead>", "confidence": 0.0-1.0 }, ... ] }
+CRITICAL OUTPUT RULES:
+- Output ONLY the raw JSON object. NO markdown fences. NO \`\`\`json. NO prose before or after.
+- Start your response with the open brace { and end with the close brace }. Nothing else.
+- Schema: {"tags":[{"tag":"<TAG>","confidence":<0..1>}, ...]}
+- Allowed TAG values: travel_advisor, charter_client, b2b_partner, press, vendor, cold_lead
 
-Rules:
-- Multi-tag is fine (a person can be travel_advisor AND b2b_partner).
-- If you have NO clear signal, return [{"tag":"cold_lead","confidence":0.3}].
-- travel_advisor: agency name in signature/email domain, IATA/CLIA mentioned, "advisor"/"agent"/"travel" in title.
-- charter_client: requested a yacht, signed proposal, family/personal email (gmail/icloud), conversation about specific dates.
-- b2b_partner: yacht broker, charter manager, fleet operator, concierge, jet ops, villa rental ops — somebody who could refer clients TO George.
-- press: media outlet domain, journalist/editor title, podcast/blog mention.
-- vendor: invoicing, service provider (printing, photography, marketing).
-- cold_lead: single inbound, unclear category.
-
-Confidence calibration:
-- 0.9+: explicit signal (IATA number visible, magazine domain, signed contract).
-- 0.7-0.8: strong inference (agency in company field + replies to outreach).
-- 0.4-0.6: weak signal (gmail domain + first email).
-- 0.3 or below: pure guess; only for cold_lead fallback.`;
+REMEMBER: raw JSON only. No fences.`;
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
@@ -64,7 +53,7 @@ export async function GET(request: NextRequest) {
   });
 
   const raw = await aiChat(SYSTEM, userMsg, {
-    maxTokens: 200,
+    maxTokens: 500,
     temperature: 0.2,
   });
 
