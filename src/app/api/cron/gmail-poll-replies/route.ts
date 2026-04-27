@@ -35,6 +35,7 @@ import {
   parseSignature,
 } from "@/lib/email-signature-parser";
 import { detectWarmup } from "@/lib/email-warmup-detector";
+import { refreshContactInbox } from "@/lib/inbox-analyzer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -381,6 +382,15 @@ async function processMessage(
       classification: result.classification,
       reason: result.reason,
     });
+    // Pillar 1 — refresh inbox_* fields immediately so the cockpit
+    // surfaces this thread on the next read without waiting for the
+    // nightly inbox-refresh cron.
+    try {
+      const sb = createServiceClient();
+      await refreshContactInbox(sb, contact.id);
+    } catch (err) {
+      console.error("[gmail-poll] inbox refresh failed:", err);
+    }
   }
 
   // Extra Telegram alert on newly created contacts from HOT/WARM replies

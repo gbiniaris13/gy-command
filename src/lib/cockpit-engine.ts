@@ -25,6 +25,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiChat } from "@/lib/ai";
+import type { InboxStage } from "@/lib/inbox-analyzer";
 
 // ─── TYPES ──────────────────────────────────────────────────────────
 
@@ -78,10 +79,40 @@ export interface CockpitOpportunity {
   link?: string | null;
 }
 
+export interface InboxThread {
+  contact_id: string;
+  contact_name: string;
+  contact_email: string | null;
+  inbox_stage: InboxStage;
+  gap_days: number | null;
+  last_direction: "inbound" | "outbound" | null;
+  last_subject: string | null;
+  last_snippet: string | null;
+  thread_id: string | null;
+  pipeline_stage: string | null;
+  charter_fee: number | null;
+  suggested_action: "reply" | "follow_up" | "wait";
+  /** Higher = more urgent. Lets the UI sort & color a flat list. */
+  rank_score: number;
+}
+
+export interface InboxSummary {
+  owed_reply: number;
+  needs_followup: number;
+  awaiting_reply: number;
+  active: number;
+  cold: number;
+  new_lead: number;
+}
+
 export interface CockpitBriefing {
   generated_at: string;
   greeting: string;
   actions: CockpitAction[];
+  /** Pillar 1 — Gmail-derived thread state, ranked. The cockpit's
+   *  primary surface: every thread that needs George today. */
+  inbox_threads: InboxThread[];
+  inbox_summary: InboxSummary;
   pulse: PipelinePulse;
   opportunities: CockpitOpportunity[];
   brainstorm_prompt: string;
@@ -242,6 +273,150 @@ function reasonFor(c: RawCandidate): string {
   return `${stage} contact, ${stale} μέρες stale.`;
 }
 
+// ─── INBOX THREAD RANKING (Pillar 1) ────────────────────────────────
+
+interface InboxRow {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  charter_fee: number | null;
+  pipeline_stage_name: string | null;
+  inbox_inferred_stage: InboxStage | null;
+  inbox_gap_days: number | null;
+  inbox_last_direction: "inbound" | "outbound" | null;
+  inbox_last_subject: string | null;
+  inbox_last_snippet: string | null;
+  inbox_thread_id: string | null;
+}
+
+function suggestedActionFor(stage: InboxStage): "reply" | "follow_up" | "wait" {
+  if (stage === "owed_reply") return "reply";
+  if (stage === "needs_followup" || stage === "cold") return "follow_up";
+  if (stage === "active" || stage === "new_lead") return "follow_up";
+  return "wait"; // awaiting_reply, unknown
+}
+
+/**
+ * Rank score for inbox threads. Higher = more urgent. Encoded so the
+ * stage order from the brief is enforced (Owed > Needs > Awaiting),
+ * with deal value and gap as tie-breakers within each band.
+ */
+function inboxRankScore(row: InboxRow): number {
+  const stage = row.inbox_inferred_stage ?? "unknown";
+  const gap = row.inbox_gap_days ?? 0;
+  const fee = row.charter_fee ?? 0;
+
+  let base: number;
+  switch (stage) {
+    case "owed_reply":
+      // George owes them. Older owed > newer owed.
+      base = 1_000_000 + Math.min(gap, 60) * 1000;
+      break;
+    case "needs_followup":
+      // 7-30d gap, George sent last. Money first, then gap.
+      base = 500_000 + Math.min(fee, 1_000_000) * 0.5 + Math.min(gap, 30) * 100;
+      break;
+    case "cold":
+      // > 30d. Deals worth chasing only.
+      base = 200_000 + Math.min(fee, 1_000_000) * 0.2;
+      break;
+    case "new_lead":
+      base = 400_000;
+      break;
+    case "active":
+      base = 50_000;
+      break;
+    case "awaiting_reply":
+      // Informational — gap < 7d, George just sent.
+      base = 10_000;
+      break;
+    default:
+      base = 0;
+  }
+  return base;
+}
+
+const INBOX_SURFACEABLE: InboxStage[] = [
+  "owed_reply",
+  "needs_followup",
+  "cold",
+  "new_lead",
+  "awaiting_reply",
+  "active",
+];
+
+async function buildInboxThreads(
+  sb: SupabaseClient,
+  stageById: Map<string, string>,
+): Promise<{ threads: InboxThread[]; summary: InboxSummary }> {
+  const { data: rows } = await sb
+    .from("contacts")
+    .select(
+      "id, first_name, last_name, email, charter_fee, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id",
+    )
+    .not("inbox_inferred_stage", "is", null)
+    .neq("inbox_inferred_stage", "unknown")
+    .limit(2000);
+
+  const enriched: InboxRow[] = (rows ?? []).map((c: any) => ({
+    id: c.id,
+    first_name: c.first_name,
+    last_name: c.last_name,
+    email: c.email,
+    charter_fee: c.charter_fee,
+    pipeline_stage_name: c.pipeline_stage_id ? stageById.get(c.pipeline_stage_id) ?? null : null,
+    inbox_inferred_stage: c.inbox_inferred_stage,
+    inbox_gap_days: c.inbox_gap_days,
+    inbox_last_direction: c.inbox_last_direction,
+    inbox_last_subject: c.inbox_last_subject,
+    inbox_last_snippet: c.inbox_last_snippet,
+    inbox_thread_id: c.inbox_thread_id,
+  }));
+
+  const summary: InboxSummary = {
+    owed_reply: 0,
+    needs_followup: 0,
+    awaiting_reply: 0,
+    active: 0,
+    cold: 0,
+    new_lead: 0,
+  };
+  for (const r of enriched) {
+    const s = r.inbox_inferred_stage;
+    if (s && s in summary) (summary as any)[s]++;
+  }
+
+  const surfaceable = enriched.filter(
+    (r) =>
+      r.inbox_inferred_stage &&
+      INBOX_SURFACEABLE.includes(r.inbox_inferred_stage),
+  );
+
+  const ranked = surfaceable
+    .map((r) => ({ r, score: inboxRankScore(r) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 25);
+
+  const threads: InboxThread[] = ranked.map(({ r, score }) => ({
+    contact_id: r.id,
+    contact_name: nameOf(r),
+    contact_email: r.email,
+    inbox_stage: r.inbox_inferred_stage as InboxStage,
+    gap_days: r.inbox_gap_days,
+    last_direction: r.inbox_last_direction,
+    last_subject: r.inbox_last_subject,
+    last_snippet: r.inbox_last_snippet,
+    thread_id: r.inbox_thread_id,
+    pipeline_stage: r.pipeline_stage_name,
+    charter_fee: r.charter_fee,
+    suggested_action: suggestedActionFor(r.inbox_inferred_stage as InboxStage),
+    rank_score: score,
+  }));
+
+  return { threads, summary };
+}
+
 // ─── MAIN: BUILD BRIEFING ───────────────────────────────────────────
 
 export async function buildBriefing(sb: SupabaseClient): Promise<CockpitBriefing> {
@@ -251,6 +426,24 @@ export async function buildBriefing(sb: SupabaseClient): Promise<CockpitBriefing
   const { data: stages } = await sb.from("pipeline_stages").select("id, name");
   const stageById = new Map<string, string>();
   for (const s of stages ?? []) stageById.set(s.id, s.name);
+
+  // 1b. Pillar 1 — pull ranked inbox threads (Gmail thread state).
+  // This is the cockpit's primary surface; runs in parallel with the
+  // legacy CRM-stage actions below so neither blocks the other.
+  const inboxPromise = buildInboxThreads(sb, stageById).catch((e) => {
+    console.error("[cockpit-engine] inbox threads failed:", e);
+    return {
+      threads: [] as InboxThread[],
+      summary: {
+        owed_reply: 0,
+        needs_followup: 0,
+        awaiting_reply: 0,
+        active: 0,
+        cold: 0,
+        new_lead: 0,
+      } satisfies InboxSummary,
+    };
+  });
 
   // 2. Pull all contacts with denormalized deal fields + recent activity
   const activeStageIds = (stages ?? [])
@@ -471,10 +664,14 @@ Generate ONE devil's-advocate provocation for George. NOT a coaching prompt — 
     /* fallback is fine */
   }
 
+  const inbox = await inboxPromise;
+
   return {
     generated_at: new Date().toISOString(),
     greeting: athensGreeting(),
     actions,
+    inbox_threads: inbox.threads,
+    inbox_summary: inbox.summary,
     pulse,
     opportunities,
     brainstorm_prompt: brainstormPrompt,

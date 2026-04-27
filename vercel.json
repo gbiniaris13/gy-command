@@ -157,6 +157,10 @@
       "schedule": "0 4 * * *"
     },
     {
+      "path": "/api/cron/inbox-refresh",
+      "schedule": "30 3 * * *"
+    },
+    {
       "path": "/api/cron/linkedin-intel",
       "schedule": "0 6 * * 1"
     },

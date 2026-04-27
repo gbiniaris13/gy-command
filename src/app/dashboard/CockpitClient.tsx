@@ -15,7 +15,213 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { CockpitBriefing, CockpitAction } from "@/lib/cockpit-engine";
+import type { CockpitBriefing, CockpitAction, InboxThread } from "@/lib/cockpit-engine";
+
+const INBOX_STAGE_STYLE: Record<
+  string,
+  { tag: string; label: string; ring: string }
+> = {
+  owed_reply: {
+    tag: "bg-red-500/20 text-red-300 border-red-500/40",
+    label: "OWED REPLY",
+    ring: "border-red-500/40",
+  },
+  needs_followup: {
+    tag: "bg-orange-500/20 text-orange-300 border-orange-500/40",
+    label: "NEEDS FOLLOW-UP",
+    ring: "border-orange-500/30",
+  },
+  cold: {
+    tag: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+    label: "COLD",
+    ring: "border-white/15",
+  },
+  new_lead: {
+    tag: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+    label: "NEW LEAD",
+    ring: "border-emerald-500/30",
+  },
+  active: {
+    tag: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30",
+    label: "ACTIVE",
+    ring: "border-white/15",
+  },
+  awaiting_reply: {
+    tag: "bg-white/5 text-white/60 border-white/15",
+    label: "AWAITING REPLY",
+    ring: "border-white/10",
+  },
+};
+
+function gmailThreadHref(threadId: string | null): string | null {
+  if (!threadId) return null;
+  return `https://mail.google.com/mail/u/0/#inbox/${threadId}`;
+}
+
+function ThreadRow({ t }: { t: InboxThread }) {
+  const style = INBOX_STAGE_STYLE[t.inbox_stage] ?? INBOX_STAGE_STYLE.awaiting_reply;
+  const gmailHref = gmailThreadHref(t.thread_id);
+  const gap = t.gap_days ?? 0;
+  const directionLabel =
+    t.last_direction === "inbound"
+      ? "they sent"
+      : t.last_direction === "outbound"
+        ? "you sent"
+        : "—";
+
+  return (
+    <div
+      className={`rounded-lg border ${style.ring} bg-white/[0.02] p-4 hover:bg-white/[0.05] transition`}
+    >
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className={`text-[9px] font-semibold uppercase tracking-widest px-1.5 py-0.5 rounded border ${style.tag}`}
+            >
+              {style.label}
+            </span>
+            <span className="text-[10px] text-white/40">
+              {gap}d · {directionLabel}
+            </span>
+            {t.charter_fee && t.charter_fee > 0 && (
+              <span className="text-[10px] text-[#DAA520] font-mono">
+                €{Math.round(t.charter_fee).toLocaleString()}
+              </span>
+            )}
+          </div>
+          <div className="font-serif text-white truncate">{t.contact_name}</div>
+          {t.last_subject && (
+            <div className="text-xs text-white/50 truncate mt-0.5">
+              {t.last_subject}
+            </div>
+          )}
+          {t.last_snippet && (
+            <div className="text-xs text-white/40 mt-1 line-clamp-2">
+              {t.last_snippet}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 mt-3">
+        {gmailHref && (
+          <a
+            href={gmailHref}
+            target="_blank"
+            rel="noreferrer"
+            className="flex-1 text-center bg-[#DAA520] text-black font-semibold uppercase tracking-widest text-[10px] py-2 rounded hover:bg-[#C9A24D]"
+          >
+            ✉️ Open in Gmail
+          </a>
+        )}
+        <Link
+          href={`/dashboard/contacts/${t.contact_id}`}
+          className="flex-1 text-center border border-white/15 text-white/80 font-semibold uppercase tracking-widest text-[10px] py-2 rounded hover:bg-white/5"
+        >
+          Contact →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function InboxBrain({
+  threads,
+  summary,
+}: {
+  threads: InboxThread[];
+  summary: CockpitBriefing["inbox_summary"];
+}) {
+  const owed = threads.filter((t) => t.inbox_stage === "owed_reply");
+  const followup = threads.filter((t) => t.inbox_stage === "needs_followup");
+  const other = threads.filter(
+    (t) => t.inbox_stage !== "owed_reply" && t.inbox_stage !== "needs_followup",
+  );
+
+  if (threads.length === 0) {
+    return (
+      <div className="border border-white/10 rounded-xl p-5 text-white/60 text-sm bg-white/[0.02]">
+        Inbox Brain has no thread state yet.{" "}
+        <a
+          href="/api/admin/inbox-backfill?days=90"
+          className="text-[#DAA520] underline"
+        >
+          Run backfill →
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="border border-red-500/30 rounded-lg py-2">
+          <div className="text-xl font-serif text-red-300">
+            {summary.owed_reply}
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-white/50 mt-0.5">
+            Owed
+          </div>
+        </div>
+        <div className="border border-orange-500/30 rounded-lg py-2">
+          <div className="text-xl font-serif text-orange-300">
+            {summary.needs_followup}
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-white/50 mt-0.5">
+            Follow-up
+          </div>
+        </div>
+        <div className="border border-white/10 rounded-lg py-2">
+          <div className="text-xl font-serif text-white">
+            {summary.awaiting_reply}
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-white/50 mt-0.5">
+            Awaiting
+          </div>
+        </div>
+      </div>
+
+      {owed.length > 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-red-300/80 mb-2">
+            🔴 You owe them ({owed.length})
+          </div>
+          <div className="space-y-2">
+            {owed.map((t) => (
+              <ThreadRow key={t.contact_id} t={t} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {followup.length > 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-orange-300/80 mb-2">
+            🟠 Needs follow-up ({followup.length})
+          </div>
+          <div className="space-y-2">
+            {followup.map((t) => (
+              <ThreadRow key={t.contact_id} t={t} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {other.length > 0 && (
+        <details className="group">
+          <summary className="cursor-pointer text-[10px] uppercase tracking-widest text-white/50 hover:text-white/80">
+            Show {other.length} more (active, awaiting, cold) →
+          </summary>
+          <div className="mt-2 space-y-2">
+            {other.map((t) => (
+              <ThreadRow key={t.contact_id} t={t} />
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
 
 const PRIORITY_COLORS: Record<string, { ring: string; tag: string; label: string }> = {
   critical: { ring: "ring-red-500/60", tag: "bg-red-500/20 text-red-300", label: "🔴 CRITICAL" },
@@ -314,6 +520,33 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
           </h1>
           <p className="text-white/40 text-sm mt-1">{today} · Cockpit</p>
         </header>
+
+        {/* INBOX BRAIN — Pillar 1. Gmail thread state, ranked by who
+            George owes a reply / which threads need follow-up. This
+            is the new primary surface; CRM-stage actions live below. */}
+        <section>
+          <div className="flex items-baseline justify-between mb-4">
+            <h2 className="text-xs uppercase tracking-[0.3em] text-[#DAA520]">
+              📬 Inbox Brain
+            </h2>
+            <span className="text-[10px] text-white/40">
+              ranked by Gmail thread state
+            </span>
+          </div>
+          <InboxBrain
+            threads={briefing.inbox_threads ?? []}
+            summary={
+              briefing.inbox_summary ?? {
+                owed_reply: 0,
+                needs_followup: 0,
+                awaiting_reply: 0,
+                active: 0,
+                cold: 0,
+                new_lead: 0,
+              }
+            }
+          />
+        </section>
 
         {/* TODAY'S ACTIONS — the heart */}
         <section>
