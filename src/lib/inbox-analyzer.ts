@@ -215,25 +215,43 @@ export async function refreshContactInbox(
 /**
  * Recompute inbox_* for every contact. Used by the nightly cron and
  * the one-off backfill route. Returns per-stage counts for logging.
+ *
+ * Supabase REST hard-caps any single .select() at 1000 rows by default,
+ * so we paginate explicitly with .range() — without this, contacts past
+ * row 1000 (alphabetical / insert order) silently never get processed
+ * and their inbox_inferred_stage stays NULL forever.
  */
 export async function refreshAllContactsInbox(
   sb: SupabaseClient,
 ): Promise<{ processed: number; by_stage: Record<string, number> }> {
-  const { data: contacts } = await sb
-    .from("contacts")
-    .select("id")
-    .limit(5000);
-
+  const PAGE = 500;
   const counts: Record<string, number> = {};
   let processed = 0;
-  for (const c of contacts ?? []) {
-    try {
-      const s = await refreshContactInbox(sb, c.id as string);
-      counts[s.inferred_stage] = (counts[s.inferred_stage] ?? 0) + 1;
-      processed++;
-    } catch (err) {
-      console.error("[inbox-analyzer] contact failed:", c.id, err);
+  let page = 0;
+  while (true) {
+    const from = page * PAGE;
+    const to = from + PAGE - 1;
+    const { data: contacts, error } = await sb
+      .from("contacts")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .range(from, to);
+    if (error) {
+      console.error("[inbox-analyzer] page fetch failed:", error.message);
+      break;
     }
+    if (!contacts || contacts.length === 0) break;
+    for (const c of contacts) {
+      try {
+        const s = await refreshContactInbox(sb, c.id as string);
+        counts[s.inferred_stage] = (counts[s.inferred_stage] ?? 0) + 1;
+        processed++;
+      } catch (err) {
+        console.error("[inbox-analyzer] contact failed:", c.id, err);
+      }
+    }
+    if (contacts.length < PAGE) break;
+    page++;
   }
   return { processed, by_stage: counts };
 }

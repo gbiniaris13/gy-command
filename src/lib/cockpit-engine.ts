@@ -396,7 +396,7 @@ async function buildInboxThreads(
   const ranked = surfaceable
     .map((r) => ({ r, score: inboxRankScore(r) }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 25);
+    .slice(0, 60);
 
   const threads: InboxThread[] = ranked.map(({ r, score }) => ({
     contact_id: r.id,
