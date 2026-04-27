@@ -11,9 +11,10 @@ export default async function ContactsPage() {
     supabase
       .from("contacts")
       .select(
-        "*, pipeline_stage:pipeline_stages(*), contact_tags(tag:tags(*))"
+        "*, pipeline_stage:pipeline_stages(*), contact_tags(tag:tags(*))",
       )
-      .order("last_activity_at", { ascending: false }),
+      .order("last_activity_at", { ascending: false })
+      .limit(2000),
     supabase
       .from("pipeline_stages")
       .select("*")

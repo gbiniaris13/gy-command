@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import type { Contact, PipelineStage } from "@/lib/types";
-import { CONTACT_TYPES, type ContactType } from "@/lib/types";
+import { CONTACT_TYPES, type ContactType, TAG_V2_LABELS } from "@/lib/types";
 import { getFlagFromCountry } from "@/lib/flags";
 
 interface Props {
@@ -53,6 +53,7 @@ export default function ContactsClient({
   const [filterSource, setFilterSource] = useState("");
   const [filterCountry, setFilterCountry] = useState("");
   const [filterType, setFilterType] = useState("");
+  const [filterTagV2, setFilterTagV2] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -83,10 +84,21 @@ export default function ContactsClient({
       const matchesSource = !filterSource || c.source === filterSource;
       const matchesCountry = !filterCountry || c.country === filterCountry;
       const matchesType = !filterType || c.contact_type === filterType;
+      const matchesTagV2 =
+        !filterTagV2 ||
+        (Array.isArray(c.tags_v2) &&
+          c.tags_v2.some((t) => t.tag === filterTagV2));
 
-      return matchesSearch && matchesStage && matchesSource && matchesCountry && matchesType;
+      return (
+        matchesSearch &&
+        matchesStage &&
+        matchesSource &&
+        matchesCountry &&
+        matchesType &&
+        matchesTagV2
+      );
     });
-  }, [contacts, search, filterStage, filterSource, filterCountry, filterType]);
+  }, [contacts, search, filterStage, filterSource, filterCountry, filterType, filterTagV2]);
 
   async function handleCreate() {
     setSaving(true);
@@ -223,6 +235,23 @@ export default function ContactsClient({
                 </option>
               ))}
             </select>
+
+            {/* Pillar 2: AI tag filter. Empty until /api/admin/inbox-tag
+                has run; tag values are emitted by the AI tagger and
+                stored as JSON in contacts.tags_v2. */}
+            <select
+              value={filterTagV2}
+              onChange={(e) => setFilterTagV2(e.target.value)}
+              className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+              title="Filter by AI-assigned tag (Pillar 2)"
+            >
+              <option value="">All AI Tags</option>
+              {Object.entries(TAG_V2_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
@@ -289,6 +318,37 @@ export default function ContactsClient({
                   {timeAgo(contact.last_activity_at)}
                 </span>
               </div>
+              {Array.isArray(contact.tags_v2) && contact.tags_v2.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {contact.tags_v2.slice(0, 3).map((t, i) => {
+                    const meta = TAG_V2_LABELS[t.tag];
+                    if (!meta) return null;
+                    return (
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium"
+                        style={{
+                          backgroundColor: `${meta.color}20`,
+                          color: meta.color,
+                          border: `1px solid ${meta.color}40`,
+                        }}
+                        title={`${meta.label} \u00b7 confidence ${(t.confidence * 100).toFixed(0)}%${t.source === "manual" ? " \u00b7 manual" : ""}`}
+                      >
+                        {meta.label}
+                        {t.confidence < 0.6 && <span className="opacity-70">?</span>}
+                      </span>
+                    );
+                  })}
+                  {contact.tags_overridden && (
+                    <span
+                      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium border border-electric-cyan/30 text-electric-cyan/80"
+                      title="Tags manually overridden by you"
+                    >
+                      \u270e
+                    </span>
+                  )}
+                </div>
+              )}
             </button>
           );
         })}

@@ -64,10 +64,29 @@ export interface Contact {
   post_charter_step: number;
   created_at: string;
   updated_at: string;
+  // Pillar 2 — AI tagging
+  tags_v2?: TagAssignmentV2[] | null;
+  tags_overridden?: boolean | null;
+  tags_analyzed_at?: string | null;
   // Joined fields
   pipeline_stage?: PipelineStage | null;
   contact_tags?: { tag: Tag }[] | null;
 }
+
+export interface TagAssignmentV2 {
+  tag: string;
+  confidence: number;
+  source: "ai" | "manual";
+}
+
+export const TAG_V2_LABELS: Record<string, { label: string; color: string }> = {
+  travel_advisor:  { label: "Travel Advisor", color: "#3b82f6" },
+  charter_client:  { label: "Charter Client", color: "#10b981" },
+  b2b_partner:     { label: "B2B Partner",    color: "#8b5cf6" },
+  press:           { label: "Press / Media",  color: "#ec4899" },
+  vendor:          { label: "Vendor",         color: "#6b7280" },
+  cold_lead:       { label: "Cold Lead",      color: "#94a3b8" },
+};
 
 export interface Tag {
   id: string;
