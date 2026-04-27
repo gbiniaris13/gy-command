@@ -233,6 +233,50 @@ export async function GET(request: NextRequest) {
         unmatchedCounterparties.add(counterparty);
         continue;
       }
+
+      // Reject Gmail's promotional / social / forum tabs — these are
+      // newsletters and notifications, not real conversations. Keep
+      // CATEGORY_PERSONAL and CATEGORY_UPDATES (the latter includes
+      // legitimate auto-replies like "I'm out of office, returning…"
+      // which ARE a useful signal that a real human is on the other
+      // end and just needs a follow-up later).
+      const labels = msg.labelIds ?? [];
+      const isPromo =
+        labels.includes("CATEGORY_PROMOTIONS") ||
+        labels.includes("CATEGORY_SOCIAL") ||
+        labels.includes("CATEGORY_FORUMS");
+      if (isPromo) {
+        skippedNoMatch++;
+        unmatchedCounterparties.add(counterparty);
+        continue;
+      }
+
+      // Require at least one prior message from the same counterparty
+      // in the current batch. Single-shot promotional pings get
+      // dropped; recurring senders (real conversations + auto-reply
+      // sequences) get a contact. This keeps the auto-create count
+      // closer to "people George actually corresponds with".
+      const seenAlready = inserts.some(
+        (r) =>
+          (r.metadata as { thread_id?: string } | null)?.thread_id ===
+          msg.threadId,
+      );
+      const repeatSender =
+        seenAlready ||
+        metas.filter((m) => {
+          const h2 = m.payload?.headers ?? [];
+          const f2 = getHeader(h2, "From");
+          const t2 = getHeader(h2, "To");
+          const sent2 = m.labelIds?.includes("SENT") ?? false;
+          const cp2 = sent2 ? extractEmail(t2) : extractEmail(f2);
+          return cp2 === counterparty;
+        }).length >= 2;
+      if (!repeatSender) {
+        skippedNoMatch++;
+        unmatchedCounterparties.add(counterparty);
+        continue;
+      }
+
       if (dry) {
         skippedNoMatch++;
         unmatchedCounterparties.add(counterparty);
