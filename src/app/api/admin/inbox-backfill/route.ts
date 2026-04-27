@@ -22,6 +22,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
+import {
+  companyFromEmail,
+  isNoiseEmail,
+  parseFromHeader,
+} from "@/lib/email-signature-parser";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -45,6 +50,13 @@ function extractEmail(value: string): string | null {
   const m = value.match(/<([^>]+)>/);
   const candidate = (m ? m[1] : value).trim().toLowerCase();
   return /.+@.+\..+/.test(candidate) ? candidate : null;
+}
+
+function splitName(full: string): { first: string; last: string } {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first: "", last: "" };
+  if (parts.length === 1) return { first: parts[0], last: "" };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
 async function fetchMessageMeta(id: string): Promise<GmailMessage | null> {
@@ -108,8 +120,14 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 2. List one chunk of Gmail messages.
-  const query = `(in:inbox OR in:sent) newer_than:${days}d`;
+  // 2. List one chunk of Gmail messages. `in:anywhere` covers inbox,
+  //    sent, AND archived threads / category tabs (CATEGORY_UPDATES,
+  //    CATEGORY_PERSONAL etc) that `(in:inbox OR in:sent)` was missing.
+  //    Sandra Braxton's auto-replies live in CATEGORY_UPDATES with no
+  //    INBOX label, so the old query never saw them — `in:anywhere`
+  //    fixes that without the per-contact query cost of OR-ing every
+  //    contact email.
+  const query = `in:anywhere newer_than:${days}d`;
   const params = new URLSearchParams({
     q: query,
     maxResults: String(Math.min(limit, 500)),
@@ -160,12 +178,28 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 5. Build inserts for unseen messages with a contact match.
+  // 5. Build inserts for unseen messages with a contact match. If no
+  //    contact matches, AUTO-CREATE one (per refocus brief Pillar 1
+  //    §3: "Contact auto-created/updated for every distinct sender
+  //    email"). Skip noise senders (no-reply, billing, bulk lists)
+  //    so we don't pollute the CRM with notifications.
   const inserts: Array<Record<string, unknown>> = [];
   const unmatchedCounterparties = new Set<string>();
   let skippedExisting = 0;
   let skippedNoMatch = 0;
   let skippedNoEmail = 0;
+  let createdContacts = 0;
+
+  // Look up the default pipeline stage once for new contacts.
+  let defaultStageId: string | null = null;
+  if (!dry) {
+    const { data: stages } = await sb
+      .from("pipeline_stages")
+      .select("id, name, position")
+      .order("position", { ascending: true });
+    const newStage = stages?.find((s) => s.name === "New") ?? stages?.[0];
+    defaultStageId = (newStage?.id as string | undefined) ?? null;
+  }
 
   for (const msg of metas) {
     if (existingIds.has(msg.id)) {
@@ -182,11 +216,53 @@ export async function GET(request: NextRequest) {
       skippedNoEmail++;
       continue;
     }
-    const contactId = contactsByEmail.get(counterparty);
+    let contactId = contactsByEmail.get(counterparty);
+
     if (!contactId) {
-      skippedNoMatch++;
-      unmatchedCounterparties.add(counterparty);
-      continue;
+      // Skip noise/bulk before auto-creating to keep the CRM clean.
+      const headersMap: Record<string, string> = {};
+      for (const h of headers) headersMap[h.name.toLowerCase()] = h.value;
+      const noise = isNoiseEmail({
+        from: isSent ? to : from,
+        fromEmail: counterparty,
+        subject,
+        headers: headersMap,
+      });
+      if (noise.noise) {
+        skippedNoMatch++;
+        unmatchedCounterparties.add(counterparty);
+        continue;
+      }
+      if (dry) {
+        skippedNoMatch++;
+        unmatchedCounterparties.add(counterparty);
+        continue;
+      }
+      // Auto-create the contact from the From/To header name.
+      const parsedName = parseFromHeader(isSent ? to : from);
+      const { first, last } = splitName(parsedName.name ?? "");
+      const { data: inserted, error: insErr } = await sb
+        .from("contacts")
+        .insert({
+          first_name: first || null,
+          last_name: last || null,
+          email: counterparty,
+          company: companyFromEmail(counterparty) ?? null,
+          source: "outreach_bot",
+          pipeline_stage_id: defaultStageId,
+          contact_type: "OUTREACH_LEAD",
+          last_activity_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (insErr || !inserted?.id) {
+        skippedNoMatch++;
+        unmatchedCounterparties.add(counterparty);
+        continue;
+      }
+      contactId = inserted.id as string;
+      contactsByEmail.set(counterparty, contactId);
+      createdContacts++;
     }
     const createdAt = msg.internalDate
       ? new Date(parseInt(msg.internalDate, 10)).toISOString()
@@ -232,6 +308,7 @@ export async function GET(request: NextRequest) {
       no_sender_email: skippedNoEmail,
     },
     contacts_in_map: contactsByEmail.size,
+    contacts_created: createdContacts,
     unmatched_sample: Array.from(unmatchedCounterparties).slice(0, 20),
     next: nextPageToken,
     hint: nextPageToken
