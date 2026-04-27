@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
 import { refreshContactInbox } from "@/lib/inbox-analyzer";
+import { extractCommitments } from "@/lib/commitment-extractor";
 
 function createRawEmail(
   to: string,
@@ -97,6 +98,33 @@ async function logOutboundActivity(args: {
   // reflects the new outbound message (e.g. moves contact out of
   // owed_reply into awaiting_reply).
   await refreshContactInbox(sb, contact.id);
+
+  // Pillar 4 (Sprint 2.3) — scan the outbound for commitments and
+  // persist any found. Brief calls this "the most differentiated
+  // feature in this entire system". 5-min SLA: extraction happens
+  // on every send so the morning surface includes today's promises.
+  try {
+    const commitments = await extractCommitments(
+      args.body,
+      new Date().toISOString().slice(0, 10),
+    );
+    if (commitments.length > 0) {
+      const rows = commitments.map((c) => ({
+        contact_id: contact.id,
+        thread_id: args.threadId ?? null,
+        source_message_id: args.messageId,
+        source_sent_at: now,
+        commitment_text: c.commitment_text,
+        commitment_summary: c.commitment_summary,
+        deadline_date: c.deadline_date,
+        deadline_phrase: c.deadline_phrase,
+        confidence: c.confidence,
+      }));
+      await sb.from("commitments").insert(rows);
+    }
+  } catch (err) {
+    console.error("[gmail/send] commitment extraction failed:", err);
+  }
 }
 
 export async function POST(request: NextRequest) {

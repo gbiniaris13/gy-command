@@ -15,7 +15,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { CockpitBriefing, CockpitAction, InboxThread } from "@/lib/cockpit-engine";
+import type {
+  CockpitBriefing,
+  CockpitAction,
+  InboxThread,
+  CommitmentRow,
+} from "@/lib/cockpit-engine";
 
 const INBOX_STAGE_STYLE: Record<
   string,
@@ -377,6 +382,109 @@ function ActionCard({ action }: { action: CockpitAction }) {
   );
 }
 
+// Pillar 4 — Promises Due. Per refocus brief §5.3:
+//   ⏰ Promises due (3)
+//   🔴 Overdue 2 days · Ane Lowe — Santorini brief turnaround
+//   🟡 Today · Domenico — catamaran package + Kyllini report
+//   🟢 Friday · Iordanis — blog draft for review before publish
+function CommitmentsList({
+  rows,
+  overdue,
+  today,
+}: {
+  rows: CommitmentRow[];
+  overdue: number;
+  today: number;
+}) {
+  async function dismiss(id: string) {
+    if (!confirm("Mark this promise as no longer relevant?")) return;
+    await fetch(`/api/crm/commitments/${id}/dismiss`, { method: "POST" });
+    location.reload();
+  }
+  async function fulfill(id: string) {
+    await fetch(`/api/crm/commitments/${id}/fulfill`, { method: "POST" });
+    location.reload();
+  }
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-2 text-center mb-2">
+        <div className="border border-red-500/30 rounded-lg py-2">
+          <div className="text-xl font-serif text-red-300">{overdue}</div>
+          <div className="text-[9px] uppercase tracking-widest text-white/50 mt-0.5">
+            Overdue
+          </div>
+        </div>
+        <div className="border border-yellow-500/30 rounded-lg py-2">
+          <div className="text-xl font-serif text-yellow-300">{today}</div>
+          <div className="text-[9px] uppercase tracking-widest text-white/50 mt-0.5">
+            Due Today
+          </div>
+        </div>
+      </div>
+      {rows.map((r) => {
+        const colour =
+          r.bucket === "overdue_severe"
+            ? "border-red-500/60 bg-red-500/[0.06]"
+            : r.bucket === "overdue"
+              ? "border-red-500/30 bg-red-500/[0.04]"
+              : r.bucket === "today"
+                ? "border-yellow-500/40 bg-yellow-500/[0.04]"
+                : r.bucket === "upcoming"
+                  ? "border-emerald-500/30 bg-emerald-500/[0.02]"
+                  : "border-white/10 bg-white/[0.02]";
+        const dot =
+          r.bucket === "overdue_severe" || r.bucket === "overdue"
+            ? "🔴"
+            : r.bucket === "today"
+              ? "🟡"
+              : r.bucket === "upcoming"
+                ? "🟢"
+                : "⚪";
+        const label =
+          r.bucket === "overdue_severe" || r.bucket === "overdue"
+            ? `Overdue ${r.days_overdue}d`
+            : r.bucket === "today"
+              ? "Today"
+              : r.bucket === "upcoming"
+                ? r.deadline_date ?? "Upcoming"
+                : r.deadline_phrase ?? "No deadline";
+        return (
+          <div
+            key={r.id}
+            className={`rounded-lg border ${colour} p-3 flex items-start gap-3`}
+          >
+            <span className="text-[12px]">{dot}</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-widest text-white/40 mb-0.5">
+                {label} · {r.contact_name}
+              </div>
+              <div className="text-sm text-white/90">
+                {r.commitment_summary}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1 shrink-0">
+              <button
+                onClick={() => fulfill(r.id)}
+                className="text-[10px] uppercase tracking-wider text-emerald-300 hover:text-emerald-200"
+                title="Mark as fulfilled"
+              >
+                ✓ Done
+              </button>
+              <button
+                onClick={() => dismiss(r.id)}
+                className="text-[10px] uppercase tracking-wider text-white/40 hover:text-white/70"
+                title="No longer relevant"
+              >
+                ✕ Skip
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PipelinePulse({ p }: { p: CockpitBriefing["pulse"] }) {
   // Each stat is now a Link to a filtered contacts view. Tappable on
   // mobile, satisfying the natural "I tapped the number, show me what
@@ -552,6 +660,22 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
           </h1>
           <p className="text-white/40 text-sm mt-1">{today} · Cockpit</p>
         </header>
+
+        {/* PILLAR 4 — Promised Commitments. Top of cockpit when present
+            (broken promises erode trust faster than missed emails). */}
+        {briefing.commitments_ready &&
+          briefing.commitments_ready.total_open > 0 && (
+            <section>
+              <h2 className="text-xs uppercase tracking-[0.3em] text-orange-300 mb-4">
+                ⏰ Promises Due ({briefing.commitments_ready.total_open})
+              </h2>
+              <CommitmentsList
+                rows={briefing.commitments_ready.rows}
+                overdue={briefing.commitments_ready.overdue_count}
+                today={briefing.commitments_ready.due_today_count}
+              />
+            </section>
+          )}
 
         {/* INBOX BRAIN — Pillar 1. Gmail thread state, ranked by who
             George owes a reply / which threads need follow-up. This
