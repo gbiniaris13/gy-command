@@ -58,10 +58,25 @@ const NOISE_LOCALPARTS = [
   "no-reply", "noreply", "do-not-reply", "donotreply",
   "notifications", "notification", "alerts", "alert",
   "mailer-daemon", "postmaster", "bounce", "bounces",
-  "support@github", "updates@", "news@", "newsletter@",
+  "updates@", "news@", "newsletter@",
   "billing@", "invoice@", "receipts@", "receipt@",
   "security@", "account@", "accounts@", "password@",
-  "hello@vercel", "notify@", "help@",
+  "notify@",
+  // Cross-domain support / system / dealer / report noise
+  "support@", "team@", "info@", "hello@",
+  "dealermessage", "dealermail", "dealerresponse",
+  "dmarcreport", "dmarc-report", "dmarc_report", "dmarc@",
+  "failed-payments", "failed_payments",
+  "statements@", "statement@", "invoice+", "billing+",
+  "kundenservice", // German "customer service"
+  "system@", "automated@", "robot@",
+  "reports@", "report@", "digest@",
+  "verification@", "verify@", "confirm@", "confirmation@",
+  "recruiting@", "recruit@", "talent@",
+  "marketing@", "promo@", "promotions@",
+  "wingfinder", // Red Bull career bot
+  "tryapollo", "meetapollo", "useapollo", // Apollo platform
+  "successfactors", // SAP system noise
 ];
 
 const NOISE_HEADERS = (h: Record<string, string>) =>
