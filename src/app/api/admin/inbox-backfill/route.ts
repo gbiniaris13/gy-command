@@ -162,6 +162,7 @@ export async function GET(request: NextRequest) {
 
   // 5. Build inserts for unseen messages with a contact match.
   const inserts: Array<Record<string, unknown>> = [];
+  const unmatchedCounterparties = new Set<string>();
   let skippedExisting = 0;
   let skippedNoMatch = 0;
   let skippedNoEmail = 0;
@@ -184,6 +185,7 @@ export async function GET(request: NextRequest) {
     const contactId = contactsByEmail.get(counterparty);
     if (!contactId) {
       skippedNoMatch++;
+      unmatchedCounterparties.add(counterparty);
       continue;
     }
     const createdAt = msg.internalDate
@@ -229,6 +231,8 @@ export async function GET(request: NextRequest) {
       no_contact_match: skippedNoMatch,
       no_sender_email: skippedNoEmail,
     },
+    contacts_in_map: contactsByEmail.size,
+    unmatched_sample: Array.from(unmatchedCounterparties).slice(0, 20),
     next: nextPageToken,
     hint: nextPageToken
       ? `More pages remain. Call again with ?pageToken=${nextPageToken}`
