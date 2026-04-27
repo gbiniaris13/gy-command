@@ -41,9 +41,11 @@ export async function GET(request: NextRequest) {
 
   const sb = createServiceClient();
 
-  // Pull candidate activity IDs (paginated). We fetch metadata too so
-  // we can pass body/subject to the classifier without a second round-
-  // trip. Without ?force, only rows with NULL message_class.
+  // Pull candidate activity IDs. The default mode (no ?force) filters
+  // for message_class IS NULL — so after each update those rows leave
+  // the view and we ALWAYS query from offset 0 (the next unclassified
+  // batch). With ?force the cursor advances normally because the view
+  // is stable.
   const PAGE = 500;
   let cursor = startOffset;
   let processed = 0;
@@ -55,8 +57,10 @@ export async function GET(request: NextRequest) {
   >();
 
   while (Date.now() - startedAt < budgetMs) {
-    const from = cursor;
-    const to = cursor + PAGE - 1;
+    // When filtering, always read from row 0 — updated rows fall out
+    // of the view, so the next batch of unclassified is at the top.
+    const from = force ? cursor : 0;
+    const to = from + PAGE - 1;
     let query = sb
       .from("activities")
       .select("id, contact_id, created_at, description, metadata")
