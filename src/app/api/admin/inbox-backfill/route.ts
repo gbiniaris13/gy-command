@@ -78,14 +78,34 @@ export async function GET(request: NextRequest) {
 
   const sb = createServiceClient();
 
-  // 1. Contact email lookup (cheap, one query).
-  const { data: contactRows } = await sb
-    .from("contacts")
-    .select("id, email")
-    .not("email", "is", null);
+  // 1. Contact email lookup. MUST paginate — Supabase REST hard-caps
+  //    a single .select() at 1000 rows even with .not(). We have 1600+
+  //    contacts; without paging the lookup map silently dropped every
+  //    contact past row 1000 and their messages got logged as
+  //    "no_contact_match". This was the root cause of Sandra Braxton
+  //    et al. having 7+ Gmail threads but zero activities in DB.
   const contactsByEmail = new Map<string, string>();
-  for (const c of contactRows ?? []) {
-    if (c.email) contactsByEmail.set((c.email as string).toLowerCase(), c.id as string);
+  {
+    const PAGE = 1000;
+    let p = 0;
+    while (true) {
+      const { data: rows, error } = await sb
+        .from("contacts")
+        .select("id, email")
+        .not("email", "is", null)
+        .order("created_at", { ascending: true })
+        .range(p * PAGE, (p + 1) * PAGE - 1);
+      if (error || !rows || rows.length === 0) break;
+      for (const c of rows) {
+        if (c.email)
+          contactsByEmail.set(
+            (c.email as string).toLowerCase(),
+            c.id as string,
+          );
+      }
+      if (rows.length < PAGE) break;
+      p++;
+    }
   }
 
   // 2. List one chunk of Gmail messages.
