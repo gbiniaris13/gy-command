@@ -57,7 +57,21 @@ interface ActivityRow {
   created_at: string;
   description: string | null;
   metadata: Record<string, unknown> | null;
+  /** Sprint 2.1: per-message class. The analyzer ignores noise
+   *  classes (auto_response / reaction / closing / declined / parked)
+   *  when deciding "last meaningful message" — root fix for v2 bugs
+   *  1, 2, 3, 4, 5. NULL means not yet classified; we count it as
+   *  meaningful (conservative — won't hide real messages). */
+  message_class?: string | null;
 }
+
+const NOISE_MESSAGE_CLASSES = new Set([
+  "auto_response",
+  "reaction",
+  "closing",
+  "declined",
+  "parked",
+]);
 
 function direction(type: string): "inbound" | "outbound" | null {
   if (INBOUND_TYPES.has(type)) return "inbound";
@@ -75,8 +89,13 @@ export function analyzeActivities(activities: ActivityRow[]): InboxState {
   const now = Date.now();
   let lastInboundAt: string | null = null;
   let lastOutboundAt: string | null = null;
-  let mostRecent: ActivityRow | null = null;
-  let mostRecentDir: "inbound" | "outbound" | null = null;
+  // Sprint 2.1 — track BOTH the most-recent message (any class) and
+  // the most-recent MEANINGFUL message. The analyzer derives stage
+  // and snippet from the meaningful one — that fixes the Villy
+  // Manolia bug (her real reply 7/4 was being shadowed by an OOO
+  // auto-response that arrived 12 hours earlier).
+  let mostRecentMeaningful: ActivityRow | null = null;
+  let mostRecentMeaningfulDir: "inbound" | "outbound" | null = null;
   let inboundCount = 0;
   let outboundCount = 0;
   let messageCount = 0;
@@ -87,6 +106,16 @@ export function analyzeActivities(activities: ActivityRow[]): InboxState {
   for (const a of activities) {
     const dir = direction(a.type);
     if (!dir) continue;
+
+    // Drop classified noise from BOTH counts and recency tracking.
+    // NULL message_class is treated as meaningful (back-compat for
+    // not-yet-classified rows + outbound from George which we don't
+    // classify).
+    const isNoise =
+      typeof a.message_class === "string" &&
+      NOISE_MESSAGE_CLASSES.has(a.message_class);
+    if (isNoise) continue;
+
     messageCount++;
     if (dir === "inbound") {
       inboundCount++;
@@ -95,15 +124,17 @@ export function analyzeActivities(activities: ActivityRow[]): InboxState {
       outboundCount++;
       if (!lastOutboundAt || a.created_at > lastOutboundAt) lastOutboundAt = a.created_at;
     }
-    if (!mostRecent || a.created_at > mostRecent.created_at) {
-      mostRecent = a;
-      mostRecentDir = dir;
+    if (!mostRecentMeaningful || a.created_at > mostRecentMeaningful.created_at) {
+      mostRecentMeaningful = a;
+      mostRecentMeaningfulDir = dir;
       lastThreadId = (a.metadata?.thread_id as string) ?? lastThreadId;
       lastSubject = (a.metadata?.subject as string) ?? lastSubject;
       lastSnippet =
         (a.metadata?.snippet as string) ?? a.description ?? lastSnippet;
     }
   }
+  const mostRecent = mostRecentMeaningful;
+  const mostRecentDir = mostRecentMeaningfulDir;
 
   if (messageCount === 0) {
     return {
@@ -188,7 +219,7 @@ export async function refreshContactInbox(
 ): Promise<InboxState> {
   const { data: rows } = await sb
     .from("activities")
-    .select("type, created_at, description, metadata")
+    .select("type, created_at, description, metadata, message_class")
     .eq("contact_id", contactId)
     .order("created_at", { ascending: false })
     .limit(500);

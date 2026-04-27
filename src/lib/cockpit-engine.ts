@@ -91,6 +91,13 @@ export interface InboxThread {
   thread_id: string | null;
   pipeline_stage: string | null;
   charter_fee: number | null;
+  /** Sprint 2.1 Bug 9 — single-source cockpit. Threads with an
+   *  associated deal carry the commission upside so the UI can
+   *  show a 💰 badge inline and drop the separate CRM-action
+   *  section. */
+  expected_commission_eur: number | null;
+  vessel: string | null;
+  charter_dates: string | null;
   suggested_action: "reply" | "follow_up" | "wait";
   /** True if George has starred any thread with this contact in Gmail. */
   starred: boolean;
@@ -300,6 +307,10 @@ interface InboxRow {
   inbox_last_snippet: string | null;
   inbox_thread_id: string | null;
   inbox_starred: boolean | null;
+  /** Sprint 2.1 — lifecycle suppression. */
+  parked_until: string | null;
+  declined_at: string | null;
+  lifecycle_state: string | null;
 }
 
 function suggestedActionFor(stage: InboxStage): "reply" | "follow_up" | "wait" {
@@ -412,6 +423,13 @@ function inboxRankScore(row: InboxRow): number {
     base += 5_000_000;
   }
 
+  // Sprint 2.1 Bug 9 — single-source cockpit. Threads with an
+  // associated deal (charter_fee > 0) get a money boost so the
+  // separate "Σήμερα κάνε αυτά" CRM section can be retired.
+  if (fee > 0) {
+    base += 100_000 + Math.min(fee, 1_000_000) * 0.3;
+  }
+
   return base;
 }
 
@@ -431,7 +449,7 @@ async function buildInboxThreads(
   const { data: rows } = await sb
     .from("contacts")
     .select(
-      "id, first_name, last_name, email, charter_fee, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id, inbox_starred",
+      "id, first_name, last_name, email, charter_fee, commission_earned, charter_vessel, charter_start_date, charter_end_date, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id, inbox_starred, parked_until, declined_at, lifecycle_state",
     )
     .not("inbox_inferred_stage", "is", null)
     .neq("inbox_inferred_stage", "unknown")
@@ -451,6 +469,9 @@ async function buildInboxThreads(
     inbox_last_snippet: c.inbox_last_snippet,
     inbox_thread_id: c.inbox_thread_id,
     inbox_starred: c.inbox_starred ?? false,
+    parked_until: c.parked_until,
+    declined_at: c.declined_at,
+    lifecycle_state: c.lifecycle_state,
   }));
 
   const summary: InboxSummary = {
@@ -466,33 +487,67 @@ async function buildInboxThreads(
     if (s && s in summary) (summary as any)[s]++;
   }
 
-  const surfaceable = enriched.filter(
-    (r) =>
-      r.inbox_inferred_stage &&
-      INBOX_SURFACEABLE.includes(r.inbox_inferred_stage),
-  );
+  // Sprint 2.1 — lifecycle filter (Bugs 5, 6, 7).
+  // Suppress contacts whose state explicitly says "no action needed":
+  //   - declined: explicit no, conversation over
+  //   - parked: contact self-parked, until parked_until passes
+  //   - long-tail OWED: 90+ days = stale, 180+ = closed_no_response
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const surfaceable = enriched.filter((r) => {
+    if (!r.inbox_inferred_stage) return false;
+    if (!INBOX_SURFACEABLE.includes(r.inbox_inferred_stage)) return false;
+
+    // Bug 5: declined contacts are over.
+    if (r.declined_at || r.lifecycle_state === "declined") return false;
+
+    // Bug 6: parked contacts re-emerge automatically when
+    // parked_until passes.
+    if (r.parked_until && r.parked_until > todayISO) return false;
+
+    // Bug 7: long-tail OWED auto-archive.
+    const gap = r.inbox_gap_days ?? 0;
+    if (r.inbox_inferred_stage === "owed_reply" && gap > 180) return false;
+    // 90-180 day owed remain visible but downranked via score band.
+
+    return true;
+  });
 
   const ranked = surfaceable
     .map((r) => ({ r, score: inboxRankScore(r) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 60);
 
-  const threads: InboxThread[] = ranked.map(({ r, score }) => ({
-    contact_id: r.id,
-    contact_name: nameOf(r),
-    contact_email: r.email,
-    inbox_stage: r.inbox_inferred_stage as InboxStage,
-    gap_days: r.inbox_gap_days,
-    last_direction: r.inbox_last_direction,
-    last_subject: r.inbox_last_subject,
-    last_snippet: r.inbox_last_snippet,
-    thread_id: r.inbox_thread_id,
-    pipeline_stage: r.pipeline_stage_name,
-    charter_fee: r.charter_fee,
-    suggested_action: suggestedActionFor(r.inbox_inferred_stage as InboxStage),
-    starred: !!r.inbox_starred,
-    rank_score: score,
-  }));
+  const threads: InboxThread[] = ranked.map(({ r, score }) => {
+    const anyR = r as InboxRow & {
+      commission_earned?: number | null;
+      charter_vessel?: string | null;
+      charter_start_date?: string | null;
+      charter_end_date?: string | null;
+    };
+    const dates =
+      anyR.charter_start_date && anyR.charter_end_date
+        ? `${anyR.charter_start_date} → ${anyR.charter_end_date}`
+        : anyR.charter_start_date ?? null;
+    return {
+      contact_id: r.id,
+      contact_name: nameOf(r),
+      contact_email: r.email,
+      inbox_stage: r.inbox_inferred_stage as InboxStage,
+      gap_days: r.inbox_gap_days,
+      last_direction: r.inbox_last_direction,
+      last_subject: r.inbox_last_subject,
+      last_snippet: r.inbox_last_snippet,
+      thread_id: r.inbox_thread_id,
+      pipeline_stage: r.pipeline_stage_name,
+      charter_fee: r.charter_fee,
+      expected_commission_eur: anyR.commission_earned ?? null,
+      vessel: anyR.charter_vessel ?? null,
+      charter_dates: dates,
+      suggested_action: suggestedActionFor(r.inbox_inferred_stage as InboxStage),
+      starred: !!r.inbox_starred,
+      rank_score: score,
+    };
+  });
 
   return { threads, summary };
 }

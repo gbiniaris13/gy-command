@@ -37,6 +37,7 @@ import {
 import { detectWarmup } from "@/lib/email-warmup-detector";
 import { refreshContactInbox } from "@/lib/inbox-analyzer";
 import { tagOneContact } from "@/lib/pillar2-tagger";
+import { classifyMessage } from "@/lib/message-classifier";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -227,10 +228,13 @@ async function logInboundActivity(args: {
   contactId: string;
   messageId: string;
   threadId: string;
+  fromHeader: string;
   subject: string;
+  body: string;
   snippet: string;
   classification: string;
   reason?: string;
+  headersMap: Record<string, string>;
 }): Promise<void> {
   const sb = createServiceClient();
   const type =
@@ -239,6 +243,23 @@ async function logInboundActivity(args: {
       : args.classification === "HOT" || args.classification === "WARM"
         ? "email_reply_hot_or_warm"
         : "email_inbound";
+
+  // Sprint 2.1 — classify the message in-line so the cockpit's
+  // "last meaningful message" filter has truth from minute one.
+  // Heuristics-only is fine here (cheap + deterministic); the AI
+  // verifier runs in /api/admin/inbox-classify for unclassified
+  // edge cases.
+  const cls = await classifyMessage(
+    {
+      from: args.fromHeader,
+      self_email: "george@georgeyachts.com",
+      subject: args.subject,
+      body: args.body,
+      headers: args.headersMap,
+    },
+    { useAi: false },
+  );
+
   await sb.from("activities").insert({
     contact_id: args.contactId,
     type,
@@ -249,11 +270,35 @@ async function logInboundActivity(args: {
     metadata: {
       message_id: args.messageId,
       thread_id: args.threadId,
+      from: args.fromHeader,
       subject: args.subject,
       snippet: args.snippet.slice(0, 300),
       classification: args.classification,
     },
+    message_class: cls.message_class,
+    message_class_confidence: cls.confidence,
+    message_class_reason: cls.reason,
   });
+
+  // Apply lifecycle side-effects (parked / declined) on the contact.
+  if (cls.message_class === "parked" && cls.parked_until) {
+    await sb
+      .from("contacts")
+      .update({
+        parked_until: cls.parked_until,
+        lifecycle_state: "parked",
+      })
+      .eq("id", args.contactId);
+  } else if (cls.message_class === "declined") {
+    await sb
+      .from("contacts")
+      .update({
+        declined_at: new Date().toISOString(),
+        declined_reason: cls.decline_reason,
+        lifecycle_state: "declined",
+      })
+      .eq("id", args.contactId);
+  }
 }
 
 async function classifyViaApi(payload: {
@@ -378,10 +423,13 @@ async function processMessage(
       contactId: contact.id,
       messageId,
       threadId: msg.threadId,
+      fromHeader: from,
       subject,
+      body,
       snippet: msg.snippet ?? body.slice(0, 300),
       classification: result.classification,
       reason: result.reason,
+      headersMap,
     });
     // Pillar 1 — refresh inbox_* fields immediately so the cockpit
     // surfaces this thread on the next read without waiting for the

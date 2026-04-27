@@ -75,7 +75,7 @@ function ThreadRow({ t }: { t: InboxThread }) {
     >
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             {t.starred && (
               <span
                 className="text-[12px] leading-none"
@@ -93,8 +93,16 @@ function ThreadRow({ t }: { t: InboxThread }) {
               {gap}d · {directionLabel}
             </span>
             {t.charter_fee && t.charter_fee > 0 && (
-              <span className="text-[10px] text-[#DAA520] font-mono">
-                €{Math.round(t.charter_fee).toLocaleString()}
+              <span
+                className="text-[10px] text-[#DAA520] font-mono"
+                title={`Charter fee · ${t.vessel ?? "vessel TBD"}${t.charter_dates ? " · " + t.charter_dates : ""}`}
+              >
+                💰 €{Math.round(t.charter_fee).toLocaleString()}
+              </span>
+            )}
+            {t.pipeline_stage && t.pipeline_stage !== "New" && t.pipeline_stage !== "Contacted" && (
+              <span className="text-[9px] uppercase tracking-widest text-white/50 px-1 py-0.5 border border-white/10 rounded">
+                {t.pipeline_stage}
               </span>
             )}
           </div>
@@ -140,9 +148,14 @@ function InboxBrain({
   threads: InboxThread[];
   summary: CockpitBriefing["inbox_summary"];
 }) {
-  const owed = threads.filter((t) => t.inbox_stage === "owed_reply");
-  const followup = threads.filter((t) => t.inbox_stage === "needs_followup");
-  const other = threads.filter(
+  // Sprint 2.2 §2.1 — default cap is 25, not 60. The "Show all"
+  // expander reveals the rest. 25 ranked threads = decision-ready;
+  // 60 = paralysis.
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? threads : threads.slice(0, 25);
+  const owed = visible.filter((t) => t.inbox_stage === "owed_reply");
+  const followup = visible.filter((t) => t.inbox_stage === "needs_followup");
+  const other = visible.filter(
     (t) => t.inbox_stage !== "owed_reply" && t.inbox_stage !== "needs_followup",
   );
 
@@ -226,6 +239,17 @@ function InboxBrain({
             ))}
           </div>
         </details>
+      )}
+
+      {threads.length > 25 && (
+        <button
+          onClick={() => setShowAll((s) => !s)}
+          className="w-full mt-2 text-[10px] uppercase tracking-widest text-white/50 hover:text-white/80 border border-dashed border-white/10 rounded py-2"
+        >
+          {showAll
+            ? "Collapse · show top 25 only"
+            : `Show all ${threads.length} ranked threads →`}
+        </button>
       )}
     </div>
   );
@@ -556,23 +580,12 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
           />
         </section>
 
-        {/* TODAY'S ACTIONS — the heart */}
-        <section>
-          <h2 className="text-xs uppercase tracking-[0.3em] text-[#DAA520] mb-4">
-            📍 Σήμερα κάνε αυτά
-          </h2>
-          {briefing.actions.length === 0 ? (
-            <div className="border border-white/10 rounded-xl p-6 text-white/60 text-sm">
-              Καθαρή ατζέντα. Ώρα για outbound — travel-agent prospect list ή 1 PR pitch.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {briefing.actions.map((a) => (
-                <ActionCard key={a.id} action={a} />
-              ))}
-            </div>
-          )}
-        </section>
+        {/* Sprint 2.1 Bug 9 — single-source cockpit. The standalone
+            "Σήμερα κάνε αυτά" section is retired; deal threads now
+            appear inline in Inbox Brain with a 💰 badge so we don't
+            show the same conceptual thing in two places. The
+            briefing.actions array still drives the morning Telegram
+            push but is no longer rendered here. */}
 
         {/* PILLAR 3 — Greetings ready surface (per refocus brief). */}
         {briefing.greetings_ready && briefing.greetings_ready.count_for_tomorrow > 0 && (

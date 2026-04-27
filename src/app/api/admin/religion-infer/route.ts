@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     const { data: rows, error } = await sb
       .from("contacts")
       .select(
-        "id, country, first_name, inferred_religion, religion_overridden",
+        "id, country, first_name, last_name, email, inferred_religion, religion_overridden",
       )
       .order("created_at", { ascending: true })
       .range(p * PAGE, (p + 1) * PAGE - 1);
@@ -44,6 +44,8 @@ export async function GET(request: NextRequest) {
       const rel = inferReligion({
         country: c.country as string | null,
         first_name: c.first_name as string | null,
+        last_name: c.last_name as string | null,
+        email: c.email as string | null,
       });
       counts[rel] = (counts[rel] ?? 0) + 1;
       if (rel !== c.inferred_religion) {
