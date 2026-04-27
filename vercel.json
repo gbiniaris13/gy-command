@@ -181,6 +181,10 @@
       "schedule": "0 6 * * 0"
     },
     {
+      "path": "/api/cron/thread-suggestions",
+      "schedule": "45 2 * * *"
+    },
+    {
       "path": "/api/cron/linkedin-intel",
       "schedule": "0 6 * * 1"
     },

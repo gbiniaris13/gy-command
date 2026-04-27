@@ -104,6 +104,11 @@ export interface InboxThread {
   /** Pillar 5 — relationship health 0-100 (null if not yet scored). */
   health_score: number | null;
   health_trend: "up" | "down" | "flat" | null;
+  /** Sprint 2.2 — AI-generated one-liner: "Reply to Villy's meeting
+   *  request — offer 3 slots in her 20-24 April window (now overdue)" */
+  suggestion: string | null;
+  /** Sprint 2.2 — composite 0-100 (separate from rank_score). */
+  composite_priority: number | null;
   /** Higher = more urgent. Lets the UI sort & color a flat list. */
   rank_score: number;
 }
@@ -343,6 +348,9 @@ interface InboxRow {
   /** Sprint 2.4 — Pillar 5 health score. */
   health_score: number | null;
   health_score_trend: string | null;
+  /** Sprint 2.2 — cached AI suggestion + composite priority. */
+  next_touch_suggestion: string | null;
+  composite_priority_score: number | null;
 }
 
 function suggestedActionFor(stage: InboxStage): "reply" | "follow_up" | "wait" {
@@ -478,14 +486,34 @@ async function buildInboxThreads(
   sb: SupabaseClient,
   stageById: Map<string, string>,
 ): Promise<{ threads: InboxThread[]; summary: InboxSummary }> {
-  const { data: rows } = await sb
-    .from("contacts")
-    .select(
-      "id, first_name, last_name, email, charter_fee, commission_earned, charter_vessel, charter_start_date, charter_end_date, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id, inbox_starred, parked_until, declined_at, lifecycle_state, health_score, health_score_trend",
-    )
-    .not("inbox_inferred_stage", "is", null)
-    .neq("inbox_inferred_stage", "unknown")
-    .limit(2000);
+  // Sprint 2.4 — defensive against missing columns. Health-score
+  // migration is pending; if those columns don't exist yet, fall
+  // back to the wider-known set so the cockpit doesn't go blank.
+  const FULL_COLS =
+    "id, first_name, last_name, email, charter_fee, commission_earned, charter_vessel, charter_start_date, charter_end_date, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id, inbox_starred, parked_until, declined_at, lifecycle_state, health_score, health_score_trend, next_touch_suggestion, composite_priority_score";
+  const FALLBACK_COLS =
+    "id, first_name, last_name, email, charter_fee, commission_earned, charter_vessel, charter_start_date, charter_end_date, pipeline_stage_id, inbox_inferred_stage, inbox_gap_days, inbox_last_direction, inbox_last_subject, inbox_last_snippet, inbox_thread_id, inbox_starred, parked_until, declined_at, lifecycle_state";
+
+  let rows: unknown[] | null = null;
+  {
+    const r = await sb
+      .from("contacts")
+      .select(FULL_COLS)
+      .not("inbox_inferred_stage", "is", null)
+      .neq("inbox_inferred_stage", "unknown")
+      .limit(2000);
+    if (r.error) {
+      const r2 = await sb
+        .from("contacts")
+        .select(FALLBACK_COLS)
+        .not("inbox_inferred_stage", "is", null)
+        .neq("inbox_inferred_stage", "unknown")
+        .limit(2000);
+      rows = r2.data;
+    } else {
+      rows = r.data;
+    }
+  }
 
   const enriched: InboxRow[] = (rows ?? []).map((c: any) => ({
     id: c.id,
@@ -506,6 +534,8 @@ async function buildInboxThreads(
     lifecycle_state: c.lifecycle_state,
     health_score: c.health_score ?? null,
     health_score_trend: c.health_score_trend ?? null,
+    next_touch_suggestion: c.next_touch_suggestion ?? null,
+    composite_priority_score: c.composite_priority_score ?? null,
   }));
 
   const summary: InboxSummary = {
@@ -582,6 +612,8 @@ async function buildInboxThreads(
       health_score: r.health_score,
       health_trend:
         (r.health_score_trend as "up" | "down" | "flat" | null) ?? null,
+      suggestion: r.next_touch_suggestion,
+      composite_priority: r.composite_priority_score,
       rank_score: score,
     };
   });

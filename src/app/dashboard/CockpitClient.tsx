@@ -128,7 +128,24 @@ function ThreadRow({ t }: { t: InboxThread }) {
               </span>
             )}
           </div>
-          <div className="font-serif text-white truncate">{t.contact_name}</div>
+          <div className="flex items-baseline justify-between gap-2">
+            <div className="font-serif text-white truncate">
+              {t.contact_name}
+            </div>
+            {typeof t.composite_priority === "number" && (
+              <span
+                className="text-[9px] font-mono text-white/40 cursor-help"
+                title={`Composite priority ${t.composite_priority}/100. Why surfaced: stage ${t.inbox_stage} (${t.gap_days ?? 0}d), ${t.starred ? "⭐ starred, " : ""}${t.pipeline_stage ? "CRM " + t.pipeline_stage + ", " : ""}${t.charter_fee ? "deal €" + Math.round(t.charter_fee).toLocaleString() + ", " : ""}health ${t.health_score ?? "–"}/100${t.health_trend ? " " + t.health_trend : ""}`}
+              >
+                P{t.composite_priority}
+              </span>
+            )}
+          </div>
+          {t.suggestion && (
+            <div className="text-[11px] text-emerald-300/90 mt-1 italic leading-snug">
+              → {t.suggestion}
+            </div>
+          )}
           {t.last_subject && (
             <div className="text-xs text-white/50 truncate mt-0.5">
               {t.last_subject}
