@@ -203,11 +203,18 @@ async function _observedImpl() {
   await applyPublishJitter();
 
   const sb = createServiceClient();
+  // Hard cap at 1 post per cron tick to prevent the worst-case where
+  // the queue backed up overnight and the cron tries to publish 50 in
+  // one run (which trips Meta's bot detection regardless of our own
+  // rate-limit guard, because the guard is checked once before the
+  // loop). Order ascending so the oldest scheduled post wins.
   const { data: posts } = await sb
     .from("ig_posts")
     .select("*")
     .eq("status", "scheduled")
-    .lte("schedule_time", new Date().toISOString());
+    .lte("schedule_time", new Date().toISOString())
+    .order("schedule_time", { ascending: false })
+    .limit(1);
 
   let processed = 0;
 
