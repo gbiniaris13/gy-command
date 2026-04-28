@@ -41,18 +41,47 @@ export type PendingInsert = {
   // Optional: which yacht, which angle, etc. — kept in post.fleet_meta.
 };
 
+/**
+ * Read the auto-approve flag from settings. Default is TRUE — full auto
+ * publishing like the pre-Roberto-v2 flow. The Telegram approval gate
+ * stays in the codebase for opt-in tightening, but is OFF by default
+ * because George's blocking complaint (2026-04-28) was the silent gate:
+ * captions piling up in pending_approval and never going live.
+ *
+ * To turn the gate back on:
+ *   INSERT INTO settings (key, value) VALUES ('caption_auto_approve', 'false');
+ */
+async function isAutoApproveEnabled(
+  sb: ReturnType<typeof createServiceClient>,
+): Promise<boolean> {
+  try {
+    const { data } = await sb
+      .from("settings")
+      .select("value")
+      .eq("key", "caption_auto_approve")
+      .maybeSingle();
+    if (!data) return true; // default ON
+    const v = (data.value as string) ?? "true";
+    return v !== "false";
+  } catch {
+    return true;
+  }
+}
+
 export async function enqueuePendingApproval(
   row: PendingInsert
 ): Promise<{ id: string | null; telegram_message_id: number | null }> {
   const sb = createServiceClient();
+  const autoApprove = await isAutoApproveEnabled(sb);
 
-  // Status 'pending_approval' is NOT in the original CHECK constraint; the
-  // approval migration (see ig-posting-window-migration.sql) extends it.
-  // If the DB doesn't accept it, we fall back to 'draft' so a dev on an
-  // old schema still sees something rather than losing the caption.
+  // When auto-approve is on (default), captions land directly in
+  // status='scheduled' so the publish cron picks them up at their time.
+  // When off, they land in 'pending_approval' and a Telegram card with
+  // ✅/❌ buttons is sent to George.
+  const targetStatus = autoApprove ? "scheduled" : "pending_approval";
   const insertRow = {
     ...row,
-    status: "pending_approval",
+    status: targetStatus,
   } as Record<string, unknown>;
 
   let id: string | null = null;
@@ -65,7 +94,7 @@ export async function enqueuePendingApproval(
     if (error && error.message?.includes("check constraint")) {
       const fallback = await sb
         .from("ig_posts")
-        .insert({ ...row, status: "draft" })
+        .insert({ ...row, status: autoApprove ? "scheduled" : "draft" })
         .select("id")
         .single();
       id = fallback.data?.id ?? null;
@@ -75,6 +104,13 @@ export async function enqueuePendingApproval(
   } catch (e) {
     console.error("[approval-gate] insert failed:", e);
     return { id: null, telegram_message_id: null };
+  }
+
+  // In auto-approve mode we skip the Telegram approval card entirely
+  // — the publish cron will surface a success Telegram once the post
+  // actually goes live, which is the signal George cares about.
+  if (autoApprove) {
+    return { id, telegram_message_id: null };
   }
 
   // Voice audit for the preview message.

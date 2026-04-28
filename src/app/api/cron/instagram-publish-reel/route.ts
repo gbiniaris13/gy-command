@@ -166,16 +166,16 @@ Rules:
     }
   }
 
-  // ROBERTO brief v2 (2026-04-22) — reels auto-publish is OFF by
-  // default. The cron generates the caption + selects the video,
-  // enqueues a pending_approval row with a Telegram button message,
-  // and exits. A reel-specific auto-publish worker (not yet built)
-  // picks up approved reels at the next Wed/Fri 18:15 window.
+  // 2026-04-28 — reels are auto-publish by default. The settings flag
+  // `reel_auto_publish_without_approval` defaults to true here so we
+  // never silently sit on a reel waiting for a Telegram tap (which is
+  // exactly the failure mode that left the account dark for 5 days).
+  // Set the flag to "false" in `settings` to re-enable the gate.
   const autoFlag = await (async () => {
     const { data } = await sb.from("settings").select("value").eq("key", "reel_auto_publish_without_approval").maybeSingle();
     return data?.value;
   })();
-  if (autoFlag !== "true") {
+  if (autoFlag === "false") {
     const { enqueuePendingApproval } = await import("@/lib/caption-approval-gate");
     const { id } = await enqueuePendingApproval({
       image_url: video.public_url,
