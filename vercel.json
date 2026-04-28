@@ -134,7 +134,7 @@
     },
     {
       "path": "/api/cron/facebook-mirror",
-      "schedule": "30 16 * * 1-5"
+      "schedule": "35 15 * * *"
     },
     {
       "path": "/api/cron/linkedin-blog-digest",
