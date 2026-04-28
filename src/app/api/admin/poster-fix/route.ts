@@ -43,6 +43,17 @@ export async function GET() {
       { onConflict: "key" },
     );
 
+  await sb
+    .from("settings")
+    .upsert(
+      {
+        key: "fleet_auto_publish_without_approval",
+        value: "true",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" },
+    );
+
   // 2 — promote pending_approval backlog to scheduled.
   const { data: backlog } = await sb
     .from("ig_posts")

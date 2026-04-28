@@ -225,18 +225,12 @@ async function _observedImpl() {
     }
   }
 
-  // ROBERTO brief v2 (2026-04-22) — default to approval gate. The cron
-  // no longer auto-publishes to IG. It generates the caption + collects
-  // the Sanity photo URLs + enqueues a pending_approval row in ig_posts,
-  // pings Telegram with ✅/❌/🔄 buttons, and exits. The standard
-  // /api/cron/instagram-publish cron picks up approved rows at the
-  // next window and publishes them normally.
-  //
-  // Opt-out: set settings.fleet_auto_publish_without_approval = 'true'
-  // to restore the old immediate-publish behaviour. Default (flag
-  // unset or any non-'true' value) = safe, approval-gated.
+  // 2026-04-28 — default flipped to FULL AUTO per George's directive
+  // ("σήμερα 6 η ώρα να ποστάρει"). Set
+  // settings.fleet_auto_publish_without_approval = 'false' to restore
+  // the approval gate.
   const approvalFlag = await readSetting(sb, "fleet_auto_publish_without_approval");
-  if (approvalFlag !== "true") {
+  if (approvalFlag === "false") {
     const { enqueuePendingApproval } = await import("@/lib/caption-approval-gate");
     // Schedule for the next Tue/Wed/Thu 18:30 Athens window. The
     // approval webhook flips status to 'scheduled', then the regular
