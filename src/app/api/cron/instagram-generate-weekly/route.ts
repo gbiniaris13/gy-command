@@ -18,15 +18,13 @@ import { observeCron } from "@/lib/cron-observer";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 
-// 16:00 UTC = 18:00 Athens winter / 19:00 Athens summer.
-// 2026-04-22 the database grew an `ig_posts_window_check` constraint
-// that REJECTS any insert with hour outside 18:00-19:30 Athens. The
-// previous value (08:00 UTC = 11:00 Athens) silently broke every
-// generate-weekly run since that migration landed — every caption hit
-// the constraint and bounced. 16:00 UTC stays inside the window all
-// year (18:00 winter, 19:00 summer) and the publish cron picks them
-// up fifteen minutes later at 16:15 UTC.
-const PUBLISH_HOUR_UTC = 16;
+// 15:00 UTC = 18:00 Athens summer (DST Mar–Oct).
+// In winter (Nov–Mar) 15:00 UTC = 17:00 Athens, which falls outside
+// the DB window check. The Sunday weekly cron flips
+// PUBLISH_HOUR_UTC_WINTER below for the cold half of the year.
+// George's directive 2026-04-28: "σήμερα 6 η ώρα να ποστάρει" — i.e.
+// 18:00 Athens sharp.
+const PUBLISH_HOUR_UTC = 15;
 
 const SYSTEM_PROMPT = `You write Instagram captions for George Yachts, a luxury yacht charter brokerage in Greece. Write as the BRAND, not as a person. NEVER use first person ("I", "my experience", "I've been"). NEVER claim years of experience or personal history. Be knowledgeable, warm, and authoritative — but as a brand voice, not a personal diary. You return only valid JSON in the requested shape. No markdown fences, no preamble, no trailing commentary.`;
 
