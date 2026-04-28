@@ -11,6 +11,7 @@
 
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { observeCron } from "@/lib/cron-observer";
 import { sendTelegram } from "@/lib/telegram";
 import {
   publishPhoto,
@@ -112,7 +113,7 @@ async function _impl() {
   return NextResponse.json({ mirrored: results.length, results });
 }
 
-export async function GET() {
+async function _observedImpl() {
   try {
     return await _impl();
   } catch (e: any) {
@@ -121,4 +122,8 @@ export async function GET() {
     ).catch(() => {});
     return NextResponse.json({ error: e?.message ?? "unknown" }, { status: 500 });
   }
+}
+
+export async function GET() {
+  return observeCron("facebook-mirror", () => _observedImpl());
 }

@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { observeCron } from "@/lib/cron-observer";
 import { sendTelegram } from "@/lib/telegram";
 import { pickNextArticleForLinkedIn } from "@/lib/blog-fetcher";
 import {
@@ -57,7 +58,7 @@ async function stageArticleForAmplify(url: string, slug: string): Promise<void> 
   });
 }
 
-export async function GET() {
+async function _observedImpl() {
   try {
     const posted = await getPostedUrls();
     const article = await pickNextArticleForLinkedIn(posted);
@@ -98,4 +99,8 @@ export async function GET() {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+export async function GET() {
+  return observeCron("linkedin-blog-digest", () => _observedImpl());
 }

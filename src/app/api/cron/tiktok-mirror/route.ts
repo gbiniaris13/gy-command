@@ -20,6 +20,7 @@
 
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { observeCron } from "@/lib/cron-observer";
 import { sendTelegram } from "@/lib/telegram";
 import { publishVideo, publishPhotos, pollPublishStatus } from "@/lib/tiktok-client";
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
@@ -124,7 +125,7 @@ async function _impl() {
   return NextResponse.json({ mirrored: results.length, results });
 }
 
-export async function GET() {
+async function _observedImpl() {
   // Flag-gate: until TikTok app review completes + tiktok_oauth token
   // is stored in settings, every daily invocation just burns compute
   // + risks 500s. Flip settings.tiktok_enabled=true after first OAuth
@@ -151,4 +152,8 @@ export async function GET() {
     ).catch(() => {});
     return NextResponse.json({ error: e?.message ?? "unknown" }, { status: 500 });
   }
+}
+
+export async function GET() {
+  return observeCron("tiktok-mirror", () => _observedImpl());
 }

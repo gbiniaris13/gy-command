@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { observeCron } from "@/lib/cron-observer";
 import { sendTelegram } from "@/lib/telegram";
 import { fetchArticle } from "@/lib/blog-fetcher";
 import { generateCompanyDraft } from "@/lib/linkedin-caption";
@@ -45,7 +46,7 @@ async function clearStaged(): Promise<void> {
   await sb.from("settings").delete().eq("key", "linkedin_amplify_pending");
 }
 
-export async function GET() {
+async function _observedImpl() {
   try {
     const staged = await getStaged();
     if (!staged) {
@@ -107,4 +108,8 @@ export async function GET() {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+export async function GET() {
+  return observeCron("linkedin-company-amplify", () => _observedImpl());
 }
