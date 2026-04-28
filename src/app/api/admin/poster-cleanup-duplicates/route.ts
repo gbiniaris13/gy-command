@@ -64,11 +64,14 @@ export async function GET() {
   let archived = 0;
   let promoted = 0;
 
-  // Archive duplicates
+  // Demote duplicates to 'draft' (the original CHECK constraint never
+  // allowed 'archived', so we use 'draft' which is universally
+  // accepted). The publish cron only picks up 'scheduled' rows, so
+  // drafts are effectively shelved without losing the captions.
   for (const id of archive) {
     const { error } = await sb
       .from("ig_posts")
-      .update({ status: "archived", error: "duplicate_cleanup" })
+      .update({ status: "draft", error: "duplicate_cleanup" })
       .eq("id", id);
     if (!error) archived += 1;
   }
