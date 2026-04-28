@@ -26,6 +26,7 @@ import {
   publishBlogToInstagramFeed,
   publishBlogToInstagramStory,
 } from "@/lib/blog-social-publisher";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -60,7 +61,7 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export async function GET() {
+async function _observedImpl() {
   try {
     const sb = createServiceClient();
     // Flag-gate so George can mute without a redeploy.
@@ -131,4 +132,8 @@ export async function GET() {
     ).catch(() => {});
     return NextResponse.json({ error: e.message ?? "unknown" }, { status: 500 });
   }
+}
+
+export async function GET() {
+  return observeCron("blog-to-social", () => _observedImpl());
 }

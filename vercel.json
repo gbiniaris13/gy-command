@@ -38,7 +38,7 @@
     },
     {
       "path": "/api/cron/instagram-publish",
-      "schedule": "15 15 * * 1-5"
+      "schedule": "15 16 * * *"
     },
     {
       "path": "/api/cron/after-sales",
