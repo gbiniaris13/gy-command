@@ -145,9 +145,14 @@ export async function GET() {
     IG_BUSINESS_ID: !!process.env.IG_BUSINESS_ID,
     META_ACCESS_TOKEN: !!process.env.META_ACCESS_TOKEN,
     FB_PAGE_ID: !!process.env.FB_PAGE_ID,
+    FB_PAGE_ACCESS_TOKEN: !!process.env.FB_PAGE_ACCESS_TOKEN,
+    FB_USER_ACCESS_TOKEN: !!process.env.FB_USER_ACCESS_TOKEN,
     LINKEDIN_ACCESS_TOKEN: !!process.env.LINKEDIN_ACCESS_TOKEN,
     LINKEDIN_PERSON_URN: !!process.env.LINKEDIN_PERSON_URN,
     LINKEDIN_COMPANY_URN: !!process.env.LINKEDIN_COMPANY_URN,
+    TIKTOK_CLIENT_KEY: !!process.env.TIKTOK_CLIENT_KEY,
+    TELEGRAM_BOT_TOKEN: !!process.env.TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID: !!process.env.TELEGRAM_CHAT_ID,
   };
 
   // 3 — IG post queue
