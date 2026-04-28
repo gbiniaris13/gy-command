@@ -65,6 +65,10 @@
       "schedule": "0 7 * * 0"
     },
     {
+      "path": "/api/cron/instagram-watchdog",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/instagram-evergreen",
       "schedule": "0 7 1 * *"
     },

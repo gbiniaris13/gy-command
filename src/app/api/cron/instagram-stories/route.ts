@@ -197,17 +197,21 @@ async function _observedImpl() {
         },
         lastStoryPhotoId: photo.id,
       };
-      await sb
-        .from("settings")
-        .upsert(
+      // The PostgREST builder isn't a real promise until awaited, so the
+      // dangling `.catch()` previously threw "x.catch is not a function"
+      // every story run (21 errors / 7 days). Wrap in try/catch instead.
+      try {
+        await sb.from("settings").upsert(
           {
             key: ROTATION_KEY,
             value: JSON.stringify(nextState),
             updated_at: new Date().toISOString(),
           },
           { onConflict: "key" }
-        )
-        .catch(() => {});
+        );
+      } catch {
+        // Best-effort rotation persistence — don't break publishing.
+      }
 
       await logRateLimitAction("story_publish", {
         media_id: publishData.id,

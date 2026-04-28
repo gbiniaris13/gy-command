@@ -86,8 +86,9 @@ OUTPUT — strict JSON only, no markdown, no preamble. Include "style":
 }
 
 /**
- * Next Monday at 15:00 UTC. If today IS Monday and it's still before
- * 15:00 UTC, we start with today; otherwise we jump to next week.
+ * Next Monday at PUBLISH_HOUR_UTC. If today IS Monday and it's still
+ * before PUBLISH_HOUR_UTC, we start with today; otherwise we jump to
+ * next week.
  */
 function upcomingMondayUtc(now = new Date()): Date {
   const d = new Date(now.getTime());
@@ -104,9 +105,31 @@ function upcomingMondayUtc(now = new Date()): Date {
   return d;
 }
 
-async function _observedImpl() {
+/**
+ * Monday of the CURRENT calendar week. Used by ?week=current when the
+ * cron didn't fire on time and the current week is sitting empty.
+ */
+function currentMondayUtc(now = new Date()): Date {
+  const d = new Date(now.getTime());
+  const day = d.getUTCDay(); // 0=Sun
+  const daysSinceMonday = (day + 6) % 7; // Mon=0, Tue=1, ..., Sun=6
+  d.setUTCDate(d.getUTCDate() - daysSinceMonday);
+  d.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
+  return d;
+}
+
+async function _observedImpl(req?: any) {
   const sb = createServiceClient();
-  const startMonday = upcomingMondayUtc();
+  const url = (() => {
+    try {
+      return req?.url ? new URL(req.url) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const weekParam = url?.searchParams.get("week") ?? "next";
+  const startMonday =
+    weekParam === "current" ? currentMondayUtc() : upcomingMondayUtc();
   const endSunday = new Date(startMonday.getTime() + 6 * 86400000);
   endSunday.setUTCHours(PUBLISH_HOUR_UTC, 59, 59, 999);
 
