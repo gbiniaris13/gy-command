@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/system-health-check",
+      "schedule": "5 7 * * *"
+    },
+    {
       "path": "/api/cron/idle-leads",
       "schedule": "0 7 * * *"
     },
