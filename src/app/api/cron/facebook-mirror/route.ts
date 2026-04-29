@@ -37,12 +37,25 @@ function adaptCaptionForFacebook(igCaption: string): string {
   return out.trim();
 }
 
-async function _impl() {
+async function _impl(req?: Request) {
   // No window guard here — the FB mirror only picks up rows that
   // already published to IG, which means IG's own window guard has
   // already cleared them. Safe by construction.
   const sb = createServiceClient();
-  const since = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+  const url = (() => {
+    try {
+      return req?.url ? new URL(req.url) : null;
+    } catch {
+      return null;
+    }
+  })();
+  // Default 3h window so the daily cron only mirrors the freshly-published
+  // post. Pass ?hours=48 (or any int) to widen the window — useful for
+  // backfilling a missed mirror.
+  const sinceHours = parseInt(url?.searchParams.get("hours") ?? "3", 10);
+  const since = new Date(
+    Date.now() - sinceHours * 60 * 60 * 1000,
+  ).toISOString();
   const { data: candidates } = await sb
     .from("ig_posts")
     .select("*")
@@ -113,9 +126,9 @@ async function _impl() {
   return NextResponse.json({ mirrored: results.length, results });
 }
 
-async function _observedImpl() {
+async function _observedImpl(req?: Request) {
   try {
-    return await _impl();
+    return await _impl(req);
   } catch (e: any) {
     await sendTelegram(
       `⚠️ <b>Facebook mirror crashed</b>\n<code>${(e?.message ?? "unknown").slice(0, 400)}</code>`,
@@ -124,6 +137,6 @@ async function _observedImpl() {
   }
 }
 
-export async function GET() {
-  return observeCron("facebook-mirror", () => _observedImpl());
+export async function GET(req: Request) {
+  return observeCron("facebook-mirror", () => _observedImpl(req));
 }
