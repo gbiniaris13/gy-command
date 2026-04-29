@@ -31,7 +31,6 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
-import nodemailer from "nodemailer";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -128,20 +127,15 @@ async function checkTelegramBot(): Promise<CheckResult> {
 }
 
 async function checkGmailSMTP(): Promise<CheckResult> {
+  // Credentials-presence check only. Live SMTP send is exercised by
+  // /api/cron/gmail-poll-replies every 5 min — if the password breaks
+  // we'll see it surface there within minutes, recorded by the cron
+  // observer, and bubble up via the "Cron failures (24h)" check below.
+  // We don't ship nodemailer just for an extra verify() call.
   const u = process.env.GMAIL_USER;
   const p = process.env.GMAIL_PASS;
   if (!u || !p) return critical("Gmail SMTP", "GMAIL_USER / GMAIL_PASS not set");
-  const start = Date.now();
-  try {
-    const t = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: u, pass: p },
-    });
-    await t.verify();
-    return ok("Gmail SMTP", Date.now() - start);
-  } catch (e: any) {
-    return critical("Gmail SMTP", e?.message ?? "verify failed");
-  }
+  return ok("Gmail SMTP", 0);
 }
 
 async function checkSanityCMS(): Promise<CheckResult> {
