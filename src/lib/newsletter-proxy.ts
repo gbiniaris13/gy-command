@@ -121,3 +121,83 @@ export async function prepareIssue1(
   if (r.status !== 200) throw new Error(r.json?.error ?? `status ${r.status}`);
   return r.json;
 }
+
+// ─── Composer (Phase 3) ────────────────────────────────────────────
+
+export interface ComposerYachtOption {
+  slug: string;
+  name: string;
+  subtitle?: string;
+  length?: string;
+  cruisingRegion?: string;
+  fleetTier?: string;
+}
+export interface ComposerPostOption {
+  slug: string;
+  title: string;
+  publishedAt?: string;
+}
+
+export async function getComposerOptions(): Promise<{
+  yachts: ComposerYachtOption[];
+  posts: ComposerPostOption[];
+}> {
+  const r = await call("GET", `/api/admin/newsletter-compose-options`);
+  if (r.status !== 200) throw new Error(r.json?.error ?? `status ${r.status}`);
+  return { yachts: r.json?.yachts ?? [], posts: r.json?.posts ?? [] };
+}
+
+export type ComposeContentType =
+  | "announcement"
+  | "offer"
+  | "story"
+  | "intel"
+  | "blog";
+
+export interface ComposeInput {
+  content_type: ComposeContentType;
+  audience: ("bridge" | "wake" | "compass" | "greece")[];
+  yacht_slug?: string;
+  post_slug?: string;
+  george_angle?: string;
+  headline?: string;
+  signal_text?: string;
+  source_note?: string;
+  subject_line?: string;
+  body_text?: string;
+  hero_image_url?: string;
+  posture?: string;
+  link_label?: string;
+}
+
+export interface ComposeResult {
+  ok: boolean;
+  content_type: string;
+  requested_audience: string[];
+  final_audience: string[];
+  refused: string[];
+  refusal_reasons: string[];
+  drafts_created: number;
+  drafts_blocked: number;
+  errors: number;
+  results: Array<{
+    stream: string;
+    draft_id?: string;
+    issue_number?: number;
+    audience_size?: number;
+    word_count?: number;
+    reading_time_min?: number;
+    status?: string;
+    violations?: { rule: string }[];
+    warnings?: { rule: string }[];
+    telegram?: { ok: boolean; message_id: number | null; error?: string };
+    error?: string;
+  }>;
+}
+
+export async function compose(input: ComposeInput): Promise<ComposeResult> {
+  const r = await call("POST", `/api/admin/newsletter-compose`, input);
+  if (r.status !== 200 && r.status !== 422)
+    throw new Error(r.json?.error ?? `status ${r.status}`);
+  return r.json;
+}
