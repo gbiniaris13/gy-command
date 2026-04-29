@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
-export async function GET(req: NextRequest) {
+async function _observedImpl(req: NextRequest): Promise<Response> {
   // Verify cron secret in production
   const authHeader = req.headers.get("authorization");
   if (
@@ -90,4 +91,8 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(req: NextRequest): Promise<Response> {
+  return observeCron("charter-reminders", () => _observedImpl(req));
 }

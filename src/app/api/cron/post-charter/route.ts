@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 // ─── Email Templates ────────────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ interface CharterContact {
  * Daily cron (09:00 UTC): post-charter follow-up email automation.
  * Sends Day 1, Day 30, Day 90 follow-up emails based on charter_end_date.
  */
-export async function GET(request: NextRequest) {
+async function _observedImpl(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
@@ -351,4 +352,8 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return observeCron("post-charter", () => _observedImpl(request));
 }

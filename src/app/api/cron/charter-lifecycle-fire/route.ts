@@ -19,6 +19,7 @@ import {
   generateMilestoneDraft,
   type TemplateContext,
 } from "@/lib/charter-lifecycle";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -141,7 +142,7 @@ async function createDraft(args: {
   return { id: draft.id };
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   const sb = createServiceClient();
   const today = todayAthens();
 
@@ -285,4 +286,8 @@ export async function GET() {
     failed,
     breakdown,
   });
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("charter-lifecycle-fire", _observedImpl);
 }

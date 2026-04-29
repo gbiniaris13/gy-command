@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 // ─── Gmail send helper ──────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ interface BirthdayContact {
  * Queries contacts where date_of_birth matches today's month+day,
  * sends a birthday greeting, logs activity, and notifies via Telegram.
  */
-export async function GET(request: NextRequest) {
+async function _observedImpl(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
@@ -190,4 +191,8 @@ George`;
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return observeCron("birthdays", () => _observedImpl(request));
 }

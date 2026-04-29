@@ -4,6 +4,7 @@ import { calendarFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { getFlagFromCountry } from "@/lib/flags";
 import { aiChat } from "@/lib/ai";
+import { observeCron } from "@/lib/cron-observer";
 
 interface CalendarEvent {
   id: string;
@@ -51,7 +52,7 @@ Be concise. No fluff.`
  * Hourly cron: generate pre-call briefs for upcoming meetings.
  * Looks 2 hours ahead on Google Calendar.
  */
-export async function GET(request: NextRequest) {
+async function _observedImpl(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
@@ -201,4 +202,8 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return observeCron("pre-call-brief", () => _observedImpl(request));
 }

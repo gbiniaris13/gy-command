@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { observeCron } from "@/lib/cron-observer";
 
 // After-Sales Lifecycle Cron — runs daily at 08:00 UTC
 // Checks for: thank-you, feedback, photo sharing, birthdays,
@@ -27,7 +28,7 @@ function getHolidays2026(): Array<{ date: string; type: string; religions: strin
   ];
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   const sb = createServiceClient();
 
   // 2026-04-24 audit: this cron OVERLAPS with /api/cron/birthdays and
@@ -246,4 +247,8 @@ export async function GET() {
     types: [...new Set(messages.map(m => m.message_type))],
     date: today,
   });
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("after-sales", _observedImpl);
 }
