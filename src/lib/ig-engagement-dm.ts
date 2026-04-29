@@ -199,31 +199,93 @@ Write the DM. Output the body only.`;
 // ─── Tracking: who we've DM'd already ───────────────────────────────
 
 const DM_SENT_KEY = "ig_dm_sent_usernames";
+const DM_SENT_MAP_KEY = "ig_dm_sent_map"; // 2026-04-29: time-windowed
+// Cooldown — once we DM someone they're skipped for this many days.
+// George's Bug F (2026-04-29): the previous flat Set was permanent
+// forever, which meant the candidate pool kept shrinking over time
+// to "4-5 people". 90 days lets a cohort re-enter rotation if they
+// engage again, without spamming.
+export const DM_COOLDOWN_DAYS = 90;
 
-export async function getDmSentSet(sb: SupabaseClient): Promise<Set<string>> {
-  const { data } = await sb
+/** Read the time-windowed dedup map. Falls back to migrating from the
+ *  legacy DM_SENT_KEY Set on first call so we don't lose history. */
+export async function getDmSentMap(
+  sb: SupabaseClient,
+): Promise<Record<string, string>> {
+  // Try new map first
+  const newRow = await sb
+    .from("settings")
+    .select("value")
+    .eq("key", DM_SENT_MAP_KEY)
+    .maybeSingle();
+  if (newRow.data?.value) {
+    try {
+      const parsed = JSON.parse(newRow.data.value as string);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, string>;
+    } catch {
+      // fall through to legacy
+    }
+  }
+  // Migrate from legacy Set, treating every entry as "DM'd ages ago".
+  // ISO 1970 means cooldown has lapsed; they get a fair shot in
+  // rotation again. This is intentional — George said the old behaviour
+  // was the bug.
+  const legacy = await sb
     .from("settings")
     .select("value")
     .eq("key", DM_SENT_KEY)
     .maybeSingle();
   try {
-    const arr = JSON.parse((data?.value as string) ?? "[]");
-    return new Set(Array.isArray(arr) ? arr : []);
+    const arr = JSON.parse((legacy.data?.value as string) ?? "[]");
+    if (!Array.isArray(arr)) return {};
+    const map: Record<string, string> = {};
+    const ancient = new Date(Date.now() - 365 * 86_400_000).toISOString();
+    for (const u of arr) {
+      if (typeof u === "string") map[u.toLowerCase()] = ancient;
+    }
+    return map;
   } catch {
-    return new Set();
+    return {};
   }
+}
+
+/** Returns the set of usernames currently within the DM cooldown
+ *  window — i.e. who should be SKIPPED in today's pick. */
+export function dmsInCooldown(
+  map: Record<string, string>,
+  now = new Date(),
+): Set<string> {
+  const cutoff = now.getTime() - DM_COOLDOWN_DAYS * 86_400_000;
+  const inWindow = new Set<string>();
+  for (const [u, iso] of Object.entries(map)) {
+    const t = Date.parse(iso);
+    if (Number.isFinite(t) && t >= cutoff) inWindow.add(u);
+  }
+  return inWindow;
+}
+
+/** Legacy shim — kept so existing callers don't break. Returns ONLY
+ *  the in-cooldown subset, which is the spiritual equivalent of
+ *  "people we shouldn't DM today". */
+export async function getDmSentSet(
+  sb: SupabaseClient,
+): Promise<Set<string>> {
+  const map = await getDmSentMap(sb);
+  return dmsInCooldown(map);
 }
 
 export async function recordDmSent(
   sb: SupabaseClient,
   username: string,
 ): Promise<void> {
-  const current = await getDmSentSet(sb);
-  current.add(username.toLowerCase());
-  await sb.from("settings").upsert({
-    key: DM_SENT_KEY,
-    value: JSON.stringify([...current]),
-  });
+  const map = await getDmSentMap(sb);
+  map[username.toLowerCase()] = new Date().toISOString();
+  await sb
+    .from("settings")
+    .upsert(
+      { key: DM_SENT_MAP_KEY, value: JSON.stringify(map) },
+      { onConflict: "key" },
+    );
 }
 
 // ─── Engagement source: pull comments + mentions from IG Graph API ──
@@ -298,9 +360,47 @@ export async function fetchRecentEngagement(
     console.error("[ig-engagement-dm] media/comments fetch failed:", e);
   }
 
-  // 2. Hydrate each candidate via business_discovery (public profile data)
-  // Only hydrate if we have <= 30 candidates (rate limit safety)
-  const toHydrate = [...candidates.values()].slice(0, 30);
+  // 2. Tagged media — when other accounts tag @georgeyachts in their
+  //    own posts (most yacht builders / hotels do this when they
+  //    repost something we shared). 2026-04-29: George's Bug F asked
+  //    for a wider candidate pool than just commenters.
+  try {
+    const tagsRes = await fetch(
+      `${IG_GRAPH}/${igUserId}/tags?fields=id,caption,timestamp,username&limit=50&access_token=${encodeURIComponent(igAccessToken)}`,
+    );
+    if (tagsRes.ok) {
+      const tagsJson = (await tagsRes.json()) as {
+        data?: { id: string; timestamp: string; username?: string; caption?: string }[];
+      };
+      const recentTags = (tagsJson.data ?? []).filter(
+        (t) => new Date(t.timestamp).getTime() >= sinceMs,
+      );
+      for (const t of recentTags) {
+        if (!t.username) continue;
+        const u = t.username.toLowerCase();
+        if (u === "georgeyachts" || candidates.has(u)) continue;
+        candidates.set(u, {
+          username: t.username,
+          fullName: null,
+          bio: null,
+          followerCount: 0,
+          followsCount: null,
+          isVerified: false,
+          profilePictureUrl: null,
+          signal: "tagged",
+          signalContext: t.caption?.slice(0, 200) ?? "",
+          signalDate: t.timestamp,
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[ig-engagement-dm] /tags fetch failed:", e);
+  }
+
+  // 3. Hydrate each candidate via business_discovery (public profile data).
+  // Bumped from 30 → 60 (Bug F 2026-04-29) since the tags pull
+  // typically adds 10-30 fresh candidates and we want them ranked.
+  const toHydrate = [...candidates.values()].slice(0, 60);
   for (const c of toHydrate) {
     try {
       const url = `${IG_GRAPH}/${igUserId}?fields=business_discovery.username(${encodeURIComponent(c.username)}){username,name,biography,followers_count,follows_count,is_verified,profile_picture_url}&access_token=${encodeURIComponent(igAccessToken)}`;
