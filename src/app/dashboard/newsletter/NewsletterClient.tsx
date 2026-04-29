@@ -754,10 +754,6 @@ function AnnounceForm({ yachts }: { yachts: YachtOpt[] }) {
   const [audience, setAudience] = useState<StreamKey[]>(
     DEFAULT_AUDIENCE.announcement,
   );
-  // Update 2 caveat #1 — captain credentials default OFF, only used
-  // when George manually opts in for this specific draft.
-  const [includeCaptainCredentials, setIncludeCaptainCredentials] =
-    useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ComposeResult | null>(null);
 
@@ -781,7 +777,6 @@ function AnnounceForm({ yachts }: { yachts: YachtOpt[] }) {
         audience,
         yacht_slug: yachtSlug,
         george_angle: angle.trim() || undefined,
-        include_captain_credentials: includeCaptainCredentials,
       });
       setResult(j);
     } finally {
@@ -848,23 +843,11 @@ function AnnounceForm({ yachts }: { yachts: YachtOpt[] }) {
           }
         />
       </label>
-      <label className="flex items-start gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={includeCaptainCredentials}
-          onChange={(e) => setIncludeCaptainCredentials(e.target.checked)}
-          disabled={!pickedYacht?.has_captain_credentials}
-          className="mt-0.5"
-        />
-        <span>
-          Include captain credentials in body{" "}
-          {!pickedYacht?.has_captain_credentials && (
-            <span className="text-xs text-gray-400">
-              (no credentials set on this yacht in Sanity)
-            </span>
-          )}
-        </span>
-      </label>
+      {/* Captain credentials checkbox removed 2026-04-29 — Boardroom
+          Update 2 amendment: crew identities are volatile across
+          bookings, so /announce body never references named crew or
+          credentials. captain_credentials_short still lives in Sanity
+          for /intel safety briefings (different flow). */}
       <button
         onClick={submit}
         disabled={busy || !yachtSlug}
