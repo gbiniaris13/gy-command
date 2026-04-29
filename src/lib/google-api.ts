@@ -70,7 +70,9 @@ export async function exchangeCodeForTokens(code: string): Promise<{
 
 // ─── Access token from refresh token ─────────────────────────────────────────
 
-async function refreshAccessToken(refreshToken: string): Promise<string> {
+async function refreshAccessToken(
+  refreshToken: string,
+): Promise<{ token: string; expiresIn: number }> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -86,15 +88,47 @@ async function refreshAccessToken(refreshToken: string): Promise<string> {
     throw new Error(`Token refresh failed: ${res.status} ${text}`);
   }
   const data = await res.json();
-  return data.access_token as string;
+  return {
+    token: data.access_token as string,
+    expiresIn: typeof data.expires_in === "number" ? data.expires_in : 3600,
+  };
 }
 
+// In-memory cache for the Google access token. Google access tokens are
+// valid for ~60 min and the previous getAccessToken hit oauth2.googleapis
+// .com on EVERY Gmail/Calendar call — for crons that fire every 5 min
+// (gmail-poll-replies) that's hundreds of redundant OAuth calls per day,
+// each one a chance for a transient 5xx to bubble up as a cron 500.
+//
+// Cache the token in module scope until ~5 min before its real expiry so
+// we always have a fresh-enough token in hand. The lambda may recycle the
+// module between invocations — that's fine, we just refresh fresh.
+let _cachedAccessToken: { token: string; expiresAtMs: number } | null = null;
+const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000; // refresh 5 min before expiry
+
 export async function getAccessToken(): Promise<string> {
+  const now = Date.now();
+  if (_cachedAccessToken && now < _cachedAccessToken.expiresAtMs) {
+    return _cachedAccessToken.token;
+  }
   const refreshToken = await getSetting("gmail_refresh_token");
   if (!refreshToken) {
     throw new Error("Gmail not connected — no refresh token found");
   }
-  return refreshAccessToken(refreshToken);
+  const { token, expiresIn } = await refreshAccessToken(refreshToken);
+  _cachedAccessToken = {
+    token,
+    expiresAtMs: now + expiresIn * 1000 - TOKEN_REFRESH_MARGIN_MS,
+  };
+  return token;
+}
+
+// Test helper — invalidate cache so a subsequent call definitely hits
+// oauth2.googleapis.com. Used by the system-health-check cron when it
+// needs to confirm the refresh token still works rather than just
+// confirming we have one cached.
+export function _invalidateAccessTokenCache(): void {
+  _cachedAccessToken = null;
 }
 
 // ─── Gmail API helpers ───────────────────────────────────────────────────────
