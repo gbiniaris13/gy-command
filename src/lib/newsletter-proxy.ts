@@ -162,6 +162,8 @@ export interface ComposeInput {
   audience: ("bridge" | "wake" | "compass" | "greece")[];
   yacht_slug?: string;
   post_slug?: string;
+  /** Blog: full or relative article URL. Wins over post_slug. */
+  post_url?: string;
   george_angle?: string;
   headline?: string;
   signal_text?: string;
