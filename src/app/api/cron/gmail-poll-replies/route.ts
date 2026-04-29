@@ -38,6 +38,7 @@ import { detectWarmup } from "@/lib/email-warmup-detector";
 import { refreshContactInbox } from "@/lib/inbox-analyzer";
 import { tagOneContact } from "@/lib/pillar2-tagger";
 import { classifyMessage } from "@/lib/message-classifier";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -500,7 +501,7 @@ async function processMessage(
   return { ok: true, classification: result.classification, created: contact?.created };
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   try {
     // Inbox replies from the last 2 days that haven't been classified yet.
     // Excluding our own outgoing + already-labeled ones.
@@ -559,4 +560,8 @@ export async function GET() {
     ).catch(() => {});
     return NextResponse.json({ error: e.message ?? "unknown" }, { status: 500 });
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("gmail-poll-replies", _observedImpl);
 }

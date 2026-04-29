@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { calendarFetch, getSetting } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
+import { observeCron } from "@/lib/cron-observer";
 
 interface CalendarEvent {
   id: string;
@@ -10,7 +11,7 @@ interface CalendarEvent {
   attendees?: { email: string }[];
 }
 
-export async function GET(request: NextRequest) {
+async function _observedImpl(request: NextRequest): Promise<Response> {
   // Verify cron secret in production
   const authHeader = request.headers.get("authorization");
   if (
@@ -120,4 +121,8 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return observeCron("calendar-sync", () => _observedImpl(request));
 }

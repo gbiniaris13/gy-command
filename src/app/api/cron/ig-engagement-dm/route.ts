@@ -30,6 +30,7 @@ import {
   getFollowersDelta,
   type DmCategory,
 } from "@/lib/ig-engagement-dm";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -53,7 +54,7 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   const sb = createServiceClient();
   const igToken = process.env.IG_ACCESS_TOKEN;
   const igUserId = process.env.IG_BUSINESS_ID || process.env.IG_USER_ID;
@@ -218,4 +219,8 @@ export async function GET() {
     ).catch(() => {});
     return NextResponse.json({ error: e?.message ?? "unknown" }, { status: 500 });
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("ig-engagement-dm", _observedImpl);
 }

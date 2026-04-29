@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -31,7 +32,7 @@ function extractEmail(value: string): string | null {
   return /.+@.+\..+/.test(candidate) ? candidate : null;
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   const sb = createServiceClient();
 
   // 1. List all starred messages in the last year.
@@ -158,4 +159,8 @@ export async function GET() {
     contacts_starred: setOn,
     contacts_cleared: clearedOff,
   });
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("inbox-star-sync", _observedImpl);
 }

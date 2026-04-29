@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { buildBriefing } from "@/lib/cockpit-engine";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -30,7 +31,7 @@ function priorityEmoji(p: string): string {
   return "⚪";
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   try {
     const sb = createServiceClient();
     const briefing = await buildBriefing(sb);
@@ -101,4 +102,8 @@ export async function GET() {
       { status: 500 },
     );
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("cockpit-briefing", _observedImpl);
 }
