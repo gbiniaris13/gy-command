@@ -15,6 +15,18 @@ import { createServiceClient } from "@/lib/supabase-server";
 // blank on day one.
 
 const STATS_KEY = "outreach_stats";
+// Per-bot keys. Both Apps Script bots can POST a `bot` discriminator —
+// "george" or "elleanna" — and the snapshot lands in its own row. The
+// dashboard reads both and renders side-by-side. Backwards compatible:
+// if a bot omits `bot`, the snapshot lands in the legacy single key.
+const BOT_KEY = (bot: BotId) => `outreach_stats:${bot}`;
+const VALID_BOTS = ["george", "elleanna"] as const;
+type BotId = (typeof VALID_BOTS)[number];
+function parseBot(v: unknown): BotId | null {
+  return typeof v === "string" && (VALID_BOTS as readonly string[]).includes(v)
+    ? (v as BotId)
+    : null;
+}
 
 interface StatsSnapshot {
   total_sent: number;
@@ -25,6 +37,7 @@ interface StatsSnapshot {
   active_followups: number;
   updated_at?: string;
   source?: "bot" | "manual";
+  bot?: BotId;
 }
 
 const EMPTY_SNAPSHOT: StatsSnapshot = {
@@ -36,11 +49,11 @@ const EMPTY_SNAPSHOT: StatsSnapshot = {
   active_followups: 0,
 };
 
-async function readSnapshot(sb): Promise<StatsSnapshot | null> {
+async function readSnapshot(sb, key: string = STATS_KEY): Promise<StatsSnapshot | null> {
   const { data } = await sb
     .from("settings")
     .select("value, updated_at")
-    .eq("key", STATS_KEY)
+    .eq("key", key)
     .maybeSingle();
   if (!data?.value) return null;
   try {
@@ -49,6 +62,14 @@ async function readSnapshot(sb): Promise<StatsSnapshot | null> {
   } catch {
     return null;
   }
+}
+
+async function readPerBotSnapshots(sb): Promise<Record<BotId, StatsSnapshot | null>> {
+  const [g, e] = await Promise.all([
+    readSnapshot(sb, BOT_KEY("george")),
+    readSnapshot(sb, BOT_KEY("elleanna")),
+  ]);
+  return { george: g, elleanna: e };
 }
 
 function sanitizeStats(body: Partial<StatsSnapshot>): StatsSnapshot {
@@ -73,7 +94,7 @@ export async function GET() {
   todayStart.setHours(0, 0, 0, 0);
   const weekStart = new Date(now.getTime() - 7 * 86400000);
 
-  const [todayRes, weekRes, totalRes, recentRes, snapshot] = await Promise.all([
+  const [todayRes, weekRes, totalRes, recentRes, snapshot, perBot] = await Promise.all([
     sb
       .from("contacts")
       .select("id", { count: "exact", head: true })
@@ -97,6 +118,7 @@ export async function GET() {
       .order("created_at", { ascending: false })
       .limit(10),
     readSnapshot(sb),
+    readPerBotSnapshots(sb),
   ]);
 
   const recent = (recentRes.data ?? []).map((a) => ({
@@ -110,6 +132,11 @@ export async function GET() {
   return NextResponse.json({
     stats,
     hasSnapshot: !!snapshot,
+    perBot: {
+      // null when that bot has never POSTed with a `bot` field.
+      george: perBot.george,
+      elleanna: perBot.elleanna,
+    },
     derived: {
       contacts_today: todayRes.count ?? 0,
       contacts_week: weekRes.count ?? 0,
@@ -138,23 +165,42 @@ export async function POST(request: NextRequest) {
     }
 
     const stats = sanitizeStats(body);
+    const bot = parseBot(body.bot);
     const payload: StatsSnapshot = {
       ...stats,
       updated_at: new Date().toISOString(),
       source: body.source === "bot" ? "bot" : "manual",
+      ...(bot ? { bot } : {}),
     };
 
     const sb = createServiceClient();
-    const { error } = await sb
-      .from("settings")
-      .upsert(
+    // Always write to the legacy single key for backwards compat with the
+    // existing dashboard fallback. If a `bot` discriminator is set, ALSO
+    // write the per-bot key so the per-bot UI lights up.
+    const writes = [
+      sb.from("settings").upsert(
         {
           key: STATS_KEY,
           value: JSON.stringify(payload),
           updated_at: payload.updated_at,
         },
         { onConflict: "key" }
+      ),
+    ];
+    if (bot) {
+      writes.push(
+        sb.from("settings").upsert(
+          {
+            key: BOT_KEY(bot),
+            value: JSON.stringify(payload),
+            updated_at: payload.updated_at,
+          },
+          { onConflict: "key" }
+        )
       );
+    }
+    const results = await Promise.all(writes);
+    const error = results.find((r) => r.error)?.error ?? null;
 
     if (error) {
       return NextResponse.json(
