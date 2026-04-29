@@ -1087,7 +1087,7 @@ function IntelForm() {
           onChange={(e) => setSignal(e.target.value)}
           rows={8}
           className="w-full border rounded p-2 text-sm"
-          placeholder={"What you're seeing on the ground. Be specific without naming central agents or quoting prices."}
+          placeholder={"What you're seeing on the ground. Be specific without naming central agents or quoting prices.\n\nDo NOT write 'Source: …' here — use the field below for attribution."}
         />
         <span className="text-xs text-gray-500">
           {signal.trim().split(/\s+/).filter(Boolean).length} words
@@ -1099,8 +1099,12 @@ function IntelForm() {
           value={source}
           onChange={(e) => setSource(e.target.value)}
           className="border rounded px-3 py-2 text-sm w-full"
-          placeholder="e.g. from 12 charter inquiries this week"
+          placeholder='e.g. "From 14 charter pipelines + 6 captains in our network"'
         />
+        <span className="text-xs text-gray-500">
+          Auto-formatted as a parenthetical line below the signal. Don&apos;t
+          repeat the attribution inside the Signal field above.
+        </span>
       </label>
       <AudiencePicker contentType="intel" value={audience} onChange={setAudience} />
       <button
