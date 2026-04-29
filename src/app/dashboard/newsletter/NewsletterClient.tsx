@@ -865,7 +865,6 @@ function AnnounceForm({ yachts }: { yachts: YachtOpt[] }) {
 function OfferForm({ yachts }: { yachts: YachtOpt[] }) {
   const [yachtSlug, setYachtSlug] = useState("");
   const [angle, setAngle] = useState("");
-  const [posture, setPosture] = useState("select availability");
   const [audience, setAudience] = useState<StreamKey[]>(
     DEFAULT_AUDIENCE.offer,
   );
@@ -873,10 +872,6 @@ function OfferForm({ yachts }: { yachts: YachtOpt[] }) {
   const [result, setResult] = useState<ComposeResult | null>(null);
 
   async function submit() {
-    if (!angle.trim()) {
-      setResult({ ok: false, error: "angle required" } as ComposeResult);
-      return;
-    }
     setBusy(true);
     setResult(null);
     try {
@@ -884,8 +879,7 @@ function OfferForm({ yachts }: { yachts: YachtOpt[] }) {
         content_type: "offer",
         audience,
         yacht_slug: yachtSlug || undefined,
-        george_angle: angle.trim(),
-        posture: posture.trim() || undefined,
+        george_angle: angle.trim() || undefined,
       });
       setResult(j);
     } finally {
@@ -898,57 +892,52 @@ function OfferForm({ yachts }: { yachts: YachtOpt[] }) {
       <h2 className="font-semibold">💎 Offer — availability note</h2>
       <p className="text-xs text-gray-600">
         Compass is <strong>always</strong> blocked here (§6). Body never
-        contains a specific week, a price, or a calendar date — those
-        live in your 1-on-1 reply only. Posture-only nudge.
+        contains a specific week + price together, no calendar dates, no
+        prices — those live in your 1-on-1 reply only.
+        <br />
+        Your angle below is the <strong>lead sentence</strong>: window
+        + region. e.g. <em>&ldquo;Late June and first week of July just
+        opened up. Cyclades, mostly Saronic.&rdquo;</em>
       </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <label className="text-sm space-y-1">
-          <span className="font-medium block">
-            Yacht (optional — generic if blank)
-          </span>
-          <select
-            value={yachtSlug}
-            onChange={(e) => setYachtSlug(e.target.value)}
-            className="border rounded px-3 py-2 text-sm w-full"
-          >
-            <option value="">— generic / no yacht —</option>
-            {yachts.map((y) => (
-              <option key={y.slug} value={y.slug}>
-                {y.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm space-y-1">
-          <span className="font-medium block">Posture phrase</span>
-          <input
-            value={posture}
-            onChange={(e) => setPosture(e.target.value)}
-            className="border rounded px-3 py-2 text-sm w-full"
-            placeholder="select availability / a quiet window / a small opening"
-          />
-        </label>
-      </div>
+      <label className="text-sm space-y-1 block">
+        <span className="font-medium">
+          Yacht (optional — generic offer if blank)
+        </span>
+        <select
+          value={yachtSlug}
+          onChange={(e) => setYachtSlug(e.target.value)}
+          className="border rounded px-3 py-2 text-sm w-full md:w-1/2"
+        >
+          <option value="">— generic / no yacht —</option>
+          {yachts.map((y) => (
+            <option key={y.slug} value={y.slug}>
+              {y.name}
+            </option>
+          ))}
+        </select>
+      </label>
       <AudiencePicker
         contentType="offer"
         value={audience}
         onChange={setAudience}
       />
       <label className="text-sm space-y-1 block">
-        <span className="font-medium">George&apos;s angle</span>
+        <span className="font-medium">
+          George&apos;s angle (window + region)
+        </span>
         <textarea
           value={angle}
           onChange={(e) => setAngle(e.target.value)}
           rows={3}
           className="w-full border rounded p-2 text-sm"
           placeholder={
-            "1-3 sentences. Why is this worth knowing about? Stay vague — no weeks, no dates, no prices."
+            'e.g. "Late June and first week of July just opened up. Cyclades, mostly Saronic." — vague enough to not bind a specific yacht-week-price (§13.1).'
           }
         />
       </label>
       <button
         onClick={submit}
-        disabled={busy || !angle.trim()}
+        disabled={busy}
         className="bg-blue-600 text-white text-sm px-4 py-2 rounded disabled:opacity-50"
       >
         {busy ? "Composing…" : "Compose offer → Telegram"}
