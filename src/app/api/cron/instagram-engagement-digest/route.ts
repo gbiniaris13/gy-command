@@ -1,8 +1,52 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { sendTelegram } from "@/lib/telegram";
 import { aiChat } from "@/lib/ai";
 import { observeCron } from "@/lib/cron-observer";
+
+// 2026-04-29 — least-recently-shown rotation. George flagged that
+// the same accounts kept appearing day after day. Root cause was
+// the date-based shuffle: with only 45 targets and 15/day picks,
+// the deterministic shuffle didn't guarantee full coverage before
+// repeating. Switched to a per-target "last shown" timestamp
+// stored in the Supabase settings table — pick the 15 oldest each
+// day, mark today after picking. This guarantees we walk the entire
+// pool of 45 in 3 days before any target repeats.
+
+function supabaseClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!,
+  );
+}
+
+const SETTINGS_KEY = "engagement_targets_last_shown";
+
+async function readShownMap(supabase): Promise<Record<string, string>> {
+  try {
+    const { data } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", SETTINGS_KEY)
+      .maybeSingle();
+    if (!data?.value) return {};
+    return typeof data.value === "string"
+      ? JSON.parse(data.value)
+      : (data.value as Record<string, string>);
+  } catch {
+    return {};
+  }
+}
+
+async function writeShownMap(supabase, map: Record<string, string>) {
+  await supabase
+    .from("settings")
+    .upsert(
+      { key: SETTINGS_KEY, value: JSON.stringify(map) },
+      { onConflict: "key" },
+    );
+}
 
 // Cron: 11:07 UTC daily (= 14:07 Athens in summer).
 //
@@ -71,25 +115,34 @@ const ALL_TARGETS = [
 
 const DAILY_PICK_COUNT = 15;
 
-/** Pick N targets using date-based rotation (different 15 each day) */
-function pickDailyTargets(count: number): typeof ALL_TARGETS {
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  const pool = [...ALL_TARGETS];
+/** Pick N targets using least-recently-shown rotation.
+ *  shownMap = { "@handle": ISO_date_last_shown }. Targets with no
+ *  entry are treated as "never shown" (highest priority). After
+ *  picking, the caller is expected to update shownMap[handle] = today
+ *  for each picked target.
+ *  Category-diversity pass guarantees ≥ 2 picks per category when
+ *  possible — keeps Telegram readers from getting all-aviation or
+ *  all-hotels on the same day. */
+function pickDailyTargets(
+  count: number,
+  shownMap: Record<string, string>,
+): typeof ALL_TARGETS {
+  // Sort targets oldest-shown-first; never-shown sort at the very front.
+  const sorted = [...ALL_TARGETS].sort((a, b) => {
+    const ka = shownMap[a.handle] ?? "0000-00-00";
+    const kb = shownMap[b.handle] ?? "0000-00-00";
+    return ka.localeCompare(kb);
+  });
 
-  // Deterministic shuffle using day as seed
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = (dayOfYear * 31 + i * 7) % (i + 1);
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-
-  // Ensure category diversity: at least 2 from each category if possible
-  const categories = [...new Set(pool.map(t => t.category))];
+  const categories = [...new Set(sorted.map((t) => t.category))];
   const picked: typeof ALL_TARGETS = [];
   const used = new Set<string>();
 
-  // Round 1: 2 per category
+  // Round 1: ≥ 2 per category, walking each category's oldest-shown
+  // forward. Maintains diversity within the daily digest while still
+  // honouring the rotation order.
   for (const cat of categories) {
-    const catTargets = pool.filter(t => t.category === cat && !used.has(t.handle));
+    const catTargets = sorted.filter((t) => t.category === cat && !used.has(t.handle));
     for (const t of catTargets.slice(0, 2)) {
       if (picked.length >= count) break;
       picked.push(t);
@@ -97,8 +150,8 @@ function pickDailyTargets(count: number): typeof ALL_TARGETS {
     }
   }
 
-  // Round 2: fill remaining
-  for (const t of pool) {
+  // Round 2: fill remaining slots from the global oldest-shown list.
+  for (const t of sorted) {
     if (picked.length >= count) break;
     if (!used.has(t.handle)) {
       picked.push(t);
@@ -144,7 +197,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TG = { disablePreview: true } as const;
 
 async function _observedImpl() {
-  const targets = pickDailyTargets(DAILY_PICK_COUNT);
+  // Rotation state in Supabase settings table. Read the last-shown
+  // map first, pick the 15 oldest, then write back today's date for
+  // each picked target so tomorrow's run knows to skip them.
+  const supabase = supabaseClient();
+  const shownMap = await readShownMap(supabase);
+  const targets = pickDailyTargets(DAILY_PICK_COUNT, shownMap);
+  const today = new Date().toISOString().slice(0, 10);
+  for (const t of targets) shownMap[t.handle] = today;
+  await writeShownMap(supabase, shownMap).catch((e) =>
+    console.error("engagement digest: shownMap write failed", e),
+  );
   let sent = 0;
 
   const intro = [
