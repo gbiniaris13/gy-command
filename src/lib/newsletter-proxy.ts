@@ -131,6 +131,9 @@ export interface ComposerYachtOption {
   length?: string;
   cruisingRegion?: string;
   fleetTier?: string;
+  has_voice_notes?: boolean;
+  has_captain_credentials?: boolean;
+  voice_notes?: string | null;
 }
 export interface ComposerPostOption {
   slug: string;
@@ -168,6 +171,8 @@ export interface ComposeInput {
   hero_image_url?: string;
   posture?: string;
   link_label?: string;
+  // Update 2 §5.3 caveat — captain credentials only when George opts in.
+  include_captain_credentials?: boolean;
 }
 
 export interface ComposeResult {

@@ -488,6 +488,10 @@ type YachtOpt = {
   length?: string;
   cruisingRegion?: string;
   fleetTier?: string;
+  // Update 2 §5.3 — voice/composer signals
+  has_voice_notes?: boolean;
+  has_captain_credentials?: boolean;
+  voice_notes?: string | null;
 };
 type PostOpt = { slug: string; title: string; publishedAt?: string };
 
@@ -750,8 +754,16 @@ function AnnounceForm({ yachts }: { yachts: YachtOpt[] }) {
   const [audience, setAudience] = useState<StreamKey[]>(
     DEFAULT_AUDIENCE.announcement,
   );
+  // Update 2 caveat #1 — captain credentials default OFF, only used
+  // when George manually opts in for this specific draft.
+  const [includeCaptainCredentials, setIncludeCaptainCredentials] =
+    useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ComposeResult | null>(null);
+
+  // Lookup the picked yacht so we can surface voice_notes guidance
+  // and grey out the credentials checkbox when no credentials exist.
+  const pickedYacht = yachts.find((y) => y.slug === yachtSlug) ?? null;
 
   async function submit() {
     if (!yachtSlug) {
@@ -769,6 +781,7 @@ function AnnounceForm({ yachts }: { yachts: YachtOpt[] }) {
         audience,
         yacht_slug: yachtSlug,
         george_angle: angle.trim() || undefined,
+        include_captain_credentials: includeCaptainCredentials,
       });
       setResult(j);
     } finally {
@@ -808,6 +821,21 @@ function AnnounceForm({ yachts }: { yachts: YachtOpt[] }) {
           onChange={setAudience}
         />
       </div>
+      {pickedYacht?.has_voice_notes && pickedYacht.voice_notes && (
+        <div className="border-l-4 border-amber-500 bg-amber-50 p-3 rounded text-sm">
+          <div className="font-semibold text-amber-900 flex items-center gap-2">
+            🗣 Voice notes for this yacht — what NOT to say
+          </div>
+          <p className="text-amber-900 mt-1 italic">
+            {pickedYacht.voice_notes}
+          </p>
+          <p className="text-xs text-amber-800 mt-2">
+            This is guidance, not content. Make sure your angle below
+            does not contradict it. Composer will also surface this in
+            the Telegram approval card.
+          </p>
+        </div>
+      )}
       <label className="text-sm space-y-1 block">
         <span className="font-medium">George&apos;s angle (optional)</span>
         <textarea
@@ -816,9 +844,26 @@ function AnnounceForm({ yachts }: { yachts: YachtOpt[] }) {
           rows={3}
           className="w-full border rounded p-2 text-sm"
           placeholder={
-            "1-2 sentences in your voice. Why does she belong on this list? What makes her interesting RIGHT NOW?"
+            "1-2 sentences in your voice. Why does she belong on this list? What makes her interesting RIGHT NOW? Leave blank to use the yacht's default positioning_one_liner from Sanity."
           }
         />
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={includeCaptainCredentials}
+          onChange={(e) => setIncludeCaptainCredentials(e.target.checked)}
+          disabled={!pickedYacht?.has_captain_credentials}
+          className="mt-0.5"
+        />
+        <span>
+          Include captain credentials in body{" "}
+          {!pickedYacht?.has_captain_credentials && (
+            <span className="text-xs text-gray-400">
+              (no credentials set on this yacht in Sanity)
+            </span>
+          )}
+        </span>
       </label>
       <button
         onClick={submit}
