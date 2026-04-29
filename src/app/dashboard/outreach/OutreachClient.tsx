@@ -22,6 +22,16 @@ interface RecentContact {
   pipeline_stage: { name: string; color: string } | null;
 }
 
+interface BotSnapshot {
+  total_sent: number;
+  opens: number;
+  replies: number;
+  bounces: number;
+  leads_remaining: number;
+  active_followups: number;
+  updated_at?: string;
+}
+
 interface Props {
   totalSent: number;
   opens: number;
@@ -36,6 +46,10 @@ interface Props {
   hasSnapshot: boolean;
   snapshotUpdatedAt: string | null;
   snapshotSource: string | null;
+  perBot: {
+    george: BotSnapshot | null;
+    elleanna: BotSnapshot | null;
+  };
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -81,7 +95,65 @@ export default function OutreachClient({
   hasSnapshot,
   snapshotUpdatedAt,
   snapshotSource,
+  perBot,
 }: Props) {
+  const hasPerBot = !!(perBot.george || perBot.elleanna);
+  const botCard = (
+    name: "George" | "Elleanna",
+    snap: BotSnapshot | null
+  ) => {
+    if (!snap) {
+      return (
+        <div className="rounded-xl border border-white/5 bg-navy-light/50 p-4">
+          <p className="text-[10px] font-medium tracking-wider text-ivory/40 uppercase">
+            {name} bot
+          </p>
+          <p className="mt-2 font-[family-name:var(--font-montserrat)] text-sm text-ivory/30 italic">
+            No sync yet
+          </p>
+          <p className="mt-1 text-[10px] text-ivory/30">
+            paste latest .gs to start reporting
+          </p>
+        </div>
+      );
+    }
+    const sent = snap.total_sent;
+    const replyPct = sent > 0 ? ((snap.replies / sent) * 100).toFixed(1) : "—";
+    const stale = snap.updated_at &&
+      Date.now() - new Date(snap.updated_at).getTime() > 36 * 3600 * 1000;
+    return (
+      <div className="rounded-xl border border-white/5 bg-navy-light p-4">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-medium tracking-wider text-ivory/40 uppercase">
+            {name} bot
+          </p>
+          <span
+            className={`rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wider uppercase ${
+              stale
+                ? "bg-amber-500/20 text-amber-400"
+                : "bg-emerald-500/20 text-emerald-400"
+            }`}
+          >
+            {stale ? "stale" : "live"}
+          </span>
+        </div>
+        <p className="mt-2 font-[family-name:var(--font-montserrat)] text-2xl font-bold text-electric-cyan">
+          {sent} <span className="text-[11px] text-ivory/40 font-normal">sent</span>
+        </p>
+        <p className="mt-1 text-[10px] text-ivory/40">
+          {snap.replies} replies ({replyPct}%) · {snap.bounces} bounces
+        </p>
+        <p className="mt-1 text-[10px] text-ivory/30">
+          {snap.leads_remaining} leads · {snap.active_followups} follow-ups
+        </p>
+        {snap.updated_at && (
+          <p className="mt-2 text-[9px] text-ivory/30">
+            last sync {timeAgo(snap.updated_at)}
+          </p>
+        )}
+      </div>
+    );
+  };
   const stats = [
     {
       label: "Total Sent",
@@ -184,6 +256,21 @@ export default function OutreachClient({
             <p className="text-xs text-amber-400/70">
               Only {leadsRemaining} leads remaining. Add more prospects to keep outreach going.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Per-bot heartbeat row — visible once at least one .gs has been
+          updated to POST `bot: "george"|"elleanna"`. Hidden until then so
+          the legacy single-blob view stays clean. */}
+      {hasPerBot && (
+        <div className="mb-6">
+          <p className="mb-2 text-[10px] font-medium tracking-[2px] text-ivory/40 uppercase">
+            Per-bot snapshot
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+            {botCard("George", perBot.george)}
+            {botCard("Elleanna", perBot.elleanna)}
           </div>
         </div>
       )}

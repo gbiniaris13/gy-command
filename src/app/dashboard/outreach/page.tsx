@@ -13,6 +13,24 @@ interface StatsSnapshot {
   source?: string;
 }
 
+async function readBotSnapshot(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  bot: "george" | "elleanna"
+): Promise<StatsSnapshot | null> {
+  const { data } = await supabase
+    .from("settings")
+    .select("value, updated_at")
+    .eq("key", `outreach_stats:${bot}`)
+    .maybeSingle();
+  if (!data?.value) return null;
+  try {
+    const parsed = JSON.parse(data.value as string) as StatsSnapshot;
+    return { ...parsed, updated_at: (data.updated_at as string) ?? parsed.updated_at };
+  } catch {
+    return null;
+  }
+}
+
 export default async function OutreachPage() {
   const cookieStore = await cookies();
   const supabase = createServerSupabaseClient(cookieStore);
@@ -29,6 +47,8 @@ export default async function OutreachPage() {
     lostRes,
     recentRes,
     snapshotRes,
+    georgeBotRes,
+    elleannaBotRes,
   ] = await Promise.all([
     // Total outreach contacts
     supabase
@@ -91,6 +111,8 @@ export default async function OutreachPage() {
       .select("value, updated_at")
       .eq("key", "outreach_stats")
       .maybeSingle(),
+    readBotSnapshot(supabase, "george"),
+    readBotSnapshot(supabase, "elleanna"),
   ]);
 
   const total = totalRes.count ?? 0;
@@ -165,6 +187,7 @@ export default async function OutreachPage() {
       hasSnapshot={!!snapshot}
       snapshotUpdatedAt={snapshot?.updated_at ?? null}
       snapshotSource={snapshot?.source ?? null}
+      perBot={{ george: georgeBotRes, elleanna: elleannaBotRes }}
     />
   );
 }
