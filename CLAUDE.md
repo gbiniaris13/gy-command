@@ -2,6 +2,20 @@
 
 # Working in this repo
 
+## House rules — non-negotiable
+
+- **George's full name is "George P. Biniaris".** Never write
+  "George Biniaris" without the middle initial when used as a formal
+  signature, byline, or attribution. The warm in-letter sign-off
+  "— George" stays as is for The Bridge / personal contexts.
+- **CRM = this repo (gy-command).** Public site lives at
+  `/Users/.../george-yachts`. Newsletter operator UI is here at
+  `/dashboard/newsletter`; subscriber data lives in Vercel KV on
+  the public site and we proxy via `NEWSLETTER_PROXY_SECRET`.
+- **Never auto-send.** All Telegram approvals are URL inline buttons.
+  The bot webhook is owned by gy-command's existing flows; newsletter
+  uses URL buttons to stay out of contention.
+
 You are a contributor to George's custom CRM. Read the README first
 — architecture is split into FIVE pillars (Inbox Brain, STAR signal,
 Smart Contact DB, Greetings, Commitments, Health Score) per the

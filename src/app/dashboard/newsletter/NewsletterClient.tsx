@@ -23,11 +23,35 @@ type Status = {
   env_presence: Record<string, boolean>;
 };
 
+// The 4-stream taxonomy = the categorisation. When you add an email
+// you're answering "what is this person to George?" and we route + tone
+// from there. The §6 matrix in lib/newsletter/router.js enforces the
+// commission-protection rules (e.g. broker peers never get offers).
 const STREAMS = [
-  { key: "bridge", label: "The Bridge", desc: "UHNW client (default)" },
-  { key: "wake", label: "The Wake", desc: "Travel advisors / B2B" },
-  { key: "compass", label: "The Compass", desc: "Broker peers" },
-  { key: "greece", label: "Από την Ελλάδα", desc: "Greek-speaking circle" },
+  {
+    key: "bridge",
+    label: "The Bridge — Client",
+    desc: "Charter client / prospect (UHNW). Gets stories, intel, new arrivals. Never offers with prices.",
+    cadence: "Bi-weekly · Thursdays",
+  },
+  {
+    key: "wake",
+    label: "The Wake — Travel Advisor",
+    desc: "Travel advisors, concierges, agencies. Commission-friendly intel + white-label-ready copy.",
+    cadence: "Monthly · 15th",
+  },
+  {
+    key: "compass",
+    label: "The Compass — Broker Peer",
+    desc: "Other yacht brokers / industry insiders. Peer-to-peer signals only — never offers, never new-arrival pitches.",
+    cadence: "Bi-monthly · 1st",
+  },
+  {
+    key: "greece",
+    label: "Από την Ελλάδα — Greek personal",
+    desc: "George's personal Greek-speaking circle. Casual, ad-hoc, written in Greek.",
+    cadence: "Ad hoc",
+  },
 ] as const;
 
 type StreamKey = (typeof STREAMS)[number]["key"];
@@ -203,20 +227,30 @@ function SubscribersTab({ status }: { status: Status | null }) {
   return (
     <div className="space-y-6">
       {/* Counts grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {STREAMS.map((s) => {
           // We only have aggregate count from the public-site status endpoint
-          // (sum of all 4 streams + legacy). Per-stream breakdown isn't exposed
-          // yet — show "—" until we extend the upstream status response.
+          // (sum of legacy newsletter:subscribers). Per-stream breakdown
+          // isn't exposed yet — show "—" until we extend the upstream
+          // status response.
           return (
-            <div key={s.key} className="border rounded p-3 bg-gray-50">
-              <div className="text-xs uppercase tracking-wider text-gray-500">
-                {s.label}
+            <div key={s.key} className="border rounded p-4 bg-gray-50">
+              <div className="flex justify-between items-start gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">
+                    {s.label}
+                  </div>
+                  <div className="text-[11px] uppercase tracking-wider text-gray-500 mt-0.5">
+                    {s.cadence}
+                  </div>
+                </div>
+                <div className="text-2xl font-serif text-right shrink-0">
+                  {s.key === "bridge" && status ? status.subscriber_count : "—"}
+                </div>
               </div>
-              <div className="text-2xl font-serif mt-1">
-                {s.key === "bridge" && status ? status.subscriber_count : "—"}
+              <div className="text-xs text-gray-600 mt-2 leading-relaxed">
+                {s.desc}
               </div>
-              <div className="text-xs text-gray-500 mt-1">{s.desc}</div>
             </div>
           );
         })}
