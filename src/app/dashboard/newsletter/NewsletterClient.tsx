@@ -17,6 +17,14 @@ import { useState, useEffect } from "react";
 type Status = {
   flag: { var_name: string; raw_value: string | null; will_send: boolean; note: string };
   subscriber_count: number;
+  /** 2026-04-29 — per-stream honest counts; legacy total kept as
+   *  subscriber_count for backward compat. */
+  counts?: {
+    bridge: number;
+    wake: number;
+    compass: number;
+    greece: number;
+  };
   subscribers_by_domain: Record<string, number>;
   subscribers_masked: string[];
   subscribers?: string[];
@@ -254,7 +262,9 @@ function SubscribersTab({ status }: { status: Status | null }) {
                   </div>
                 </div>
                 <div className="text-2xl font-serif text-right shrink-0">
-                  {s.key === "bridge" && status ? status.subscriber_count : "—"}
+                  {status?.counts
+                    ? status.counts[s.key as "bridge" | "wake" | "compass" | "greece"]
+                    : "—"}
                 </div>
               </div>
               <div className="text-xs text-gray-600 mt-2 leading-relaxed">

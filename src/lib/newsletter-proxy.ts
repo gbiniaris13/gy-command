@@ -47,6 +47,18 @@ async function call(
 export interface NewsletterStatus {
   flag: { var_name: string; raw_value: string | null; will_send: boolean; note: string };
   subscriber_count: number;
+  /**
+   * Per-stream counts, added 2026-04-29 because the dashboard was
+   * showing the LEGACY total under "Bridge" label and George
+   * (correctly) noticed the mismatch. counts.bridge is the real
+   * subscribers:bridge SCARD, etc.
+   */
+  counts?: {
+    bridge: number;
+    wake: number;
+    compass: number;
+    greece: number;
+  };
   subscribers_by_domain: Record<string, number>;
   subscribers_masked: string[];
   subscribers?: string[];
