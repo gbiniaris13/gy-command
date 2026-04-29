@@ -140,8 +140,22 @@ export async function GET() {
       );
     }
 
+    // Signal-source breakdown (added 2026-04-29). Lets George see at a
+    // glance whether the new /tags signal is producing alongside the
+    // legacy comments + mentions paths.
+    const sigCount: Record<string, number> = {};
+    for (const c of candidates) {
+      const k = (c.signal || "other").toLowerCase();
+      sigCount[k] = (sigCount[k] ?? 0) + 1;
+    }
+    const sigParts = Object.entries(sigCount)
+      .sort((a, b) => b[1] - a[1])
+      .map(([sig, n]) => `${sig}: ${n}`)
+      .join(" · ");
+
     lines.push(
       `<b>Engagement candidates scanned</b>: ${candidates.length}`,
+      ...(sigParts ? [`<i>Sources</i>: ${sigParts}`] : []),
       `<b>Already DM'd (skipped)</b>: ${candidates.length - fresh.length}`,
       `<b>Drafts ready</b>: ${drafts.length}`,
       ``,
