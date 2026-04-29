@@ -34,7 +34,13 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const DAILY_DM_CAP = 5;
+// Raised from 5 → 10 (2026-04-29) per George's feedback that he was
+// "βλέπω 4-5 ανθρώπους" each day — too few drafts to land a meaningful
+// outbound rhythm. The candidate pool widened with the /tags signal
+// (commit 709a939) so the supply side now supports the higher cap.
+// Resend / IG send-rate is unchanged because each DM is still George
+// hitting Send manually from the Telegram digest.
+const DAILY_DM_CAP = 10;
 
 const CATEGORY_BADGE: Record<DmCategory, string> = {
   travel_advisor: "🎯 Travel Advisor",
