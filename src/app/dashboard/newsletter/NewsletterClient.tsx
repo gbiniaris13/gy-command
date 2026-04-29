@@ -241,15 +241,44 @@ function SubscribersTab({ status }: { status: Status | null }) {
     }
   }
 
+  // 2026-04-29 — Sum of per-stream counts vs legacy total. Often
+  // they don't match because one address can be in multiple streams
+  // (e.g. a travel advisor George wants to also see The Bridge).
+  // Surface this explicitly so the four numbers don't look "broken".
+  const streamSum =
+    (status?.counts?.bridge ?? 0) +
+    (status?.counts?.wake ?? 0) +
+    (status?.counts?.compass ?? 0) +
+    (status?.counts?.greece ?? 0);
+  const legacyTotal = status?.subscriber_count ?? 0;
+  const overlap = streamSum - legacyTotal;
+
   return (
     <div className="space-y-6">
+      {/* Header summary */}
+      {status?.counts && (
+        <div className="flex items-baseline justify-between border-b pb-2">
+          <div>
+            <span className="text-sm text-gray-600">Total unique subscribers:</span>{" "}
+            <strong className="text-lg">{legacyTotal}</strong>
+          </div>
+          {overlap > 0 && (
+            <div className="text-xs text-gray-500">
+              ({overlap} address{overlap === 1 ? "" : "es"} in multiple streams)
+            </div>
+          )}
+        </div>
+      )}
       {/* Counts grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {STREAMS.map((s) => {
-          // We only have aggregate count from the public-site status endpoint
-          // (sum of legacy newsletter:subscribers). Per-stream breakdown
-          // isn't exposed yet — show "—" until we extend the upstream
-          // status response.
+          const count = status?.counts
+            ? status.counts[s.key as "bridge" | "wake" | "compass" | "greece"]
+            : null;
+          const pct =
+            count !== null && legacyTotal > 0
+              ? Math.round((count / legacyTotal) * 100)
+              : null;
           return (
             <div key={s.key} className="border rounded p-4 bg-gray-50">
               <div className="flex justify-between items-start gap-3">
@@ -261,10 +290,13 @@ function SubscribersTab({ status }: { status: Status | null }) {
                     {s.cadence}
                   </div>
                 </div>
-                <div className="text-2xl font-serif text-right shrink-0">
-                  {status?.counts
-                    ? status.counts[s.key as "bridge" | "wake" | "compass" | "greece"]
-                    : "—"}
+                <div className="text-right shrink-0">
+                  <div className="text-2xl font-serif">{count ?? "—"}</div>
+                  {pct !== null && (
+                    <div className="text-[10px] text-gray-500 uppercase tracking-wider">
+                      {pct}% of total
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="text-xs text-gray-600 mt-2 leading-relaxed">
