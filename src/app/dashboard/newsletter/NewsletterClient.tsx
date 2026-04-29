@@ -1122,19 +1122,15 @@ function IntelForm() {
 // ─── /blog ─────────────────────────────────────────────────────────
 
 function BlogForm({ posts }: { posts: PostOpt[] }) {
-  const [postUrl, setPostUrl] = useState("");
   const [postSlug, setPostSlug] = useState("");
   const [angle, setAngle] = useState("");
   const [audience, setAudience] = useState<StreamKey[]>(DEFAULT_AUDIENCE.blog);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ComposeResult | null>(null);
 
-  // URL input wins; if empty, fall back to dropdown.
-  const ready = postUrl.trim().length > 0 || postSlug.length > 0;
-
   async function submit() {
-    if (!ready) {
-      setResult({ ok: false, error: "paste an article URL or pick from the dropdown" } as ComposeResult);
+    if (!postSlug) {
+      setResult({ ok: false, error: "pick a blog post" } as ComposeResult);
       return;
     }
     setBusy(true);
@@ -1143,8 +1139,7 @@ function BlogForm({ posts }: { posts: PostOpt[] }) {
       const j = await postCompose({
         content_type: "blog",
         audience,
-        post_url: postUrl.trim() || undefined,
-        post_slug: postUrl.trim() ? undefined : postSlug,
+        post_slug: postSlug,
         george_angle: angle.trim() || undefined,
       });
       setResult(j);
@@ -1161,47 +1156,23 @@ function BlogForm({ posts }: { posts: PostOpt[] }) {
         why this post matters NOW. Compass and Greece blocked (§6).
       </p>
       <label className="text-sm space-y-1 block">
-        <span className="font-medium">Article URL (recommended)</span>
-        <input
-          type="url"
-          value={postUrl}
-          onChange={(e) => setPostUrl(e.target.value)}
-          className="border rounded px-3 py-2 text-sm w-full font-mono"
-          placeholder="https://georgeyachts.com/blog/your-article-slug"
-        />
-        <span className="text-xs text-gray-500">
-          Paste the full article URL from the live site. The Composer
-          extracts the slug and pulls the post from Sanity automatically.
-        </span>
+        <span className="font-medium">Blog post</span>
+        <select
+          value={postSlug}
+          onChange={(e) => setPostSlug(e.target.value)}
+          className="border rounded px-3 py-2 text-sm w-full"
+        >
+          <option value="">— pick a post —</option>
+          {posts.map((p) => (
+            <option key={p.slug} value={p.slug}>
+              {p.title}
+              {p.publishedAt
+                ? ` · ${p.publishedAt.slice(0, 10)}`
+                : ""}
+            </option>
+          ))}
+        </select>
       </label>
-      <details className="text-sm">
-        <summary className="cursor-pointer text-gray-600 hover:text-gray-900">
-          …or pick from a list of recent posts
-        </summary>
-        <div className="mt-2">
-          <select
-            value={postSlug}
-            onChange={(e) => setPostSlug(e.target.value)}
-            disabled={postUrl.trim().length > 0}
-            className="border rounded px-3 py-2 text-sm w-full disabled:opacity-40"
-          >
-            <option value="">— pick a post —</option>
-            {posts.map((p) => (
-              <option key={p.slug} value={p.slug}>
-                {p.title}
-                {p.publishedAt
-                  ? ` · ${p.publishedAt.slice(0, 10)}`
-                  : ""}
-              </option>
-            ))}
-          </select>
-          {postUrl.trim().length > 0 && (
-            <p className="text-xs text-gray-500 mt-1">
-              Dropdown disabled — using the URL above.
-            </p>
-          )}
-        </div>
-      </details>
       <label className="text-sm space-y-1 block">
         <span className="font-medium">Angle (optional)</span>
         <textarea
@@ -1215,7 +1186,7 @@ function BlogForm({ posts }: { posts: PostOpt[] }) {
       <AudiencePicker contentType="blog" value={audience} onChange={setAudience} />
       <button
         onClick={submit}
-        disabled={busy || !ready}
+        disabled={busy || !postSlug}
         className="bg-blue-600 text-white text-sm px-4 py-2 rounded disabled:opacity-50"
       >
         {busy ? "Composing…" : "Compose blog recap → Telegram"}
