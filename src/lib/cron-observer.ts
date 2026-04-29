@@ -147,7 +147,20 @@ export async function observeCron(
         detail = String(body.skipped);
       }
     } catch {
-      // Non-JSON response (HTML, empty, etc.) — default to success.
+      // Non-JSON response (HTML, empty, etc.). Don't default to success —
+      // fall through to the status-code check below so a 5xx with an
+      // HTML body still gets classified as an error.
+    }
+
+    // Status-code overlay. Previously the observer only looked at the
+    // response body shape, so a handler that returned `Response.json(
+    // { wrong: true }, { status: 502 })` got recorded as "success" and
+    // the new health-check "Cron failures (24h)" line missed it. Now any
+    // non-2xx response is at least an "error" — body detail wins for
+    // the message when present, otherwise we record the status text.
+    if (outcome === "success" && (response.status < 200 || response.status >= 300)) {
+      outcome = "error";
+      detail = detail ?? `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
     }
 
     await recordEnd(sb, runId, name, startedAt, endedAt, outcome, detail);
