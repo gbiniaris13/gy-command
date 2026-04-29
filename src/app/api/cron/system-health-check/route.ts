@@ -363,6 +363,55 @@ async function checkRecentCronFailures(sb: any): Promise<CheckResult> {
   }
 }
 
+async function checkOutreachBots(sb: any): Promise<CheckResult> {
+  // Surfaces silent .gs bots before they go dark for days. Reads the
+  // per-bot keys written by /api/outreach-stats POST. Each bot SHOULD
+  // sync at least daily — beyond 36h we warn, beyond 72h we treat as
+  // critical (something in Apps Script is broken or the trigger died).
+  try {
+    const start = Date.now();
+    const { data, error } = await sb
+      .from("settings")
+      .select("key, updated_at")
+      .in("key", ["outreach_stats:george", "outreach_stats:elleanna"]);
+    const ms = Date.now() - start;
+    if (error) return warn("Outreach bots", error.message);
+    const now = Date.now();
+    const found: { bot: string; ageHrs: number }[] = [];
+    for (const row of data ?? []) {
+      const bot = String(row.key).split(":")[1] ?? "?";
+      const ts = row.updated_at ? new Date(row.updated_at as string).getTime() : 0;
+      const ageHrs = ts > 0 ? (now - ts) / 3600000 : Infinity;
+      found.push({ bot, ageHrs });
+    }
+    if (found.length === 0) {
+      return ok("Outreach bots", ms, "no per-bot snapshots yet");
+    }
+    const stale = found.filter((f) => f.ageHrs > 36 && f.ageHrs <= 72);
+    const dark = found.filter((f) => f.ageHrs > 72);
+    if (dark.length > 0) {
+      return critical(
+        "Outreach bots",
+        `${dark.map((d) => `${d.bot} silent ${Math.round(d.ageHrs)}h`).join(", ")}`,
+      );
+    }
+    if (stale.length > 0) {
+      return warn(
+        "Outreach bots",
+        `${stale.map((s) => `${s.bot} stale ${Math.round(s.ageHrs)}h`).join(", ")}`,
+      );
+    }
+    const youngest = Math.round(Math.min(...found.map((f) => f.ageHrs)));
+    return ok(
+      "Outreach bots",
+      ms,
+      `${found.length}/2 reporting · last sync ${youngest}h ago`,
+    );
+  } catch (e: any) {
+    return warn("Outreach bots", e?.message ?? "exception");
+  }
+}
+
 // ─── orchestration ──────────────────────────────────────────────────
 
 function escapeHtml(s: string): string {
@@ -388,6 +437,7 @@ async function _observedImpl() {
     checkResendQuota(),
     checkIGContentQueue(sb),
     checkRecentCronFailures(sb),
+    checkOutreachBots(sb),
   ]);
 
   const okList = checks.filter((c) => c.severity === "ok");
