@@ -60,7 +60,9 @@ export default function NewsletterClient(props: {
   initialStatus: Status | null;
   initialError: string | null;
 }) {
-  const [tab, setTab] = useState<"subscribers" | "issues" | "composer">("subscribers");
+  const [tab, setTab] = useState<
+    "subscribers" | "issues" | "composer" | "queues"
+  >("subscribers");
   const [status, setStatus] = useState<Status | null>(props.initialStatus);
   const [error, setError] = useState<string | null>(props.initialError);
 
@@ -119,7 +121,7 @@ export default function NewsletterClient(props: {
 
       {/* Tabs */}
       <nav className="flex gap-1 border-b">
-        {(["subscribers", "issues", "composer"] as const).map((t) => (
+        {(["subscribers", "issues", "composer", "queues"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -129,7 +131,13 @@ export default function NewsletterClient(props: {
                 : "border-transparent text-gray-500 hover:text-gray-800"
             }`}
           >
-            {t === "subscribers" ? "Subscribers" : t === "issues" ? "Issues" : "Composer"}
+            {t === "subscribers"
+              ? "Subscribers"
+              : t === "issues"
+                ? "Issues"
+                : t === "composer"
+                  ? "Composer"
+                  : "Queues"}
           </button>
         ))}
       </nav>
@@ -137,6 +145,7 @@ export default function NewsletterClient(props: {
       {tab === "subscribers" && <SubscribersTab status={status} />}
       {tab === "issues" && <IssuesTab status={status} />}
       {tab === "composer" && <ComposerTab />}
+      {tab === "queues" && <QueuesTab />}
     </main>
   );
 }
@@ -1192,6 +1201,277 @@ function BlogForm({ posts }: { posts: PostOpt[] }) {
         {busy ? "Composing…" : "Compose blog recap → Telegram"}
       </button>
       <ResultPanel result={result} />
+    </section>
+  );
+}
+
+// ─── Queues tab — Wake / Compass intel queue (Update 3 §2) ─────────
+//
+// George writes intel signals when he has time. The Wake auto-cron
+// (15th of month) and Compass auto-cron (1st of even months) pop the
+// oldest pending entry from the relevant queue, generate the standard
+// /intel draft, and Telegram an approval card. Empty queue → cron
+// alerts "queue is empty, no send" same day, and watchdog repeats in
+// the daily digest.
+//
+// Each queue entry: text + optional notes + auto timestamp. Status
+// transitions: pending → used (cron picked it) or → discarded (manual).
+
+type QueueEntry = {
+  id: string;
+  stream: "wake" | "compass";
+  text: string;
+  timestamp_added: string;
+  status: "pending" | "used" | "discarded";
+  timestamp_used: string | null;
+  issue_id: string | null;
+  notes: string | null;
+};
+
+function QueuesTab() {
+  return (
+    <div className="space-y-8">
+      <div className="text-sm text-gray-700 leading-relaxed bg-gray-50 border rounded p-4">
+        <strong>How this works.</strong> Drop intel signals here when
+        you spot something worth a Wake or Compass send. The Wake cron
+        fires the 15th of every month; the Compass cron fires the 1st
+        of every even month. Each cron picks the <strong>oldest pending
+        entry</strong> from the right queue, generates the <code>/intel</code>
+        draft, and pings you on Telegram with the approval card. Empty
+        queue on send day = Telegram alert + watchdog note in the
+        evening digest. You can edit pending entries, discard stale
+        ones, or batch-add 5 in a weekend and let the crons stretch
+        them across the year.
+      </div>
+      <QueueSection stream="wake" />
+      <QueueSection stream="compass" />
+    </div>
+  );
+}
+
+function QueueSection({ stream }: { stream: "wake" | "compass" }) {
+  const [entries, setEntries] = useState<QueueEntry[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [draftText, setDraftText] = useState("");
+  const [draftNotes, setDraftNotes] = useState("");
+  const [filter, setFilter] = useState<"pending" | "all">("pending");
+
+  async function load() {
+    setErr(null);
+    try {
+      const url =
+        filter === "pending"
+          ? `/api/admin/newsletter-queue?stream=${stream}&status=pending`
+          : `/api/admin/newsletter-queue?stream=${stream}`;
+      const r = await fetch(url, { cache: "no-store" });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      setEntries(j.entries ?? []);
+      setPendingCount(j.pending_count ?? 0);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "load failed");
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, stream]);
+
+  async function add() {
+    if (draftText.trim().length < 10) {
+      setErr("text must be at least 10 chars");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/admin/newsletter-queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add",
+          stream,
+          text: draftText.trim(),
+          notes: draftNotes.trim() || undefined,
+        }),
+      });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      setDraftText("");
+      setDraftNotes("");
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "add failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function discard(id: string) {
+    if (!confirm("Discard this pending entry? It won't be picked by the cron.")) return;
+    try {
+      const r = await fetch("/api/admin/newsletter-queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "discard", stream, id }),
+      });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "discard failed");
+    }
+  }
+
+  const title = stream === "wake" ? "Wake queue" : "Compass queue";
+  const cadence =
+    stream === "wake"
+      ? "Cron fires monthly on the 15th at 06:00 UTC"
+      : "Cron fires bimonthly on the 1st of even months at 06:00 UTC";
+
+  return (
+    <section className="border rounded-lg p-5 space-y-4 bg-white">
+      <header className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-lg font-semibold capitalize">{title}</h2>
+          <p className="text-xs text-gray-500 mt-0.5">{cadence}</p>
+        </div>
+        <div className="text-sm">
+          <span className="text-2xl font-serif text-blue-700">
+            {pendingCount}
+          </span>
+          <span className="text-xs text-gray-500 ml-2">pending</span>
+        </div>
+      </header>
+
+      {/* Add new */}
+      <div className="border rounded p-3 space-y-2 bg-gray-50">
+        <label className="text-sm space-y-1 block">
+          <span className="font-medium">New {stream} signal</span>
+          <textarea
+            value={draftText}
+            onChange={(e) => setDraftText(e.target.value)}
+            rows={4}
+            className="w-full border rounded p-2 text-sm bg-white"
+            placeholder={
+              stream === "wake"
+                ? 'e.g. "Cyclades fuel surcharge dropped 8% across the operators we monitor — likely passes through to clients in May."'
+                : 'e.g. "Greek port fee increase signal — three of the bigger marinas raised dockage 6-9% for 2026."'
+            }
+          />
+          <span className="text-xs text-gray-500">
+            {draftText.trim().split(/\s+/).filter(Boolean).length} words ·
+            min 10 chars · §13 + voice rules run at compose time, not now
+          </span>
+        </label>
+        <label className="text-sm space-y-1 block">
+          <span className="font-medium">
+            Notes (private, attached as source attribution)
+          </span>
+          <input
+            value={draftNotes}
+            onChange={(e) => setDraftNotes(e.target.value)}
+            className="w-full border rounded p-2 text-sm bg-white"
+            placeholder='e.g. "From 14 charter pipelines + 6 captains in our network"'
+          />
+        </label>
+        <button
+          onClick={add}
+          disabled={busy || draftText.trim().length < 10}
+          className="bg-blue-600 text-white text-sm px-4 py-2 rounded disabled:opacity-50"
+        >
+          {busy ? "Adding…" : `Add to ${stream} queue`}
+        </button>
+      </div>
+
+      {err && (
+        <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+          {err}
+        </div>
+      )}
+
+      {/* Filter toggle */}
+      <div className="flex gap-2 text-xs">
+        <button
+          onClick={() => setFilter("pending")}
+          className={`px-2 py-1 rounded ${filter === "pending" ? "bg-blue-100 text-blue-800" : "text-gray-500 hover:text-gray-800"}`}
+        >
+          Pending only
+        </button>
+        <button
+          onClick={() => setFilter("all")}
+          className={`px-2 py-1 rounded ${filter === "all" ? "bg-blue-100 text-blue-800" : "text-gray-500 hover:text-gray-800"}`}
+        >
+          All (incl. used + discarded)
+        </button>
+      </div>
+
+      {/* Entries */}
+      {entries.length === 0 ? (
+        <p className="text-sm text-gray-500 italic">
+          No {filter === "pending" ? "pending " : ""}entries.{" "}
+          {filter === "pending" &&
+            "When the cron fires it will alert you that the queue is empty."}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {entries.map((e) => (
+            <li
+              key={e.id}
+              className={`border rounded p-3 text-sm ${
+                e.status === "pending"
+                  ? "border-blue-200 bg-blue-50/30"
+                  : e.status === "used"
+                    ? "border-green-200 bg-green-50/30"
+                    : "border-gray-200 bg-gray-50/30 opacity-60"
+              }`}
+            >
+              <div className="flex justify-between items-start gap-3">
+                <span
+                  className={`text-[10px] uppercase tracking-widest font-medium ${
+                    e.status === "pending"
+                      ? "text-blue-700"
+                      : e.status === "used"
+                        ? "text-green-700"
+                        : "text-gray-500"
+                  }`}
+                >
+                  {e.status}
+                </span>
+                <span className="text-[10px] text-gray-400 font-mono">
+                  added {e.timestamp_added.slice(0, 10)}
+                </span>
+              </div>
+              <p className="mt-1 whitespace-pre-wrap leading-relaxed">
+                {e.text}
+              </p>
+              {e.notes && (
+                <p className="text-xs text-gray-600 mt-2 italic">
+                  ({e.notes})
+                </p>
+              )}
+              {e.status === "used" && e.issue_id && (
+                <p className="text-xs text-gray-600 mt-1 font-mono">
+                  → draft {e.issue_id}
+                </p>
+              )}
+              {e.status === "pending" && (
+                <div className="mt-2">
+                  <button
+                    onClick={() => discard(e.id)}
+                    className="text-xs text-red-700 hover:underline"
+                  >
+                    discard
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

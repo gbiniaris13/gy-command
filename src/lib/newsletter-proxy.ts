@@ -206,3 +206,70 @@ export async function compose(input: ComposeInput): Promise<ComposeResult> {
     throw new Error(r.json?.error ?? `status ${r.status}`);
   return r.json;
 }
+
+// ─── Phase 4 — Wake / Compass intel queue (Update 3 §2) ───────────
+
+export type IntelQueueStream = "wake" | "compass";
+export type IntelQueueStatus = "pending" | "used" | "discarded";
+
+export interface IntelQueueEntry {
+  id: string;
+  stream: IntelQueueStream;
+  text: string;
+  timestamp_added: string;
+  status: IntelQueueStatus;
+  timestamp_used: string | null;
+  issue_id: string | null;
+  notes: string | null;
+}
+
+export async function listQueueEntries(
+  stream: IntelQueueStream,
+  status?: IntelQueueStatus,
+): Promise<{ entries: IntelQueueEntry[]; pending_count: number }> {
+  const path = status
+    ? `/api/admin/newsletter-queue?stream=${stream}&status=${status}`
+    : `/api/admin/newsletter-queue?stream=${stream}`;
+  const r = await call("GET", path);
+  if (r.status !== 200) throw new Error(r.json?.error ?? `status ${r.status}`);
+  return { entries: r.json?.entries ?? [], pending_count: r.json?.pending_count ?? 0 };
+}
+
+export async function addQueueEntry(input: {
+  stream: IntelQueueStream;
+  text: string;
+  notes?: string;
+}): Promise<IntelQueueEntry> {
+  const r = await call("POST", `/api/admin/newsletter-queue`, {
+    action: "add",
+    ...input,
+  });
+  if (r.status !== 200) throw new Error(r.json?.error ?? `status ${r.status}`);
+  return r.json.entry;
+}
+
+export async function discardQueueEntry(input: {
+  stream: IntelQueueStream;
+  id: string;
+}): Promise<IntelQueueEntry> {
+  const r = await call("POST", `/api/admin/newsletter-queue`, {
+    action: "discard",
+    ...input,
+  });
+  if (r.status !== 200) throw new Error(r.json?.error ?? `status ${r.status}`);
+  return r.json.entry;
+}
+
+export async function editQueueEntry(input: {
+  stream: IntelQueueStream;
+  id: string;
+  text?: string;
+  notes?: string;
+}): Promise<IntelQueueEntry> {
+  const r = await call("POST", `/api/admin/newsletter-queue`, {
+    action: "edit",
+    ...input,
+  });
+  if (r.status !== 200) throw new Error(r.json?.error ?? `status ${r.status}`);
+  return r.json.entry;
+}
