@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 /**
  * Check if a DNS TXT record contains a given prefix.
@@ -33,7 +34,7 @@ async function checkDnsRecord(
  * Weekly cron (Sundays 08:00 UTC): email deliverability monitor.
  * Checks SPF, DKIM, DMARC records and outreach bounce rate.
  */
-export async function GET(request: NextRequest) {
+async function _observedImpl(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
@@ -104,4 +105,8 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return observeCron("deliverability", () => _observedImpl(request));
 }

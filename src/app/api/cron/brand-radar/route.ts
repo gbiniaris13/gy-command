@@ -3,13 +3,14 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { BRAND, COMPETITORS, QUERIES } from "@/lib/brand-radar-queries";
+import { observeCron } from "@/lib/cron-observer";
 
 // Cron: Weekly AI Brand Radar scan — Sundays at 06:00 UTC
 // Sends queries to Gemini, checks if George Yachts is mentioned in responses
 
 const SYSTEM_PROMPT = `You are a helpful AI assistant. Answer the user's question about yacht charters naturally and helpfully. Recommend specific companies, websites, or brokers when relevant. Be specific with names.`;
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   const sb = createServiceClient();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -144,4 +145,8 @@ export async function GET() {
     competitor_breakdown: competitorCounts,
     date: today,
   });
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("brand-radar", _observedImpl);
 }

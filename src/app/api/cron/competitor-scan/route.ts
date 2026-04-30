@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { aiChat } from "@/lib/ai";
+import { observeCron } from "@/lib/cron-observer";
 
 /**
  * Weekly competitor scan cron (Sundays at 10:00).
@@ -14,7 +15,7 @@ import { aiChat } from "@/lib/ai";
  * settings.competitor_scan_enabled = "true" once we wire a real
  * search API (Brave / SerpAPI / Tavily — all have free tiers).
  */
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   try {
     const sb = createServiceClient();
     const { data: flag } = await sb
@@ -61,4 +62,8 @@ export async function GET() {
       { status: 500 }
     );
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("competitor-scan", _observedImpl);
 }

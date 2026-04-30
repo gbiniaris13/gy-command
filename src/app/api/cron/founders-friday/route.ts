@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -78,7 +79,7 @@ const PROMPTS = [
   },
 ];
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   try {
     const sb = createServiceClient();
 
@@ -135,4 +136,8 @@ export async function GET() {
     console.error("[founders-friday] FAILED:", e);
     return NextResponse.json({ error: e?.message ?? "unknown" }, { status: 500 });
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("founders-friday", _observedImpl);
 }

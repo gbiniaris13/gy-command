@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -29,7 +30,7 @@ function name(r: Row): string {
   );
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   try {
     const sb = createServiceClient();
 
@@ -86,4 +87,8 @@ export async function GET() {
     const msg = e instanceof Error ? e.message : "unknown";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("health-weekly-digest", _observedImpl);
 }

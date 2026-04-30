@@ -16,6 +16,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { buildBriefing } from "@/lib/cockpit-engine";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
@@ -37,7 +38,7 @@ Format: STRICT JSON
 
 Tone: peer strategist, not coach. Honest about what isn't working. Specific. NO motivational fluff. Bilingual (Greek/English mix as natural).`;
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   try {
     const sb = createServiceClient();
     const briefing = await buildBriefing(sb);
@@ -158,4 +159,8 @@ GOAL: 3-4 inquiries/week, close charters. NO ad budget — organic + B2B partner
     ).catch(() => {});
     return NextResponse.json({ error: e?.message ?? "unknown" }, { status: 500 });
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("weekly-strategy", _observedImpl);
 }
