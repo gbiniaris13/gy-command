@@ -96,8 +96,13 @@ async function checkVercelKVNewsletter(): Promise<CheckResult> {
 }
 
 async function checkResendAPI(): Promise<CheckResult> {
+  // Resend lives on the public-site repo (george-yachts) — the
+  // newsletter system pushes through it, not gy-command. We only run
+  // the live API ping if a key happens to be set in this app's env;
+  // otherwise this check is a no-op rather than a false-positive
+  // critical.
   const key = process.env.RESEND_API_KEY;
-  if (!key) return critical("Resend API", "RESEND_API_KEY not set");
+  if (!key) return ok("Resend API", 0, "not used in this app (public site)");
   try {
     const { result, ms } = await timeIt(() =>
       fetch("https://api.resend.com/domains", {
@@ -126,24 +131,36 @@ async function checkTelegramBot(): Promise<CheckResult> {
   }
 }
 
-async function checkGmailSMTP(): Promise<CheckResult> {
-  // Credentials-presence check only. Live SMTP send is exercised by
-  // /api/cron/gmail-poll-replies every 5 min — if the password breaks
-  // we'll see it surface there within minutes, recorded by the cron
-  // observer, and bubble up via the "Cron failures (24h)" check below.
-  // We don't ship nodemailer just for an extra verify() call.
-  const u = process.env.GMAIL_USER;
-  const p = process.env.GMAIL_PASS;
-  if (!u || !p) return critical("Gmail SMTP", "GMAIL_USER / GMAIL_PASS not set");
-  return ok("Gmail SMTP", 0);
+async function checkGmailOAuth(sb: any): Promise<CheckResult> {
+  // gy-command uses the Gmail OAuth refresh-token flow (stored in
+  // settings.gmail_refresh_token), NOT GMAIL_USER/GMAIL_PASS. Verify
+  // the refresh token row exists. Liveness is exercised every 5 min
+  // by /api/cron/gmail-poll-replies — if the token revokes, that
+  // cron 5xx's and surfaces in "Cron failures (24h)" below.
+  try {
+    const { data } = await sb
+      .from("settings")
+      .select("value, updated_at")
+      .eq("key", "gmail_refresh_token")
+      .maybeSingle();
+    if (!data?.value) {
+      return critical("Gmail OAuth", "no refresh token stored — re-auth required");
+    }
+    return ok("Gmail OAuth", 0, "refresh token present");
+  } catch (e: any) {
+    return warn("Gmail OAuth", e?.message ?? "exception");
+  }
 }
 
 async function checkSanityCMS(): Promise<CheckResult> {
-  const projectId = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID;
+  // Sanity project ID is hardcoded in src/lib/sanity-fleet.ts as
+  // "ecqr94ey" with the production dataset, hit via the public CDN
+  // (no auth needed for read-only fleet queries). Allow override via
+  // NEXT_PUBLIC_SANITY_PROJECT_ID for staging if ever needed.
+  const projectId = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID || "ecqr94ey";
   const dataset = process.env.NEXT_PUBLIC_SANITY_DATASET || "production";
-  if (!projectId) return critical("Sanity CMS", "project id not set");
   try {
-    const url = `https://${projectId}.api.sanity.io/v2023-11-09/data/query/${dataset}?query=count(*[_type=='yacht'])`;
+    const url = `https://${projectId}.apicdn.sanity.io/v2024-01-01/data/query/${dataset}?query=count(*[_type=='yacht'])`;
     const { result, ms } = await timeIt(() => fetch(url));
     if (!result.ok) return critical("Sanity CMS", `HTTP ${result.status}`);
     return ok("Sanity CMS", ms);
@@ -158,32 +175,35 @@ async function checkIGTokenExpiry(): Promise<CheckResult> {
   const token = process.env.IG_ACCESS_TOKEN;
   if (!token) return warn("IG Access Token", "not configured");
   try {
+    // Use graph.instagram.com (matches what every IG cron in this
+    // repo uses), not graph.facebook.com/debug_token. The Facebook
+    // debug_token endpoint requires a separate App Access Token to
+    // inspect, which is why "HTTP 400" surfaced — wrong endpoint for
+    // an Instagram Business token. Tag /me with token_type plus
+    // expiration via the official IG endpoint.
     const { result, ms } = await timeIt(() =>
       fetch(
-        `https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(token)}`,
+        `https://graph.instagram.com/v21.0/me?fields=id,username,account_type&access_token=${encodeURIComponent(token)}`,
       ),
     );
-    if (!result.ok) return critical("IG Access Token", `HTTP ${result.status}`);
+    if (!result.ok) {
+      // Try to read Meta's error reason — usually a clear "OAuth
+      // access token expired" string.
+      const body = await result.text().catch(() => "");
+      const reason = body.match(/"message":"([^"]+)"/)?.[1] ?? `HTTP ${result.status}`;
+      return critical("IG Access Token", reason);
+    }
+    // Token is valid. We don't get a hard expiry off /me, but the
+    // existence of a 200 response means the token is live RIGHT NOW.
+    // Expiry forecasting still requires debug_token + an app token —
+    // out of scope for this v1 health check.
     const json = await result.json();
-    const expiresAt = json?.data?.expires_at; // unix seconds; 0 means never
-    const isValid = json?.data?.is_valid;
-    if (!isValid) return critical("IG Access Token", "Meta says token invalid");
-    if (!expiresAt) return ok("IG Access Token", ms, "never expires");
-    const daysLeft = Math.floor((expiresAt * 1000 - Date.now()) / 86400000);
-    if (daysLeft < 7) {
-      return critical(
-        "IG Access Token",
-        `expires in ${daysLeft} days — refresh NOW before bot stops`,
-      );
-    }
-    if (daysLeft < 21) {
-      return warn(
-        "IG Access Token",
-        `expires in ${daysLeft} days`,
-        "refresh soon — bot will stop posting when this lapses",
-      );
-    }
-    return ok("IG Access Token", ms, `${daysLeft} days remaining`);
+    return ok("IG Access Token", ms, `live as @${json?.username ?? "unknown"}`);
+    // Note: predictive expiry forecasting (days-left) requires
+    // graph.facebook.com/debug_token with a separate App Access
+    // Token (FB_APP_ID + FB_APP_SECRET) — not configured in this app.
+    // The current /me check confirms the token works RIGHT NOW; if it
+    // expires the next hourly poll catches the failure within ~1h.
   } catch (e: any) {
     return warn("IG Access Token", e?.message ?? "check failed");
   }
@@ -431,7 +451,7 @@ async function _observedImpl() {
     checkVercelKVNewsletter(),
     checkResendAPI(),
     checkTelegramBot(),
-    checkGmailSMTP(),
+    checkGmailOAuth(sb),
     checkSanityCMS(),
     checkIGTokenExpiry(),
     checkBlogCadence(),
