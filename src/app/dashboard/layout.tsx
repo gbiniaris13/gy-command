@@ -9,15 +9,36 @@ import AlienBackground from "@/app/components/AlienBackground";
 import AutoRefresh from "@/app/components/AutoRefresh";
 import PullToRefresh from "@/app/components/PullToRefresh";
 
+// Big H Phase 2 (2026-04-30) — nav reorganised into 5 buckets per
+// CRM_RESTRUCTURE_PROPOSAL.md §3. Dashboard sits ungrouped at the
+// top (home anchor); everything else lands in one of:
+//   🗂 OPERATE   — daily revenue work
+//   📊 GROW      — content + audience tools
+//   🤝 CONTACTS  — directory
+//   📈 ANALYTICS — metrics + revenue
+//   ⚙️ CONFIG    — operator-only
+type NavGroup = "operate" | "grow" | "contacts" | "analytics" | "config";
+
 interface NavItem {
   label: string;
   href: string;
   icon: ReactNode;
+  group?: NavGroup;
   /** Parked per refocus brief — accessible via direct URL but
    *  hidden from the main nav until the underlying data flow is
    *  rebuilt or verified-in-use. */
   parked?: boolean;
 }
+
+const GROUP_LABELS: Record<NavGroup, string> = {
+  operate: "OPERATE",
+  grow: "GROW",
+  contacts: "CONTACTS",
+  analytics: "ANALYTICS",
+  config: "CONFIG",
+};
+
+const GROUP_ORDER: NavGroup[] = ["operate", "grow", "contacts", "analytics", "config"];
 
 const navItems: NavItem[] = [
   {
@@ -32,6 +53,7 @@ const navItems: NavItem[] = [
   {
     label: "Contacts",
     href: "/dashboard/contacts",
+    group: "contacts",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
@@ -41,6 +63,7 @@ const navItems: NavItem[] = [
   {
     label: "Email",
     href: "/dashboard/email",
+    group: "operate",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
@@ -50,6 +73,7 @@ const navItems: NavItem[] = [
   {
     label: "Newsletter",
     href: "/dashboard/newsletter",
+    group: "operate",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
@@ -59,6 +83,7 @@ const navItems: NavItem[] = [
   {
     label: "Calendar",
     href: "/dashboard/calendar",
+    group: "operate",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
@@ -68,6 +93,7 @@ const navItems: NavItem[] = [
   {
     label: "Chat",
     href: "/dashboard/chat",
+    group: "operate",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
@@ -75,8 +101,19 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: "Charters",
+    href: "/dashboard/charters",
+    group: "operate",
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5l3-1.5m0 0l3 1.5m-3-1.5v6m0-6L9 15m0 0l3 1.5m-3-1.5v6m0-6l3-1.5m0 0l3 1.5m-3-1.5v6m0-6l3-1.5m0 0l3 1.5m-3-1.5v6M3 7.5l9-4.5 9 4.5M3 7.5v3M21 7.5v3" />
+      </svg>
+    ),
+  },
+  {
     label: "Outreach",
     href: "/dashboard/outreach",
+    group: "operate",
     parked: true,
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -87,6 +124,7 @@ const navItems: NavItem[] = [
   {
     label: "Visitors",
     href: "/dashboard/visitors",
+    group: "contacts",
     parked: true,
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -97,6 +135,7 @@ const navItems: NavItem[] = [
   {
     label: "Revenue",
     href: "/dashboard/revenue",
+    group: "analytics",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -106,6 +145,7 @@ const navItems: NavItem[] = [
   {
     label: "Fleet",
     href: "/dashboard/fleet",
+    group: "grow",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
@@ -115,6 +155,7 @@ const navItems: NavItem[] = [
   {
     label: "Analytics",
     href: "/dashboard/analytics",
+    group: "analytics",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
@@ -124,6 +165,7 @@ const navItems: NavItem[] = [
   {
     label: "Brand Radar",
     href: "/dashboard/brand-radar",
+    group: "grow",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.807 3.808 9.98 0 13.788M12 12h.008v.008H12V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
@@ -133,6 +175,7 @@ const navItems: NavItem[] = [
   {
     label: "Instagram",
     href: "/dashboard/instagram",
+    group: "grow",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
@@ -143,6 +186,7 @@ const navItems: NavItem[] = [
   {
     label: "Command",
     href: "/dashboard/command-center",
+    group: "config",
     parked: true, // mock-data decorative page; real cockpit is /dashboard
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -155,13 +199,19 @@ const navItems: NavItem[] = [
 ];
 
 // Bottom bar items for mobile: Dashboard, Contacts, Email, Fleet, Chat
-const bottomBarItems: NavItem[] = [
-  navItems[0], // Dashboard
-  navItems[1], // Contacts
-  navItems[2], // Email
-  navItems[8], // Fleet
-  navItems[4], // Chat
-];
+// Look up by href so adding/reordering navItems doesn't silently
+// break the bottom bar (the previous index-based mapping had drift —
+// indexes 4/8 pointed to Calendar/Revenue, not Chat/Fleet).
+const bottomBarHrefs = [
+  "/dashboard",
+  "/dashboard/contacts",
+  "/dashboard/email",
+  "/dashboard/fleet",
+  "/dashboard/chat",
+] as const;
+const bottomBarItems: NavItem[] = bottomBarHrefs
+  .map((h) => navItems.find((i) => i.href === h))
+  .filter((x): x is NavItem => !!x);
 
 function WelcomeGate({ children }: { children: React.ReactNode }) {
   const [showWelcome, setShowWelcome] = useState(false);
@@ -433,12 +483,15 @@ function MobileMenu() {
               </button>
             </div>
             <nav className="space-y-1">
-              {navItems.filter((item) => !item.parked).map((item) => {
-                const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+              {/* Dashboard home anchor */}
+              {(() => {
+                const home = navItems.find((i) => i.href === "/dashboard");
+                if (!home) return null;
+                const active = pathname === home.href;
                 return (
                   <Link
-                    key={item.href}
-                    href={item.href}
+                    key={home.href}
+                    href={home.href}
                     onClick={() => setOpen(false)}
                     className={`flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors min-h-[44px] ${
                       active
@@ -446,9 +499,45 @@ function MobileMenu() {
                         : "text-muted-blue hover:text-soft-white hover:bg-glass-light/50"
                     }`}
                   >
-                    {item.icon}
-                    <span className="font-[family-name:var(--font-sans)]">{item.label}</span>
+                    {home.icon}
+                    <span className="font-[family-name:var(--font-sans)]">{home.label}</span>
                   </Link>
+                );
+              })()}
+              {/* Grouped sections */}
+              {GROUP_ORDER.map((groupKey) => {
+                const items = navItems.filter(
+                  (i) => i.group === groupKey && !i.parked,
+                );
+                if (items.length === 0) return null;
+                return (
+                  <div key={groupKey} className="pt-3">
+                    <div className="px-3 pb-1 text-[10px] font-[family-name:var(--font-mono)] font-bold tracking-[2px] text-muted-blue/60 uppercase">
+                      {GROUP_LABELS[groupKey]}
+                    </div>
+                    {items.map((item) => {
+                      const active =
+                        pathname === item.href ||
+                        (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setOpen(false)}
+                          className={`flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors min-h-[44px] ${
+                            active
+                              ? "bg-electric-cyan/5 text-electric-cyan border border-electric-cyan/20"
+                              : "text-muted-blue hover:text-soft-white hover:bg-glass-light/50"
+                          }`}
+                        >
+                          {item.icon}
+                          <span className="font-[family-name:var(--font-sans)]">
+                            {item.label}
+                          </span>
+                        </Link>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </nav>
@@ -561,15 +650,21 @@ export default function DashboardLayout({
           {/* Divider */}
           <div className="mx-3 h-px bg-border-glow" />
 
-          {/* Nav */}
+          {/* Nav — Big H Phase 2: Dashboard ungrouped at top, then
+              5 group buckets. Groups render with a small uppercase
+              header label when expanded; collapsed sidebar hides the
+              header (icons stay readable). */}
           <nav className="flex-1 space-y-0.5 px-2 py-4">
-            {navItems.map((item) => {
-              const active = isActive(item.href);
+            {/* Dashboard (home anchor — no group) */}
+            {(() => {
+              const home = navItems.find((i) => i.href === "/dashboard");
+              if (!home) return null;
+              const active = isActive(home.href);
               return (
                 <Link
-                  key={item.href}
-                  href={item.href}
-                  title={collapsed ? item.label : undefined}
+                  key={home.href}
+                  href={home.href}
+                  title={collapsed ? home.label : undefined}
                   onMouseEnter={playBlip}
                   onClick={playChord}
                   className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-[44px] ${
@@ -578,17 +673,57 @@ export default function DashboardLayout({
                       : "text-muted-blue hover:bg-glass-light/50 hover:text-soft-white"
                   } ${collapsed ? "justify-center px-0" : ""}`}
                 >
-                  {/* Active indicator */}
                   {active && (
                     <div className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r bg-electric-cyan" />
                   )}
-                  {item.icon}
+                  {home.icon}
                   {!collapsed && (
-                    <span className="font-[family-name:var(--font-sans)]">
-                      {item.label}
-                    </span>
+                    <span className="font-[family-name:var(--font-sans)]">{home.label}</span>
                   )}
                 </Link>
+              );
+            })()}
+
+            {/* Grouped items */}
+            {GROUP_ORDER.map((groupKey) => {
+              const items = navItems.filter((i) => i.group === groupKey);
+              if (items.length === 0) return null;
+              return (
+                <div key={groupKey} className="pt-3">
+                  {!collapsed && (
+                    <div className="px-3 pb-1 text-[10px] font-[family-name:var(--font-mono)] font-bold tracking-[2px] text-muted-blue/60 uppercase">
+                      {GROUP_LABELS[groupKey]}
+                    </div>
+                  )}
+                  {collapsed && (
+                    <div className="mx-2 my-1 h-px bg-border-glow/40" />
+                  )}
+                  {items.map((item) => {
+                    const active = isActive(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        title={collapsed ? item.label : undefined}
+                        onMouseEnter={playBlip}
+                        onClick={playChord}
+                        className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-[44px] ${
+                          active
+                            ? "bg-[rgba(0,240,255,0.05)] text-electric-cyan"
+                            : "text-muted-blue hover:bg-glass-light/50 hover:text-soft-white"
+                        } ${collapsed ? "justify-center px-0" : ""}`}
+                      >
+                        {active && (
+                          <div className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r bg-electric-cyan" />
+                        )}
+                        {item.icon}
+                        {!collapsed && (
+                          <span className="font-[family-name:var(--font-sans)]">{item.label}</span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
               );
             })}
           </nav>
