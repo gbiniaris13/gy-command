@@ -327,11 +327,14 @@ async function checkRecentCronFailures(sb: any): Promise<CheckResult> {
     const start = Date.now();
     // Cron observer writes cron_end_<id> rows. Failures have
     // outcome != 'success' in the value JSON.
+    // The `settings` table only has updated_at, not created_at — using
+    // updated_at as the recency filter (these rows are upserted once
+    // and never re-touched, so updated_at == row birth time in practice).
     const { data, error } = await sb
       .from("settings")
       .select("key, value")
       .like("key", "cron_end_%")
-      .gte("created_at", cutoff)
+      .gte("updated_at", cutoff)
       .limit(500);
     const ms = Date.now() - start;
     if (error) return warn("Cron health (24h)", error.message);
