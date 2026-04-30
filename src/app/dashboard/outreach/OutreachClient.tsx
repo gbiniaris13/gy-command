@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { getFlagFromCountry } from "@/lib/flags";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -32,6 +33,33 @@ interface BotSnapshot {
   updated_at?: string;
 }
 
+interface Prospect {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  company: string | null;
+  country: string | null;
+  linkedin_url: string | null;
+  last_activity_at: string | null;
+  created_at: string | null;
+  pipeline_stage: { name: string; color: string } | null;
+}
+
+interface ReplyActivity {
+  id: string;
+  type: string;
+  subject: string | null;
+  description: string | null;
+  created_at: string | null;
+  contact: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+  } | null;
+}
+
 interface Props {
   totalSent: number;
   opens: number;
@@ -50,6 +78,8 @@ interface Props {
     george: BotSnapshot | null;
     elleanna: BotSnapshot | null;
   };
+  allProspects: Prospect[];
+  recentReplies: ReplyActivity[];
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -96,7 +126,14 @@ export default function OutreachClient({
   snapshotUpdatedAt,
   snapshotSource,
   perBot,
+  allProspects,
+  recentReplies,
 }: Props) {
+  // Phase 3.1 (2026-04-30) — three-tab layout matching Newsletter
+  // pattern. Header + alerts + per-bot strip stay visible across all
+  // tabs (operator context); tab content swaps below.
+  const [tab, setTab] = useState<"status" | "prospects" | "replies">("status");
+  const [stageFilter, setStageFilter] = useState<string>("All");
   const hasPerBot = !!(perBot.george || perBot.elleanna);
   const botCard = (
     name: "George" | "Elleanna",
@@ -275,6 +312,34 @@ export default function OutreachClient({
         </div>
       )}
 
+      {/* Tab nav — Status / Prospects / Replies */}
+      <div className="mb-6 flex gap-1 border-b border-white/10">
+        {(
+          [
+            { key: "status", label: "Status", count: null },
+            { key: "prospects", label: "Prospects", count: allProspects.length },
+            { key: "replies", label: "Replies", count: recentReplies.length },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-xs font-[family-name:var(--font-mono)] font-bold tracking-wider uppercase transition-colors -mb-px border-b-2 ${
+              tab === t.key
+                ? "text-electric-cyan border-electric-cyan"
+                : "text-ivory/40 border-transparent hover:text-ivory/70"
+            }`}
+          >
+            {t.label}
+            {t.count !== null && (
+              <span className="ml-1.5 text-[10px] text-ivory/30">{t.count}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === "status" && (
+        <>
       {/* Stat Cards — 6 metrics */}
       <div className="mb-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
         {stats.map((stat) => (
@@ -398,6 +463,167 @@ export default function OutreachClient({
           </div>
         )}
       </div>
+        </>
+      )}
+
+      {/* ── Prospects tab ────────────────────────────────────────── */}
+      {tab === "prospects" && (
+        <div className="rounded-xl border border-white/5 bg-navy-light p-4 sm:p-6">
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <h2 className="font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory">
+              All prospects
+            </h2>
+            <span className="text-xs text-ivory/40">
+              · top {allProspects.length} by last activity
+            </span>
+            <div className="ml-auto flex gap-1">
+              {(["All", "New", "Contacted", "Warm", "Hot", "Won", "Lost"] as const).map(
+                (s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStageFilter(s)}
+                    className={`rounded-md px-2.5 py-1 text-[10px] font-mono font-bold tracking-wider uppercase transition-colors ${
+                      stageFilter === s
+                        ? "bg-electric-cyan/10 text-electric-cyan border border-electric-cyan/30"
+                        : "bg-navy/40 text-ivory/40 hover:text-ivory/70 border border-white/5"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+          {allProspects.length === 0 ? (
+            <p className="text-sm text-ivory/30 py-12 text-center">
+              No outreach prospects yet — feed the bot via the Google Sheet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-[10px] tracking-wider text-ivory/40 uppercase border-b border-white/10">
+                  <tr>
+                    <th className="py-2 pr-3">Name</th>
+                    <th className="py-2 pr-3">Company</th>
+                    <th className="py-2 pr-3">Email</th>
+                    <th className="py-2 pr-3">Country</th>
+                    <th className="py-2 pr-3">Stage</th>
+                    <th className="py-2">Last activity</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {allProspects
+                    .filter(
+                      (p) =>
+                        stageFilter === "All" ||
+                        (p.pipeline_stage?.name ?? "New") === stageFilter,
+                    )
+                    .map((p) => {
+                      const stageName = p.pipeline_stage?.name ?? "New";
+                      const badge = STAGE_BADGE[stageName] ?? STAGE_BADGE.New;
+                      const name =
+                        [p.first_name, p.last_name].filter(Boolean).join(" ") ||
+                        "Unnamed";
+                      return (
+                        <tr
+                          key={p.id}
+                          className="hover:bg-navy-lighter/40 transition-colors"
+                        >
+                          <td className="py-2 pr-3">
+                            <Link
+                              href={`/dashboard/contacts/${p.id}`}
+                              className="text-ivory hover:text-electric-cyan"
+                            >
+                              {name}
+                            </Link>
+                          </td>
+                          <td className="py-2 pr-3 text-ivory/60 truncate max-w-[180px]">
+                            {p.company || "—"}
+                          </td>
+                          <td className="py-2 pr-3 text-ivory/40 truncate max-w-[200px]">
+                            {p.email || "—"}
+                          </td>
+                          <td className="py-2 pr-3 text-ivory/40">
+                            <span className="mr-1">
+                              {getFlagFromCountry(p.country)}
+                            </span>
+                            {p.country || "—"}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-semibold ${badge.bg} ${badge.text}`}
+                            >
+                              {stageName}
+                            </span>
+                          </td>
+                          <td className="py-2 text-ivory/40">
+                            {timeAgo(p.last_activity_at)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Replies tab ──────────────────────────────────────────── */}
+      {tab === "replies" && (
+        <div className="rounded-xl border border-white/5 bg-navy-light p-4 sm:p-6">
+          <h2 className="mb-4 font-[family-name:var(--font-montserrat)] text-lg font-semibold text-ivory">
+            Recent inbound replies
+          </h2>
+          {recentReplies.length === 0 ? (
+            <p className="text-sm text-ivory/30 py-12 text-center">
+              No inbound replies on outreach contacts yet.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {recentReplies.map((r) => {
+                const name =
+                  [r.contact?.first_name, r.contact?.last_name]
+                    .filter(Boolean)
+                    .join(" ") ||
+                  r.contact?.email ||
+                  "Unknown sender";
+                const snippet = (r.description ?? "").slice(0, 200);
+                return (
+                  <Link
+                    key={r.id}
+                    href={
+                      r.contact?.id
+                        ? `/dashboard/contacts/${r.contact.id}`
+                        : "#"
+                    }
+                    className="block rounded-lg border border-white/5 bg-navy-lighter/50 px-4 py-3 transition-colors hover:border-electric-cyan/30 hover:bg-navy-lighter"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className="truncate text-sm font-semibold text-ivory">
+                        {name}
+                      </p>
+                      <span className="shrink-0 text-[10px] text-ivory/30">
+                        {timeAgo(r.created_at)}
+                      </span>
+                    </div>
+                    {r.subject && (
+                      <p className="mt-0.5 truncate text-xs text-ivory/50">
+                        {r.subject}
+                      </p>
+                    )}
+                    {snippet && (
+                      <p className="mt-1.5 text-xs text-ivory/40 line-clamp-2">
+                        {snippet}
+                      </p>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

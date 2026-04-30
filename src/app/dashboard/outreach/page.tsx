@@ -96,7 +96,7 @@ export default async function OutreachPage() {
       .select("id, pipeline_stage:pipeline_stages!inner(name)", { count: "exact", head: true })
       .eq("source", "outreach_bot")
       .eq("pipeline_stages.name", "Lost"),
-    // Recent 20 outreach contacts
+    // Recent 20 outreach contacts (used by Status tab "Recent" panel)
     supabase
       .from("contacts")
       .select("*, pipeline_stage:pipeline_stages(*)")
@@ -113,6 +113,30 @@ export default async function OutreachPage() {
       .maybeSingle(),
     readBotSnapshot(supabase, "george"),
     readBotSnapshot(supabase, "elleanna"),
+  ]);
+
+  // Phase 3.1 (2026-04-30) — Prospects + Replies tabs.
+  // Pull a wider prospect list (top 200) + recent inbound replies on
+  // outreach_bot contacts. Non-blocking on errors — if the activities
+  // schema drifts, the tabs gracefully render empty.
+  const [allProspectsRes, recentRepliesRes] = await Promise.all([
+    supabase
+      .from("contacts")
+      .select(
+        "id, first_name, last_name, email, company, country, linkedin_url, last_activity_at, pipeline_stage:pipeline_stages(name, color), created_at",
+      )
+      .eq("source", "outreach_bot")
+      .order("last_activity_at", { ascending: false, nullsFirst: false })
+      .limit(200),
+    supabase
+      .from("activities")
+      .select(
+        "id, type, description, subject, created_at, contact:contacts!inner(id, first_name, last_name, email, source)",
+      )
+      .in("type", ["reply_received", "email_received"])
+      .eq("contacts.source", "outreach_bot")
+      .order("created_at", { ascending: false })
+      .limit(40),
   ]);
 
   const total = totalRes.count ?? 0;
@@ -172,6 +196,35 @@ export default async function OutreachPage() {
     pipeline_stage: c.pipeline_stage,
   }));
 
+  const allProspects = (allProspectsRes.data ?? []).map((c: any) => ({
+    id: c.id,
+    first_name: c.first_name,
+    last_name: c.last_name,
+    email: c.email,
+    company: c.company,
+    country: c.country,
+    linkedin_url: c.linkedin_url,
+    last_activity_at: c.last_activity_at,
+    created_at: c.created_at,
+    pipeline_stage: c.pipeline_stage,
+  }));
+
+  const recentReplies = (recentRepliesRes.data ?? []).map((a: any) => ({
+    id: a.id,
+    type: a.type,
+    subject: a.subject,
+    description: a.description,
+    created_at: a.created_at,
+    contact: a.contact
+      ? {
+          id: a.contact.id,
+          first_name: a.contact.first_name,
+          last_name: a.contact.last_name,
+          email: a.contact.email,
+        }
+      : null,
+  }));
+
   return (
     <OutreachClient
       totalSent={totalSent}
@@ -188,6 +241,8 @@ export default async function OutreachPage() {
       snapshotUpdatedAt={snapshot?.updated_at ?? null}
       snapshotSource={snapshot?.source ?? null}
       perBot={{ george: georgeBotRes, elleanna: elleannaBotRes }}
+      allProspects={allProspects}
+      recentReplies={recentReplies}
     />
   );
 }
