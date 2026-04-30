@@ -171,6 +171,33 @@ async function checkSanityCMS(): Promise<CheckResult> {
 
 // ─── Meta token expiry (predictive) ─────────────────────────────────
 
+async function checkFBPageToken(): Promise<CheckResult> {
+  // FB Page token check. Mirrors checkIGTokenExpiry — hits the live
+  // graph endpoint with the page token, surfaces Meta's error message
+  // verbatim on failure. The facebook-mirror cron uses this token
+  // every day at 15:35 UTC to cross-post IG content; a token blip
+  // would mean cross-posts silently 5xx and the FB feed goes dark.
+  const token = process.env.FB_PAGE_ACCESS_TOKEN;
+  const pageId = process.env.FB_PAGE_ID || "1056750427517361";
+  if (!token) return warn("FB Page Token", "FB_PAGE_ACCESS_TOKEN not set");
+  try {
+    const { result, ms } = await timeIt(() =>
+      fetch(
+        `https://graph.facebook.com/v21.0/${pageId}?fields=id,name&access_token=${encodeURIComponent(token)}`,
+      ),
+    );
+    if (!result.ok) {
+      const body = await result.text().catch(() => "");
+      const reason = body.match(/"message":"([^"]+)"/)?.[1] ?? `HTTP ${result.status}`;
+      return critical("FB Page Token", reason);
+    }
+    const json = await result.json();
+    return ok("FB Page Token", ms, `live as ${json?.name ?? "unknown page"}`);
+  } catch (e: any) {
+    return warn("FB Page Token", e?.message ?? "check failed");
+  }
+}
+
 async function checkIGTokenExpiry(): Promise<CheckResult> {
   const token = process.env.IG_ACCESS_TOKEN;
   if (!token) return warn("IG Access Token", "not configured");
@@ -454,6 +481,7 @@ async function _observedImpl() {
     checkGmailOAuth(sb),
     checkSanityCMS(),
     checkIGTokenExpiry(),
+    checkFBPageToken(),
     checkBlogCadence(),
     checkNewsletterQueue("wake"),
     checkNewsletterQueue("compass"),
