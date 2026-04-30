@@ -233,6 +233,10 @@ export default function InstagramClient() {
   const [feed, setFeed] = useState<IGFeedPost[]>([]);
   const [analytics, setAnalytics] = useState<IGAnalyticsPost[]>([]);
   const [bestTimes, setBestTimes] = useState<BestTimesResponse | null>(null);
+  // Phase 3.3 (2026-04-30) — tabbed split following Newsletter pattern.
+  // Operate = compose+queue+recent · Engagement = competitor watch ·
+  // Performance = analytics+best-time+followers · Settings = config.
+  const [tab, setTab] = useState<"operate" | "engagement" | "performance" | "settings">("operate");
   const [followerHistory, setFollowerHistory] =
     useState<FollowerHistoryResponse | null>(null);
   const [competitors, setCompetitors] = useState<CompetitorsResponse | null>(null);
@@ -360,6 +364,31 @@ export default function InstagramClient() {
         </p>
       </div>
 
+      {/* Tab nav — Operate / Engagement / Performance / Settings */}
+      <div className="mb-6 flex gap-1 border-b border-white/10">
+        {(
+          [
+            { key: "operate", label: "Operate" },
+            { key: "engagement", label: "Engagement" },
+            { key: "performance", label: "Performance" },
+            { key: "settings", label: "Settings" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-xs font-[family-name:var(--font-mono)] font-bold tracking-wider uppercase transition-colors -mb-px border-b-2 ${
+              tab === t.key
+                ? "text-electric-cyan border-electric-cyan"
+                : "text-ivory/40 border-transparent hover:text-ivory/70"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "operate" && (<>
       {/* ── NEW TRANSMISSION ──────────────────────────────────── */}
       <div className="mb-6 glass-card p-4 sm:p-6">
         <div className="mb-4 flex items-center gap-2">
@@ -570,6 +599,9 @@ export default function InstagramClient() {
         )}
       </div>
 
+      </>)}
+
+      {tab === "performance" && (<>
       {/* ── POST PERFORMANCE ──────────────────────────────────── */}
       <div className="glass-card p-4 sm:p-6 mt-6">
         <div className="mb-4 flex items-center gap-2">
@@ -879,6 +911,9 @@ export default function InstagramClient() {
         )}
       </div>
 
+      </>)}
+
+      {tab === "engagement" && (<>
       {/* ── COMPETITOR WATCH ──────────────────────────────────── */}
       <div className="glass-card p-4 sm:p-6 mt-6">
         <div className="mb-4 flex items-center gap-2">
@@ -971,6 +1006,70 @@ export default function InstagramClient() {
           </div>
         )}
       </div>
+      </>)}
+
+      {tab === "settings" && (
+        <div className="glass-card p-4 sm:p-6 space-y-4">
+          <div>
+            <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase mb-2">
+              IG token + posting cadence
+            </h2>
+            <p className="text-sm text-ivory/60">
+              IG_ACCESS_TOKEN is set as a Vercel env var. The daily 07:05 UTC
+              system-health-check verifies the token is live by hitting
+              <code className="mx-1 text-ivory/80">graph.instagram.com/me</code>.
+              When it stops responding 200, the cron-failures Telegram digest
+              calls it out by name within the hour.
+            </p>
+          </div>
+          <div>
+            <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase mb-2">
+              Auto-publish gates
+            </h2>
+            <ul className="text-sm text-ivory/60 space-y-1.5 list-disc pl-5">
+              <li>
+                <strong className="text-ivory">Stock-photo guard</strong> —
+                blocks any post whose image_url matches Unsplash / Pexels /
+                Pixabay / Shutterstock / Getty / iStockphoto. Flips post back
+                to draft + Telegram alert.
+              </li>
+              <li>
+                <strong className="text-ivory">Caption similarity</strong> —
+                fail-open warning if a reel caption looks too close to recent
+                ones (Telegram heads-up, post still publishes).
+              </li>
+              <li>
+                <strong className="text-ivory">Reel auto-publish</strong> —
+                default ON. Set <code>reel_auto_publish_without_approval</code>{" "}
+                to <code>"false"</code> in settings to gate via Telegram tap
+                instead.
+              </li>
+              <li>
+                <strong className="text-ivory">DM follow-back</strong> —
+                first-message reply prepends “Thanks for the follow 🙏”.
+                Trigger is the inbound DM (IG policy), not the follow event.
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase mb-2">
+              Engagement DM cadence
+            </h2>
+            <p className="text-sm text-ivory/60">
+              Daily digest at 08:00 UTC. Cap raised 5 → 10 (commit{" "}
+              <code>e1afae9</code>). Candidates pulled from comments + mentions
+              + tagged media (commit <code>709a939</code>) with 90-day
+              cooldown after a DM. Header now shows source breakdown
+              (<code>comment: X · tagged: Y · mention: Z</code>).
+            </p>
+          </div>
+          <p className="text-[10px] text-muted-blue/40">
+            More config knobs land here as we wire them — for now the rest of
+            IG behaviour is hard-coded in <code>src/lib/ig-engagement-dm.ts</code>{" "}
+            + the cron files.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
