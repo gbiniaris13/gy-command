@@ -73,6 +73,28 @@ const WARMUP_BODY_TEMPLATES =
 
 const WARMUP_SIGNATURE_HINTS = /(?:warmup|engagement\s*booster|deliverability\s*test|sender\s+reputation)/i;
 
+// Instantly.ai warmup tracker subjects end with " | XXXXXXX YYYYYYY"
+// — two uppercase alphanumeric tokens (6–10 chars) separated by a
+// space, after a pipe. The first token is per-message, the second
+// token is the recipient's warmup ID and stays constant for a given
+// mailbox. Real prospect emails almost never end with this exact
+// shape because legit subjects either:
+//   • don't have a trailing " | TOKEN TOKEN" suffix at all,
+//   • or end in single trailing words / shorter all-caps acronyms
+//     that the {6,10} bound rejects.
+//
+// Live samples collected 2026-04-30 from George's inbox:
+//   "A better way to reach your target MRR | EK438PD F8NWHHW"
+//   "Eleanna - need to touch base | B1VPBNW F8NWHHW"
+//   "commission-based ? | EWNCAB5 F8NWHHW"
+//
+// All three slipped through the existing header / body / msg-id
+// rules because Instantly's warmup uses real Gmail/Outlook mailboxes
+// (no x-instantly-warmup header lands in the recipient's copy) and
+// the body text is varied enough to dodge WARMUP_BODY_TEMPLATES.
+const INSTANTLY_SUBJECT_TRACKER =
+  /\|\s+[A-Z0-9]{6,10}\s+[A-Z0-9]{6,10}\s*$/;
+
 function stripThreadTail(body: string): string {
   // Kill quoted lines + "On … wrote:" blocks that warmup services don't have.
   return (body || "")
@@ -116,7 +138,14 @@ export function detectWarmup(args: {
     }
   }
 
-  // 3. Content heuristic — very short + matches classic templates.
+  // 3. Subject-trailer fingerprint — Instantly tracker codes.
+  //    Matches " | XXXXXXX YYYYYYY" at end of subject. Run BEFORE
+  //    the body heuristic because the tracker shape is more specific.
+  if (INSTANTLY_SUBJECT_TRACKER.test(args.subject || "")) {
+    return { isWarmup: true, reason: "subject-tracker", service: "instantly" };
+  }
+
+  // 4. Content heuristic — very short + matches classic templates.
   //    Keeps a tight ceiling (≤120 chars, after stripping thread tails
   //    and signatures) so real prospects' brief replies still pass.
   const trimmed = stripThreadTail(args.body).trim();
