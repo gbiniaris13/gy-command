@@ -183,6 +183,35 @@ export default function ContactsClient({
             />
           </div>
 
+          {/* Quick view chips — preselect the most-used filter combos so
+              George doesn't have to drive the dropdowns every time. */}
+          <div className="flex gap-1.5 overflow-x-auto">
+            {(
+              [
+                { label: "All", source: "" },
+                { label: "Outreach", source: "outreach_bot" },
+                { label: "Guest network", source: "guest_network" },
+                { label: "Inbound", source: "inbound_email" },
+                { label: "Manual", source: "manual" },
+              ] as const
+            ).map((q) => {
+              const active = filterSource === q.source;
+              return (
+                <button
+                  key={q.label}
+                  onClick={() => setFilterSource(q.source)}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider uppercase transition-colors ${
+                    active
+                      ? "border-electric-cyan/40 bg-electric-cyan/10 text-electric-cyan"
+                      : "border-border-glow bg-glass-dark text-muted-blue hover:text-ivory"
+                  }`}
+                >
+                  {q.label}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="flex gap-2 overflow-x-auto">
             <select
               value={filterStage}
