@@ -15,11 +15,12 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { refreshAllContactsInbox } from "@/lib/inbox-analyzer";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-export async function GET(request: Request) {
+async function _observedImpl(request: Request): Promise<Response> {
   try {
     const sb = createServiceClient();
     const url = new URL(request.url);
@@ -39,4 +40,8 @@ export async function GET(request: Request) {
     ).catch(() => {});
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+export async function GET(request: Request): Promise<Response> {
+  return observeCron("inbox-refresh", () => _observedImpl(request));
 }

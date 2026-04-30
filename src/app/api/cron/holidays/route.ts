@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { getHolidaysToday } from "@/lib/holidays";
+import { observeCron } from "@/lib/cron-observer";
 
 // ─── Gmail send helper ──────────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ interface HolidayContact {
  * Daily cron (08:00 UTC): Holiday greeting emails.
  * Checks contacts by country, sends appropriate holiday greetings.
  */
-export async function GET(request: NextRequest) {
+async function _observedImpl(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
@@ -235,4 +236,8 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return observeCron("holidays", () => _observedImpl(request));
 }

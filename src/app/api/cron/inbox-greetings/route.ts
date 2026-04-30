@@ -25,6 +25,7 @@ import {
 } from "@/lib/pillar3-holidays";
 import { templateFor, shouldSkipForMissingName } from "@/lib/pillar3-greeting-templates";
 import { inferReligion } from "@/lib/pillar3-religion-inferrer";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -144,7 +145,7 @@ async function createDraft(args: {
   return { id: draft.id, messageId: draft.message?.id };
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   try {
     const sb = createServiceClient();
     const t = tomorrowAthens();
@@ -274,4 +275,8 @@ export async function GET() {
     ).catch(() => {});
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("inbox-greetings", _observedImpl);
 }

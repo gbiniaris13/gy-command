@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -20,7 +21,7 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   try {
     const sb = createServiceClient();
 
@@ -147,4 +148,8 @@ export async function GET() {
     ).catch(() => {});
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("commitments-surface", _observedImpl);
 }

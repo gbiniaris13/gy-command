@@ -12,13 +12,14 @@ import {
   suggestAction,
   compositePriorityScore,
 } from "@/lib/thread-suggester";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const TOP_N = 30;
 
-export async function GET() {
+async function _observedImpl(): Promise<Response> {
   const sb = createServiceClient();
 
   // Pull contacts that have an inbox state worth suggesting on.
@@ -135,4 +136,8 @@ export async function GET() {
     regenerated,
     kept_cached: kept,
   });
+}
+
+export async function GET(): Promise<Response> {
+  return observeCron("thread-suggestions", _observedImpl);
 }

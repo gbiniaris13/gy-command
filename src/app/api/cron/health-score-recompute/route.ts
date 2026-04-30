@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { refreshHealthScore } from "@/lib/health-scorer";
+import { observeCron } from "@/lib/cron-observer";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -21,7 +22,7 @@ const EMAIL_TYPES = [
   "reply",
 ];
 
-export async function GET(request: NextRequest) {
+async function _observedImpl(request: NextRequest): Promise<Response> {
   const sp = request.nextUrl.searchParams;
   const startOffset = parseInt(sp.get("offset") ?? "0", 10);
   const startedAt = Date.now();
@@ -80,4 +81,8 @@ export async function GET(request: NextRequest) {
         ? `Resume with ?offset=${cursor}`
         : "All contacts scored.",
   });
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return observeCron("health-score-recompute", () => _observedImpl(request));
 }
