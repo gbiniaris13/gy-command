@@ -258,9 +258,26 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 6. Delete the safe set
+  // 6. Pre-clear FK-referencing tables that have NO ON DELETE clause
+  //    (they default to NO ACTION and would block the contacts delete).
+  //    Currently only email_classifications.contact_id is in this state.
+  let emailClassCleared = 0;
+  if (toDelete.length > 0) {
+    const ids = toDelete.map((c) => c.id);
+    const CHUNK = 200;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      const { error, count } = await sb
+        .from("email_classifications")
+        .delete({ count: "exact" })
+        .in("contact_id", slice);
+      if (!error) emailClassCleared += count ?? 0;
+    }
+  }
+
+  // 7. Delete the safe set
   let deleted = 0;
-  let deleteErrors: string[] = [];
+  const deleteErrors: string[] = [];
   if (toDelete.length > 0) {
     const ids = toDelete.map((c) => c.id);
     const CHUNK = 100;
@@ -283,6 +300,7 @@ export async function GET(request: NextRequest) {
     snapshot_key: snapshotKey,
     audit,
     starred_protected: starred,
+    email_classifications_cleared: emailClassCleared,
     deleted,
     delete_errors: deleteErrors,
   });
