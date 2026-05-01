@@ -745,8 +745,74 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
     year: "numeric",
   });
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function refreshBriefing() {
+    setRefreshing(true);
+    try {
+      await fetch("/api/cockpit/briefing?fresh=1", { method: "GET" });
+      // Re-fetch the page so the server component pulls the rebuilt briefing
+      window.location.reload();
+    } catch {
+      setRefreshing(false);
+    }
+  }
+
+  // Counters for the sticky quick-nav. Drives "Inbox 14 · Promises 3"
+  // pills so George knows from the top what's pressing without scrolling.
+  const navCounts = {
+    inbox:
+      (briefing.inbox_summary?.owed_reply ?? 0) +
+      (briefing.inbox_summary?.needs_followup ?? 0),
+    promises: briefing.commitments_ready?.total_open ?? 0,
+    charters: briefing.charters_ready?.due_this_week_count ?? 0,
+    opps: briefing.opportunities?.length ?? 0,
+  };
+
+  // Build anchor list dynamically — only show jumps for sections that
+  // actually render so we don't lie about what's available below.
+  const navItems: { id: string; label: string; count: number }[] = [];
+  if (navCounts.promises > 0)
+    navItems.push({ id: "commitments", label: "Promises", count: navCounts.promises });
+  if (navCounts.charters > 0)
+    navItems.push({ id: "charters", label: "Charters", count: navCounts.charters });
+  navItems.push({ id: "inbox", label: "Inbox", count: navCounts.inbox });
+  navItems.push({ id: "pulse", label: "Pulse", count: 0 });
+  if (navCounts.opps > 0)
+    navItems.push({ id: "opportunities", label: "Opps", count: navCounts.opps });
+  navItems.push({ id: "brainstorm", label: "🧠", count: 0 });
+
   return (
     <main className="min-h-screen bg-black text-white">
+      {/* Sticky quick-nav — visible while scrolling; counters refresh
+          on every briefing rebuild. */}
+      <div className="sticky top-0 z-30 bg-black/80 backdrop-blur-md border-b border-white/10">
+        <div className="max-w-2xl mx-auto px-5 py-2 flex items-center gap-2 overflow-x-auto">
+          {navItems.map((n) => (
+            <a
+              key={n.id}
+              href={`#${n.id}`}
+              className="shrink-0 flex items-center gap-1 rounded-full border border-white/15 px-2.5 py-1 text-[10px] uppercase tracking-widest text-white/70 hover:border-[#DAA520] hover:text-[#DAA520]"
+            >
+              {n.label}
+              {n.count > 0 && (
+                <span className="rounded-full bg-white/10 px-1.5 text-[9px]">
+                  {n.count}
+                </span>
+              )}
+            </a>
+          ))}
+          <button
+            onClick={refreshBriefing}
+            disabled={refreshing}
+            className="ml-auto shrink-0 rounded-full border border-white/15 px-2.5 py-1 text-[10px] uppercase tracking-widest text-white/60 hover:border-[#DAA520] hover:text-[#DAA520] disabled:opacity-50"
+            title="Rebuild today's briefing"
+          >
+            {refreshing ? "…" : "↻ Refresh"}
+          </button>
+        </div>
+      </div>
+
       <div className="max-w-2xl mx-auto px-5 py-10 space-y-8">
         {/* Header */}
         <header>
@@ -760,7 +826,7 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
             (broken promises erode trust faster than missed emails). */}
         {briefing.commitments_ready &&
           briefing.commitments_ready.total_open > 0 && (
-            <section>
+            <section id="commitments" className="scroll-mt-16">
               <h2 className="text-xs uppercase tracking-[0.3em] text-orange-300 mb-4">
                 ⏰ Promises Due ({briefing.commitments_ready.total_open})
               </h2>
@@ -777,7 +843,7 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
             Renders nothing if the v3 schema isn't applied yet. */}
         {briefing.charters_ready &&
           briefing.charters_ready.due_this_week_count > 0 && (
-            <section>
+            <section id="charters" className="scroll-mt-16">
               <div className="flex items-baseline justify-between mb-4">
                 <h2 className="text-xs uppercase tracking-[0.3em] text-cyan-300">
                   🛥️ Charter Pipeline (
@@ -804,7 +870,7 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
         {/* INBOX BRAIN — Pillar 1. Gmail thread state, ranked by who
             George owes a reply / which threads need follow-up. This
             is the new primary surface; CRM-stage actions live below. */}
-        <section>
+        <section id="inbox" className="scroll-mt-16">
           <div className="flex items-baseline justify-between mb-4">
             <h2 className="text-xs uppercase tracking-[0.3em] text-[#DAA520]">
               📬 Inbox Brain
@@ -864,7 +930,7 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
         )}
 
         {/* PIPELINE PULSE */}
-        <section>
+        <section id="pulse" className="scroll-mt-16">
           <h2 className="text-xs uppercase tracking-[0.3em] text-[#DAA520] mb-4">
             💰 Pipeline Pulse
           </h2>
@@ -873,7 +939,7 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
 
         {/* OPPORTUNITIES — each card has a primary action */}
         {briefing.opportunities.length > 0 && (
-          <section>
+          <section id="opportunities" className="scroll-mt-16">
             <h2 className="text-xs uppercase tracking-[0.3em] text-[#DAA520] mb-4">
               💡 Opportunities Today
             </h2>
@@ -934,7 +1000,7 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
         )}
 
         {/* BRAINSTORM */}
-        <section>
+        <section id="brainstorm" className="scroll-mt-16">
           <Brainstorm initialPrompt={briefing.brainstorm_prompt} />
         </section>
 
