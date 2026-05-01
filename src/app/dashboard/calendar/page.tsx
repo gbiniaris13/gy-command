@@ -1,5 +1,9 @@
+import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase-server";
+import { createServerSupabaseClient } from "@/lib/supabase";
 import CalendarClient from "./CalendarClient";
+
+export const dynamic = "force-dynamic";
 
 export default async function CalendarPage() {
   let connected = false;
@@ -53,5 +57,66 @@ export default async function CalendarPage() {
     );
   }
 
-  return <CalendarClient />;
+  // Pull upcoming + active charters from deals so the Charters tab has
+  // server-rendered data on first paint. Window: any charter ending in
+  // the future, or starting within the next 12 months.
+  const cookieStore = await cookies();
+  const sbAuth = createServerSupabaseClient(cookieStore);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const yearOutIso = new Date(
+    Date.now() + 365 * 24 * 60 * 60 * 1000,
+  )
+    .toISOString()
+    .slice(0, 10);
+
+  const { data: charterDeals } = await sbAuth
+    .from("deals")
+    .select(
+      "id, vessel_name, charter_start_date, charter_end_date, guest_count, charter_fee_eur, payment_status, lifecycle_status, primary_contact_id",
+    )
+    .or(
+      `charter_end_date.gte.${todayIso},and(charter_start_date.gte.${todayIso},charter_start_date.lte.${yearOutIso})`,
+    )
+    .order("charter_start_date", { ascending: true })
+    .limit(100);
+
+  // Resolve primary contact names in one pass
+  const contactIds = (charterDeals ?? [])
+    .map((d) => d.primary_contact_id)
+    .filter(Boolean) as string[];
+  const contactsById = new Map<
+    string,
+    { id: string; first_name: string | null; last_name: string | null }
+  >();
+  if (contactIds.length > 0) {
+    const { data: contacts } = await sbAuth
+      .from("contacts")
+      .select("id, first_name, last_name")
+      .in("id", contactIds);
+    for (const c of contacts ?? []) {
+      contactsById.set(c.id, c);
+    }
+  }
+
+  const charters = (charterDeals ?? []).map((d) => {
+    const c = d.primary_contact_id
+      ? contactsById.get(d.primary_contact_id)
+      : null;
+    return {
+      id: d.id,
+      vessel_name: d.vessel_name,
+      start: d.charter_start_date,
+      end: d.charter_end_date,
+      guest_count: d.guest_count,
+      fee_eur: d.charter_fee_eur,
+      payment_status: d.payment_status,
+      lifecycle_status: d.lifecycle_status,
+      contact_id: d.primary_contact_id,
+      contact_name: c
+        ? `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim()
+        : null,
+    };
+  });
+
+  return <CalendarClient charters={charters} />;
 }
