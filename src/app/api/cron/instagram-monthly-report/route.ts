@@ -88,11 +88,18 @@ ${(unusedPhotos || 0) <= 10 ? "⚠️ LOW — add more photos!" : "✅ Healthy"}
 
     await sendTelegram(report);
 
-    // Record current followers for next month's comparison
-    await sb.from("ig_follower_history").insert({
-      followers: currentFollowers,
-      recorded_at: new Date().toISOString(),
-    }).catch(() => {});
+    // Record current followers for next month's comparison.
+    // Supabase v2's PostgrestQueryBuilder.insert() returns a thenable
+    // proxy, NOT a real Promise — so .catch() throws "is not a
+    // function". Use try/catch around await instead.
+    try {
+      await sb.from("ig_follower_history").insert({
+        followers: currentFollowers,
+        recorded_at: new Date().toISOString(),
+      });
+    } catch {
+      // best-effort: history-write failure shouldn't break the report
+    }
 
     return NextResponse.json({
       ok: true,

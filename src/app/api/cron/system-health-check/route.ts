@@ -268,7 +268,12 @@ async function checkIGContentQueue(sb: any): Promise<CheckResult> {
 }
 
 async function checkBlogCadence(): Promise<CheckResult> {
-  const projectId = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID;
+  // Sanity project ID is hardcoded in /api/fleet/route.ts so we mirror
+  // that here as a fallback — the digest was warning "Sanity not
+  // configured" because the env var path was never set in Vercel even
+  // though the rest of the app talks to Sanity fine.
+  const projectId =
+    process.env.NEXT_PUBLIC_SANITY_PROJECT_ID || "ecqr94ey";
   const dataset = process.env.NEXT_PUBLIC_SANITY_DATASET || "production";
   if (!projectId) return warn("Blog cadence", "Sanity not configured");
   try {

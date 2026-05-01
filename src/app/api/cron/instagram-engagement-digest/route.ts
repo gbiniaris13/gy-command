@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { aiChat } from "@/lib/ai";
 import { observeCron } from "@/lib/cron-observer";
@@ -13,12 +13,14 @@ import { observeCron } from "@/lib/cron-observer";
 // stored in the Supabase settings table — pick the 15 oldest each
 // day, mark today after picking. This guarantees we walk the entire
 // pool of 45 in 3 days before any target repeats.
+//
+// 2026-05-01 — was using SUPABASE_SERVICE_KEY (only present on local
+// dev) instead of SUPABASE_SERVICE_ROLE_KEY (the actual Vercel env
+// name). Cron crashed with "supabaseKey is required". Switched to
+// createServiceClient() to share the standard helper.
 
 function supabaseClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!,
-  );
+  return createServiceClient();
 }
 
 const SETTINGS_KEY = "engagement_targets_last_shown";
