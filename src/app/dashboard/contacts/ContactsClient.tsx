@@ -7,24 +7,34 @@ import { CONTACT_TYPES, type ContactType, TAG_V2_LABELS } from "@/lib/types";
 import { getFlagFromCountry } from "@/lib/flags";
 
 interface Props {
-  contacts: Contact[];
+  contacts: Contact[]; // server pre-filters to inbox_starred=true
   stages: PipelineStage[];
   countries: string[];
-  sources: string[];
-  contactTypes: string[];
 }
 
-const SOURCE_LABELS: Record<string, string> = {
-  website_lead: "Website Lead",
-  website_inquiry: "Website Inquiry",
-  outreach_bot: "Outreach",
-  manual: "Manual",
-  referral: "Referral",
-  partner: "Partner",
+type Tab = "overview" | "agents" | "clients" | "other";
+
+// Group contact_type values into our 3 functional buckets. The 7 raw
+// types in CONTACT_TYPES are too granular for at-a-glance triage —
+// George thinks in "agents I work with" / "clients on charters" /
+// "everyone else".
+const TAB_GROUPS: Record<Exclude<Tab, "overview">, ContactType[]> = {
+  agents: ["CENTRAL_AGENT", "B2B_PARTNER", "INDUSTRY"],
+  clients: ["DIRECT_CLIENT", "BROKER_CLIENT"],
+  other: ["PRESS_MEDIA", "OUTREACH_LEAD"],
 };
 
+function bucketOf(type: string | null): Exclude<Tab, "overview"> {
+  if (!type) return "other";
+  for (const [bucket, types] of Object.entries(TAB_GROUPS)) {
+    if ((types as string[]).includes(type))
+      return bucket as Exclude<Tab, "overview">;
+  }
+  return "other";
+}
+
 function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return "\u2014";
+  if (!dateStr) return "—";
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "Just now";
@@ -43,17 +53,13 @@ export default function ContactsClient({
   contacts: initialContacts,
   stages,
   countries,
-  sources,
-  contactTypes,
 }: Props) {
   const router = useRouter();
   const [contacts, setContacts] = useState(initialContacts);
+  const [tab, setTab] = useState<Tab>("overview");
   const [search, setSearch] = useState("");
   const [filterStage, setFilterStage] = useState("");
-  const [filterSource, setFilterSource] = useState("");
   const [filterCountry, setFilterCountry] = useState("");
-  const [filterType, setFilterType] = useState("");
-  const [filterTagV2, setFilterTagV2] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -70,35 +76,45 @@ export default function ContactsClient({
     pipeline_stage_id: stages[0]?.id ?? "",
   });
 
+  // Counts per bucket — drives tab counters
+  const counts = useMemo(() => {
+    const c = { agents: 0, clients: 0, other: 0 };
+    for (const ct of contacts) {
+      c[bucketOf(ct.contact_type)]++;
+    }
+    return c;
+  }, [contacts]);
+
+  // Recent activity (top 5 by last_activity_at) — Overview signal
+  const recent = useMemo(() => {
+    return [...contacts]
+      .filter((c) => c.last_activity_at)
+      .sort(
+        (a, b) =>
+          new Date(b.last_activity_at!).getTime() -
+          new Date(a.last_activity_at!).getTime(),
+      )
+      .slice(0, 5);
+  }, [contacts]);
+
+  // Apply tab + search + filters
   const filtered = useMemo(() => {
-    return contacts.filter((c) => {
+    let pool = contacts;
+    if (tab !== "overview") {
+      pool = pool.filter((c) => bucketOf(c.contact_type) === tab);
+    }
+    return pool.filter((c) => {
       const q = search.toLowerCase();
       const matchesSearch =
         !q ||
         `${c.first_name} ${c.last_name}`.toLowerCase().includes(q) ||
         (c.email ?? "").toLowerCase().includes(q) ||
         (c.company ?? "").toLowerCase().includes(q);
-
-      const matchesStage =
-        !filterStage || c.pipeline_stage_id === filterStage;
-      const matchesSource = !filterSource || c.source === filterSource;
+      const matchesStage = !filterStage || c.pipeline_stage_id === filterStage;
       const matchesCountry = !filterCountry || c.country === filterCountry;
-      const matchesType = !filterType || c.contact_type === filterType;
-      const matchesTagV2 =
-        !filterTagV2 ||
-        (Array.isArray(c.tags_v2) &&
-          c.tags_v2.some((t) => t.tag === filterTagV2));
-
-      return (
-        matchesSearch &&
-        matchesStage &&
-        matchesSource &&
-        matchesCountry &&
-        matchesType &&
-        matchesTagV2
-      );
+      return matchesSearch && matchesStage && matchesCountry;
     });
-  }, [contacts, search, filterStage, filterSource, filterCountry, filterType, filterTagV2]);
+  }, [contacts, tab, search, filterStage, filterCountry]);
 
   async function handleCreate() {
     setSaving(true);
@@ -106,13 +122,14 @@ export default function ContactsClient({
       const res = await fetch("/api/crm/contacts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, inbox_starred: true }),
       });
       if (res.ok) {
         const newContact = await res.json();
         const stage = stages.find((s) => s.id === newContact.pipeline_stage_id);
         newContact.pipeline_stage = stage || null;
         newContact.contact_tags = [];
+        newContact.inbox_starred = true;
         setContacts((prev) => [newContact, ...prev]);
         setShowModal(false);
         setForm({
@@ -133,174 +150,250 @@ export default function ContactsClient({
     }
   }
 
-  return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      {/* Header */}
-      <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <div className="mb-1 inline-flex rounded border border-hot-red/30 bg-hot-red/10 px-2 py-0.5">
-            <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-hot-red uppercase">CLASSIFIED</span>
-          </div>
-          <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
-            ASSET DATABASE
-          </h1>
-          <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider">
-            {filtered.length} OF {contacts.length} ASSETS INDEXED
-          </p>
+  // Pretty top-of-page header with the relationship-only ethos baked in
+  const HeaderBar = (
+    <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div>
+        <div className="mb-1 inline-flex items-center gap-2">
+          <span className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-0.5">
+            <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-amber-300 uppercase">
+              ⭐ STARRED ONLY
+            </span>
+          </span>
+          <span className="rounded border border-electric-cyan/30 bg-electric-cyan/10 px-2 py-0.5">
+            <span className="font-[family-name:var(--font-mono)] text-[9px] font-bold tracking-[3px] text-electric-cyan uppercase">
+              {contacts.length} ACTIVE RELATIONSHIPS
+            </span>
+          </span>
         </div>
+        <h1 className="font-[family-name:var(--font-mono)] text-lg sm:text-2xl font-black tracking-[3px] text-electric-cyan uppercase">
+          REAL CONTACTS
+        </h1>
+        <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider">
+          PEOPLE YOU&apos;VE ACTUALLY TALKED TO. STAR IN GMAIL → APPEARS HERE.
+        </p>
+      </div>
+      <button
+        onClick={() => setShowModal(true)}
+        className="rounded-lg bg-electric-cyan px-4 py-2.5 font-[family-name:var(--font-display)] text-sm font-semibold text-deep-space transition-colors hover:bg-electric-cyan/90 min-h-[44px]"
+      >
+        + Add Contact
+      </button>
+    </div>
+  );
+
+  // Tab bar — newsletter-style
+  const TabBar = (
+    <div className="mb-4 flex gap-1 overflow-x-auto rounded-lg border border-border-glow bg-glass-dark p-1">
+      {(
+        [
+          { k: "overview" as Tab, label: "Overview", count: contacts.length },
+          { k: "agents" as Tab, label: "Agents & Brokers", count: counts.agents },
+          { k: "clients" as Tab, label: "Clients", count: counts.clients },
+          { k: "other" as Tab, label: "Other", count: counts.other },
+        ]
+      ).map((t) => {
+        const active = tab === t.k;
+        return (
+          <button
+            key={t.k}
+            onClick={() => setTab(t.k)}
+            className={`shrink-0 rounded px-3 py-2 font-[family-name:var(--font-mono)] text-[11px] font-bold tracking-wider uppercase transition-colors min-h-[40px] ${
+              active
+                ? "bg-electric-cyan/15 text-electric-cyan border border-electric-cyan/30"
+                : "text-muted-blue hover:text-soft-white border border-transparent"
+            }`}
+          >
+            {t.label}{" "}
+            <span
+              className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] ${
+                active
+                  ? "bg-electric-cyan/20 text-electric-cyan"
+                  : "bg-glass-light text-muted-blue/60"
+              }`}
+            >
+              {t.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  // Filters row (only on non-overview tabs)
+  const FiltersRow = tab !== "overview" && (
+    <div className="mb-4 sticky top-0 z-10 -mx-4 sm:mx-0 px-4 sm:px-0 py-2 sm:py-0 bg-deep-space/80 backdrop-blur-lg sm:bg-transparent sm:backdrop-blur-none">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-3">
+        <div className="relative flex-1 min-w-0 sm:min-w-[200px]">
+          <svg
+            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-blue"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+            />
+          </svg>
+          <input
+            type="text"
+            placeholder="SEARCH..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-border-glow bg-glass-dark py-2.5 pl-10 pr-4 text-sm text-soft-white placeholder:text-muted-blue/50 focus:border-electric-cyan/30 focus:outline-none focus:ring-1 focus:ring-electric-cyan/20 min-h-[44px]"
+          />
+        </div>
+        <div className="flex gap-2 overflow-x-auto">
+          <select
+            value={filterStage}
+            onChange={(e) => setFilterStage(e.target.value)}
+            className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+          >
+            <option value="">All Stages</option>
+            {stages.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={filterCountry}
+            onChange={(e) => setFilterCountry(e.target.value)}
+            className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
+          >
+            <option value="">All Countries</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>
+                {getFlagFromCountry(c)} {c}
+              </option>
+            ))}
+          </select>
+          <a
+            href="/api/crm/contacts/export"
+            className="inline-flex items-center rounded-lg border border-electric-cyan/40 bg-electric-cyan/10 px-3 py-2.5 text-sm text-electric-cyan hover:bg-electric-cyan/20 min-h-[44px]"
+            title="Download CSV of starred contacts"
+          >
+            ↓ CSV
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Overview tab content — three KPI cards + recent activity
+  const OverviewTab = (
+    <>
+      <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
         <button
-          onClick={() => setShowModal(true)}
-          className="rounded-lg bg-electric-cyan px-4 py-2.5 font-[family-name:var(--font-display)] text-sm font-semibold text-deep-space transition-colors hover:bg-electric-cyan/90 min-h-[44px]"
+          onClick={() => setTab("agents")}
+          className="glass-card text-left p-5 transition-all hover:border-amber-400/40"
         >
-          + Add Contact
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-amber-300/70 uppercase">
+            Agents & Brokers
+          </p>
+          <p className="mt-2 font-[family-name:var(--font-display)] text-3xl font-black text-amber-300">
+            {counts.agents}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-blue">
+            Central agents + B2B partners + industry peers
+          </p>
+        </button>
+        <button
+          onClick={() => setTab("clients")}
+          className="glass-card text-left p-5 transition-all hover:border-emerald-400/40"
+        >
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-emerald-300/70 uppercase">
+            Clients
+          </p>
+          <p className="mt-2 font-[family-name:var(--font-display)] text-3xl font-black text-emerald-300">
+            {counts.clients}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-blue">
+            Direct + broker clients on charters or in pipeline
+          </p>
+        </button>
+        <button
+          onClick={() => setTab("other")}
+          className="glass-card text-left p-5 transition-all hover:border-pink-400/40"
+        >
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-pink-300/70 uppercase">
+            Other
+          </p>
+          <p className="mt-2 font-[family-name:var(--font-display)] text-3xl font-black text-pink-300">
+            {counts.other}
+          </p>
+          <p className="mt-1 text-[11px] text-muted-blue">
+            Press / media + uncategorized starred
+          </p>
         </button>
       </div>
 
-      {/* Filters — sticky on mobile */}
-      <div className="mb-4 sm:mb-6 sticky top-0 z-10 -mx-4 sm:mx-0 px-4 sm:px-0 py-2 sm:py-0 bg-deep-space/80 backdrop-blur-lg sm:bg-transparent sm:backdrop-blur-none">
-        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-3">
-          {/* Search */}
-          <div className="relative flex-1 min-w-0 sm:min-w-[200px]">
-            <svg
-              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-blue"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-              />
-            </svg>
-            <input
-              type="text"
-              placeholder="SEARCH ASSETS..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-border-glow bg-glass-dark py-2.5 pl-10 pr-4 text-sm text-soft-white placeholder:text-muted-blue/50 focus:border-electric-cyan/30 focus:outline-none focus:ring-1 focus:ring-electric-cyan/20 min-h-[44px]"
-            />
-          </div>
-
-          {/* Quick view chips — preselect the most-used filter combos so
-              George doesn't have to drive the dropdowns every time. */}
-          <div className="flex gap-1.5 overflow-x-auto">
-            {(
-              [
-                { label: "All", source: "" },
-                { label: "Outreach", source: "outreach_bot" },
-                { label: "Guest network", source: "guest_network" },
-                { label: "Inbound", source: "inbound_email" },
-                { label: "Manual", source: "manual" },
-              ] as const
-            ).map((q) => {
-              const active = filterSource === q.source;
-              return (
-                <button
-                  key={q.label}
-                  onClick={() => setFilterSource(q.source)}
-                  className={`shrink-0 rounded-full border px-3 py-1.5 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider uppercase transition-colors ${
-                    active
-                      ? "border-electric-cyan/40 bg-electric-cyan/10 text-electric-cyan"
-                      : "border-border-glow bg-glass-dark text-muted-blue hover:text-ivory"
-                  }`}
-                >
-                  {q.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto">
-            <select
-              value={filterStage}
-              onChange={(e) => setFilterStage(e.target.value)}
-              className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
-            >
-              <option value="">All Stages</option>
-              {stages.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={filterSource}
-              onChange={(e) => setFilterSource(e.target.value)}
-              className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
-            >
-              <option value="">All Sources</option>
-              {sources.map((s) => (
-                <option key={s} value={s}>
-                  {SOURCE_LABELS[s] ?? s}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={filterCountry}
-              onChange={(e) => setFilterCountry(e.target.value)}
-              className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
-            >
-              <option value="">All Countries</option>
-              {countries.map((c) => (
-                <option key={c} value={c}>
-                  {getFlagFromCountry(c)} {c}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
-            >
-              <option value="">All Types</option>
-              {contactTypes.map((t) => (
-                <option key={t} value={t}>
-                  {CONTACT_TYPES[t as ContactType]?.label ?? t}
-                </option>
-              ))}
-            </select>
-
-            {/* Pillar 2: AI tag filter. Empty until /api/admin/inbox-tag
-                has run; tag values are emitted by the AI tagger and
-                stored as JSON in contacts.tags_v2. */}
-            <select
-              value={filterTagV2}
-              onChange={(e) => setFilterTagV2(e.target.value)}
-              className="rounded-lg border border-border-glow bg-glass-dark px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
-              title="Filter by AI-assigned tag (Pillar 2)"
-            >
-              <option value="">All AI Tags</option>
-              {Object.entries(TAG_V2_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
-
-            {/* Pillar 2: CSV export of the current filtered set. */}
-            <a
-              href={`/api/crm/contacts/export${
-                filterTagV2 ? `?tag=${filterTagV2}` : ""
-              }`}
-              className="inline-flex items-center rounded-lg border border-electric-cyan/40 bg-electric-cyan/10 px-3 py-2.5 text-sm text-electric-cyan hover:bg-electric-cyan/20 min-h-[44px]"
-              title="Download CSV of contacts (apply tag filter first if you want a subset)"
-            >
-              ↓ CSV
-            </a>
-          </div>
-        </div>
+      <div className="glass-card p-5">
+        <p className="mb-3 font-[family-name:var(--font-mono)] text-[11px] font-bold tracking-[2px] text-electric-cyan uppercase">
+          🕒 Recent activity
+        </p>
+        {recent.length === 0 ? (
+          <p className="text-sm text-muted-blue">
+            No activity yet. Star a thread in Gmail to surface someone here.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border-glow">
+            {recent.map((c) => (
+              <li
+                key={c.id}
+                onClick={() => router.push(`/dashboard/contacts/${c.id}`)}
+                className="flex items-center justify-between py-3 cursor-pointer hover:bg-glass-light/30 -mx-2 px-2 rounded transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-soft-white truncate">
+                    {getFlagFromCountry(c.country)} {c.first_name} {c.last_name}
+                    {c.company && (
+                      <span className="text-muted-blue/70">
+                        {" "}
+                        · {c.company}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-muted-blue/60 truncate">
+                    {c.email}
+                  </p>
+                </div>
+                <div className="ml-3 flex items-center gap-2">
+                  {c.contact_type &&
+                    CONTACT_TYPES[c.contact_type as ContactType] && (
+                      <span
+                        className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium"
+                        style={{
+                          backgroundColor: `${CONTACT_TYPES[c.contact_type as ContactType].color}20`,
+                          color: CONTACT_TYPES[c.contact_type as ContactType].color,
+                        }}
+                      >
+                        {CONTACT_TYPES[c.contact_type as ContactType].label}
+                      </span>
+                    )}
+                  <span className="text-[10px] text-muted-blue/50">
+                    {timeAgo(c.last_activity_at)}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
+    </>
+  );
 
-      {/* ─── Mobile: Card view ─────────────────────────────────────── */}
+  // List/table renderer reused for non-overview tabs
+  const ListTab = (
+    <>
+      {/* Mobile cards */}
       <div className="block sm:hidden space-y-3">
         {filtered.length === 0 && (
           <div className="py-12 text-center text-sm text-muted-blue">
-            No contacts found
+            No contacts found in this category.
           </div>
         )}
         {filtered.map((contact) => {
@@ -314,8 +407,9 @@ export default function ContactsClient({
               <div className="flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 text-sm font-semibold text-soft-white truncate">
-                    {getFlagFromCountry(contact.country)}{" "}
-                    {contact.first_name} {contact.last_name}
+                    <span className="text-amber-300">⭐</span>
+                    {getFlagFromCountry(contact.country)} {contact.first_name}{" "}
+                    {contact.last_name}
                     {contact.linkedin_url && (
                       <a
                         href={contact.linkedin_url}
@@ -323,8 +417,7 @@ export default function ContactsClient({
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
                         className="inline-flex h-5 w-5 items-center justify-center rounded text-[#0a66c2] transition-colors hover:bg-[#0a66c2]/15"
-                        title="Open LinkedIn profile"
-                        aria-label="Open LinkedIn profile"
+                        aria-label="LinkedIn"
                       >
                         <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.063 2.063 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
@@ -338,23 +431,24 @@ export default function ContactsClient({
                     </p>
                   )}
                 </div>
-                {stage && (
-                  <span
-                    className="ml-3 shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-medium"
-                    style={{
-                      backgroundColor: `${(stage as PipelineStage).color}20`,
-                      color: (stage as PipelineStage).color,
-                    }}
-                  >
-                    {(stage as PipelineStage).name}
-                  </span>
-                )}
+                {contact.contact_type &&
+                  CONTACT_TYPES[contact.contact_type as ContactType] && (
+                    <span
+                      className="ml-3 shrink-0 inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-medium"
+                      style={{
+                        backgroundColor: `${CONTACT_TYPES[contact.contact_type as ContactType].color}20`,
+                        color: CONTACT_TYPES[contact.contact_type as ContactType].color,
+                      }}
+                    >
+                      {CONTACT_TYPES[contact.contact_type as ContactType].label}
+                    </span>
+                  )}
               </div>
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-[10px] text-muted-blue/60">
-                  {contact.email ?? "\u2014"}
+                <span className="text-[10px] text-muted-blue/60 truncate">
+                  {contact.email ?? "—"}
                 </span>
-                <span className="text-[10px] text-muted-blue/40">
+                <span className="text-[10px] text-muted-blue/40 ml-2 shrink-0">
                   {timeAgo(contact.last_activity_at)}
                 </span>
               </div>
@@ -372,21 +466,24 @@ export default function ContactsClient({
                           color: meta.color,
                           border: `1px solid ${meta.color}40`,
                         }}
-                        title={`${meta.label} \u00b7 confidence ${(t.confidence * 100).toFixed(0)}%${t.source === "manual" ? " \u00b7 manual" : ""}`}
                       >
                         {meta.label}
-                        {t.confidence < 0.6 && <span className="opacity-70">?</span>}
                       </span>
                     );
                   })}
-                  {contact.tags_overridden && (
-                    <span
-                      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium border border-electric-cyan/30 text-electric-cyan/80"
-                      title="Tags manually overridden by you"
-                    >
-                      \u270e
-                    </span>
-                  )}
+                </div>
+              )}
+              {stage && (
+                <div className="mt-2">
+                  <span
+                    className="inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium"
+                    style={{
+                      backgroundColor: `${(stage as PipelineStage).color}20`,
+                      color: (stage as PipelineStage).color,
+                    }}
+                  >
+                    {(stage as PipelineStage).name}
+                  </span>
                 </div>
               )}
             </button>
@@ -394,12 +491,12 @@ export default function ContactsClient({
         })}
       </div>
 
-      {/* ─── Desktop: Table view ───────────────────────────────────── */}
+      {/* Desktop table */}
       <div className="hidden sm:block overflow-hidden rounded-xl border border-border-glow">
         <table className="w-full">
           <thead>
             <tr className="border-b border-border-glow bg-glass-dark">
-              {["Name", "Company", "Country", "Email", "Type", "Stage", "Source", "Last Activity"].map(
+              {["Name", "Company", "Country", "Email", "Type", "Stage", "Last Activity"].map(
                 (h) => (
                   <th
                     key={h}
@@ -407,21 +504,20 @@ export default function ContactsClient({
                   >
                     {h}
                   </th>
-                )
+                ),
               )}
             </tr>
           </thead>
           <tbody className="divide-y divide-border-glow">
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-sm text-muted-blue">
-                  No contacts found
+                <td colSpan={7} className="px-5 py-12 text-center text-sm text-muted-blue">
+                  No contacts found in this category.
                 </td>
               </tr>
             )}
             {filtered.map((contact) => {
               const stage = contact.pipeline_stage;
-              const srcLabel = SOURCE_LABELS[contact.source ?? ""] ?? contact.source ?? "\u2014";
               return (
                 <tr
                   key={contact.id}
@@ -430,6 +526,7 @@ export default function ContactsClient({
                 >
                   <td className="px-5 py-4">
                     <p className="flex items-center gap-1.5 text-sm font-medium text-soft-white">
+                      <span className="text-amber-300">⭐</span>
                       {contact.first_name} {contact.last_name}
                       {contact.linkedin_url && (
                         <a
@@ -438,8 +535,7 @@ export default function ContactsClient({
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
                           className="inline-flex h-5 w-5 items-center justify-center rounded text-[#0a66c2] transition-colors hover:bg-[#0a66c2]/15"
-                          title="Open LinkedIn profile"
-                          aria-label="Open LinkedIn profile"
+                          aria-label="LinkedIn"
                         >
                           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.063 2.063 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
@@ -449,16 +545,18 @@ export default function ContactsClient({
                     </p>
                   </td>
                   <td className="px-5 py-4 text-sm text-muted-blue">
-                    {contact.company ?? "\u2014"}
+                    {contact.company ?? "—"}
                   </td>
                   <td className="px-5 py-4 text-sm text-muted-blue">
-                    {getFlagFromCountry(contact.country)} {contact.country ?? "\u2014"}
+                    {getFlagFromCountry(contact.country)}{" "}
+                    {contact.country ?? "—"}
                   </td>
                   <td className="px-5 py-4 text-sm text-muted-blue/70">
-                    {contact.email ?? "\u2014"}
+                    {contact.email ?? "—"}
                   </td>
                   <td className="px-5 py-4">
-                    {contact.contact_type && CONTACT_TYPES[contact.contact_type as ContactType] ? (
+                    {contact.contact_type &&
+                    CONTACT_TYPES[contact.contact_type as ContactType] ? (
                       <span
                         className="inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-medium"
                         style={{
@@ -469,7 +567,7 @@ export default function ContactsClient({
                         {CONTACT_TYPES[contact.contact_type as ContactType].label}
                       </span>
                     ) : (
-                      <span className="text-xs text-muted-blue/30">{"\u2014"}</span>
+                      <span className="text-xs text-muted-blue/30">—</span>
                     )}
                   </td>
                   <td className="px-5 py-4">
@@ -484,10 +582,9 @@ export default function ContactsClient({
                         {(stage as PipelineStage).name}
                       </span>
                     ) : (
-                      <span className="text-xs text-muted-blue/30">\u2014</span>
+                      <span className="text-xs text-muted-blue/30">—</span>
                     )}
                   </td>
-                  <td className="px-5 py-4 text-xs text-muted-blue/60">{srcLabel}</td>
                   <td className="px-5 py-4 text-xs text-muted-blue/50">
                     {timeAgo(contact.last_activity_at)}
                   </td>
@@ -497,6 +594,35 @@ export default function ContactsClient({
           </tbody>
         </table>
       </div>
+    </>
+  );
+
+  // Empty-state for fully-empty CRM (no starred at all yet)
+  const EmptyState = (
+    <div className="glass-card p-8 text-center">
+      <p className="mb-2 text-2xl">⭐</p>
+      <p className="font-[family-name:var(--font-display)] text-lg text-soft-white">
+        No starred contacts yet
+      </p>
+      <p className="mt-2 text-sm text-muted-blue">
+        Star a thread in Gmail and it will appear here automatically. The
+        nightly star-sync (04:00 Athens) and live star endpoint keep this
+        page in sync with your inbox.
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8">
+      {HeaderBar}
+      {TabBar}
+      {FiltersRow}
+
+      {contacts.length === 0
+        ? EmptyState
+        : tab === "overview"
+          ? OverviewTab
+          : ListTab}
 
       {/* Add Contact Modal */}
       {showModal && (
@@ -515,6 +641,10 @@ export default function ContactsClient({
                 </svg>
               </button>
             </div>
+
+            <p className="mb-4 text-[11px] text-muted-blue">
+              New contacts are auto-starred so they show up in this list.
+            </p>
 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -597,33 +727,19 @@ export default function ContactsClient({
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-[11px] font-medium tracking-wider text-muted-blue uppercase">Source</label>
+                  <label className="mb-1 block text-[11px] font-medium tracking-wider text-muted-blue uppercase">Type</label>
                   <select
-                    value={form.source}
-                    onChange={(e) => setForm({ ...form, source: e.target.value })}
+                    value={form.contact_type}
+                    onChange={(e) => setForm({ ...form, contact_type: e.target.value })}
                     className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
                   >
-                    <option value="manual">Manual</option>
-                    <option value="website_lead">Website Lead</option>
-                    <option value="website_inquiry">Website Inquiry</option>
-                    <option value="outreach_bot">Outreach Bot</option>
-                    <option value="referral">Referral</option>
-                    <option value="partner">Partner</option>
+                    {Object.entries(CONTACT_TYPES).map(([key, val]) => (
+                      <option key={key} value={key}>
+                        {val.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-[11px] font-medium tracking-wider text-muted-blue uppercase">Contact Type</label>
-                <select
-                  value={form.contact_type}
-                  onChange={(e) => setForm({ ...form, contact_type: e.target.value })}
-                  className="w-full rounded-lg border border-border-glow bg-glass-light px-3 py-2.5 text-sm text-muted-blue focus:border-electric-cyan/30 focus:outline-none min-h-[44px]"
-                >
-                  {Object.entries(CONTACT_TYPES).map(([key, val]) => (
-                    <option key={key} value={key}>{val.label}</option>
-                  ))}
-                </select>
               </div>
             </div>
 

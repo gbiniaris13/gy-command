@@ -7,12 +7,16 @@ export default async function ContactsPage() {
   const cookieStore = await cookies();
   const supabase = createServerSupabaseClient(cookieStore);
 
+  // Starred-only by design — see ContactsClient header copy. Non-starred
+  // contacts are noise; the inbox-star-sync nightly cron and live star
+  // endpoint keep this list aligned with George's Gmail starred state.
   const [contactsRes, stagesRes] = await Promise.all([
     supabase
       .from("contacts")
       .select(
         "*, pipeline_stage:pipeline_stages(*), contact_tags(tag:tags(*))",
       )
+      .eq("inbox_starred", true)
       .order("last_activity_at", { ascending: false })
       .limit(2000),
     supabase
@@ -24,17 +28,8 @@ export default async function ContactsPage() {
   const contacts = (contactsRes.data ?? []) as Contact[];
   const stages = (stagesRes.data ?? []) as PipelineStage[];
 
-  // Collect unique countries and sources for filters
   const countries = Array.from(
-    new Set(contacts.map((c) => c.country).filter(Boolean))
-  ).sort() as string[];
-
-  const sources = Array.from(
-    new Set(contacts.map((c) => c.source).filter(Boolean))
-  ).sort() as string[];
-
-  const contactTypes = Array.from(
-    new Set(contacts.map((c) => c.contact_type).filter(Boolean))
+    new Set(contacts.map((c) => c.country).filter(Boolean)),
   ).sort() as string[];
 
   return (
@@ -42,8 +37,6 @@ export default async function ContactsPage() {
       contacts={contacts}
       stages={stages}
       countries={countries}
-      sources={sources}
-      contactTypes={contactTypes}
     />
   );
 }

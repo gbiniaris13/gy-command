@@ -101,7 +101,12 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // vessels.central_agent_contact_id (no ON DELETE — would block anyway)
+  // vessels.central_agent_contact_id (no ON DELETE — would block anyway).
+  // For deals: the outreach bot creates a stub deal per cold lead, so
+  // a deal row alone is not enough — we require REAL business signal:
+  //   - charter_fee_eur > 0, OR
+  //   - payment_status in ('paid', 'partial'), OR
+  //   - lifecycle_status in ('active', 'in_progress', 'completed').
   if (candidateIds.length > 0) {
     const CHUNK = 200;
     for (let i = 0; i < candidateIds.length; i += CHUNK) {
@@ -116,11 +121,20 @@ export async function GET(request: NextRequest) {
       }
       const { data: dRows } = await sb
         .from("deals")
-        .select("primary_contact_id")
+        .select("primary_contact_id, charter_fee_eur, payment_status, lifecycle_status")
         .in("primary_contact_id", slice);
       for (const r of dRows ?? []) {
-        if (r.primary_contact_id)
+        if (!r.primary_contact_id) continue;
+        const realFee = (r.charter_fee_eur ?? 0) > 0;
+        const realPayment = ["paid", "partial"].includes(
+          (r.payment_status ?? "").toLowerCase(),
+        );
+        const realLifecycle = ["active", "in_progress", "completed"].includes(
+          (r.lifecycle_status ?? "").toLowerCase(),
+        );
+        if (realFee || realPayment || realLifecycle) {
           protectedIds.add(r.primary_contact_id as string);
+        }
       }
     }
   }
