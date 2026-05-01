@@ -389,13 +389,17 @@ async function checkRecentCronFailures(sb: any): Promise<CheckResult> {
       return ok("Cron health (24h)", ms, "no records — observer may be off or quiet day");
     }
     let failed = 0;
-    const failedJobs = new Set<string>();
+    const failedJobs = new Map<string, string>(); // name → most-recent detail
     for (const row of data) {
       try {
         const v = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
         if (v?.outcome && v.outcome !== "success" && v.outcome !== "skipped") {
           failed += 1;
-          if (v.cron_id) failedJobs.add(String(v.cron_id));
+          // cron-observer writes the field as `name`, not `cron_id`.
+          // Previous code looked up the wrong key so the failure list
+          // was always empty in the digest.
+          const jobName = String(v.name ?? v.cron_id ?? "unknown");
+          failedJobs.set(jobName, String(v.detail ?? v.outcome ?? ""));
         }
       } catch {
         // skip malformed
@@ -404,9 +408,12 @@ async function checkRecentCronFailures(sb: any): Promise<CheckResult> {
     if (failed === 0) {
       return ok("Cron health (24h)", ms, `${data.length} runs, all green`);
     }
+    const list = [...failedJobs.entries()]
+      .slice(0, 4)
+      .map(([n, d]) => (d ? `${n} (${d.slice(0, 60)})` : n));
     return warn(
       "Cron health (24h)",
-      `${failed} failure(s) in last 24h: ${[...failedJobs].slice(0, 4).join(", ")}${failedJobs.size > 4 ? "…" : ""}`,
+      `${failed} failure(s) in last 24h: ${list.join(", ")}${failedJobs.size > 4 ? "…" : ""}`,
     );
   } catch (e: any) {
     return warn("Cron health (24h)", e?.message ?? "exception");
