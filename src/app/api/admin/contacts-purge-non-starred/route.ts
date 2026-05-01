@@ -86,18 +86,38 @@ export async function GET(request: NextRequest) {
 
   // FK reverse-lookup: which candidate IDs appear in dependent tables?
   const protectedIds = new Set<string>();
+  const reasons = new Map<string, string>();
+  const counts = {
+    contact_self_fee: 0,
+    contact_self_commission: 0,
+    contact_self_vessel: 0,
+    contact_self_payment: 0,
+    vessel_central_agent: 0,
+    deal_real: 0,
+  };
 
   // Fee / commission / vessel field populated on contact itself
   for (const c of candidatesForDeletion) {
-    if (
-      c.charter_fee !== null ||
-      c.commission_earned !== null ||
-      c.charter_vessel !== null ||
-      (c.payment_status !== null &&
-        c.payment_status !== "" &&
-        c.payment_status !== "none")
+    if (c.charter_fee !== null) {
+      protectedIds.add(c.id);
+      reasons.set(c.id, "charter_fee");
+      counts.contact_self_fee++;
+    } else if (c.commission_earned !== null) {
+      protectedIds.add(c.id);
+      reasons.set(c.id, "commission_earned");
+      counts.contact_self_commission++;
+    } else if (c.charter_vessel !== null) {
+      protectedIds.add(c.id);
+      reasons.set(c.id, "charter_vessel");
+      counts.contact_self_vessel++;
+    } else if (
+      c.payment_status !== null &&
+      c.payment_status !== "" &&
+      c.payment_status !== "none"
     ) {
       protectedIds.add(c.id);
+      reasons.set(c.id, `payment_status=${c.payment_status}`);
+      counts.contact_self_payment++;
     }
   }
 
@@ -116,12 +136,20 @@ export async function GET(request: NextRequest) {
         .select("central_agent_contact_id")
         .in("central_agent_contact_id", slice);
       for (const r of vRows ?? []) {
-        if (r.central_agent_contact_id)
-          protectedIds.add(r.central_agent_contact_id as string);
+        if (r.central_agent_contact_id) {
+          const id = r.central_agent_contact_id as string;
+          if (!protectedIds.has(id)) {
+            protectedIds.add(id);
+            reasons.set(id, "vessel_central_agent");
+            counts.vessel_central_agent++;
+          }
+        }
       }
       const { data: dRows } = await sb
         .from("deals")
-        .select("primary_contact_id, charter_fee_eur, payment_status, lifecycle_status")
+        .select(
+          "primary_contact_id, charter_fee_eur, payment_status, lifecycle_status",
+        )
         .in("primary_contact_id", slice);
       for (const r of dRows ?? []) {
         if (!r.primary_contact_id) continue;
@@ -133,7 +161,17 @@ export async function GET(request: NextRequest) {
           (r.lifecycle_status ?? "").toLowerCase(),
         );
         if (realFee || realPayment || realLifecycle) {
-          protectedIds.add(r.primary_contact_id as string);
+          const id = r.primary_contact_id as string;
+          if (!protectedIds.has(id)) {
+            protectedIds.add(id);
+            const why = realFee
+              ? `deal_fee=${r.charter_fee_eur}`
+              : realPayment
+                ? `deal_payment=${r.payment_status}`
+                : `deal_lifecycle=${r.lifecycle_status}`;
+            reasons.set(id, why);
+            counts.deal_real++;
+          }
         }
       }
     }
@@ -175,14 +213,9 @@ export async function GET(request: NextRequest) {
     sample_protected: protectedList.slice(0, 10).map((c) => ({
       email: c.email,
       name: `${c.first_name ?? ""} ${c.last_name ?? ""}`.trim(),
-      reason: c.charter_fee
-        ? "charter_fee"
-        : c.commission_earned
-          ? "commission_earned"
-          : c.charter_vessel
-            ? "charter_vessel"
-            : "vessel/deal FK",
+      reason: reasons.get(c.id) ?? "unknown",
     })),
+    protection_counts: counts,
   };
 
   if (!apply) {
