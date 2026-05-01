@@ -111,9 +111,13 @@ export async function GET(request: NextRequest) {
       reasons.set(c.id, "charter_vessel");
       counts.contact_self_vessel++;
     } else if (
-      c.payment_status !== null &&
-      c.payment_status !== "" &&
-      c.payment_status !== "none"
+      // Only "real money has moved" counts. The outreach bot sets
+      // every auto-created contact's payment_status to 'pending' as a
+      // default, so 'pending' is noise — only paid/partial/refunded
+      // indicates a real charter financial relationship.
+      ["paid", "partial", "refunded"].includes(
+        (c.payment_status ?? "").toLowerCase(),
+      )
     ) {
       protectedIds.add(c.id);
       reasons.set(c.id, `payment_status=${c.payment_status}`);
