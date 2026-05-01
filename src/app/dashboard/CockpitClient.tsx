@@ -738,12 +738,17 @@ function Brainstorm({ initialPrompt }: { initialPrompt: string }) {
 }
 
 export default function CockpitClient({ briefing }: { briefing: CockpitBriefing }) {
-  const today = new Date().toLocaleDateString("en-GB", {
+  // Two distinct "today" values: a human display string and an ISO
+  // date for comparisons. The CharterMilestonesList compared due_date
+  // (ISO YYYY-MM-DD) against the formatted English date — every row
+  // always rendered as 🟢 because the strings never matched.
+  const todayDisplay = new Date().toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
   });
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -819,7 +824,7 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
           <h1 className="font-serif text-4xl font-light leading-tight">
             {briefing.greeting}
           </h1>
-          <p className="text-white/40 text-sm mt-1">{today} · Cockpit</p>
+          <p className="text-white/40 text-sm mt-1">{todayDisplay} · Cockpit</p>
         </header>
 
         {/* PILLAR 4 — Promised Commitments. Top of cockpit when present
@@ -862,7 +867,7 @@ export default function CockpitClient({ briefing }: { briefing: CockpitBriefing 
               </div>
               <CharterMilestonesList
                 rows={briefing.charters_ready.rows}
-                today={today}
+                today={todayIso}
               />
             </section>
           )}

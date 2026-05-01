@@ -503,7 +503,7 @@ export default function RevenueClient({
               {formatCurrency(totalWeighted)}
             </p>
             <p className="mt-1 text-[11px] text-muted-blue/60">
-              {formatFull(totalWeighted)} expected commission · weighted by stage probability
+              {formatFull(totalWeighted)} weighted pipeline value · multiply by your commission rate (~10–15%) for expected income
             </p>
             <p className="mt-2 text-[10px] text-muted-blue/40">
               Probabilities: Hot 70% · Meeting 50% · Proposal 40% · Warm 25% · New 10%

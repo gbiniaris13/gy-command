@@ -89,10 +89,27 @@ function sanitizeStats(body: Partial<StatsSnapshot>): StatsSnapshot {
 
 export async function GET() {
   const sb = createServiceClient();
-  const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-  const weekStart = new Date(now.getTime() - 7 * 86400000);
+  // Athens-aware "today" — Vercel runs in UTC. setHours(0,0,0,0) on a
+  // UTC-instant gave UTC midnight, which dropped late-evening Athens
+  // contacts into the wrong day bucket (~3h drift in summer).
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Athens",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(new Date()).map((p) => [p.type, p.value]),
+  );
+  const probe = new Date(
+    Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)),
+  );
+  const athensOffsetMin =
+    -new Date(probe.toLocaleString("en-US", { timeZone: "Europe/Athens" })).getTime() /
+      60000 +
+    probe.getTime() / 60000;
+  const todayStart = new Date(probe.getTime() - athensOffsetMin * 60000);
+  const weekStart = new Date(todayStart.getTime() - 7 * 86400000);
 
   const [todayRes, weekRes, totalRes, recentRes, snapshot, perBot] = await Promise.all([
     sb

@@ -412,22 +412,73 @@ export default function EmailClient() {
               return (
                 <SwipeableEmail
                   key={msg.id}
-                  onArchive={() => {
+                  onArchive={async () => {
+                    // Optimistic remove + actually call Gmail API.
+                    // Previously this was state-only — emails reappeared
+                    // on next 2-min auto-refresh.
                     const removed = msg;
                     setMessages((p) => p.filter((m) => m.id !== msg.id));
-                    setSwipeToast({
-                      msg: "Archived",
-                      undoFn: () => setMessages((p) => [removed, ...p]),
-                    });
+                    try {
+                      const res = await fetch("/api/gmail/archive", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ messageId: msg.id }),
+                      });
+                      if (!res.ok) throw new Error(await res.text());
+                      setSwipeToast({
+                        msg: "Archived",
+                        undoFn: async () => {
+                          // Restoring an archived message re-adds INBOX
+                          // label via /modify.
+                          await fetch("/api/gmail/messages/" + msg.id, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              addLabelIds: ["INBOX"],
+                              removeLabelIds: [],
+                            }),
+                          }).catch(() => {});
+                          setMessages((p) => [removed, ...p]);
+                        },
+                      });
+                    } catch {
+                      // API failed — restore locally + alert
+                      setMessages((p) => [removed, ...p]);
+                      setSwipeToast({
+                        msg: "Archive failed",
+                        undoFn: () => {},
+                      });
+                    }
                     setTimeout(() => setSwipeToast(null), 3000);
                   }}
-                  onDelete={() => {
+                  onDelete={async () => {
                     const removed = msg;
                     setMessages((p) => p.filter((m) => m.id !== msg.id));
-                    setSwipeToast({
-                      msg: "Deleted",
-                      undoFn: () => setMessages((p) => [removed, ...p]),
-                    });
+                    try {
+                      const res = await fetch("/api/gmail/trash", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ messageId: msg.id }),
+                      });
+                      if (!res.ok) throw new Error(await res.text());
+                      setSwipeToast({
+                        msg: "Moved to trash",
+                        undoFn: async () => {
+                          await fetch("/api/gmail/trash", {
+                            method: "DELETE",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ messageId: msg.id }),
+                          }).catch(() => {});
+                          setMessages((p) => [removed, ...p]);
+                        },
+                      });
+                    } catch {
+                      setMessages((p) => [removed, ...p]);
+                      setSwipeToast({
+                        msg: "Delete failed",
+                        undoFn: () => {},
+                      });
+                    }
                     setTimeout(() => setSwipeToast(null), 3000);
                   }}
                 >
@@ -602,7 +653,7 @@ export default function EmailClient() {
                     )}
                   </div>
                   <Link
-                    href={`/dashboard/contacts?id=${matchedContact.id}`}
+                    href={`/dashboard/contacts/${matchedContact.id}`}
                     className="rounded border border-gold/30 px-3 py-1 text-xs font-medium text-gold hover:bg-gold/10"
                   >
                     View in CRM

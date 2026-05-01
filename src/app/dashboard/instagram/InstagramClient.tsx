@@ -287,7 +287,23 @@ export default function InstagramClient() {
         schedule_time: null,
       };
       if (asScheduled && scheduleDate) {
-        body.schedule_time = new Date(`${scheduleDate}T${scheduleTime}:00`).toISOString();
+        // Treat the picker's date+time as ATHENS local. Without an
+        // explicit TZ marker JS resolves the string in browser-local
+        // (Vercel/dev = UTC), which posted content 3h late vs intent.
+        // The rest of this file (nextPeakSlot etc) is Athens-aware so
+        // this aligns the persistence path with the UI assumption.
+        const [year, month, day] = scheduleDate.split("-").map(Number);
+        const [hh, mm] = scheduleTime.split(":").map(Number);
+        // Build the Athens wall-clock instant: take UTC for that
+        // wall-clock then offset by current Athens TZ delta.
+        const probe = new Date(Date.UTC(year, month - 1, day, hh, mm));
+        const athensOffsetMin =
+          -new Date(probe.toLocaleString("en-US", { timeZone: "Europe/Athens" })).getTime() /
+            60000 +
+          probe.getTime() / 60000;
+        body.schedule_time = new Date(
+          probe.getTime() - athensOffsetMin * 60000,
+        ).toISOString();
       }
       const res = await fetch("/api/instagram/posts", {
         method: "POST",
