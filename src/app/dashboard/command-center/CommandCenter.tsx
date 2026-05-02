@@ -60,6 +60,37 @@ export default function CommandCenter({ snapshot }: Props) {
   const [glowCard, setGlowCard] = useState<number | null>(null);
   const [hoveredExec, setHoveredExec] = useState<string | null>(null);
 
+  // Tier 3b — Ask the Cockpit
+  const [askInput, setAskInput] = useState<string>("");
+  const [askAnswer, setAskAnswer] = useState<string | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [askLoading, setAskLoading] = useState<boolean>(false);
+
+  const submitAsk = useCallback(async () => {
+    const q = askInput.trim();
+    if (!q || askLoading) return;
+    setAskLoading(true);
+    setAskError(null);
+    setAskAnswer(null);
+    try {
+      const res = await fetch("/api/command-center/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAskError(data?.error ?? `HTTP ${res.status}`);
+      } else {
+        setAskAnswer(data?.answer ?? "(empty answer)");
+      }
+    } catch (e: any) {
+      setAskError(e?.message ?? "Network error");
+    } finally {
+      setAskLoading(false);
+    }
+  }, [askInput, askLoading]);
+
   // ─── Audio helpers ──────────────────────────────────────────────────────
   const getAudioCtx = useCallback(() => {
     if (!audioCtxRef.current) {
@@ -932,6 +963,112 @@ export default function CommandCenter({ snapshot }: Props) {
                 );
               })}
             </div>
+          </div>
+
+          {/* ── ASK THE COCKPIT (Tier 3b) ───────────────────────────────── */}
+          {/* Free-text question → server pre-fetches a context bundle from
+              Supabase + the snapshot, then asks the AI helper. The model
+              reasons over real CRM JSON, never raw SQL. Bounded server-
+              side. Newsletter is excluded from context by design. */}
+          <div
+            style={{
+              background: "rgba(0, 20, 40, 0.55)",
+              border: "1px solid rgba(0, 255, 200, 0.18)",
+              borderRadius: 8,
+              padding: 16,
+              marginBottom: 40,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 10, letterSpacing: 3, color: "rgba(160,255,224,0.6)", textTransform: "uppercase" }}>
+                ASK THE COCKPIT
+              </span>
+              <span
+                style={{
+                  fontSize: 8,
+                  letterSpacing: 2,
+                  padding: "1px 6px",
+                  borderRadius: 3,
+                  background: "rgba(0,100,255,0.18)",
+                  color: "#5fb0ff",
+                  border: "1px solid rgba(0,100,255,0.35)",
+                }}
+              >
+                BETA
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+              <input
+                type="text"
+                value={askInput}
+                onChange={(e) => setAskInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitAsk();
+                  }
+                }}
+                placeholder="e.g. πόσα active deals έχω; / what's at risk this week?"
+                disabled={askLoading}
+                maxLength={500}
+                style={{
+                  flex: 1,
+                  background: "rgba(0,10,20,0.7)",
+                  border: "1px solid rgba(0,255,200,0.25)",
+                  borderRadius: 4,
+                  color: "#a0ffe0",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  padding: "10px 12px",
+                  outline: "none",
+                }}
+                onFocus={(e) => ((e.currentTarget as HTMLInputElement).style.borderColor = "rgba(0,255,200,0.6)")}
+                onBlur={(e) => ((e.currentTarget as HTMLInputElement).style.borderColor = "rgba(0,255,200,0.25)")}
+              />
+              <button
+                onClick={() => {
+                  playBlip();
+                  submitAsk();
+                }}
+                disabled={askLoading || !askInput.trim()}
+                style={{
+                  background: askLoading ? "rgba(0,100,255,0.25)" : "rgba(0,255,200,0.18)",
+                  border: "1px solid rgba(0,255,200,0.4)",
+                  color: "#00ffc8",
+                  fontFamily: "monospace",
+                  fontSize: 11,
+                  letterSpacing: 2,
+                  padding: "0 18px",
+                  borderRadius: 4,
+                  cursor: askLoading || !askInput.trim() ? "not-allowed" : "pointer",
+                  textTransform: "uppercase",
+                  fontWeight: 700,
+                  opacity: askLoading || !askInput.trim() ? 0.5 : 1,
+                  transition: "background 0.2s",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {askLoading ? "QUERYING…" : "ASK"}
+              </button>
+            </div>
+            {(askAnswer || askError) && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  background: "rgba(0,10,20,0.8)",
+                  border: `1px solid ${askError ? "rgba(255,51,102,0.35)" : "rgba(0,255,200,0.15)"}`,
+                  borderRadius: 4,
+                  fontSize: 12,
+                  lineHeight: 1.6,
+                  color: askError ? "#ff6688" : "#a0ffe0",
+                  whiteSpace: "pre-wrap",
+                  fontFamily: "monospace",
+                }}
+              >
+                {askError ? `⛔ ${askError}` : askAnswer}
+              </div>
+            )}
           </div>
 
           {/* ── EXECUTIVE GRID ──────────────────────────────────────────── */}
