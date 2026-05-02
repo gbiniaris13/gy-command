@@ -66,6 +66,50 @@ export default function CommandCenter({ snapshot }: Props) {
   const [askError, setAskError] = useState<string | null>(null);
   const [askLoading, setAskLoading] = useState<boolean>(false);
 
+  // Tier 3d — Voice briefing playback
+  const [voiceState, setVoiceState] = useState<"idle" | "loading" | "playing" | "error">("idle");
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const playVoiceBrief = useCallback(async () => {
+    if (voiceState === "loading" || voiceState === "playing") return;
+    setVoiceState("loading");
+    setVoiceError(null);
+    try {
+      const res = await fetch("/api/command-center/voice-brief");
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.addEventListener("ended", () => {
+        setVoiceState("idle");
+        URL.revokeObjectURL(url);
+      });
+      audio.addEventListener("error", () => {
+        setVoiceState("error");
+        setVoiceError("Audio playback failed");
+        URL.revokeObjectURL(url);
+      });
+      await audio.play();
+      setVoiceState("playing");
+    } catch (e: any) {
+      setVoiceState("error");
+      setVoiceError(e?.message ?? "Voice brief failed");
+    }
+  }, [voiceState]);
+
+  const stopVoiceBrief = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setVoiceState("idle");
+  }, []);
+
   const submitAsk = useCallback(async () => {
     const q = askInput.trim();
     if (!q || askLoading) return;
@@ -708,7 +752,7 @@ export default function CommandCenter({ snapshot }: Props) {
                 }}
               />
             </div>
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
               <button
                 onClick={() => {
                   playBlip();
@@ -729,7 +773,39 @@ export default function CommandCenter({ snapshot }: Props) {
               >
                 📱 Kiosk Mode
               </button>
+              <button
+                onClick={() => {
+                  playBlip();
+                  if (voiceState === "playing") stopVoiceBrief();
+                  else playVoiceBrief();
+                }}
+                disabled={voiceState === "loading"}
+                style={{
+                  background: voiceState === "playing" ? "rgba(255,170,0,0.15)" : "transparent",
+                  border: `1px solid ${voiceState === "playing" ? "rgba(255,170,0,0.5)" : "rgba(0,255,200,0.3)"}`,
+                  color: voiceState === "playing" ? "#ffaa00" : "#00ffc8",
+                  fontFamily: "monospace",
+                  fontSize: 9,
+                  letterSpacing: 2,
+                  padding: "3px 10px",
+                  borderRadius: 3,
+                  cursor: voiceState === "loading" ? "wait" : "pointer",
+                  textTransform: "uppercase",
+                  opacity: voiceState === "loading" ? 0.6 : 1,
+                }}
+                title={voiceError ?? "30-second AI voice briefing"}
+              >
+                {voiceState === "loading" && "⏳ Generating…"}
+                {voiceState === "playing" && "⏹ Stop Briefing"}
+                {voiceState === "idle" && "🔊 Voice Briefing"}
+                {voiceState === "error" && "⛔ Retry Briefing"}
+              </button>
             </div>
+            {voiceError && (
+              <div style={{ marginTop: 6, fontSize: 9, color: "#ff6688", letterSpacing: 1 }}>
+                {voiceError}
+              </div>
+            )}
           </header>
 
           {/* ── METRIC CARDS ────────────────────────────────────────────── */}
