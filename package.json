@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/build-code-index.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "build-code-index": "node scripts/build-code-index.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.0",

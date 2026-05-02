@@ -15,6 +15,7 @@ import OpenAI from "openai";
 import { createServiceClient } from "@/lib/supabase-server";
 import { buildCommandCenterSnapshot } from "@/lib/command-center-snapshot";
 import { PROJECT_KNOWLEDGE } from "@/lib/cockpit-project-knowledge";
+import { searchCode } from "@/lib/code-search";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -46,6 +47,7 @@ function detectKeywords(q: string): {
   wantsRevenue: boolean;
   wantsStale: boolean;
   wantsContact: string | null;
+  wantsCode: boolean;
 } {
   const lower = q.toLowerCase();
   const wantsTopDeals = /\b(top|biggest|largest|major|μεγαλύτερ|κορυφαί)\b/.test(lower) && /\b(deal|charter|client|πελάτ|συμφωνί)\b/.test(lower);
@@ -54,7 +56,13 @@ function detectKeywords(q: string): {
   // crude: pull a possible name token (capitalised word > 3 chars)
   const nameMatch = q.match(/\b([A-ZΑ-ΩΆ-Ώ][a-zα-ωά-ώ]{3,})\b/);
   const wantsContact = nameMatch ? nameMatch[1] : null;
-  return { wantsTopDeals, wantsRevenue, wantsStale, wantsContact };
+  // Code-lookup intent: "where", "ποιο αρχείο", function/file/cron/schema words,
+  // or a direct file-extension reference, or an obvious symbol like camelCase.
+  const wantsCode =
+    /\b(where|how does|find|search|definition|defined|implement|file|αρχείο|πού|γραμμή|κώδικ|function|class|interface|cron|schema|migration|table|column|env var|export|import)\b/.test(lower) ||
+    /\.(ts|tsx|js|sql|md)\b/.test(lower) ||
+    /\b[a-z][a-z0-9]+(?:[A-Z][a-zA-Z0-9]+)+\b/.test(q); // camelCase identifier
+  return { wantsTopDeals, wantsRevenue, wantsStale, wantsContact, wantsCode };
 }
 
 async function gatherExtras(sb: any, question: string): Promise<Record<string, unknown>> {
@@ -120,6 +128,30 @@ async function gatherExtras(sb: any, question: string): Promise<Record<string, u
         last_activity_at: c.last_activity_at,
         vessel: c.charter_vessel,
         stage: c.pipeline_stages?.name ?? null,
+      }));
+    }
+
+    if (k.wantsCode) {
+      // Tier 4d — repo grep. Strip stop-words then search the code index.
+      const stopWords = new Set([
+        "where", "how", "does", "find", "search", "the", "is", "in", "of",
+        "to", "for", "and", "or", "a", "an", "what", "when", "why",
+        "show", "me", "tell", "explain", "πού", "ποιο", "αρχείο", "γραμμή",
+        "που", "το", "η", "ο", "και", "για", "που", "βρίσκεται", "στο",
+        "που", "πώς", "γιατί", "function", "file", "code",
+      ]);
+      const cleanQuery = question
+        .toLowerCase()
+        .split(/[\s,;:!?]+/)
+        .filter((t) => t.length >= 2 && !stopWords.has(t))
+        .join(" ");
+      const hits = cleanQuery ? await searchCode(cleanQuery, { limit: 6 }) : [];
+      extras.code_matches = hits.map((h) => ({
+        path: h.path,
+        lines: h.lines,
+        score: h.path_score + h.content_score,
+        // Top 4 matching lines
+        matches: h.matches,
       }));
     }
 

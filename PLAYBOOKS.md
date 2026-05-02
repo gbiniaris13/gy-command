@@ -19,6 +19,7 @@
 10. [Refresh these architecture docs](#10-refresh-these-architecture-docs)
 11. [Add a new cron job (the right way)](#11-add-a-new-cron-job-the-right-way)
 12. [Rotate a third-party token](#12-rotate-a-third-party-token)
+13. [Refresh the code index (Ask-the-Cockpit)](#13-refresh-the-code-index-ask-the-cockpit)
 
 ---
 
@@ -392,3 +393,34 @@ Add to `vercel.json` `crons` array with a UTC schedule.
 After rotation: redeploy both gy-command and (if applicable) the
 public site. Test the affected subsystem with a smoke endpoint before
 walking away.
+
+---
+
+## 13. Refresh the code index (Ask-the-Cockpit)
+
+The Ask-the-Cockpit chat (Tier 3b) can grep the source via a build-
+time index at `src/lib/code-index.json`. The `prebuild` npm hook
+regenerates it on every `npm run build`, so a normal deploy is
+enough. Manual regen for local development:
+
+```bash
+npm run build-code-index
+```
+
+The index is committed to git on purpose:
+- Deterministic deploys (no surprise diffs at build time)
+- PR review surfaces code-shape changes you might miss
+- Cold-start avoids regenerating
+
+Files included: everything under `src/`, `scripts/`, plus
+top-level `*.md`, `vercel.json`, `package.json`, `next.config.ts`,
+`tsconfig.json`. Each file is clipped at 8000 chars; longer files
+get a `…truncated…` marker and the full line count is preserved.
+
+Do NOT add binary files or generated assets to the include set —
+the index is loaded into a Vercel serverless function and bloats
+the bundle. Stick to source.
+
+If you change `INCLUDE_EXTS` or `WALK_ROOTS` in
+`scripts/build-code-index.mjs`, regenerate the index in the same
+commit so it reflects the new shape immediately.

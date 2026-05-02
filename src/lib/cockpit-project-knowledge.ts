@@ -81,8 +81,7 @@ schedule lives in vercel.json + PLAYBOOKS.md §9.
 - Migrations are .sql files in src/lib/, idempotent, applied by
   hand via Supabase Studio. No automated runner.
 
-## Reference docs in the repo (you cannot read files; mention them
-## by name and the user can open them)
+## Reference docs in the repo
 - ARCHITECTURE.md — full subsystem map with file paths
 - DATA_MODEL.md — every table + every settings KV key
 - PLAYBOOKS.md — runbooks (force-refresh, migrations, webhooks,
@@ -91,4 +90,14 @@ schedule lives in vercel.json + PLAYBOOKS.md §9.
 - ../george-yachts/SHARED_INTEGRATIONS.md — cross-repo bridge
   (newsletter proxy secrets, KV keys, Resend webhook, Telegram
   contract)
+
+## Code search (Tier 4d)
+When the user asks WHERE code lives or HOW a specific feature is
+implemented, the route handler grepped the build-time code index
+and put matching file paths + line excerpts into CONTEXT under the
+key "code_matches". Cite those file:line refs verbatim — they're
+the real source. If "code_matches" is absent or empty, you don't
+have grep results; either the keyword router didn't fire (rare:
+the query didn't look like a code question) or the file doesn't
+exist. Don't invent a path.
 `.trim();
