@@ -60,11 +60,42 @@ export default function CommandCenter({ snapshot }: Props) {
   const [glowCard, setGlowCard] = useState<number | null>(null);
   const [hoveredExec, setHoveredExec] = useState<string | null>(null);
 
-  // Tier 3b — Ask the Cockpit
+  // Tier 3b + 4c — Ask the Cockpit (with conversation memory in localStorage)
+  const ASK_HISTORY_KEY = "cc_ask_history_v1";
+  const MAX_HISTORY_PAIRS = 10; // store up to 10 user+assistant pairs (20 turns)
+  type AskTurn = { role: "user" | "assistant"; content: string; ts: number };
+
   const [askInput, setAskInput] = useState<string>("");
-  const [askAnswer, setAskAnswer] = useState<string | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
   const [askLoading, setAskLoading] = useState<boolean>(false);
+  const [askHistory, setAskHistory] = useState<AskTurn[]>([]);
+
+  // Hydrate history from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ASK_HISTORY_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as AskTurn[];
+        if (Array.isArray(parsed)) setAskHistory(parsed.slice(-MAX_HISTORY_PAIRS * 2));
+      }
+    } catch {
+      // corrupt — ignore
+    }
+  }, []);
+
+  const persistHistory = useCallback((next: AskTurn[]) => {
+    try {
+      localStorage.setItem(ASK_HISTORY_KEY, JSON.stringify(next.slice(-MAX_HISTORY_PAIRS * 2)));
+    } catch {
+      // localStorage full / disabled — non-fatal
+    }
+  }, []);
+
+  const clearAskHistory = useCallback(() => {
+    setAskHistory([]);
+    setAskError(null);
+    persistHistory([]);
+  }, [persistHistory]);
 
   // Tier 3d — Voice briefing playback
   const [voiceState, setVoiceState] = useState<"idle" | "loading" | "playing" | "error">("idle");
@@ -115,25 +146,47 @@ export default function CommandCenter({ snapshot }: Props) {
     if (!q || askLoading) return;
     setAskLoading(true);
     setAskError(null);
-    setAskAnswer(null);
+    const userTurn: AskTurn = { role: "user", content: q, ts: Date.now() };
+    const optimistic = [...askHistory, userTurn];
+    setAskHistory(optimistic);
+    setAskInput("");
     try {
       const res = await fetch("/api/command-center/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q }),
+        body: JSON.stringify({
+          question: q,
+          // Send only PRIOR turns; the server-side adds the current
+          // question itself with fresh CONTEXT for this turn.
+          history: askHistory
+            .slice(-MAX_HISTORY_PAIRS * 2)
+            .map(({ role, content }) => ({ role, content })),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
         setAskError(data?.error ?? `HTTP ${res.status}`);
+        // Roll back the optimistic user turn so retry doesn't double-add
+        setAskHistory(askHistory);
+        persistHistory(askHistory);
       } else {
-        setAskAnswer(data?.answer ?? "(empty answer)");
+        const answerTurn: AskTurn = {
+          role: "assistant",
+          content: data?.answer ?? "(empty answer)",
+          ts: Date.now(),
+        };
+        const next = [...optimistic, answerTurn];
+        setAskHistory(next);
+        persistHistory(next);
       }
     } catch (e: any) {
       setAskError(e?.message ?? "Network error");
+      setAskHistory(askHistory);
+      persistHistory(askHistory);
     } finally {
       setAskLoading(false);
     }
-  }, [askInput, askLoading]);
+  }, [askInput, askLoading, askHistory, persistHistory]);
 
   // ─── Audio helpers ──────────────────────────────────────────────────────
   const getAudioCtx = useCallback(() => {
@@ -1149,23 +1202,102 @@ export default function CommandCenter({ snapshot }: Props) {
                 {askLoading ? "QUERYING…" : "ASK"}
               </button>
             </div>
-            {(askAnswer || askError) && (
+            {askError && (
               <div
                 style={{
                   marginTop: 12,
                   padding: 12,
                   background: "rgba(0,10,20,0.8)",
-                  border: `1px solid ${askError ? "rgba(255,51,102,0.35)" : "rgba(0,255,200,0.15)"}`,
+                  border: "1px solid rgba(255,51,102,0.35)",
                   borderRadius: 4,
                   fontSize: 12,
                   lineHeight: 1.6,
-                  color: askError ? "#ff6688" : "#a0ffe0",
+                  color: "#ff6688",
                   whiteSpace: "pre-wrap",
                   fontFamily: "monospace",
                 }}
               >
-                {askError ? `⛔ ${askError}` : askAnswer}
+                ⛔ {askError}
               </div>
+            )}
+            {askHistory.length > 0 && (
+              <>
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <span style={{ fontSize: 9, letterSpacing: 2, color: "rgba(160,255,224,0.45)", textTransform: "uppercase" }}>
+                    {askHistory.filter((t) => t.role === "user").length} TURN{askHistory.filter((t) => t.role === "user").length === 1 ? "" : "S"} IN CONTEXT
+                  </span>
+                  <button
+                    onClick={clearAskHistory}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid rgba(255,170,0,0.35)",
+                      color: "#ffaa00",
+                      fontFamily: "monospace",
+                      fontSize: 9,
+                      letterSpacing: 1.5,
+                      padding: "2px 8px",
+                      borderRadius: 3,
+                      cursor: "pointer",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div
+                  style={{
+                    marginTop: 8,
+                    maxHeight: 360,
+                    overflowY: "auto",
+                    background: "rgba(0,10,20,0.8)",
+                    border: "1px solid rgba(0,255,200,0.15)",
+                    borderRadius: 4,
+                    padding: 12,
+                    fontFamily: "monospace",
+                    scrollbarWidth: "thin",
+                    scrollbarColor: "rgba(0,255,200,0.2) transparent",
+                  }}
+                >
+                  {askHistory.map((turn, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        marginBottom: i === askHistory.length - 1 ? 0 : 14,
+                        paddingBottom: i === askHistory.length - 1 ? 0 : 10,
+                        borderBottom: i === askHistory.length - 1 ? "none" : "1px dashed rgba(0,255,200,0.08)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 9,
+                          letterSpacing: 2,
+                          color: turn.role === "user" ? "rgba(95,176,255,0.7)" : "rgba(0,255,200,0.7)",
+                          marginBottom: 4,
+                        }}
+                      >
+                        {turn.role === "user" ? "YOU" : "COCKPIT"}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          lineHeight: 1.6,
+                          color: turn.role === "user" ? "#a0c8ff" : "#a0ffe0",
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {turn.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
 

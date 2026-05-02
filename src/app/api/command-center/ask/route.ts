@@ -11,27 +11,35 @@
 // /dashboard/newsletter and the operator drives it directly.
 
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 import { createServiceClient } from "@/lib/supabase-server";
-import { aiChat } from "@/lib/ai";
 import { buildCommandCenterSnapshot } from "@/lib/command-center-snapshot";
+import { PROJECT_KNOWLEDGE } from "@/lib/cockpit-project-knowledge";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
 const SYSTEM_PROMPT = `You are the GY Cockpit assistant — embedded in George P. Biniaris's CRM Command Center for George Yachts Brokerage House LLC.
 
-You answer questions about pipeline, deals, contacts, and operations using ONLY the JSON CONTEXT provided. Rules:
+You answer questions about pipeline, deals, contacts, operations, AND how the CRM itself works. Two sources of truth:
 
-1. Cite numbers exactly as they appear in CONTEXT. Don't estimate or extrapolate.
-2. If the answer isn't in CONTEXT, say so plainly: "I don't have that in today's snapshot — open <relevant section> for the full view."
-3. Be concise. 1-3 short sentences for simple questions; bullet list for "list" questions. Don't lecture.
-4. Match George's language: if the question is Greek, answer Greek; if English, English.
-5. Format currency as €X,XXX. Never invent figures.
-6. When relevant, suggest the dashboard path (e.g. /dashboard/charters, /dashboard/contacts) for drill-down.
-7. NEVER mention the newsletter — that surface is operated directly at /dashboard/newsletter.
-8. If the question is about something the snapshot doesn't surface (e.g. "tell me about <person>"), say what the snapshot DOES show that's relevant and point to the contact page.
+1. **JSON CONTEXT** — live snapshot data + on-demand extras. Cite numbers EXACTLY as they appear here. No estimation.
+2. **PROJECT KNOWLEDGE** — slim architecture map of the gy-command CRM (subsystems, tables, crons, conventions). Use this when the user asks about HOW things work, where something lives, what cron runs when, etc.
 
-Style: direct, money-aware, no preamble. Open with the answer, not "Sure!".`;
+Rules:
+- If a data question can't be answered from CONTEXT, say so plainly and point to the relevant /dashboard/* path. Don't fabricate data.
+- If a question is about how the system works, answer from PROJECT KNOWLEDGE. If you genuinely don't have that info either, say "Not in my reference — check ARCHITECTURE.md or PLAYBOOKS.md in the repo."
+- Be concise. 1-3 short sentences for simple questions; bullet list for "list" questions. No preamble like "Sure!".
+- Match George's language: Greek question → Greek answer; English → English. Greeklish (Greek-in-Latin) → respond in Greek.
+- Format currency as €X,XXX. Never invent figures.
+- When you reference a subsystem, suggest the dashboard path or repo file.
+- NEVER document or modify newsletter internals — those belong to the public site repo. Read-only references to the operator UI at /dashboard/newsletter are fine.
+- If the user asks a follow-up that depends on the prior turns of this conversation, USE the conversation history. If history is empty, treat as the first turn.
+
+Style: direct, money-aware, action-oriented. Open with the answer.
+
+PROJECT KNOWLEDGE:
+${PROJECT_KNOWLEDGE}`;
 
 function detectKeywords(q: string): {
   wantsTopDeals: boolean;
@@ -145,10 +153,19 @@ async function gatherExtras(sb: any, question: string): Promise<Record<string, u
   return extras;
 }
 
+interface HistoryTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+const MAX_HISTORY_TURNS = 10; // 5 exchanges
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const question = String(body?.question ?? "").trim();
+    const rawHistory = Array.isArray(body?.history) ? body.history : [];
+
     if (!question) {
       return NextResponse.json({ error: "question required" }, { status: 400 });
     }
@@ -161,6 +178,15 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
+
+    // Sanitise history: trust nothing from the client, cap turns + length
+    const history: HistoryTurn[] = rawHistory
+      .filter((t: any) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string")
+      .slice(-MAX_HISTORY_TURNS)
+      .map((t: any) => ({
+        role: t.role as "user" | "assistant",
+        content: String(t.content).slice(0, 2000),
+      }));
 
     const sb = createServiceClient();
     const [snapshot, extras] = await Promise.all([
@@ -178,22 +204,40 @@ export async function POST(request: NextRequest) {
       extras,
     };
 
+    // Live context goes WITH the current user turn so prior turns
+    // don't carry stale data forward. The model always sees fresh
+    // numbers for the current question.
     const userMessage = `QUESTION: ${question}
 
-CONTEXT:
+CONTEXT (live, for this turn):
 \`\`\`json
 ${JSON.stringify(context, null, 2)}
 \`\`\``;
 
-    const answer = await aiChat(SYSTEM_PROMPT, userMessage, {
-      maxTokens: 600,
-      temperature: 0.3,
+    const ai = new OpenAI({
+      apiKey: process.env.AI_API_KEY,
+      baseURL: process.env.AI_BASE_URL || "https://generativelanguage.googleapis.com/v1beta/openai",
     });
+    const model = process.env.AI_MODEL || "gemini-2.5-flash";
+
+    const response = await ai.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...history,
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.3,
+      max_tokens: 600,
+    });
+
+    const answer = response.choices[0]?.message?.content?.trim() || "(empty answer)";
 
     return NextResponse.json({
       ok: true,
-      answer: answer.trim(),
+      answer,
       context_keys: Object.keys(extras),
+      history_turns_used: history.length,
     });
   } catch (e: any) {
     console.error("[command-center/ask] failed:", e);
