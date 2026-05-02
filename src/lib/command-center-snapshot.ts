@@ -440,6 +440,85 @@ export async function buildCommandCenterSnapshot(
   };
 }
 
+// Telegram-safe HTML escape — Telegram parse_mode=HTML accepts a tiny
+// subset and strict on these four. https://core.telegram.org/bots/api#html-style
+function escTg(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+const PRIORITY_DOT: Record<string, string> = {
+  critical: "🔴",
+  high: "🟠",
+  medium: "🟡",
+  low: "🟢",
+};
+
+const TONE_DOT: Record<string, string> = {
+  bad: "⛔",
+  warn: "⚠️",
+  good: "✅",
+};
+
+// Format the snapshot as a Telegram HTML message. Used by the /status
+// bot command and by anyone who wants to push the snapshot manually.
+export function formatSnapshotForTelegram(s: CommandCenterSnapshot): string {
+  const lines: string[] = [];
+  lines.push("🎛 <b>GY COMMAND CENTER</b>");
+  lines.push("");
+
+  // METRICS — 4 KPIs
+  lines.push("📊 <b>Today</b>");
+  for (const m of s.metrics) {
+    lines.push(`• ${escTg(m.label)}: <b>${m.value}${escTg(m.suffix)}</b>`);
+  }
+  lines.push("");
+
+  // PRIORITIES — top actions
+  if (s.priorities.actions.length > 0) {
+    lines.push("🎯 <b>Top Actions</b>");
+    for (const a of s.priorities.actions) {
+      const dot = PRIORITY_DOT[a.priority] ?? "🟢";
+      const eur = a.expected_commission_eur > 0
+        ? ` <i>(€${Math.round(a.expected_commission_eur).toLocaleString()})</i>`
+        : "";
+      lines.push(`${dot} ${escTg(a.title)}${eur}`);
+    }
+    lines.push("");
+  } else if (s.priorities.has_briefing) {
+    lines.push("🎯 <b>Top Actions</b>");
+    lines.push("<i>Inbox is at zero — no actions ranked.</i>");
+    lines.push("");
+  }
+
+  // COUNTERS
+  lines.push("⚠️ <b>Counters</b>");
+  for (const c of s.priorities.counters) {
+    const tone = TONE_DOT[c.tone] ?? "✅";
+    lines.push(`${tone} ${escTg(c.label)}: <b>${c.value}</b> — <i>${escTg(c.hint)}</i>`);
+  }
+  lines.push("");
+
+  // THREATS — only show non-LOW
+  const realThreats = s.threats.filter((t) => t.severity !== "LOW");
+  if (realThreats.length > 0) {
+    lines.push("🚨 <b>Risks</b>");
+    for (const t of realThreats) {
+      lines.push(`• <b>${escTg(t.vector)}</b> [${t.severity}]: ${escTg(t.detail)}`);
+    }
+    lines.push("");
+  }
+
+  // FOOTER
+  const stamp = new Date(s.generated_at).toISOString().replace("T", " ").slice(0, 16);
+  const flag = s.priorities.has_briefing ? "AI-RANKED" : "BRIEFING PENDING";
+  lines.push(`<i>${flag} · ${escTg(stamp)} UTC</i>`);
+
+  return lines.join("\n");
+}
+
 export function emptySnapshot(): CommandCenterSnapshot {
   return {
     metrics: [
