@@ -2,125 +2,49 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import type { CommandCenterSnapshot } from "@/lib/command-center-snapshot";
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DATA
+   PROPS
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const PHOTOS: Record<string, string> = {
-  tc: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDnMVTgeSfUvLTgKwXNX8VlabLvvyNwUBiST9aJbBT3PTtJhc26eZI5OOfrWvFBgHM0hz2zWTo1zEYVXzEYjrhsmtUyr5g+fC1hc6+VFTUNPhlUnYCcda4PxDpUcFt9oi4IPzD0OcGvR3liZflkRs+jCuN8U7DYXAz8ysMj2PQ1cNzOqtDhqKDRWhgbFyzJayuhwyoSKzdJglunSSJFJRsMO2T0JrUlUvE6f3lI/SsjQrk2uoojDKs2GBolsFO1zrdWt2srWOV5Nsh/uIq4/EVt21i5S1SSd5VmiJXcc/PjP8s/lXN+J5olW1XJQHknlq7S1eCextogVkO1egzg4657VlzaHUoEUOm3NvG2WikUnhWjAI/EVh6pY/bLxlYt5aoSEVsBucD+tdSFhaNs5JU4KsScViavcLb2F1d4AKAop98YA/Oi/YHFdTzdhhiPQ4ooorU5TdFZ11BGuq2chAVHcK5HHOa0Aahu1jkgYSMFA5DH+E9jTauiIuzuauowvNq0UKokqgfMCcY9P0rrLKK4jhAit4EwACPMP+FcHoWtwm4X7Ww8wcbz0au8t9XsPK4mT8657W0Z3ppq6LDIV3PLgNt5ANeceJLueTUZrczOYFYFY8/KDjrXeNdLe7xGpEYHLnjP0rhfFXlRXxjC/vyQxx/AuMAH3PX2/Gqpq8jOs7RMWikByM0Vqc5tBqwdU+0faD5zEoT8mOmKKKbJRLocUc18IpQMMOp7V2tvottazrMrbUA6H1oorCe510dodOTBo2lvf6hhAi5SNuvtkevtXkl5dve3c13KcvM5Y0UV004pLQ5ZScndldJME8ZFFFVZMR//9k=",
-  gv: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDzCiiprSMy3kMY6u6qPxNACLH82CCT6VfttHubslYIWJA9MV2fhjTbOEtL5KmU8Fm5P/1q6kpCkZARVGOwxWLq9jpjQvqzxi8sriyl8u4jZG9DVavQvFVmlzaOyJvkAOzaMkn0rz5lKsVYEMDgg9quEuZGNSHK7CUUUVZAVd0goNSh8zAGeCezdj+eKpUUMadmejW9jLdS+db3ckasd5VTgjPOP51dktzf2USXMzlQzKWz97B4rn/DWpiS0dJZmWYDaWPp2P8AStm1tAItrs2c53biQPcA9K5pJpnbTs1oTXEVtYmEO48pA0juzccDIrzO7m+0Xc0+MeY7Pj6nNdV4wu0NhBaQqSPMLFic9B0/WuPrSlGyuc9aV3YKKKK1MRQCegp4j9TUoA7UfWgDU0KBJpGIyOAre3oa6y2sr0wiITsE6dOcfWuHsLl7G8S4jwdhyVI4YdxXqsDWxt1lR18soHB3dFIzz6cGsKt1qdNFp6HMeKNOhj0QyFeYioQ+5OK4Qx5yVNdD4l1yXVbhooG2WUbYRR/H/tH+lYeABitKaaWplVknLQrlSOooqcrmirMwU06iigAFdJdeIUbwhZ6ZbqFuMMlw4GMqDx9SRj8BRRSauNOxznNJgD3NFFMQE0UUUAf/2Q==",
-  sg: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDzGiiigYoBJAAJJ6AVoTaNfwQLNNDsB6AnmrfhKJH1hZJlykSFtxHCnsa6jW9Qt7jT98TMFDFPmTHNZTm07I2p001dnnu0jg9aAOas3UeyQcghhkEHqKhUcmrTuZNDcUU8iimIioqVogse4k5qeysHufmLYQdcdadmwL3ha/Sy1MLIBsmwu4/wnPH4dq6LxVduLKKFUH+sEmCOmM4x6jmsNbSONNsKhTnrW5rtulxZwTQ6g0dpJGHaE7sI56qOPX8qmdKzTNadX3XE4u4lMsxZjzSRjOfpSSqTO/GBu6VJ5YVCT27etVymblqIwoprqADiikBMADHhhkdquaZKsImyCQGzgemKyzO2MLxV/Tc+TKzIzkkYwcE8VUfiJexoiQeYVB75FWp9RCWFpCwd/ImZtueMZB/qfzrDjm8qT5hgjsTmlluUdiTggrxz0Pr+WRVyd0JD4LdZW3ydyWNUrmTzCWX7meAPQVPNc4tyqZBfgY9KZdxLFFEmQBjn3ND2ArvIpUgdaKDGhzgkUVjdFiItW4GXZ5TnCE5PJGfrRRTj8QPYsrpkcrArKBt67RwP1px8OXpSN4SkiyMwQZwX2/eIHoMjn1NFFaT0V0KC5pWZWawuY7jddRvDg/KDx+vSobpk+6uB7Yxiiipi7xuElaViqW5zRRRU2A//2Q==",
-  zz: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDlkA/i4q5p1qLvUYbbdjzXCk+3eqWDxV/Trj7JfQT/APPNwxHqO9YM2R3i6VHFCyhtpPA4+6OwFY2paeluN+S7ep4roWvbeRM+YuWO4D2PSsjXbmNYmRcs47CuNt9DshpuczrCRhoJk4Z1w3vxWZuJPSpZ3kkkVJMjb0HpSqg6HHNdUXoc0o6kSxkngkgUVZWMJgA0UcwuUrIM4ANWI0BAzioUUlsjpVlVZSMUSYJHW6TPaPosbXRD+VxtHUsDgf0qvrN8lpqsh27o5EG/qNpHvWFp96LO5Mc2HSfCsvpzwfwrf1v7IkHlzTBdh5TZ8wx2rCUbPU6qck15nL3xxeJKFKhgSB+GajALjcnB6U4tNf6iuxOxx7DHX+VZ9vqcGAJVeN++Blc1tGL5TnqSTkaaqzjHpRS291bSDEcyEnsTg/rRUu6BWKxmRB8zYx0GOtSuLptLN8GSKHf5agn55D3I9hVOZQ034cGuxsdHsbrw1aNcGUNsJJXkZLEn/CtJWikyYJzbRxKNuJ75r0zTYbPxT4cSW42peQL5UknuB1PqCMGuN1htNgiNra2hieM5WTb/AKwd885qz4NvhHdXdjO5EF5AwYA45UZ4+oyKtNTjdoiSdOW+po6PZ6f5FwkNyJLscSKVKkLntnqD6155cw+XcyqP4XI/Wu38P3qQ66FuYhtnGASfmUbiAfeuV1lBHrd6i9BO4H/fRograEylzK7KK8rzRRJweOKK0INe9XZJG6sQTxiujt76fStAt1mjLK5Lkg4Kg8ge2c5/GiiueSvFXOmm7TbXY5nUb8Xt35oRkwMYZ91RQTtDIsqH5o2DCiit0klYwlJyd2aly0VvO17G7NKw4y3ABORj8MVk6nMsmp3cgUN5kjMCT0yc5oopRJRRmPGfU0UUVYH/2Q==",
-  jb: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDmETnr+lXIo+Oo/KoYUJPQ1O9zBbjEj4b+6OTWGrOjRGho9mJtTgkEoWSFtwXHDAgg/wAxW1rkk0kMdo7QCSVX5zwcdBXJ6fqYfV7RUHlxmZVZ25IBOM4rpfFFpdRLGkdq73KZYELlAB/Fu9B6VMoSvqa06kbHH6bEyW7BiMGQleO1ZT/fb6mrFtqUq7UdFZF4BHB4qq5w3PU5NbKLW5zuSewCRkPynFFMNFMlnSiWKEgSOFJ6ZrJuHWS5kkzwznB9ulF7cPI8jOqrwoGO/WqlwTHHE2enJ5opLW5VTZFwRhQWUnI5H1r0LW7xLmO1uXyV+xmbfnq7RnaPpnPFedRTBxgHtXTG4Nx4Us2z92Ep/wB85FayMkcltCKqjqSBUc5ywcfd3ED+VNvpSkqqp5Xmn+WGsVwegpPsBEWoqIRzMu5RuA647UVmWaWqNFH5scAGwN8rdyO1VrlZJIR0IA7U+eNpjtU8k1Z0m3SfVLayuLjyY5HCvIcYUeuKdPYdXczrTzDkrnC8V01vKYfCsCOpJ/eMPoS1Raj4Yhu4Y5dCmXIJDLLJy3PBz0B9uKybm11bTkVL9JUjX5cM4Zc+lL2qY1RkY1yGMxcnO7mplk2wDPPt61fE1u2A9lbEj2YH9DVW5ER/1duiL6Bif5mj2iD2MizqesWt3Z2sUGm29vLEMSOigeYfXjn8KKzZGUqB5ajHcZyaKNCWpItxTeXNu9ulV7rmRj2bkUUVUPhHV+IXTr26sZzJaPtJGCD0I9xW7calJLYfaGljQHhoo4wMv7dfzooqGk2VFtR0ZzrCWVycZLHOBTxZz5BbA+poop3Fyq5MLbbDLvwzFPlx2OR/TNFFFFybH//Z",
-  db: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDilWpVWkUVKopneja8KzG3vZWWB5nKrhV6kZrp9cklvbCRFtCsflnezMMr+Fcjo119mvY90nlKSR5gHK5/pW9cyW1tamWXUDMzoQsYfO49gB1A61hJO4npucbPbPbsIpSC4UE49xmq7rVuVmkcu7FmPUnvUDith2KjrRUjiimQW1FNmuY4DtbJbGcCpFFZl22buQ9cED9KcVdhVm4RuixHeyfa4ZcDZG4bb6/Wuq1G1Njpk95HaW8e9CvD5K7umPzrjkAx7Gus1i/E/gzTxkb5HCN/wAHP9K3jGNtUcM5yb3OVS5liAU4ZR0z1qxFOswbAKkdRVKVguSfwFPtWxOMn76kVnKKNqVSV0mWHFFOcUVmdLLK1jnLu3GS7HA9cmtcGsYMUl5OGRuPYg1UTLEbI2ZvDurWkaM1sZARz5R3FT6GqtzJcxW8dvcRsnku7BT6nGf5VuR+Nr1bba1vbtL/z0yR+lc9e6g19fSTum0ysWCoMgZ9PxqouSXvHPLlv7pc0D+zFu3utWcGOL7kRUtvPrgdQKh1m5gn1iSe0AERYFSFK545OP/1VnGdDn3oUtKQqgnPejS97jTdrI0noppPFFZnYyxms+/ijCmQDDsQM560UUIVT4WU1jPqDVi2nktblJ02llzjdzjjFFFapWOFlVkGeDxVuyf8AdFfQ0UVEkjWk/eLBNFFFSdJ//9k=",
-  km: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDp7FD5cRPJUYrSEIdMHsaigQAD6VehPFDZso8qucx4svZtK0Jltcie4lEKOP4M5JP1wK4qDwzrF2n2kzkOOdxk5H49al8Zy6kvi101F3W2Z/8ARhn5AnYgeueveuo0iW9ktXhja2LRlQSOCQRnp61nJtbFJKbbYzwvLeahplwl+S01rKYPM7sAPX1HrVq8sUWLbxuJ5PenaDfWS3V1pReNLhJd7EkASs3Xb9K17u3QqBVRYpJbHAyReXIwA4D4orXv7MJKdo/i5oq7HOzqkwME9a5/xtr0ukWUUNnIUurg5BA6IOv59KvrfxsiNuGD0Oa4rxdefatftolTctumD9Sc/wCFSdNR2ic/ey3OpTyTXcj3Dw8cvz14ArZ0PxAtsk6yRhpmHDk4JwPT2+uKwoV8x7kJjcoDg544xT3bI3nlyAucY69f0ocVLcxhNx2LFvJefalv7XPn+dlW9GJ7/nW5p3ijUItRtY7u5MtoG8lw2O/fPqCRWAA8dru2uoYISMYB3EEc1VVjIpRcCTLHrySWJ/TFMm56jd4aYjHf+VFUNMvPtul2tyzlneP5yf7w4P6iirE3qYDan9lVlMgxs3jvgj/GuYubi4md7lzukdt7MPWrLSq4kMgUB1Ix/dHpUNrCp3B2c/3cjbx6gGoBsis5ShYnpIcH2qV5HVQCowCDkVZSxgDbxuJ92qTyECsADg9QGNMZNeTpdaZaw2yAzykJgdVCA/45rJvYmj1GRY2GMkhue/NWd32YiSMurLnDA8jIwao53SosKsXY8D7xJoEdR4SunMlzaZLDaJVGePQ4+vFFaPhrS7e2BuTZgStlWV5G4GfSiqRLZz1prUCag8tzDugY52gAsCBgEHsf8aLaCTVb2VtPgmZIweGYYAJyBjoPoKKKkNtS+NC1P/n2b/vof404aHqh/wCXVv8Avpf8aKKdguNl0DUWUhrU4/3l/wAam0zToV09rSW5ghuGychcOpzx8+Rn6UUUBclX7Tpybbm4BUk7JPM3buB+NFFFAWP/2Q==",
-  gr: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDjQtWYVm3bbZHaTGTtHaogK63wfDGltc3LgZZwmT6AZ/rWc3ZGtNXZydxZXhAf7Oyr171SZHidQ4IHcmvS9RvLJ2w88SbRwCRXMa0sMluzRhZPRl5rPmNXTW5zMMp37S2c1ZK5qq0Q+9jBq3AD5XPatEzBoYVoqVl4oqhEgrf8N2rzMJlO1IJQZDuPK46Y6c1g1e/tGS20M29vM8MrTliykYIwMZqZ7F037xsjQo5/tM0B/fMcAk/c+nBqKHSBZ5Esofd1UDis7TPEYtYJYryaR5XbJbjA49KlbVDLKCpyD0rKV7HReO5W1HS0iaSdSPJBGF71UZER3VBgcHH4VtMBPIq5G3O45GaxnUrJJnqWOadNtmVRJIiYUUNRWxkWHiq3pE0UEswnl8kNGdsgAypHpn1p21SPasi9XzmI/gHQUnroC0d0XtVudMUlvtJupW5LOoP8qyFvwPlj6+9VZLZkO5V4H61aubA2w3c4bBU+oIzUtJFqTZr6dctjH3pHIAqS9MKXLbG3g/ex0BrItrv7P8i8yNx/u/8A160RANgZmySOg7VMY2dwlO6sVpBg8dKKZcnyckdO9Famdydr4EbFb60RqJTiiikxojvAvReg4qpd6pdSWkVszIFjG0MF+bHpiiihJCbaM6Jtkqseea3heqUyuB7UUVTRJnXk+8kE0UUUAf/Z",
-  ji: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCYiobpzDazSjqiMw+oFWCKyvEVy1tpT7U3eafKJzjbkHmgDk9Pf/SVdjyTzmvRNCGyRHx8p6GvOdPjaWfagOccYx/Wuq8NzX01zPbjaGtkLYz972FAHd3oDRZPGa5EgJqFzGo+XIb8eurSsr7U5lKXMEmAQFKqGX8TnNVbuPy7yWU4xgKcdck0AR4op2KKAJzVDWrRrzS5oY/v4DL7kHOK0SKqajc/Y7GWcY3Kvyg9zQBxmk3EcHmeYqkAZGRW54Mv4I9Uu5Z3KmRPlAUt/KuXxuLBedx7VveHkltp13RSI+cg+USQPzHFAHoMN5E0Un+jiO5jO1wR+R/GsW4G643HPTn068VaM2MmVlLFeGHBx6GobG3kvXnnUHY8bbPqjAfrk0AQ0UpBVirgqw7GigDAvvEF2x2W0AgByNz8t/gKz7DN5eefeymRUYbt/wA2fYDua6OaC1SWQPhVQtIN3ZWIzXHQ3KwSnapZASVwcYPY0Ad1aNCkY2wJDkZ2JGNw+pq3AGIG2bBU5QKSWU/j1HtWJpN0b+zZnZokXjCevuazLoyNOLmO2uEt/mzJLJncQcZx1HIIoA6Cc311fi3bBeRtqBf4j6n0967CC2hsLeK0hGQibAfXuT+JNcPo+oMkiK8zLIf9XKD83+6T3/8A111FhqqzT7bh03BSFdT8rnPT2NADL2BJZghXJIJJ9KKtpH/pbO3QrtooA818Q6isjC3gfdtXbI4P3hwcfpXOMxLYFFFAHT2kg0UCGU/ury0EnPPzEEEfnVu1mj+2RyTXUTQ3KtlFH3SSM5Hv/jRRQBlXyxRNPDbu6PExdSDlcfzFX9HvRKyRvhfkVGX36A/y/OiigDqbfVWFvLa3JzcPgRP/AHue/vRRRQB//9k=",
-  cv: "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAA4ADgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz2lA54opUbY4b0OazOs6/RPCP2zT0ubltivyMDkj+lVNW8M2tqP3TyZ9Sa7KPUUhSztYYs+Yi4wenA7Vg6tdTTvOTHlY3Maqoycjueazk30FFJ7nDPFJC5jkHI6H1pprSvreSW6I4Bxnms09atO4JDaKU0UwH0UUUDPVtNu45dEtbgeWWESjcx4BxzmuXF3JDd3W50BlZmUCqPhW+C3cenTDMM0gIyM/NV7W1t45JJI5i8vRQP4TUSjdCUuV2MK5utlzI5JZivH1rMNTXSlHRScufmb2HaocVUVYFK+ghooNFMY+tO20ouoaZiP8AZFUbZQ91Ep6FwP1rqYxujVvUA1rTgnuYV6jjZIzblF06yaa2ULKpBDd85rR8RanZosEzLummiWRYQMYyM8n61n68P9GiX+9IP0BrAihM9yqclM4yTTqQTZlCbSuWoLaSWMzyZLOdxNTx26vnjIrSijAjGBxSRAFWI+7/AA/SqUEQ5sy5bEYJXINFaF24jjJHWik4xLjUnYztLj8zUIhj7p3H8K6SIARgenFFFOlsLEP3jN18kQQEf3z/ACrP06P95wOi/wA/8miiqe5mvhNZ/lQL68VFJKscTN2UcUUUMSKlySYkBPJGaKKKiW5pHY//2Q==",
-};
-
-interface Executive {
-  id: string;
-  name: string;
-  role: string;
+interface Props {
+  snapshot: CommandCenterSnapshot;
 }
 
-const EXECUTIVES: Executive[] = [
-  { id: "tc", name: "Tim Cook", role: "COO" },
-  { id: "gv", name: "Gary Vee", role: "CMO" },
-  { id: "sg", name: "Seth Godin", role: "Brand" },
-  { id: "zz", name: "Zig Ziglar", role: "Relations" },
-  { id: "jb", name: "Belfort", role: "Closing" },
-  { id: "db", name: "Boies", role: "Legal" },
-  { id: "km", name: "Mitnick", role: "Cyber" },
-  { id: "gr", name: "Guillermo", role: "CTO" },
-  { id: "ji", name: "Jony Ive", role: "Design" },
-  { id: "cv", name: "Chris Voss", role: "Deals" },
-];
-
-interface MetricData {
-  label: string;
-  value: number;
-  suffix: string;
+// Deterministic gradient color from an id seed — used to paint the
+// initials-avatar for each executive. Replaces the previous fictional-
+// person photos (Tim Cook / Gary Vee / etc.) with a content-safe,
+// brand-neutral identity tile.
+function gradientFor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const a = h % 360;
+  const b = (a + 60) % 360;
+  return `linear-gradient(135deg, hsl(${a}deg 70% 35%), hsl(${b}deg 70% 25%))`;
 }
 
-const METRICS: MetricData[] = [
-  { label: "Intel Deployed", value: 14, suffix: "" },
-  { label: "Active Missions", value: 1, suffix: "" },
-  { label: "Island Zones", value: 26, suffix: "" },
-  { label: "Fleet Assets", value: 50, suffix: "+" },
-];
-
-interface PipelineItem {
-  name: string;
-  status: "green" | "amber" | "red";
-  phase: string;
+function initialsFrom(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-const PIPELINE: PipelineItem[] = [
-  { name: "ATHENA-7 Acquisition", status: "green", phase: "Final Review" },
-  { name: "POSEIDON Charter Seq", status: "green", phase: "Active" },
-  { name: "CYCLONE Refit Intel", status: "amber", phase: "Pending" },
-  { name: "HYDRA Network Deploy", status: "green", phase: "Phase 2" },
-  { name: "TITAN Hull Survey", status: "red", phase: "Blocked" },
-  { name: "ORACLE Market Scan", status: "green", phase: "Complete" },
-];
-
-interface SystemItem {
-  name: string;
-  status: string;
-  load: number;
+function statusDotColor(s: string): string {
+  if (s === "ONLINE") return "#00ff88";
+  if (s === "STANDBY") return "#ffaa00";
+  return "#ff3366";
 }
 
-const SYSTEMS: SystemItem[] = [
-  { name: "CRM Matrix", status: "ONLINE", load: 94 },
-  { name: "Email Relay", status: "ONLINE", load: 87 },
-  { name: "Fleet Tracker", status: "ONLINE", load: 99 },
-  { name: "Threat Grid", status: "STANDBY", load: 42 },
-  { name: "Sat Uplink", status: "ONLINE", load: 78 },
-  { name: "Neural Net", status: "TRAINING", load: 63 },
-];
-
-interface ThreatItem {
-  vector: string;
-  severity: "LOW" | "MED" | "HIGH" | "CRIT";
-  detail: string;
-}
-
-const THREATS: ThreatItem[] = [
-  { vector: "PERIMETER", severity: "LOW", detail: "All zones nominal" },
-  { vector: "CYBER", severity: "MED", detail: "3 probes deflected" },
-  { vector: "MARKET", severity: "HIGH", detail: "Competitor surge detected" },
-  { vector: "WEATHER", severity: "LOW", detail: "Med Sea: calm" },
-  { vector: "SUPPLY", severity: "MED", detail: "Parts delay: 48h" },
-  { vector: "INTEL", severity: "CRIT", detail: "Leak risk — monitor" },
-];
-
-const LOG_ENTRIES: { tag: string; color: string; msg: string }[] = [
-  { tag: "[OK]", color: "#00ff88", msg: "CRM sync complete — 14 contacts updated" },
-  { tag: "[>>]", color: "#00ffc8", msg: "Fleet telemetry stream active on ch.7" },
-  { tag: "[!!]", color: "#ffaa00", msg: "Email relay latency spike — 340ms" },
-  { tag: "[OK]", color: "#00ff88", msg: "Threat grid scan complete — no anomalies" },
-  { tag: "[>>]", color: "#00ffc8", msg: "Satellite handshake confirmed — Iridium 9" },
-  { tag: "[!!]", color: "#ffaa00", msg: "Market feed delay — fallback to cache" },
-  { tag: "[OK]", color: "#00ff88", msg: "Neural net inference batch 47 complete" },
-  { tag: "[>>]", color: "#00ffc8", msg: "Encrypted channel established — AES-256" },
-  { tag: "[OK]", color: "#00ff88", msg: "Charter pipeline updated — 3 new leads" },
-  { tag: "[!!]", color: "#ffaa00", msg: "Port auth beacon intermittent — retrying" },
-  { tag: "[OK]", color: "#00ff88", msg: "Backup rotation complete — 12 nodes" },
-  { tag: "[>>]", color: "#00ffc8", msg: "Incoming signal — decryption in progress" },
-  { tag: "[OK]", color: "#00ff88", msg: "All systems nominal — uptime 99.97%" },
-  { tag: "[!!]", color: "#ffaa00", msg: "DNS resolution slow — alternate route active" },
-  { tag: "[>>]", color: "#00ffc8", msg: "Agent Biniaris authenticated — level 5 clearance" },
-];
 
 /* ═══════════════════════════════════════════════════════════════════════════
    COMPONENT
    ═══════════════════════════════════════════════════════════════════════════ */
 
-export default function CommandCenter() {
+export default function CommandCenter({ snapshot }: Props) {
   const router = useRouter();
+  const { metrics, executives, pipeline, systems, threats, activity } = snapshot;
 
   // Refs for canvases
   const matrixRef = useRef<HTMLCanvasElement>(null);
@@ -131,7 +55,7 @@ export default function CommandCenter() {
   const ambientTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // State
-  const [metricCounts, setMetricCounts] = useState<number[]>([0, 0, 0, 0]);
+  const [metricCounts, setMetricCounts] = useState<number[]>(() => metrics.map(() => 0));
   const [logLines, setLogLines] = useState<{ ts: string; tag: string; color: string; msg: string }[]>([]);
   const [glowCard, setGlowCard] = useState<number | null>(null);
   const [hoveredExec, setHoveredExec] = useState<string | null>(null);
@@ -190,33 +114,49 @@ export default function CommandCenter() {
     function tick(now: number) {
       const p = Math.min((now - start) / duration, 1);
       const eased = 1 - Math.pow(1 - p, 3);
-      setMetricCounts(METRICS.map((m) => Math.round(m.value * eased)));
+      setMetricCounts(metrics.map((m) => Math.round(m.value * eased)));
       if (p < 1) raf = requestAnimationFrame(tick);
     }
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [metrics]);
 
   // ─── Terminal log cycling ──────────────────────────────────────────────
+  // Cycles through the real activity feed coming from the server snapshot
+  // (Supabase activities table, latest first) instead of the previous
+  // hardcoded mock log entries. Timestamps display the activity's actual
+  // created_at — not synthetic "00:00:0X".
   useEffect(() => {
+    if (!activity || activity.length === 0) return;
     let idx = 0;
+    const fmtTs = (iso: string) => {
+      try {
+        const d = new Date(iso);
+        return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+      } catch {
+        return "--:--:--";
+      }
+    };
     const addLine = () => {
-      const entry = LOG_ENTRIES[idx % LOG_ENTRIES.length];
-      const now = new Date();
-      const ts = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
-      setLogLines((prev) => [...prev.slice(-30), { ts, tag: entry.tag, color: entry.color, msg: entry.msg }]);
+      const entry = activity[idx % activity.length];
+      setLogLines((prev) => [
+        ...prev.slice(-30),
+        { ts: fmtTs(entry.when), tag: entry.tag, color: entry.color, msg: entry.msg },
+      ]);
       idx++;
     };
-    // Add a few initial lines
-    for (let i = 0; i < 5; i++) {
-      const entry = LOG_ENTRIES[i];
-      const ts = "00:00:0" + i;
-      setLogLines((prev) => [...prev, { ts, tag: entry.tag, color: entry.color, msg: entry.msg }]);
-      idx++;
-    }
+    // Seed with first 5 entries so the terminal isn't blank on first paint
+    const seed = activity.slice(0, Math.min(5, activity.length)).map((e) => ({
+      ts: fmtTs(e.when),
+      tag: e.tag,
+      color: e.color,
+      msg: e.msg,
+    }));
+    setLogLines(seed);
+    idx = seed.length;
     const timer = setInterval(addLine, 2500);
     return () => clearInterval(timer);
-  }, []);
+  }, [activity]);
 
   // Auto-scroll terminal
   useEffect(() => {
@@ -433,11 +373,15 @@ export default function CommandCenter() {
     };
   }, []);
 
-  // ─── Metric glow explosion ─────────────────────────────────────────────
+  // ─── Metric click → glow + drill-down ──────────────────────────────────
   const handleMetricClick = (idx: number) => {
     playBlip();
     setGlowCard(idx);
-    setTimeout(() => setGlowCard(null), 600);
+    const route = metrics[idx]?.route;
+    setTimeout(() => {
+      setGlowCard(null);
+      if (route) router.push(route);
+    }, 350);
   };
 
   // ─── Status color helper ───────────────────────────────────────────────
@@ -744,9 +688,9 @@ export default function CommandCenter() {
               marginBottom: 40,
             }}
           >
-            {METRICS.map((m, idx) => (
+            {metrics.map((m, idx) => (
               <div
-                key={m.label}
+                key={m.id}
                 onClick={() => handleMetricClick(idx)}
                 onMouseEnter={playBlip}
                 className={glowCard === idx ? "cc-card-glow" : ""}
@@ -808,6 +752,188 @@ export default function CommandCenter() {
             ))}
           </div>
 
+          {/* ── TODAY'S PRIORITIES (Tier 2) ─────────────────────────────── */}
+          {/* Top AI-ranked actions (left) + 4 urgent counters (right). The
+              actions come from the cached cockpit briefing — same money-
+              first ranking the morning Telegram brief uses. Click an
+              action → drills into the contact. */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)",
+              gap: 16,
+              marginBottom: 40,
+            }}
+          >
+            {/* LEFT — Top 3 actions */}
+            <div
+              style={{
+                background: "rgba(0, 20, 40, 0.55)",
+                border: "1px solid rgba(0, 255, 200, 0.18)",
+                borderRadius: 8,
+                padding: 16,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 10, letterSpacing: 3, color: "rgba(160,255,224,0.6)", textTransform: "uppercase" }}>
+                  TODAY&apos;S PRIORITIES
+                </span>
+                <span
+                  style={{
+                    fontSize: 8,
+                    letterSpacing: 2,
+                    padding: "1px 6px",
+                    borderRadius: 3,
+                    background: snapshot.priorities.has_briefing ? "rgba(0,255,136,0.15)" : "rgba(255,170,0,0.18)",
+                    color: snapshot.priorities.has_briefing ? "#00ff88" : "#ffaa00",
+                    border: `1px solid ${snapshot.priorities.has_briefing ? "rgba(0,255,136,0.35)" : "rgba(255,170,0,0.4)"}`,
+                  }}
+                >
+                  {snapshot.priorities.has_briefing ? "AI-RANKED" : "BRIEFING PENDING"}
+                </span>
+              </div>
+              {snapshot.priorities.actions.length === 0 && (
+                <div style={{ fontSize: 12, color: "rgba(160,255,224,0.5)", padding: "12px 0" }}>
+                  No prioritised actions in today&apos;s briefing.
+                  <button
+                    onClick={() => router.push("/dashboard")}
+                    style={{
+                      marginLeft: 8,
+                      background: "transparent",
+                      border: "1px solid rgba(0,255,200,0.3)",
+                      color: "#00ffc8",
+                      padding: "3px 10px",
+                      fontSize: 10,
+                      letterSpacing: 1,
+                      cursor: "pointer",
+                      borderRadius: 3,
+                    }}
+                  >
+                    OPEN COCKPIT
+                  </button>
+                </div>
+              )}
+              {snapshot.priorities.actions.map((a, i) => {
+                const priColor =
+                  a.priority === "critical" ? "#ff0064"
+                  : a.priority === "high" ? "#ff6644"
+                  : a.priority === "medium" ? "#ffaa00"
+                  : "#00ff88";
+                return (
+                  <div
+                    key={a.id}
+                    onClick={() => {
+                      playBlip();
+                      if (a.contact_id) router.push(`/dashboard/contacts/${a.contact_id}`);
+                      else router.push("/dashboard");
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 10,
+                      padding: "10px 0",
+                      borderTop: i === 0 ? "none" : "1px solid rgba(0,255,200,0.06)",
+                      cursor: "pointer",
+                    }}
+                    onMouseOver={(e) => ((e.currentTarget as HTMLDivElement).style.background = "rgba(0,255,200,0.04)")}
+                    onMouseOut={(e) => ((e.currentTarget as HTMLDivElement).style.background = "transparent")}
+                  >
+                    <div
+                      style={{
+                        marginTop: 4,
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        background: priColor,
+                        boxShadow: `0 0 6px ${priColor}`,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: "#a0ffe0", fontWeight: 600, lineHeight: 1.4 }}>
+                        {a.title}
+                      </div>
+                      {a.reason && (
+                        <div style={{ fontSize: 10, color: "rgba(160,255,224,0.45)", marginTop: 2, lineHeight: 1.5 }}>
+                          {a.reason}
+                        </div>
+                      )}
+                    </div>
+                    {a.expected_commission_eur > 0 && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#00ffc8",
+                          textShadow: "0 0 8px rgba(0,255,200,0.4)",
+                          flexShrink: 0,
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        €{Math.round(a.expected_commission_eur).toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* RIGHT — 4 counters */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+              }}
+            >
+              {snapshot.priorities.counters.map((c) => {
+                const numColor =
+                  c.tone === "bad" ? "#ff3366"
+                  : c.tone === "warn" ? "#ffaa00"
+                  : "#00ff88";
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => {
+                      playBlip();
+                      router.push(c.route);
+                    }}
+                    style={{
+                      position: "relative",
+                      background: "rgba(0, 20, 40, 0.55)",
+                      border: "1px solid rgba(0, 255, 200, 0.12)",
+                      borderRadius: 6,
+                      padding: "10px 12px",
+                      cursor: "pointer",
+                      transition: "border-color 0.2s",
+                      overflow: "hidden",
+                    }}
+                    onMouseOver={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = "rgba(0,255,200,0.4)")}
+                    onMouseOut={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = "rgba(0,255,200,0.12)")}
+                  >
+                    <div style={{ fontSize: 9, letterSpacing: 1.5, color: "rgba(160,255,224,0.55)", textTransform: "uppercase", marginBottom: 4 }}>
+                      {c.label}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 24,
+                        fontWeight: 900,
+                        color: numColor,
+                        textShadow: `0 0 10px ${numColor}66`,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {c.value}
+                    </div>
+                    <div style={{ fontSize: 9, color: "rgba(160,255,224,0.4)", marginTop: 4, letterSpacing: 0.3 }}>
+                      {c.hint}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* ── EXECUTIVE GRID ──────────────────────────────────────────── */}
           <div style={{ marginBottom: 40 }}>
             <div style={{ fontSize: 10, letterSpacing: 3, color: "rgba(160,255,224,0.4)", textTransform: "uppercase", marginBottom: 12 }}>
@@ -820,11 +946,11 @@ export default function CommandCenter() {
                 gap: 12,
               }}
             >
-              {EXECUTIVES.map((exec, idx) => (
+              {executives.map((exec, idx) => (
                 <div
                   key={exec.id}
                   onClick={() => {
-                    router.push("/dashboard/chat");
+                    if (exec.route) router.push(exec.route);
                   }}
                   onMouseEnter={() => {
                     setHoveredExec(exec.id);
@@ -846,20 +972,41 @@ export default function CommandCenter() {
                     overflow: "hidden",
                   }}
                 >
-                  {/* Avatar */}
+                  {/* Avatar — initials tile (replaces previous photo of fictional persona) */}
                   <div
                     style={{
                       position: "relative",
                       width: 44,
                       height: 44,
                       borderRadius: "50%",
-                      backgroundImage: `url(${PHOTOS[exec.id]})`,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
+                      background: gradientFor(exec.id),
                       flexShrink: 0,
                       border: "1.5px solid rgba(0,255,200,0.3)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 800,
+                      color: "rgba(255,255,255,0.92)",
+                      fontSize: 14,
+                      letterSpacing: 1,
+                      textShadow: "0 1px 2px rgba(0,0,0,0.5)",
                     }}
                   >
+                    {initialsFrom(exec.name)}
+                    {/* Status dot — bottom-right */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: -1,
+                        bottom: -1,
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        background: statusDotColor(exec.status),
+                        boxShadow: `0 0 6px ${statusDotColor(exec.status)}`,
+                        border: "1.5px solid #010810",
+                      }}
+                    />
                     {/* Orbiting particle on hover */}
                     {hoveredExec === exec.id && (
                       <div
@@ -1018,7 +1165,7 @@ export default function CommandCenter() {
               <div style={{ fontSize: 10, letterSpacing: 3, color: "rgba(160,255,224,0.4)", marginBottom: 12 }}>
                 MISSION PIPELINE
               </div>
-              {PIPELINE.map((p, i) => (
+              {pipeline.map((p, i) => (
                 <div
                   key={i}
                   style={{
@@ -1026,7 +1173,7 @@ export default function CommandCenter() {
                     alignItems: "center",
                     gap: 8,
                     padding: "6px 0",
-                    borderBottom: i < PIPELINE.length - 1 ? "1px solid rgba(0,255,200,0.05)" : "none",
+                    borderBottom: i < pipeline.length - 1 ? "1px solid rgba(0,255,200,0.05)" : "none",
                     fontSize: 11,
                   }}
                 >
@@ -1058,7 +1205,7 @@ export default function CommandCenter() {
               <div style={{ fontSize: 10, letterSpacing: 3, color: "rgba(160,255,224,0.4)", marginBottom: 12 }}>
                 SYSTEMS ARRAY
               </div>
-              {SYSTEMS.map((s, i) => (
+              {systems.map((s, i) => (
                 <div
                   key={i}
                   style={{
@@ -1066,7 +1213,7 @@ export default function CommandCenter() {
                     alignItems: "center",
                     gap: 8,
                     padding: "6px 0",
-                    borderBottom: i < SYSTEMS.length - 1 ? "1px solid rgba(0,255,200,0.05)" : "none",
+                    borderBottom: i < systems.length - 1 ? "1px solid rgba(0,255,200,0.05)" : "none",
                     fontSize: 11,
                   }}
                 >
@@ -1107,7 +1254,7 @@ export default function CommandCenter() {
               <div style={{ fontSize: 10, letterSpacing: 3, color: "rgba(160,255,224,0.4)", marginBottom: 12 }}>
                 THREAT MONITOR
               </div>
-              {THREATS.map((t, i) => (
+              {threats.map((t, i) => (
                 <div
                   key={i}
                   style={{
@@ -1115,7 +1262,7 @@ export default function CommandCenter() {
                     alignItems: "center",
                     gap: 8,
                     padding: "6px 0",
-                    borderBottom: i < THREATS.length - 1 ? "1px solid rgba(0,255,200,0.05)" : "none",
+                    borderBottom: i < threats.length - 1 ? "1px solid rgba(0,255,200,0.05)" : "none",
                     fontSize: 11,
                   }}
                 >
