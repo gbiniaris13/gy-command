@@ -1,5 +1,25 @@
 @README.md
 
+## Reference docs (read on demand — do NOT auto-load all)
+
+This repo carries three "persistent memory" files for Claude. Don't
+inline them via `@import` — they're large. Read them with the Read
+tool when the task hints at them:
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — every subsystem, key files,
+  env vars, crons, gotchas. Read first whenever you start work on an
+  area you don't already know cold.
+- **[DATA_MODEL.md](DATA_MODEL.md)** — every Supabase table + every
+  `settings`-table KV key. Read before grepping for a column name.
+- **[PLAYBOOKS.md](PLAYBOOKS.md)** — runbooks for force-refresh,
+  migrations, webhook setup, stuck IG approvals, cron history,
+  master cron schedule, etc. Read when the user asks "how do I X?"
+  or when you're about to do an operation for the first time.
+
+These docs lag the code — verify a specific claim against current
+source before acting. If a fact is wrong, fix the doc in the same
+commit as the code.
+
 # Working in this repo
 
 ## House rules — non-negotiable
