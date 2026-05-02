@@ -708,6 +708,28 @@ export default function CommandCenter({ snapshot }: Props) {
                 }}
               />
             </div>
+            <div style={{ marginTop: 10 }}>
+              <button
+                onClick={() => {
+                  playBlip();
+                  router.push("/dashboard/command-center/kiosk");
+                }}
+                style={{
+                  background: "transparent",
+                  border: "1px solid rgba(0,255,200,0.3)",
+                  color: "#00ffc8",
+                  fontFamily: "monospace",
+                  fontSize: 9,
+                  letterSpacing: 2,
+                  padding: "3px 10px",
+                  borderRadius: 3,
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                }}
+              >
+                📱 Kiosk Mode
+              </button>
+            </div>
           </header>
 
           {/* ── METRIC CARDS ────────────────────────────────────────────── */}
