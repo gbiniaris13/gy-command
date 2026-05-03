@@ -1,4 +1,5 @@
 {
+  "_emergency_note": "2026-05-03 — IG account flagged/banned. ALL social-platform crons removed (Instagram, Facebook, TikTok, LinkedIn, ig-engagement-dm, blog-to-social). Original config preserved at vercel.json.before-emergency-pause-2026-05-03 — restore from there once accounts recover.",
   "crons": [
     {
       "path": "/api/cron/system-health-check",
@@ -41,10 +42,6 @@
       "schedule": "0 10 * * 0"
     },
     {
-      "path": "/api/cron/instagram-publish",
-      "schedule": "5 15 * * *"
-    },
-    {
       "path": "/api/cron/after-sales",
       "schedule": "0 8 * * *"
     },
@@ -53,112 +50,8 @@
       "schedule": "0 6 * * 0"
     },
     {
-      "path": "/api/cron/instagram-analytics",
-      "schedule": "17 */6 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-followers",
-      "schedule": "11 3 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-competitors",
-      "schedule": "23 3 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-generate-weekly",
-      "schedule": "0 7 * * 0"
-    },
-    {
-      "path": "/api/cron/instagram-watchdog",
-      "schedule": "30 6 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-evergreen",
-      "schedule": "0 7 1 * *"
-    },
-    {
-      "path": "/api/cron/instagram-engagement-digest",
-      "schedule": "7 11 * * 1-5"
-    },
-    {
-      "path": "/api/cron/instagram-underperformers",
-      "schedule": "13 8 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-style-preference",
-      "schedule": "19 9 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-trending",
-      "schedule": "23 */4 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-stories",
-      "schedule": "0 5,10,17 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-carousel",
-      "schedule": "0 16 * * 1,4"
-    },
-    {
-      "path": "/api/cron/instagram-dm-followup",
-      "schedule": "0 10 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-ugc",
-      "schedule": "0 15 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-monthly-report",
-      "schedule": "0 8 1 * *"
-    },
-    {
-      "path": "/api/cron/instagram-health-check",
-      "schedule": "0 7 * * 1"
-    },
-    {
-      "path": "/api/cron/instagram-fleet-post",
-      "schedule": "30 15 * * 2,3,4"
-    },
-    {
-      "path": "/api/cron/instagram-fleet-story-followup",
-      "schedule": "0 */3 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-weekly-ops-report",
-      "schedule": "0 7 * * 4"
-    },
-    {
-      "path": "/api/cron/instagram-publish-reel",
-      "schedule": "15 15 * * 3,5"
-    },
-    {
-      "path": "/api/cron/tiktok-mirror",
-      "schedule": "15 16 * * 1-5"
-    },
-    {
-      "path": "/api/cron/facebook-mirror",
-      "schedule": "35 15 * * *"
-    },
-    {
-      "path": "/api/cron/linkedin-blog-digest",
-      "schedule": "45 5 * * 2,4"
-    },
-    {
-      "path": "/api/cron/linkedin-company-amplify",
-      "schedule": "0 8 * * 2,4"
-    },
-    {
-      "path": "/api/cron/linkedin-fleet-brief",
-      "schedule": "0 7 * * 5"
-    },
-    {
       "path": "/api/cron/gmail-poll-replies",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/blog-to-social",
-      "schedule": "30 14 * * 2,4"
     },
     {
       "path": "/api/cron/cockpit-briefing",
@@ -197,10 +90,6 @@
       "schedule": "45 2 * * *"
     },
     {
-      "path": "/api/cron/linkedin-intel",
-      "schedule": "0 6 * * 1"
-    },
-    {
       "path": "/api/cron/weekly-strategy",
       "schedule": "0 14 * * 5"
     },
@@ -211,10 +100,6 @@
     {
       "path": "/api/cron/founders-friday",
       "schedule": "0 15 * * 5"
-    },
-    {
-      "path": "/api/cron/ig-engagement-dm",
-      "schedule": "0 8 * * *"
     }
   ]
 }
