@@ -1,105 +1,49 @@
 {
-  "_emergency_note": "2026-05-03 — IG account flagged/banned. ALL social-platform crons removed (Instagram, Facebook, TikTok, LinkedIn, ig-engagement-dm, blog-to-social). Original config preserved at vercel.json.before-emergency-pause-2026-05-03 — restore from there once accounts recover.",
+  "_note_2026_05_04": "George got IG access back (password changed). Re-enabling CONTENT-POSTING crons only (IG posts/reels/stories/carousel/evergreen + FB/TikTok content mirrors). DM + comment + engagement crons stay OFF: instagram-engagement-digest, instagram-dm-followup, ig-engagement-dm. LinkedIn stays OFF. Run /api/cron/instagram-health-check first thing after deploy to verify the Graph API token survived the password reset — if it 4xx's, refresh via Facebook Business Manager and update IG_ACCESS_TOKEN in Vercel env.",
   "crons": [
-    {
-      "path": "/api/cron/system-health-check",
-      "schedule": "5 7 * * *"
-    },
-    {
-      "path": "/api/cron/idle-leads",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/cron/calendar-sync",
-      "schedule": "*/30 * * * *"
-    },
-    {
-      "path": "/api/cron/pre-call-brief",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/cron/post-charter",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/deliverability",
-      "schedule": "0 8 * * 0"
-    },
-    {
-      "path": "/api/cron/charter-reminders",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/birthdays",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/holidays",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/competitor-scan",
-      "schedule": "0 10 * * 0"
-    },
-    {
-      "path": "/api/cron/after-sales",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/brand-radar",
-      "schedule": "0 6 * * 0"
-    },
-    {
-      "path": "/api/cron/gmail-poll-replies",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/cockpit-briefing",
-      "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/cron/inbox-refresh",
-      "schedule": "30 3 * * *"
-    },
-    {
-      "path": "/api/cron/inbox-greetings",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/charter-lifecycle-fire",
-      "schedule": "30 4 * * *"
-    },
-    {
-      "path": "/api/cron/inbox-star-sync",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/commitments-surface",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/cron/health-score-recompute",
-      "schedule": "30 2 * * *"
-    },
-    {
-      "path": "/api/cron/health-weekly-digest",
-      "schedule": "0 6 * * 0"
-    },
-    {
-      "path": "/api/cron/thread-suggestions",
-      "schedule": "45 2 * * *"
-    },
-    {
-      "path": "/api/cron/weekly-strategy",
-      "schedule": "0 14 * * 5"
-    },
-    {
-      "path": "/api/cron/charter-whispers",
-      "schedule": "0 4 * * 0"
-    },
-    {
-      "path": "/api/cron/founders-friday",
-      "schedule": "0 15 * * 5"
-    }
+    { "path": "/api/cron/system-health-check",     "schedule": "5 7 * * *" },
+    { "path": "/api/cron/idle-leads",              "schedule": "0 7 * * *" },
+    { "path": "/api/cron/calendar-sync",           "schedule": "*/30 * * * *" },
+    { "path": "/api/cron/pre-call-brief",          "schedule": "0 * * * *" },
+    { "path": "/api/cron/post-charter",            "schedule": "0 9 * * *" },
+    { "path": "/api/cron/deliverability",          "schedule": "0 8 * * 0" },
+    { "path": "/api/cron/charter-reminders",       "schedule": "0 8 * * *" },
+    { "path": "/api/cron/birthdays",               "schedule": "0 8 * * *" },
+    { "path": "/api/cron/holidays",                "schedule": "0 8 * * *" },
+    { "path": "/api/cron/competitor-scan",         "schedule": "0 10 * * 0" },
+    { "path": "/api/cron/after-sales",             "schedule": "0 8 * * *" },
+    { "path": "/api/cron/brand-radar",             "schedule": "0 6 * * 0" },
+    { "path": "/api/cron/gmail-poll-replies",      "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/cockpit-briefing",        "schedule": "0 4 * * *" },
+    { "path": "/api/cron/inbox-refresh",           "schedule": "30 3 * * *" },
+    { "path": "/api/cron/inbox-greetings",         "schedule": "0 3 * * *" },
+    { "path": "/api/cron/charter-lifecycle-fire",  "schedule": "30 4 * * *" },
+    { "path": "/api/cron/inbox-star-sync",         "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/commitments-surface",     "schedule": "0 5 * * *" },
+    { "path": "/api/cron/health-score-recompute",  "schedule": "30 2 * * *" },
+    { "path": "/api/cron/health-weekly-digest",    "schedule": "0 6 * * 0" },
+    { "path": "/api/cron/thread-suggestions",      "schedule": "45 2 * * *" },
+    { "path": "/api/cron/weekly-strategy",         "schedule": "0 14 * * 5" },
+    { "path": "/api/cron/charter-whispers",        "schedule": "0 4 * * 0" },
+    { "path": "/api/cron/founders-friday",         "schedule": "0 15 * * 5" },
+
+    { "path": "/api/cron/instagram-publish",                "schedule": "5 15 * * *" },
+    { "path": "/api/cron/instagram-publish-reel",           "schedule": "15 15 * * 3,5" },
+    { "path": "/api/cron/instagram-stories",                "schedule": "0 5,10,17 * * *" },
+    { "path": "/api/cron/instagram-carousel",               "schedule": "0 16 * * 1,4" },
+    { "path": "/api/cron/instagram-fleet-post",             "schedule": "30 15 * * 2,3,4" },
+    { "path": "/api/cron/instagram-fleet-story-followup",   "schedule": "0 */3 * * *" },
+    { "path": "/api/cron/instagram-evergreen",              "schedule": "0 7 1 * *" },
+    { "path": "/api/cron/instagram-generate-weekly",        "schedule": "0 7 * * 0" },
+
+    { "path": "/api/cron/instagram-health-check",        "schedule": "0 7 * * 1" },
+    { "path": "/api/cron/instagram-watchdog",            "schedule": "30 6 * * *" },
+    { "path": "/api/cron/instagram-analytics",           "schedule": "17 */6 * * *" },
+    { "path": "/api/cron/instagram-followers",           "schedule": "11 3 * * *" },
+    { "path": "/api/cron/instagram-monthly-report",      "schedule": "0 8 1 * *" },
+    { "path": "/api/cron/instagram-weekly-ops-report",   "schedule": "0 7 * * 4" },
+
+    { "path": "/api/cron/facebook-mirror",  "schedule": "35 15 * * *" },
+    { "path": "/api/cron/tiktok-mirror",    "schedule": "15 16 * * 1-5" }
   ]
 }
