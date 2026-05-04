@@ -32,6 +32,7 @@ import {
   fleetHashtagBlock,
   captionVoiceAudit,
 } from "@/lib/fleet-caption";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 // Cron: Instagram Fleet Post (Phase D.1).
 //
@@ -107,7 +108,7 @@ async function queueStoryFollowup(
 }
 
 async function _observedImpl() {
-  const igToken = process.env.IG_ACCESS_TOKEN;
+  const igToken = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });

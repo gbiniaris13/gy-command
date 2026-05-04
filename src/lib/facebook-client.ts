@@ -10,6 +10,7 @@
 // Graph API returns 190 (OAuth token invalid).
 
 import { createServiceClient } from "@/lib/supabase-server";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 // Single source of truth for the FB Page ID. Re-exported so other
@@ -41,7 +42,7 @@ async function getPageToken(): Promise<string> {
 
 async function refreshPageToken(): Promise<string> {
   const userToken =
-    process.env.FB_USER_ACCESS_TOKEN || process.env.IG_ACCESS_TOKEN;
+    process.env.FB_USER_ACCESS_TOKEN || getIgTokenOptional();
   if (!userToken) throw new Error("FB_USER_ACCESS_TOKEN / IG_ACCESS_TOKEN missing");
   const res = await fetch(`${GRAPH}/me/accounts?access_token=${userToken}`);
   const json = await res.json();
@@ -145,7 +146,7 @@ export async function publishVideo(args: {
 }
 
 export async function listPages(): Promise<any> {
-  const userToken = process.env.IG_ACCESS_TOKEN;
+  const userToken = getIgTokenOptional();
   if (!userToken) return { error: "IG_ACCESS_TOKEN missing" };
   const res = await fetch(`${GRAPH}/me/accounts?access_token=${userToken}`);
   return res.json();

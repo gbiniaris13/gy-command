@@ -14,6 +14,7 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 // Cron: daily 09:00 UTC (12:00 Athens) — publishes 1 Story per day.
 // Uses a photo from the ROBERTO IG library + AI-generated quote overlay.
@@ -40,7 +41,7 @@ const ROTATION_KEY = "story_rotation_v1";
 const COOLDOWN_DAYS = 30;
 
 async function _observedImpl() {
-  const igToken = process.env.IG_ACCESS_TOKEN;
+  const igToken = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });

@@ -17,6 +17,7 @@ import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 // Cron: publishes 1 Instagram Reel per firing, picking an unused video
 // from the library + generating a fresh caption.
@@ -52,7 +53,7 @@ const REEL_ANGLES = [
 const FLAG_KEY = "reels_enabled";
 
 async function _observedImpl() {
-  const igToken = process.env.IG_ACCESS_TOKEN;
+  const igToken = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });

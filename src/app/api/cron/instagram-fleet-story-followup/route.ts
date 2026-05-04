@@ -7,6 +7,7 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 // Cron: fleet story followup (Phase D.1.5).
 //
@@ -70,7 +71,7 @@ async function writeQueue(sb: any, queue: any[]): Promise<void> {
 }
 
 async function _observedImpl() {
-  const igToken = process.env.IG_ACCESS_TOKEN;
+  const igToken = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });

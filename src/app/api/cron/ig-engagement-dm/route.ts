@@ -31,6 +31,7 @@ import {
   type DmCategory,
 } from "@/lib/ig-engagement-dm";
 import { observeCron } from "@/lib/cron-observer";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -56,7 +57,7 @@ function escapeHtml(s: string): string {
 
 async function _observedImpl(): Promise<Response> {
   const sb = createServiceClient();
-  const igToken = process.env.IG_ACCESS_TOKEN;
+  const igToken = getIgTokenOptional();
   const igUserId = process.env.IG_BUSINESS_ID || process.env.IG_USER_ID;
 
   if (!igToken || !igUserId) {

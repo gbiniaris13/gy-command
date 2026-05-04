@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 // Cron: daily 10:00 UTC (13:00 Athens).
 // Sends soft follow-up DM to people who received a welcome DM 5 days ago
@@ -18,7 +19,7 @@ const FOLLOW_UP_MESSAGES = [
 ];
 
 async function _observedImpl() {
-  const igToken = process.env.IG_ACCESS_TOKEN;
+  const igToken = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });

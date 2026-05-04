@@ -18,6 +18,7 @@ import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 // Feature #9 — Caption quality guard. Returns a rejection reason if
 // the caption isn't ship-worthy so the publish loop can block it,
@@ -172,7 +173,7 @@ async function swapImageFromLibrary(sb, post) {
 
 // Cron: publishes scheduled Instagram posts when their time arrives
 async function _observedImpl() {
-  const token = process.env.IG_ACCESS_TOKEN;
+  const token = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!token || !igId) {
     return NextResponse.json({ error: "IG not configured", processed: 0 });

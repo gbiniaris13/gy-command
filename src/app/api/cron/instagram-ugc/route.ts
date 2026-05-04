@@ -2,13 +2,14 @@
 import { NextResponse } from "next/server";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 // Cron: daily 15:00 UTC (18:00 Athens).
 // Scans for @georgeyachts tags/mentions on Instagram.
 // Alerts George via Telegram for potential reposts.
 
 async function _observedImpl() {
-  const igToken = process.env.IG_ACCESS_TOKEN;
+  const igToken = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
     return NextResponse.json({ error: "IG not configured" });

@@ -31,6 +31,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -199,7 +200,7 @@ async function checkFBPageToken(): Promise<CheckResult> {
 }
 
 async function checkIGTokenExpiry(): Promise<CheckResult> {
-  const token = process.env.IG_ACCESS_TOKEN;
+  const token = getIgTokenOptional();
   if (!token) return warn("IG Access Token", "not configured");
   try {
     // Use graph.instagram.com (matches what every IG cron in this

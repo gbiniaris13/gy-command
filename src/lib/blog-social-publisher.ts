@@ -20,6 +20,7 @@
 import { aiChat } from "@/lib/ai";
 import type { BlogArticle } from "@/lib/blog-fetcher";
 import { publishPhoto as facebookPublishPhoto } from "@/lib/facebook-client";
+import { getIgTokenOptional } from "@/lib/ig-token";
 
 const IG_GRAPH = "https://graph.instagram.com/v21.0";
 
@@ -221,7 +222,7 @@ async function igCreateAndPublish(args: {
   imageUrl: string;
   caption?: string;
 }): Promise<Result<{ media_id: string }>> {
-  const token = process.env.IG_ACCESS_TOKEN;
+  const token = getIgTokenOptional();
   if (!token) return { ok: false, error: "IG_ACCESS_TOKEN missing" };
 
   const containerBody: Record<string, string> = {
