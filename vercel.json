@@ -26,11 +26,11 @@
     { "path": "/api/cron/charter-whispers",        "schedule": "0 4 * * 0" },
     { "path": "/api/cron/founders-friday",         "schedule": "0 15 * * 5" },
 
-    { "path": "/api/cron/instagram-publish",                "schedule": "5 15 * * *" },
-    { "path": "/api/cron/instagram-publish-reel",           "schedule": "15 15 * * 3,5" },
+    { "path": "/api/cron/instagram-publish",                "schedule": "0 15 * * *" },
+    { "path": "/api/cron/instagram-publish-reel",           "schedule": "10 15 * * 3,5" },
     { "path": "/api/cron/instagram-stories",                "schedule": "0 5,10,17 * * *" },
-    { "path": "/api/cron/instagram-carousel",               "schedule": "0 16 * * 1,4" },
-    { "path": "/api/cron/instagram-fleet-post",             "schedule": "30 15 * * 2,3,4" },
+    { "path": "/api/cron/instagram-carousel",               "schedule": "0 15 * * 1,4" },
+    { "path": "/api/cron/instagram-fleet-post",             "schedule": "20 15 * * 2,3,4" },
     { "path": "/api/cron/instagram-fleet-story-followup",   "schedule": "0 */3 * * *" },
     { "path": "/api/cron/instagram-evergreen",              "schedule": "0 7 1 * *" },
     { "path": "/api/cron/instagram-generate-weekly",        "schedule": "0 7 * * 0" },
@@ -42,7 +42,7 @@
     { "path": "/api/cron/instagram-monthly-report",      "schedule": "0 8 1 * *" },
     { "path": "/api/cron/instagram-weekly-ops-report",   "schedule": "0 7 * * 4" },
 
-    { "path": "/api/cron/facebook-mirror",  "schedule": "35 15 * * *" },
+    { "path": "/api/cron/facebook-mirror",  "schedule": "30 15 * * *" },
     { "path": "/api/cron/tiktok-mirror",    "schedule": "15 16 * * 1-5" }
   ]
 }
