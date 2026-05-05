@@ -1,5 +1,4 @@
 {
-  "_note_2026_05_04": "George got IG access back (password changed). Re-enabling CONTENT-POSTING crons only (IG posts/reels/stories/carousel/evergreen + FB/TikTok content mirrors). DM + comment + engagement crons stay OFF: instagram-engagement-digest, instagram-dm-followup, ig-engagement-dm. LinkedIn stays OFF. Run /api/cron/instagram-health-check first thing after deploy to verify the Graph API token survived the password reset — if it 4xx's, refresh via Facebook Business Manager and update IG_ACCESS_TOKEN in Vercel env.",
   "crons": [
     { "path": "/api/cron/system-health-check",     "schedule": "5 7 * * *" },
     { "path": "/api/cron/idle-leads",              "schedule": "0 7 * * *" },
