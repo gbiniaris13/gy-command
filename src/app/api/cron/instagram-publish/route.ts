@@ -14,6 +14,14 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
+import {
+  humanWindowJitterMs,
+  shouldSkipToday,
+  recordMetaError,
+  clearMetaError,
+  hashtagsRecentlyUsed,
+  markHashtagsUsed,
+} from "@/lib/meta-stealth";
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
@@ -199,8 +207,20 @@ async function _observedImpl() {
   if (!(await checkRateLimitHealth("post_publish"))) {
     return NextResponse.json({ skipped: "rate_limit", processed: 0 });
   }
-  // Phase A — anti-bot timing jitter. 0-15 min random delay so the IG
-  // API doesn't see us firing at exactly the cron scheduled time.
+
+  // Stealth Layer 1 (Phase 27e, 2026-05-05) — random skip days.
+  // Real accounts miss ~7% of days. Roll the dice; on skip-day, exit
+  // silently (cached so multi-fire idempotency holds).
+  if (await shouldSkipToday("post_publish")) {
+    return NextResponse.json({ skipped: "stealth_skip_day", processed: 0 });
+  }
+
+  // Stealth Layer 2 — wide-window jitter. 0-25 min random delay
+  // (skewed toward earlier) on top of the existing 0-2 min jitter.
+  // Effective publish time spans 18:00-18:27 instead of 18:00:00.
+  await new Promise((r) => setTimeout(r, humanWindowJitterMs(25)));
+
+  // Phase A — anti-bot timing jitter (sub-minute, original).
   await applyPublishJitter();
 
   const sb = createServiceClient();
@@ -315,6 +335,16 @@ async function _observedImpl() {
         );
       }
 
+      // Stealth Layer 4 — hashtag-set diversity. Same exact hashtag
+      // cluster reused inside 14 days is one of Meta's spam tells.
+      // Non-blocking alert (we still publish — Telegram nudges George
+      // to vary the generator prompt if this fires repeatedly).
+      if (await hashtagsRecentlyUsed(post.caption ?? "")) {
+        await sendTelegram(
+          `⚠ <b>Hashtag set reused inside 14 days</b>\nPost: ${post.id}\nPublishing anyway. Consider rotating the hashtag generator if this fires often.`,
+        );
+      }
+
       // Mark as publishing
       await sb.from("ig_posts").update({ status: "publishing" }).eq("id", post.id);
 
@@ -381,12 +411,32 @@ async function _observedImpl() {
         ig_media_id: publishData.id,
       });
 
+      // Stealth Layers 4 + 5 — record hashtag set as just-used (so
+      // repeats inside 14 days are detected) + clear any backoff
+      // counter (the consecutive-error chain breaks on success).
+      await markHashtagsUsed(post.caption ?? "");
+      await clearMetaError("instagram-publish");
+
       processed++;
     } catch (err) {
       await sb.from("ig_posts").update({
         status: "failed",
         error: err instanceof Error ? err.message : String(err),
       }).eq("id", post.id);
+
+      // Stealth Layer 5 — exponential backoff on Meta errors.
+      // recordMetaError increments the consecutive-error counter and
+      // returns the seconds to back off (30 → 90 → 270 → 900 → 2700).
+      // We don't sleep here (the cron already exits) — but the next
+      // cron tick reads the counter and skips if backoff window not
+      // elapsed yet, preventing aggressive retry escalation.
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (/rate|limit|spam|temporarily blocked|190|17|429|400/i.test(errMsg)) {
+        const { seconds } = await recordMetaError("instagram-publish");
+        await sendTelegram(
+          `🚨 <b>Meta API error — backing off ${seconds}s</b>\nPost: ${post.id}\nError: ${errMsg.slice(0, 200)}`,
+        );
+      }
     }
   }
 

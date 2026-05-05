@@ -18,6 +18,7 @@ import {
   publishPhotoCarousel,
   publishVideo,
 } from "@/lib/facebook-client";
+import { humanWindowJitterMs } from "@/lib/meta-stealth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -38,6 +39,16 @@ function adaptCaptionForFacebook(igCaption: string): string {
 }
 
 async function _impl(req?: Request) {
+  // Stealth — small randomization (0-8 min) so the FB mirror doesn't
+  // fire at exactly cron+0:00 every day. Combined with the 30-min
+  // separation from the IG publish, we look like a person sharing
+  // their IG post to FB at a natural moment, not a bot at fixed
+  // offset. Only applied when invoked by the Vercel cron (with
+  // x-vercel-cron header); manual / admin invocations skip jitter.
+  if (req?.headers?.get?.("x-vercel-cron")) {
+    await new Promise((r) => setTimeout(r, humanWindowJitterMs(8)));
+  }
+
   // No window guard here — the FB mirror only picks up rows that
   // already published to IG, which means IG's own window guard has
   // already cleared them. Safe by construction.

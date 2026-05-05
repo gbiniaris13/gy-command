@@ -24,6 +24,7 @@ import { observeCron } from "@/lib/cron-observer";
 import { sendTelegram } from "@/lib/telegram";
 import { publishVideo, publishPhotos, pollPublishStatus } from "@/lib/tiktok-client";
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
+import { humanWindowJitterMs } from "@/lib/meta-stealth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -47,6 +48,11 @@ function adaptCaptionForTikTok(igCaption: string): string {
 }
 
 async function _impl() {
+  // Stealth — TikTok mirror also gets a small (0-8 min) jitter so it
+  // doesn't fire at exact cron offset every day, looking less like
+  // a bot relay.
+  await new Promise((r) => setTimeout(r, humanWindowJitterMs(8)));
+
   // Same window guard — TikTok posts stay inside brand-safe hours.
   const gate = await assertPublishAllowed({ postType: "reel" });
   if (!gate.allowed) {

@@ -11,6 +11,7 @@
 
 import { createServiceClient } from "@/lib/supabase-server";
 import { getIgTokenOptional } from "@/lib/ig-token";
+import { metaFetch } from "@/lib/meta-stealth";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 // Single source of truth for the FB Page ID. Re-exported so other
@@ -44,7 +45,7 @@ async function refreshPageToken(): Promise<string> {
   const userToken =
     process.env.FB_USER_ACCESS_TOKEN || getIgTokenOptional();
   if (!userToken) throw new Error("FB_USER_ACCESS_TOKEN / IG_ACCESS_TOKEN missing");
-  const res = await fetch(`${GRAPH}/me/accounts?access_token=${userToken}`);
+  const res = await metaFetch(`${GRAPH}/me/accounts?access_token=${userToken}`);
   const json = await res.json();
   if (!res.ok) throw new Error(`/me/accounts failed: ${JSON.stringify(json)}`);
   const page = (json.data ?? []).find((p: any) => p.id === PAGE_ID);
@@ -69,7 +70,7 @@ async function callGraph(
 ): Promise<any> {
   const token = await getPageToken();
   const params = new URLSearchParams({ ...body, access_token: token });
-  const res = await fetch(`${GRAPH}${path}`, {
+  const res = await metaFetch(`${GRAPH}${path}`, {
     method: "POST",
     body: params,
   });
@@ -148,6 +149,6 @@ export async function publishVideo(args: {
 export async function listPages(): Promise<any> {
   const userToken = getIgTokenOptional();
   if (!userToken) return { error: "IG_ACCESS_TOKEN missing" };
-  const res = await fetch(`${GRAPH}/me/accounts?access_token=${userToken}`);
+  const res = await metaFetch(`${GRAPH}/me/accounts?access_token=${userToken}`);
   return res.json();
 }
