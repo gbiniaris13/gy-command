@@ -73,20 +73,30 @@ export async function metaFetch(input, init = {}) {
 
 /**
  * Returns ms-to-sleep so a cron fires at a randomized minute within
- * a 25-min window after the schedule fires. Combined with the
- * existing 0-120s `applyPublishJitter`, we get effective post times
- * spanning roughly 18:00–18:27 instead of 18:00:00 sharp.
+ * a window after the schedule fires. Combined with the existing
+ * 0-120s `applyPublishJitter`, posts spread across the window
+ * instead of firing at exact :00.
+ *
+ * Phase 27g (Forbes-launch day, 2026-05-06) — Boss reported the
+ * publish endpoint timing out at 90s during a manual test. Root
+ * cause: the original 25-min cap could randomly pick a value above
+ * Vercel's 300s function timeout, causing the entire cron to die
+ * mid-sleep before publishing. Capped maxMin at 4 (240s = 4 min)
+ * so even the pathological pick stays under Vercel's lambda
+ * deadline. Sqrt-skew still keeps the median early so the post
+ * usually fires within ~2 min of the cron tick.
  *
  * Skip on local dev via DISABLE_META_STEALTH=1.
  */
-export function humanWindowJitterMs(maxMin = 25) {
+export function humanWindowJitterMs(maxMin = 4) {
   if (process.env.DISABLE_META_STEALTH === "1") return 0;
-  // Skewed distribution — most posts are 0-15 min after the hour
-  // (people post immediately when they sit down), occasional 15-25
-  // late ones. We use sqrt() to push the median earlier.
+  // Hard cap at 4 min so the sleep never trips Vercel's 300s
+  // function deadline. Default param above is also 4 — callers
+  // that pass a larger value get clamped here.
+  const cappedMax = Math.min(maxMin, 4);
   const r = Math.random();
   const skewed = Math.sqrt(r);
-  return Math.floor(skewed * maxMin * 60 * 1000);
+  return Math.floor(skewed * cappedMax * 60 * 1000);
 }
 
 // ─────────────────────────────────────────────────────────────────
