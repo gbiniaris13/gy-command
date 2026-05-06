@@ -444,22 +444,29 @@ async function _observedImpl() {
 
       processed++;
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       await sb.from("ig_posts").update({
         status: "failed",
-        error: err instanceof Error ? err.message : String(err),
+        error: errMsg,
       }).eq("id", post.id);
 
-      // Stealth Layer 5 — exponential backoff on Meta errors.
-      // recordMetaError increments the consecutive-error counter and
-      // returns the seconds to back off (30 → 90 → 270 → 900 → 2700).
-      // We don't sleep here (the cron already exits) — but the next
-      // cron tick reads the counter and skips if backoff window not
-      // elapsed yet, preventing aggressive retry escalation.
-      const errMsg = err instanceof Error ? err.message : String(err);
+      // Phase 27g (Forbes-launch day) — Boss couldn't see WHY posts
+      // were going to "failed". Always Telegram alert on failure (not
+      // just rate-limit cases) with post id, caption preview, image
+      // URL prefix, and the actual Meta error message. This is what
+      // makes debugging from the Telegram thread possible.
+      await sendTelegram(
+        `❌ <b>IG publish failed</b>\nPost: <code>${post.id.slice(0, 8)}</code>\nType: ${post.post_type ?? "image"}\nImage: <code>...${(post.image_url ?? "").slice(-50)}</code>\nError: ${errMsg.slice(0, 240)}`,
+      ).catch(() => {});
+
+      // Stealth Layer 5 — exponential backoff ONLY when the error is
+      // a Meta rate-limit / quota / token problem. Other errors (bad
+      // image URL, container processing failure) don't justify a
+      // backoff — we want the next post to fire normally.
       if (/rate|limit|spam|temporarily blocked|190|17|429|400/i.test(errMsg)) {
         const { seconds } = await recordMetaError("instagram-publish");
         await sendTelegram(
-          `🚨 <b>Meta API error — backing off ${seconds}s</b>\nPost: ${post.id}\nError: ${errMsg.slice(0, 200)}`,
+          `🚨 <b>Meta API rate-limited — backing off ${seconds}s</b>\nPost: ${post.id}`,
         );
       }
     }
