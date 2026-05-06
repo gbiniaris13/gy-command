@@ -26,7 +26,7 @@ import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
-import { getIgTokenOptional } from "@/lib/ig-token";
+import { getIgTokenOptional, getIgGraphRoot, getIgMediaUrl } from "@/lib/ig-token";
 
 // Feature #9 — Caption quality guard. Returns a rejection reason if
 // the caption isn't ship-worthy so the publish loop can block it,
@@ -348,9 +348,17 @@ async function _observedImpl() {
       // Mark as publishing
       await sb.from("ig_posts").update({ status: "publishing" }).eq("id", post.id);
 
-      // Step 1: Create media container (use "me" for Instagram Login tokens)
+      // Phase 27g (Forbes-launch day, 2026-05-06) — switched to the
+      // centralised getIgGraphRoot() helper. Old path was
+      // graph.facebook.com/v21.0/me which only accepts user-OAuth
+      // tokens (dies on password reset). Now uses
+      // graph.facebook.com/v21.0/{IG_BUSINESS_ID} which is the
+      // Meta-documented path for Page Access Tokens.
+      const igRoot = getIgGraphRoot();
+
+      // Step 1: Create media container
       const containerRes = await fetch(
-        `https://graph.instagram.com/v21.0/me/media`,
+        `${igRoot}/media`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -369,7 +377,7 @@ async function _observedImpl() {
       for (let attempt = 0; attempt < 10; attempt++) {
         await new Promise((r) => setTimeout(r, 3000)); // wait 3s between checks
         const statusRes = await fetch(
-          `https://graph.instagram.com/v21.0/${containerData.id}?fields=status_code&access_token=${encodeURIComponent(token)}`
+          `${getIgMediaUrl(containerData.id)}?fields=status_code&access_token=${encodeURIComponent(token)}`
         );
         const statusData = await statusRes.json();
         if (statusData.status_code === "FINISHED") {
@@ -385,7 +393,7 @@ async function _observedImpl() {
 
       // Step 2: Publish
       const publishRes = await fetch(
-        `https://graph.instagram.com/v21.0/me/media_publish`,
+        `${igRoot}/media_publish`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

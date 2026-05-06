@@ -348,7 +348,7 @@ async function reportToTelegram(
 async function fetchFollowerCount(igToken: string): Promise<number> {
   try {
     const res = await fetch(
-      `https://graph.instagram.com/v21.0/me?fields=followers_count&access_token=${encodeURIComponent(igToken)}`,
+      `https://graph.facebook.com/v21.0/me?fields=followers_count&access_token=${encodeURIComponent(igToken)}`,
     );
     const json = await res.json();
     return Number(json?.followers_count ?? 0);

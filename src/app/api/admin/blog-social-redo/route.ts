@@ -33,7 +33,7 @@ async function deleteIgMedia(mediaId: string): Promise<{ ok: boolean; detail?: a
   const token = process.env.IG_ACCESS_TOKEN;
   if (!token) return { ok: false, detail: "IG_ACCESS_TOKEN missing" };
   const res = await fetch(
-    `https://graph.instagram.com/v21.0/${mediaId}?access_token=${encodeURIComponent(token)}`,
+    `https://graph.facebook.com/v21.0/${mediaId}?access_token=${encodeURIComponent(token)}`,
     { method: "DELETE" },
   );
   const json = await res.json().catch(() => ({}));
@@ -55,7 +55,7 @@ async function probeIgCaption(mediaId: string): Promise<any> {
   const token = process.env.IG_ACCESS_TOKEN;
   if (!token) return { ok: false, detail: "IG_ACCESS_TOKEN missing" };
   const res = await fetch(
-    `https://graph.instagram.com/v21.0/${mediaId}?fields=id,caption,permalink,media_type,timestamp&access_token=${encodeURIComponent(token)}`,
+    `https://graph.facebook.com/v21.0/${mediaId}?fields=id,caption,permalink,media_type,timestamp&access_token=${encodeURIComponent(token)}`,
   );
   const json = await res.json().catch(() => ({}));
   return { ok: res.ok, detail: json };

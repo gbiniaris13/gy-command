@@ -300,9 +300,17 @@ async function _observedImpl() {
 
   try {
     // Step 1 — create individual carousel item containers.
+    // Phase 27g (Forbes-launch day) — improved error logging so a
+    // future failure tells us WHICH photo + WHY (was: silent skip,
+    // only "could not create enough" surfaced; impossible to debug
+    // a specific yacht like S/CAT Helidoni). Each failed item now
+    // logs its index + the Meta error message into a list that we
+    // include in the Telegram alert + the JSON response.
     const childIds: string[] = [];
-    for (const url of photos) {
-      const res = await fetch(`https://graph.instagram.com/v21.0/${igId}/media`, {
+    const failures: Array<{ idx: number; url: string; err: string }> = [];
+    for (let i = 0; i < photos.length; i++) {
+      const url = photos[i];
+      const res = await fetch(`https://graph.facebook.com/v21.0/${igId}/media`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -312,16 +320,41 @@ async function _observedImpl() {
         }),
       });
       const data = await res.json();
-      if (data.id) childIds.push(data.id);
+      if (data.id) {
+        childIds.push(data.id);
+      } else {
+        failures.push({
+          idx: i,
+          url: String(url).slice(0, 90),
+          err: data?.error?.message || `HTTP ${res.status}`,
+        });
+      }
       await new Promise((r) => setTimeout(r, 800));
     }
     if (childIds.length < 2) {
-      await sendTelegram(`❌ Fleet post failed — could not create enough carousel items for ${yacht.name}.`);
-      return NextResponse.json({ error: "carousel items failed" });
+      const detail = failures
+        .map((f) => `  [${f.idx}] ${f.err}`)
+        .join("\n");
+      await sendTelegram(
+        `❌ Fleet post failed — only ${childIds.length}/${photos.length} carousel items succeeded for ${yacht.name}.\n\nFailures:\n${detail || "(no detail)"}`,
+      );
+      return NextResponse.json({
+        error: "carousel items failed",
+        succeeded: childIds.length,
+        attempted: photos.length,
+        failures,
+      });
+    }
+    if (failures.length > 0) {
+      // Some failed but enough succeeded — log + continue.
+      const detail = failures.map((f) => `[${f.idx}] ${f.err}`).join(" · ");
+      await sendTelegram(
+        `⚠ Fleet post: ${childIds.length}/${photos.length} carousel items OK for ${yacht.name}. Failures: ${detail}`,
+      );
     }
 
     // Step 2 — carousel container.
-    const carouselRes = await fetch(`https://graph.instagram.com/v21.0/${igId}/media`, {
+    const carouselRes = await fetch(`https://graph.facebook.com/v21.0/${igId}/media`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -343,7 +376,7 @@ async function _observedImpl() {
     for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       const statusRes = await fetch(
-        `https://graph.instagram.com/v21.0/${carouselData.id}?fields=status_code&access_token=${encodeURIComponent(igToken)}`,
+        `https://graph.facebook.com/v21.0/${carouselData.id}?fields=status_code&access_token=${encodeURIComponent(igToken)}`,
       );
       const statusData = await statusRes.json();
       if (statusData.status_code === "FINISHED") {
@@ -357,7 +390,7 @@ async function _observedImpl() {
     }
 
     // Step 4 — publish.
-    const publishRes = await fetch(`https://graph.instagram.com/v21.0/${igId}/media_publish`, {
+    const publishRes = await fetch(`https://graph.facebook.com/v21.0/${igId}/media_publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -18,7 +18,7 @@ async function _observedImpl() {
   try {
     // Fetch tagged media (posts where @georgeyachts is tagged)
     const taggedRes = await fetch(
-      `https://graph.instagram.com/v21.0/${igId}/tags?fields=id,caption,media_type,media_url,timestamp,username&limit=10&access_token=${encodeURIComponent(igToken)}`
+      `https://graph.facebook.com/v21.0/${igId}/tags?fields=id,caption,media_type,media_url,timestamp,username&limit=10&access_token=${encodeURIComponent(igToken)}`
     );
 
     let tagged = [];
@@ -29,7 +29,7 @@ async function _observedImpl() {
 
     // Fetch recent mentions (from mentioned_media)
     const mentionsRes = await fetch(
-      `https://graph.instagram.com/v21.0/${igId}/mentioned_media?fields=id,caption,media_type,timestamp&limit=10&access_token=${encodeURIComponent(igToken)}`
+      `https://graph.facebook.com/v21.0/${igId}/mentioned_media?fields=id,caption,media_type,timestamp&limit=10&access_token=${encodeURIComponent(igToken)}`
     );
 
     let mentions = [];

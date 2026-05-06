@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   let replies: any[] = [];
   try {
     const res = await fetch(
-      `https://graph.instagram.com/v21.0/${parentId}/replies?fields=id,text,username,timestamp,from&access_token=${encodeURIComponent(token)}`
+      `https://graph.facebook.com/v21.0/${parentId}/replies?fields=id,text,username,timestamp,from&access_token=${encodeURIComponent(token)}`
     );
     const json = await res.json();
     if (!res.ok || !Array.isArray(json?.data)) {
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
   for (const r of toDelete) {
     try {
       const delRes = await fetch(
-        `https://graph.instagram.com/v21.0/${r.id}?access_token=${encodeURIComponent(token)}`,
+        `https://graph.facebook.com/v21.0/${r.id}?access_token=${encodeURIComponent(token)}`,
         { method: "DELETE" }
       );
       const delJson = await delRes.json().catch(() => ({}));

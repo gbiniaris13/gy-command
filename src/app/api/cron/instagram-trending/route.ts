@@ -41,7 +41,7 @@ async function lookupHashtagId(
 ): Promise<string | null> {
   try {
     const res = await fetch(
-      `https://graph.instagram.com/v21.0/ig_hashtag_search?user_id=${encodeURIComponent(igUserId)}&q=${encodeURIComponent(name)}&access_token=${encodeURIComponent(token)}`
+      `https://graph.facebook.com/v21.0/ig_hashtag_search?user_id=${encodeURIComponent(igUserId)}&q=${encodeURIComponent(name)}&access_token=${encodeURIComponent(token)}`
     );
     const json = await res.json();
     return json?.data?.[0]?.id ?? null;
@@ -53,7 +53,7 @@ async function lookupHashtagId(
 async function topMedia(hashtagId: string, igUserId: string, token: string) {
   try {
     const res = await fetch(
-      `https://graph.instagram.com/v21.0/${hashtagId}/top_media?user_id=${encodeURIComponent(igUserId)}&fields=id,caption,like_count,comments_count,permalink,media_type,timestamp&access_token=${encodeURIComponent(token)}`
+      `https://graph.facebook.com/v21.0/${hashtagId}/top_media?user_id=${encodeURIComponent(igUserId)}&fields=id,caption,like_count,comments_count,permalink,media_type,timestamp&access_token=${encodeURIComponent(token)}`
     );
     const json = await res.json();
     if (json?.error) return { error: json.error };

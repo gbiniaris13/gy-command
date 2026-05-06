@@ -307,7 +307,7 @@ interface IgBusinessDiscoveryResult {
   profile_picture_url?: string;
 }
 
-const IG_GRAPH = "https://graph.instagram.com/v21.0";
+const IG_GRAPH = "https://graph.facebook.com/v21.0";
 
 export async function fetchRecentEngagement(
   igUserId: string,

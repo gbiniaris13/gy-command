@@ -22,7 +22,7 @@ import type { BlogArticle } from "@/lib/blog-fetcher";
 import { publishPhoto as facebookPublishPhoto } from "@/lib/facebook-client";
 import { getIgTokenOptional } from "@/lib/ig-token";
 
-const IG_GRAPH = "https://graph.instagram.com/v21.0";
+const IG_GRAPH = "https://graph.facebook.com/v21.0";
 
 type Result<T> = { ok: true; id?: string; detail?: T } | { ok: false; error: string };
 

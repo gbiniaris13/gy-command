@@ -123,7 +123,7 @@ async function _observedImpl() {
 
     try {
       // Step 1 — create story container.
-      const createRes = await fetch(`https://graph.instagram.com/v21.0/${igId}/media`, {
+      const createRes = await fetch(`https://graph.facebook.com/v21.0/${igId}/media`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -143,7 +143,7 @@ async function _observedImpl() {
       for (let i = 0; i < 8; i++) {
         await new Promise((r) => setTimeout(r, 3000));
         const s = await fetch(
-          `https://graph.instagram.com/v21.0/${createData.id}?fields=status_code&access_token=${encodeURIComponent(igToken)}`,
+          `https://graph.facebook.com/v21.0/${createData.id}?fields=status_code&access_token=${encodeURIComponent(igToken)}`,
         );
         const sd = await s.json();
         if (sd.status_code === "FINISHED") {
@@ -158,7 +158,7 @@ async function _observedImpl() {
       }
 
       // Step 3 — publish.
-      const pubRes = await fetch(`https://graph.instagram.com/v21.0/${igId}/media_publish`, {
+      const pubRes = await fetch(`https://graph.facebook.com/v21.0/${igId}/media_publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

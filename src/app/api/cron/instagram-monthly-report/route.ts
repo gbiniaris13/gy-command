@@ -20,7 +20,7 @@ async function _observedImpl() {
   try {
     // Current followers
     const profileRes = await fetch(
-      `https://graph.instagram.com/v21.0/${igId}?fields=followers_count,media_count,username&access_token=${encodeURIComponent(igToken)}`
+      `https://graph.facebook.com/v21.0/${igId}?fields=followers_count,media_count,username&access_token=${encodeURIComponent(igToken)}`
     );
     const profile = await profileRes.json();
     const currentFollowers = profile.followers_count || 0;

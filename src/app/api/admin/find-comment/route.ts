@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   let media: any[] = [];
   try {
     const res = await fetch(
-      `https://graph.instagram.com/v21.0/me/media?fields=id,caption,timestamp,permalink&limit=${mediaLimit}&access_token=${encodeURIComponent(token)}`
+      `https://graph.facebook.com/v21.0/me/media?fields=id,caption,timestamp,permalink&limit=${mediaLimit}&access_token=${encodeURIComponent(token)}`
     );
     const json = await res.json();
     if (!res.ok || !Array.isArray(json?.data)) {
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
   for (const m of media) {
     try {
       const res = await fetch(
-        `https://graph.instagram.com/v21.0/${m.id}/comments?fields=id,text,username,timestamp,replies{id,text,username,timestamp}&limit=100&access_token=${encodeURIComponent(token)}`
+        `https://graph.facebook.com/v21.0/${m.id}/comments?fields=id,text,username,timestamp,replies{id,text,username,timestamp}&limit=100&access_token=${encodeURIComponent(token)}`
       );
       const json = await res.json();
       if (!res.ok || !Array.isArray(json?.data)) {

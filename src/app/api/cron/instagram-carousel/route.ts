@@ -148,7 +148,7 @@ Rules:
     // Step 1: Create individual media containers for each slide
     const childIds = [];
     for (const photo of selected) {
-      const res = await fetch(`https://graph.instagram.com/v21.0/${igId}/media`, {
+      const res = await fetch(`https://graph.facebook.com/v21.0/${igId}/media`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -167,7 +167,7 @@ Rules:
     }
 
     // Step 2: Create carousel container
-    const carouselRes = await fetch(`https://graph.instagram.com/v21.0/${igId}/media`, {
+    const carouselRes = await fetch(`https://graph.facebook.com/v21.0/${igId}/media`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -188,7 +188,7 @@ Rules:
     for (let i = 0; i < 12; i++) {
       await new Promise(r => setTimeout(r, 3000));
       const statusRes = await fetch(
-        `https://graph.instagram.com/v21.0/${carouselData.id}?fields=status_code&access_token=${encodeURIComponent(igToken)}`
+        `https://graph.facebook.com/v21.0/${carouselData.id}?fields=status_code&access_token=${encodeURIComponent(igToken)}`
       );
       const statusData = await statusRes.json();
       if (statusData.status_code === "FINISHED") { ready = true; break; }
@@ -200,7 +200,7 @@ Rules:
     }
 
     // Step 4: Publish
-    const publishRes = await fetch(`https://graph.instagram.com/v21.0/${igId}/media_publish`, {
+    const publishRes = await fetch(`https://graph.facebook.com/v21.0/${igId}/media_publish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

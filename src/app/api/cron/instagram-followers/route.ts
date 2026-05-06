@@ -20,7 +20,7 @@ async function _observedImpl() {
 
   try {
     const res = await fetch(
-      `https://graph.instagram.com/v21.0/me?fields=followers_count,follows_count,media_count&access_token=${encodeURIComponent(token)}`,
+      `https://graph.facebook.com/v21.0/me?fields=followers_count,follows_count,media_count&access_token=${encodeURIComponent(token)}`,
       { cache: "no-store" }
     );
     if (!res.ok) {

@@ -17,7 +17,7 @@ import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
-import { getIgTokenOptional } from "@/lib/ig-token";
+import { getIgTokenOptional, getIgGraphRoot, getIgMediaUrl } from "@/lib/ig-token";
 
 // Cron: publishes 1 Instagram Reel per firing, picking an unused video
 // from the library + generating a fresh caption.
@@ -189,8 +189,18 @@ Rules:
   }
 
   try {
+    // Phase 27g (Forbes-launch day, 2026-05-06) — switched from
+    // graph.facebook.com/v21.0/me (Instagram Login API host —
+    // accepts ONLY user-OAuth tokens) to the centralised
+    // getIgGraphRoot() which returns graph.facebook.com/v21.0/
+    // {IG_BUSINESS_ID} for our Page-token setup. This is the
+    // exact path Meta documents for IG Business publishing with
+    // a Page Access Token. Old path was the source of "Invalid
+    // OAuth access token - Cannot parse access token" errors.
+    const igRoot = getIgGraphRoot();
+
     // Step 1 — Create REELS container
-    const createRes = await fetch(`https://graph.instagram.com/v21.0/me/media`, {
+    const createRes = await fetch(`${igRoot}/media`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -212,7 +222,7 @@ Rules:
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 5000));
       const statusRes = await fetch(
-        `https://graph.instagram.com/v21.0/${createData.id}?fields=status_code&access_token=${encodeURIComponent(igToken)}`,
+        `${getIgMediaUrl(createData.id)}?fields=status_code&access_token=${encodeURIComponent(igToken)}`,
       );
       const statusData = await statusRes.json();
       if (statusData.status_code === "FINISHED") {
@@ -227,7 +237,7 @@ Rules:
 
     // Step 3 — Publish
     const publishRes = await fetch(
-      `https://graph.instagram.com/v21.0/me/media_publish`,
+      `${igRoot}/media_publish`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

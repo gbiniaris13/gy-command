@@ -77,7 +77,7 @@ async function _observedImpl() {
     const message = FOLLOW_UP_MESSAGES[msgIndex];
 
     try {
-      await fetch(`https://graph.instagram.com/v21.0/me/messages`, {
+      await fetch(`https://graph.facebook.com/v21.0/me/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -45,7 +45,7 @@ async function _observedImpl() {
   let posts: any[] = [];
   try {
     const res = await fetch(
-      `https://graph.instagram.com/v21.0/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=50&access_token=${encodeURIComponent(token)}`,
+      `https://graph.facebook.com/v21.0/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=50&access_token=${encodeURIComponent(token)}`,
       { cache: "no-store" }
     );
     if (!res.ok) {
@@ -74,7 +74,7 @@ async function _observedImpl() {
     const metrics = METRICS_BY_TYPE[type] ?? METRICS_BY_TYPE.IMAGE;
     try {
       const res = await fetch(
-        `https://graph.instagram.com/v21.0/${post.id}/insights?metric=${metrics.join(",")}&access_token=${encodeURIComponent(token)}`,
+        `https://graph.facebook.com/v21.0/${post.id}/insights?metric=${metrics.join(",")}&access_token=${encodeURIComponent(token)}`,
         { cache: "no-store" }
       );
       const json = await res.json();
