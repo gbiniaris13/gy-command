@@ -265,10 +265,27 @@ async function _observedImpl() {
       // Brand-integrity guard. 2026-04-22 a P/CAT ALENA fleet post went
       // live with an Unsplash stock photo because the source image URL
       // wasn't a real yacht photo — violated the no-fake-photos rule.
-      // Block any image whose URL contains a known stock-photo tell, and
-      // block fleet_yacht posts whose metadata doesn't carry a yacht id.
-      const STOCK_PHOTO_PATTERNS = /unsplash|pexels|pixabay|shutterstock|getty|istockphoto|stock[-_ ]photo|placeholder/i;
-      if (STOCK_PHOTO_PATTERNS.test(post.image_url ?? "")) {
+      //
+      // Phase 27g (Forbes-launch day, 2026-05-06) — Boss flagged that
+      // legitimate IG-library photos he'd uploaded with Unsplash
+      // photographer-attribution filenames (e.g.
+      // `lquxemsonehfltdzdbhq.supabase.co/.../laura-adai-...-unsplash.jpg`)
+      // were being blocked because the substring "unsplash" appears
+      // anywhere in the URL. Tightened the guard: stock-photo tells are
+      // only flagged when they appear in the HOST portion of the URL
+      // (raw CDN access — images.unsplash.com, www.pexels.com, etc.),
+      // not in the path/filename. Files George uploaded to Supabase
+      // storage that happen to keep their photographer-attribution
+      // filename are legitimate brand assets.
+      const STOCK_HOST_PATTERNS = /(images\.unsplash\.com|images\.pexels\.com|pixabay\.com|shutterstock\.com|gettyimages\.com|istockphoto\.com)/i;
+      let blockedHost = false;
+      try {
+        const u = new URL(post.image_url ?? "");
+        blockedHost = STOCK_HOST_PATTERNS.test(u.hostname);
+      } catch {
+        blockedHost = false; // malformed URL is a different problem
+      }
+      if (blockedHost) {
         await sb
           .from("ig_posts")
           .update({
