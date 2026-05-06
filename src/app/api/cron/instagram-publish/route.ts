@@ -180,43 +180,25 @@ async function swapImageFromLibrary(sb, post) {
 }
 
 // Cron: publishes scheduled Instagram posts when their time arrives
-async function _observedImpl(req?: any) {
+async function _observedImpl() {
   const token = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!token || !igId) {
     return NextResponse.json({ error: "IG not configured", processed: 0 });
   }
 
-  // 2026-05-06 — escape hatch for one-shot post-fix verification. When
-  // `?force=<CRON_SECRET>` is present, skip the window guard, skip-day
-  // stealth, and the long jitter sleeps. Still passes through the
-  // rate-limit + caption quality gates. Only used when George manually
-  // wants to confirm a token rotation/scope-fix worked outside the
-  // 18:00–19:30 Athens window. Per call, single post, no schedule drift.
-  let force = false;
-  try {
-    const url = new URL(req?.url ?? "http://x");
-    const f = url.searchParams.get("force");
-    // One-shot test secret — REVERT this commit after 2026-05-06 verification.
-    if (f === "boss-test-2026-05-06") {
-      force = true;
-    }
-  } catch { /* req may be missing in cron context — ignore */ }
-
-  if (!force) {
-    // ROBERTO 2026-04-22 fix — hard window + daily-limit + 18h gap guard.
-    // Blocks the post if we're outside 18:00–19:30 Athens, already posted
-    // today, or closer than 18h to the last post. Telegrams George and
-    // leaves scheduled rows intact so the next valid tick picks them up.
-    const gate = await assertPublishAllowed({ postType: "feed" });
-    if (!gate.allowed) {
-      return NextResponse.json({
-        skipped: "window_guard",
-        reason: gate.reason,
-        detail: gate.detail,
-        processed: 0,
-      });
-    }
+  // ROBERTO 2026-04-22 fix — hard window + daily-limit + 18h gap guard.
+  // Blocks the post if we're outside 18:00–19:30 Athens, already posted
+  // today, or closer than 18h to the last post. Telegrams George and
+  // leaves scheduled rows intact so the next valid tick picks them up.
+  const gate = await assertPublishAllowed({ postType: "feed" });
+  if (!gate.allowed) {
+    return NextResponse.json({
+      skipped: "window_guard",
+      reason: gate.reason,
+      detail: gate.detail,
+      processed: 0,
+    });
   }
 
   // Phase A — rate-limit circuit breaker. Exits early + Telegram alert
@@ -226,22 +208,20 @@ async function _observedImpl(req?: any) {
     return NextResponse.json({ skipped: "rate_limit", processed: 0 });
   }
 
-  if (!force) {
-    // Stealth Layer 1 (Phase 27e, 2026-05-05) — random skip days.
-    // Real accounts miss ~7% of days. Roll the dice; on skip-day, exit
-    // silently (cached so multi-fire idempotency holds).
-    if (await shouldSkipToday("post_publish")) {
-      return NextResponse.json({ skipped: "stealth_skip_day", processed: 0 });
-    }
-
-    // Stealth Layer 2 — wide-window jitter. 0-25 min random delay
-    // (skewed toward earlier) on top of the existing 0-2 min jitter.
-    // Effective publish time spans 18:00-18:27 instead of 18:00:00.
-    await new Promise((r) => setTimeout(r, humanWindowJitterMs(25)));
-
-    // Phase A — anti-bot timing jitter (sub-minute, original).
-    await applyPublishJitter();
+  // Stealth Layer 1 (Phase 27e, 2026-05-05) — random skip days.
+  // Real accounts miss ~7% of days. Roll the dice; on skip-day, exit
+  // silently (cached so multi-fire idempotency holds).
+  if (await shouldSkipToday("post_publish")) {
+    return NextResponse.json({ skipped: "stealth_skip_day", processed: 0 });
   }
+
+  // Stealth Layer 2 — wide-window jitter. 0-25 min random delay
+  // (skewed toward earlier) on top of the existing 0-2 min jitter.
+  // Effective publish time spans 18:00-18:27 instead of 18:00:00.
+  await new Promise((r) => setTimeout(r, humanWindowJitterMs(25)));
+
+  // Phase A — anti-bot timing jitter (sub-minute, original).
+  await applyPublishJitter();
 
   const sb = createServiceClient();
   // Hard cap at 1 post per cron tick to prevent the worst-case where
@@ -498,6 +478,6 @@ async function _observedImpl(req?: any) {
 
 // Observability wrapper — records success/error/skipped/timeout
 // outcomes to settings KV for the Thursday ops report.
-export async function GET(req: any) {
-  return observeCron("instagram-publish", () => (_observedImpl as any)(req));
+export async function GET(...args: any[]) {
+  return observeCron("instagram-publish", () => (_observedImpl as any)(...args));
 }
