@@ -18,6 +18,13 @@ import { observeCron } from "@/lib/cron-observer";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 
+// 2026-05-07 — Boss directive: yacht-first feed (4 yacht posts/week min,
+// scenery secondary). Mon-Thu are now reserved for instagram-fleet-post
+// (yacht rotation, see fleet-rotation.ts). This generator only fills the
+// non-fleet days (Fri/Sat/Sun). Day indices: Mon=0, Tue=1, Wed=2, Thu=3,
+// Fri=4, Sat=5, Sun=6.
+const FLEET_DAY_INDICES = new Set<number>([0, 1, 2, 3]);
+
 // 15:00 UTC = 18:00 Athens summer (DST Mar–Oct).
 // In winter (Nov–Mar) 15:00 UTC = 17:00 Athens, which falls outside
 // the DB window check. The Sunday weekly cron flips
@@ -159,6 +166,9 @@ async function _observedImpl(req?: any) {
   );
   const emptyDays: number[] = [];
   for (let i = 0; i < 7; i++) {
+    // Skip days reserved for instagram-fleet-post (Mon-Thu). Boss
+    // directive 2026-05-07 — yacht-first feed.
+    if (FLEET_DAY_INDICES.has(i)) continue;
     const d = new Date(startMonday.getTime() + i * 86400000);
     const key = d.toISOString().slice(0, 10);
     if (!takenDayKeys.has(key)) emptyDays.push(i);
@@ -228,9 +238,18 @@ async function _observedImpl(req?: any) {
     );
   }
 
-  if (!Array.isArray(parsed) || parsed.length < 7) {
+  // 2026-05-07 — only require enough captions to fill the empty
+  // (non-fleet) days, not all 7. With Mon-Thu reserved for fleet-
+  // post, we need at most 3 captions (Fri/Sat/Sun); the AI may still
+  // be prompted for 7 — extras are simply unused. Minimum viable
+  // count is the number of empty slots we have to fill.
+  if (!Array.isArray(parsed) || parsed.length < emptyDays.length) {
     return NextResponse.json(
-      { error: `Expected 7 captions, got ${Array.isArray(parsed) ? parsed.length : 0}` },
+      {
+        error: `Expected ${emptyDays.length} captions for empty days, got ${
+          Array.isArray(parsed) ? parsed.length : 0
+        }`,
+      },
       { status: 502 }
     );
   }

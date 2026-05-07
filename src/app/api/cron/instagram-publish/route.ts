@@ -229,12 +229,16 @@ async function _observedImpl() {
   // one run (which trips Meta's bot detection regardless of our own
   // rate-limit guard, because the guard is checked once before the
   // loop). Order ascending so the oldest scheduled post wins.
+  // 2026-05-07 — fixed: was `ascending: false` which DESC-ordered
+  // and contradicted the comment. Boss flagged that yacht posts were
+  // never reaching the feed because newer scenery posts always won.
+  // Now matches intent — oldest scheduled post wins each tick.
   const { data: posts } = await sb
     .from("ig_posts")
     .select("*")
     .eq("status", "scheduled")
     .lte("schedule_time", new Date().toISOString())
-    .order("schedule_time", { ascending: false })
+    .order("schedule_time", { ascending: true })
     .limit(1);
 
   let processed = 0;
