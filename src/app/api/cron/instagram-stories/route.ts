@@ -362,10 +362,21 @@ async function _observedImpl(req?: Request) {
   // accepted as media type"). Workaround: pre-render the composed
   // image, upload to a public Supabase Storage bucket, then hand
   // Meta that static URL. Free (1 GB tier), 7-day auto-prune.
+  //
+  // The OG endpoint also accepts a top caption (title + subtitle)
+  // so every story is visually self-contained — no more silent
+  // photo-only stories that "δεν λένε τίποτα" per George's
+  // 2026-05-14 ping.
+  const ogTitle = yachtChoice ? yachtChoice.yachtName : "From Greek Waters";
+  const ogSubtitle = yachtChoice
+    ? "Crewed yacht charter · Greece"
+    : (theme || "").slice(0, 90);
   const composedStoryImageUrl = await composeAndUploadStoryImage({
     photoUrl: photo.public_url,
     displayUrl: displayUrlForBanner,
     eyebrow: yachtChoice ? "Tap to view yacht" : "Visit georgeyachts.com",
+    title: ogTitle,
+    subtitle: ogSubtitle,
     appBaseUrl,
   });
   // Best-effort housekeeping — don't await on the critical path.
@@ -498,12 +509,25 @@ async function _observedImpl(req?: Request) {
       const yachtLine = yachtChoice
         ? `\n<b>Yacht:</b> ${yachtChoice.yachtName} (slug: ${yachtChoice.yachtSlug})`
         : "";
+      // 2026-05-14 — Telegram card embeds the composed PNG URL so
+      // George can long-press → "Save Image" on iPhone and re-post
+      // a fresh story in IG WITH the official Link sticker (the
+      // only way Meta lets you actually attach a clickable link).
       const tgLines = [
         `📱 <b>Story published</b> · ${slotKind}`,
         `Theme: ${theme}${yachtLine}${fbMirrorLine}`,
         ``,
-        `🔗 <b>Link target</b> — open story on iPhone → 🎁 sticker → Link → paste:`,
+        `🔗 <b>Link target:</b>`,
         `<code>${linkTarget.url}</code>`,
+        ``,
+        `<b>Want the official clickable Link sticker?</b>`,
+        `1. Tap the image below → Save Image`,
+        `2. IG app → swipe right (Story camera) → 🖼️ pick saved image`,
+        `3. 🎁 sticker → <b>Link</b> → paste the URL above`,
+        `4. Post the new story`,
+        `<i>(Optional — the auto-posted story already shows the URL banner readable in the photo.)</i>`,
+        ``,
+        `🖼️ <a href="${composedStoryImageUrl}">Composed story image (1080×1920)</a>`,
         ``,
         `<i>Routing reason: ${linkTarget.label} (${linkTarget.matched})</i>`,
       ];

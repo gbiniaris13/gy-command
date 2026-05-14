@@ -39,16 +39,20 @@ export async function composeAndUploadStoryImage(args: {
   photoUrl: string;
   displayUrl: string;
   eyebrow: string;
+  title?: string;
+  subtitle?: string;
   appBaseUrl: string;
 }): Promise<string> {
-  const { photoUrl, displayUrl, eyebrow, appBaseUrl } = args;
+  const { photoUrl, displayUrl, eyebrow, title, subtitle, appBaseUrl } = args;
 
   // Step 1 — render the composed image via our OG endpoint.
   const ogUrl =
     `${appBaseUrl}/api/og/story-image` +
     `?photo=${encodeURIComponent(photoUrl)}` +
     `&url=${encodeURIComponent(displayUrl)}` +
-    `&eyebrow=${encodeURIComponent(eyebrow)}`;
+    `&eyebrow=${encodeURIComponent(eyebrow)}` +
+    (title ? `&title=${encodeURIComponent(title)}` : "") +
+    (subtitle ? `&subtitle=${encodeURIComponent(subtitle)}` : "");
 
   let bytes: Uint8Array | null = null;
   try {
