@@ -13,6 +13,10 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { buildBriefing } from "@/lib/cockpit-engine";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
+import {
+  buildVisitorIntel,
+  formatVisitorIntelTelegram,
+} from "@/lib/visitor-intel-engine";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -34,7 +38,17 @@ function priorityEmoji(p: string): string {
 async function _observedImpl(): Promise<Response> {
   try {
     const sb = createServiceClient();
-    const briefing = await buildBriefing(sb);
+    // 2026-05-14 — run cockpit briefing + visitor intel in parallel.
+    // Visitor intel reads from the same `sessions` table written by
+    // george-yachts /api/track; failures don't block the briefing
+    // (legacy behaviour preserved when website tracking is empty).
+    const [briefing, visitorIntel] = await Promise.all([
+      buildBriefing(sb),
+      buildVisitorIntel(sb).catch((e) => {
+        console.error("[cockpit-briefing] visitor-intel failed:", e);
+        return null;
+      }),
+    ]);
 
     // Persist as today's snapshot (so /api/cockpit/briefing serves cached)
     const today = new Date().toISOString().slice(0, 10);
@@ -44,6 +58,19 @@ async function _observedImpl(): Promise<Response> {
         key: `cockpit_briefing_${today}`,
         value: JSON.stringify(briefing),
       });
+    if (visitorIntel) {
+      // PostgREST builder isn't a real Promise until awaited — wrap in
+      // try/catch instead of chaining .catch() (TS rejects + same bug
+      // hit the IG stories cron earlier this week).
+      try {
+        await sb.from("settings").upsert({
+          key: `visitor_intel_${today}`,
+          value: JSON.stringify(visitorIntel),
+        });
+      } catch (e) {
+        console.error("[cockpit-briefing] visitor-intel persist failed:", e);
+      }
+    }
 
     // Format Telegram message — concise, actionable
     const actionsBlock = briefing.actions.length
@@ -61,6 +88,10 @@ async function _observedImpl(): Promise<Response> {
           .join("\n")
       : "";
 
+    const visitorBlock = visitorIntel
+      ? formatVisitorIntelTelegram(visitorIntel)
+      : "";
+
     const msg = [
       `☀️ <b>${escapeHtml(briefing.greeting)}</b>`,
       ``,
@@ -72,6 +103,7 @@ async function _observedImpl(): Promise<Response> {
       `Active: <b>€${briefing.pulse.total_pipeline_value_eur.toLocaleString()}</b> · Commission: <b>€${briefing.pulse.total_commission_upside_eur.toLocaleString()}</b>`,
       `Deals: ${briefing.pulse.active_deals_count} · Hot: ${briefing.pulse.hot_leads_count} · Stale warm: ${briefing.pulse.stale_warm_leads_count}`,
       ...(oppsBlock ? [``, `<b>💡 Opportunities</b>`, oppsBlock] : []),
+      ...(visitorBlock ? [``, visitorBlock] : []),
       ``,
       `<b>🔪 Devil's Advocate</b>`,
       `<i>${escapeHtml(briefing.devils_advocate)}</i>`,
