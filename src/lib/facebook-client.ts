@@ -131,6 +131,38 @@ export async function publishPhotoCarousel(args: {
   }
 }
 
+/**
+ * Publish a photo Story to the Facebook Page.
+ *
+ * Meta's photo_stories endpoint is a 2-step dance:
+ *   1. Upload photo as unpublished — returns photo `id`.
+ *   2. Call `/{page-id}/photo_stories?photo_id=<id>` to make it a Story.
+ *
+ * Boss directive 2026-05-14: "δε θέλω να ξαναδώ τίποτα να μην πάει
+ * στο Facebook" — every IG story is mirrored as a FB story too. Reach
+ * may be modest but it's free, and FB stories outlast the 24h IG
+ * window in Page archives.
+ */
+export async function publishPhotoStory(args: {
+  photoUrl: string;
+}): Promise<Result<{ post_id: string }>> {
+  try {
+    const upload = await callGraph(`/${PAGE_ID}/photos`, {
+      url: args.photoUrl,
+      published: "false",
+    });
+    if (!upload?.id) {
+      return { ok: false, error: "photo upload returned no id" };
+    }
+    const story = await callGraph(`/${PAGE_ID}/photo_stories`, {
+      photo_id: upload.id,
+    });
+    return { ok: true, post_id: story.post_id ?? story.id ?? upload.id };
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+}
+
 export async function publishVideo(args: {
   videoUrl: string;
   caption: string;

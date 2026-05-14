@@ -15,7 +15,9 @@ import {
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
 import { getIgTokenOptional } from "@/lib/ig-token";
-import { classifyPhotoForStory } from "@/lib/story-link";
+import { classifyPhotoForStory, type StoryLinkResult } from "@/lib/story-link";
+import { fetchFleetForStories } from "@/lib/sanity-fleet";
+import { publishPhotoStory } from "@/lib/facebook-client";
 
 // Cron: daily 09:00 UTC (12:00 Athens) — publishes 1 Story per day.
 // Uses a photo from the ROBERTO IG library + AI-generated quote overlay.
@@ -40,6 +42,149 @@ const QUOTE_THEMES = [
 
 const ROTATION_KEY = "story_rotation_v1";
 const COOLDOWN_DAYS = 30;
+
+// 2026-05-14 — Boss directive: stories rotate yacht / greece / greece /
+// yacht / greece / greece across the 63-yacht fleet. Slot counter
+// drives the cadence; yacht rotation state tracks used yacht slugs
+// in the current cycle and resets after the 63rd is consumed.
+const SLOT_KEY = "story_slot_v1";
+const YACHT_ROTATION_KEY = "story_yacht_rotation_v1";
+
+type SlotState = { counter: number; updated_at: string };
+
+interface YachtRotationState {
+  usedSlugs: string[];
+  lastSlug: string | null;
+  cycleStartedAt: string | null;
+  cyclesCompleted: number;
+}
+
+async function loadSlotCounter(sb: any): Promise<number> {
+  try {
+    const { data } = await sb
+      .from("settings")
+      .select("value")
+      .eq("key", SLOT_KEY)
+      .maybeSingle();
+    if (!data?.value) return 0;
+    const parsed: SlotState = JSON.parse(data.value);
+    return Number.isInteger(parsed.counter) ? parsed.counter % 3 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function persistSlotCounter(sb: any, next: number): Promise<void> {
+  try {
+    await sb.from("settings").upsert(
+      {
+        key: SLOT_KEY,
+        value: JSON.stringify({ counter: next % 3, updated_at: new Date().toISOString() }),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" },
+    );
+  } catch {}
+}
+
+async function loadYachtRotation(sb: any): Promise<YachtRotationState> {
+  try {
+    const { data } = await sb
+      .from("settings")
+      .select("value")
+      .eq("key", YACHT_ROTATION_KEY)
+      .maybeSingle();
+    if (!data?.value) {
+      return {
+        usedSlugs: [],
+        lastSlug: null,
+        cycleStartedAt: new Date().toISOString(),
+        cyclesCompleted: 0,
+      };
+    }
+    const parsed = JSON.parse(data.value);
+    return {
+      usedSlugs: Array.isArray(parsed.usedSlugs) ? parsed.usedSlugs : [],
+      lastSlug: parsed.lastSlug ?? null,
+      cycleStartedAt: parsed.cycleStartedAt ?? null,
+      cyclesCompleted: Number.isFinite(parsed.cyclesCompleted) ? parsed.cyclesCompleted : 0,
+    };
+  } catch {
+    return {
+      usedSlugs: [],
+      lastSlug: null,
+      cycleStartedAt: new Date().toISOString(),
+      cyclesCompleted: 0,
+    };
+  }
+}
+
+async function persistYachtRotation(sb: any, state: YachtRotationState): Promise<void> {
+  try {
+    await sb.from("settings").upsert(
+      {
+        key: YACHT_ROTATION_KEY,
+        value: JSON.stringify(state),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" },
+    );
+  } catch {}
+}
+
+interface YachtStoryChoice {
+  yachtSlug: string;
+  yachtName: string;
+  imageUrl: string;
+  rotation: YachtRotationState; // updated state to persist after publish
+}
+
+async function pickNextYachtForStory(
+  sb: any,
+  rotation: YachtRotationState,
+): Promise<YachtStoryChoice | null> {
+  const fleet = await fetchFleetForStories();
+  if (fleet.length === 0) return null;
+
+  // Filter out yachts already used in this cycle; if every yacht is
+  // used the cycle resets so we loop George's entire fleet again.
+  let nextRotation = rotation;
+  let pool = fleet.filter((y) => !rotation.usedSlugs.includes(y.slug ?? ""));
+  if (pool.length === 0) {
+    nextRotation = {
+      usedSlugs: [],
+      lastSlug: rotation.lastSlug,
+      cycleStartedAt: new Date().toISOString(),
+      cyclesCompleted: (rotation.cyclesCompleted ?? 0) + 1,
+    };
+    pool = fleet.slice();
+  }
+
+  // Avoid back-to-back of the same yacht across cycle boundaries.
+  if (nextRotation.lastSlug && pool.length > 1) {
+    pool = pool.filter((y) => y.slug !== nextRotation.lastSlug);
+  }
+
+  // Stable rotation: take the FIRST eligible yacht (Sanity already
+  // returns a deterministic order). Mild shuffle inside the first
+  // 3 so the sequence isn't perfectly predictable.
+  const head = pool.slice(0, Math.min(3, pool.length));
+  const chosen = head[Math.floor(Math.random() * head.length)];
+
+  const yachtSlug = (chosen.slug as string) || "";
+  const yachtName = chosen.name || yachtSlug;
+  const imageUrl = chosen.images?.[0]?.url || "";
+  if (!yachtSlug || !imageUrl) return null;
+
+  const updatedRotation: YachtRotationState = {
+    usedSlugs: [...nextRotation.usedSlugs, yachtSlug],
+    lastSlug: yachtSlug,
+    cycleStartedAt: nextRotation.cycleStartedAt,
+    cyclesCompleted: nextRotation.cyclesCompleted,
+  };
+
+  return { yachtSlug, yachtName, imageUrl, rotation: updatedRotation };
+}
 
 async function _observedImpl() {
   const igToken = getIgTokenOptional();
@@ -144,14 +289,40 @@ async function _observedImpl() {
   //    randomness so the sequence isn't perfectly deterministic when
   //    several never-used photos are tied.
   const topSlice = pool.slice(0, Math.min(pool.length, 5));
-  const photo = topSlice[Math.floor(Math.random() * topSlice.length)];
+  let photo: typeof topSlice[number] | { id: string; public_url: string; tags?: string[]; description?: string | null; filename?: string | null } =
+    topSlice[Math.floor(Math.random() * topSlice.length)];
+
+  // 2026-05-14 — Boss-directed fleet rotation: slot 0 = yacht story,
+  // slots 1 & 2 = Greece library photos. The yacht-rotation state
+  // tracks which of the 63 yachts have been shown in the current
+  // cycle; once all 63 are exhausted the cycle resets and we loop
+  // through them again.
+  const slotCounter = await loadSlotCounter(sb);
+  const isYachtSlot = slotCounter % 3 === 0;
+  let yachtChoice: YachtStoryChoice | null = null;
+  if (isYachtSlot) {
+    const rotation = await loadYachtRotation(sb);
+    yachtChoice = await pickNextYachtForStory(sb, rotation);
+    if (yachtChoice) {
+      // Synthetic photo object so the rest of the publish pipeline
+      // (Meta API, rotation state, Telegram card) sees a uniform
+      // shape regardless of whether the source is fleet or library.
+      photo = {
+        id: `yacht:${yachtChoice.yachtSlug}`,
+        public_url: yachtChoice.imageUrl,
+        tags: [yachtChoice.yachtSlug],
+        description: `Yacht story — ${yachtChoice.yachtName}`,
+        filename: yachtChoice.yachtSlug,
+      };
+    }
+    // If yachtChoice is null (fleet fetch failed) we silently fall
+    // back to the library photo selected above — the story still ships.
+  }
 
   // 2026-05-14 — classify the photo and pick the destination URL the
-  // story should drive traffic to. Result is exposed to the Telegram
-  // alert (so George can add the link sticker manually in the IG app
-  // if Meta's API silently strips the `link` param) and stored on
-  // the rotation row for audit.
-  const linkTarget = classifyPhotoForStory(photo);
+  // story should drive traffic to. Yacht-slot photos route directly
+  // to /yachts/<slug> via the synthetic tag injected above.
+  const linkTarget: StoryLinkResult = classifyPhotoForStory(photo);
 
   try {
     // Create Story container. We pass `link` defensively — most IG
@@ -235,11 +406,21 @@ async function _observedImpl() {
         // Best-effort rotation persistence — don't break publishing.
       }
 
+      // 2026-05-14 — advance slot counter (0→1→2→0) so the next story
+      // run lands on the right rotation slot. Yacht rotation state
+      // only changes when we just shipped a yacht slot.
+      await persistSlotCounter(sb, (slotCounter + 1) % 3);
+      if (yachtChoice) {
+        await persistYachtRotation(sb, yachtChoice.rotation);
+      }
+
       await logRateLimitAction("story_publish", {
         media_id: publishData.id,
         photo_id: photo.id,
         story_link_url: linkTarget.url,
         story_link_category: linkTarget.category,
+        slot_kind: isYachtSlot ? "yacht" : "greece",
+        yacht_slug: yachtChoice?.yachtSlug ?? null,
       });
       // 2026-05-14 — Telegram now carries the resolved link target so
       // George can swipe-into the just-published story on his phone
@@ -247,9 +428,29 @@ async function _observedImpl() {
       // (Meta blocks adding link stickers via the public Content
       // Publishing API — sending `link` in the create call above is
       // a defensive hedge, not a guarantee).
+      // 2026-05-14 — also mirror the same photo to the Facebook Page
+      // as a FB Story. Best-effort: a failure here doesn't roll back
+      // the successful IG publish, just gets surfaced in the Telegram
+      // card so George knows.
+      let fbMirrorLine = "";
+      try {
+        const fb = await publishPhotoStory({ photoUrl: photo.public_url });
+        if (fb.ok) {
+          fbMirrorLine = `\n📘 FB Story mirrored · post_id ${fb.post_id}`;
+        } else {
+          fbMirrorLine = `\n⚠️ FB Story mirror failed: ${fb.error?.slice(0, 120) ?? "unknown"}`;
+        }
+      } catch (e: any) {
+        fbMirrorLine = `\n⚠️ FB Story mirror exception: ${(e?.message ?? "unknown").slice(0, 120)}`;
+      }
+
+      const slotKind = isYachtSlot ? "🚢 Yacht slot" : "🇬🇷 Greece slot";
+      const yachtLine = yachtChoice
+        ? `\n<b>Yacht:</b> ${yachtChoice.yachtName} (slug: ${yachtChoice.yachtSlug})`
+        : "";
       const tgLines = [
-        `📱 <b>Story published</b>`,
-        `Theme: ${theme}`,
+        `📱 <b>Story published</b> · ${slotKind}`,
+        `Theme: ${theme}${yachtLine}${fbMirrorLine}`,
         ``,
         `🔗 <b>Link target</b> — open story on iPhone → 🎁 sticker → Link → paste:`,
         `<code>${linkTarget.url}</code>`,

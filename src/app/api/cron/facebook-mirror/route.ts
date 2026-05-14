@@ -71,7 +71,10 @@ async function _impl(req?: Request) {
     .from("ig_posts")
     .select("*")
     .eq("status", "published")
-    .in("post_type", ["reel", "fleet_yacht", "image"])
+    // 2026-05-14 — added 'carousel'. Boss directive: "δε θέλω να
+    // ξαναδώ τίποτα να μην πάει στο Facebook". Carousels are the
+    // highest-engagement IG format and were silently dropped.
+    .in("post_type", ["reel", "fleet_yacht", "image", "carousel"])
     .is("facebook_status", null)
     .gte("published_at", since)
     .limit(2);

@@ -107,9 +107,9 @@ async function _observedImpl(): Promise<Response> {
       ``,
       `<b>🔪 Devil's Advocate</b>`,
       `<i>${escapeHtml(briefing.devils_advocate)}</i>`,
-      ``,
-      `<b>🧠 Brainstorm sήμερα:</b>`,
-      `<i>${escapeHtml(briefing.brainstorm_prompt)}</i>`,
+      // 2026-05-14 — Boss directive: drop the "Brainstorm σήμερα"
+      // section. The AI prompt was returning empty `**` and George
+      // doesn't want speculative questions in the morning briefing.
       ``,
       `<a href="https://gy-command.vercel.app/dashboard">→ Ανοίξε Cockpit</a>`,
     ].join("\n");

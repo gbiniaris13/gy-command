@@ -95,6 +95,29 @@ export async function fetchFleetPool(): Promise<FleetYacht[]> {
 }
 
 /**
+ * Fetch every yacht that has at least one image — used by the
+ * Instagram-stories cron's fleet-rotation slot. Single-image yachts
+ * can't carousel a feed post but ARE eligible for one story slide.
+ */
+export async function fetchFleetForStories(): Promise<FleetYacht[]> {
+  try {
+    const STORY_QUERY = `*[_type == "yacht" && count(images) >= 1 && defined(slug.current)]{
+      _id, name, "slug": slug.current, subtitle, category, fleetTier,
+      length, sleeps, cabins,
+      "images": images[0..3]{ "url": asset->url, alt }
+    }`;
+    const url = `${SANITY_CDN}?query=${encodeURIComponent(STORY_QUERY)}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return [];
+    const body = await res.json();
+    const result = Array.isArray(body?.result) ? body.result : [];
+    return result.filter((y: any) => y && y._id && y.name && y.slug && (y.images?.length ?? 0) > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Fetch a single yacht by Sanity _id. Used by the dryrun endpoint.
  */
 export async function fetchYachtById(id: string): Promise<FleetYacht | null> {

@@ -147,16 +147,22 @@ export async function POST(request: NextRequest) {
       suggested_response: result.suggested_response,
     });
 
-    // Send Telegram alert + in-app notification for HOT/WARM leads
+    // 2026-05-14 — Boss directive: WARM Lead Reply Telegram pings are
+    // noise (~ several per day, low actionability — George reads them
+    // in his inbox anyway). HOT keeps its alert. In-app notification
+    // bell row is still created for both so the dashboard counters
+    // stay accurate.
     if (result.classification === "HOT" || result.classification === "WARM") {
-      const emoji = result.classification === "HOT" ? "🔴" : "🟡";
       const senderName = from.replace(/<.*>/, "").trim() || senderEmail;
-      await sendTelegram(
-        `${emoji} <b>${result.classification} Lead Reply</b>\n` +
-          `From: ${senderName}\n` +
-          `Subject: ${subject}\n` +
-          `Reason: ${result.reason}`
-      );
+
+      if (result.classification === "HOT") {
+        await sendTelegram(
+          `🔴 <b>HOT Lead Reply</b>\n` +
+            `From: ${senderName}\n` +
+            `Subject: ${subject}\n` +
+            `Reason: ${result.reason}`,
+        );
+      }
 
       await createNotification(sb, {
         type: "reply",
