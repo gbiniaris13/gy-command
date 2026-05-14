@@ -18,17 +18,65 @@ interface SessionContact {
   company: string | null;
 }
 
+// 2026-05-14 — fields with `?` are populated only after the
+// visitor-intelligence migration ran in Supabase and were captured
+// by the upgraded VisitorTracker. Pre-migration rows just leave them
+// undefined/null; UI checks before rendering.
 interface VisitorSession {
   id: string;
   session_id: string | null;
+  visitor_id?: string | null;
   contact_id: string | null;
+  // Geo
   country: string | null;
+  region?: string | null;
   city: string | null;
+  postal?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  timezone?: string | null;
+  // Device
   device_type: string | null;
+  device_tier?: string | null;
+  os?: string | null;
+  os_version?: string | null;
+  browser?: string | null;
+  browser_version?: string | null;
+  locale?: string | null;
+  // Network / company
+  ip_company?: string | null;
+  ip_asn?: string | null;
+  ip_asn_name?: string | null;
+  ip_is_vpn?: boolean | null;
+  ip_is_hosting?: boolean | null;
+  // Source + attribution
   referrer: string | null;
+  referrer_url?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  gclid?: string | null;
+  fbclid?: string | null;
+  li_fat_id?: string | null;
+  // Behaviour
   pages_visited: string[];
   yachts_viewed: YachtViewed[];
+  premium_yacht_views?: number;
   time_on_site: number;
+  active_seconds?: number | null;
+  hidden_seconds?: number | null;
+  cta_clicks?: number;
+  last_cta?: string | null;
+  scroll_deep?: boolean;
+  copy_events?: number;
+  print_events?: number;
+  compare_used?: boolean;
+  cost_calc_used?: boolean;
+  yacht_finder_used?: boolean;
+  pricing_calendar_used?: boolean;
+  // Scoring + outcomes
+  hot_score?: number | null;
   is_hot_lead: boolean;
   lead_captured: boolean;
   is_return_visitor: boolean;
@@ -275,18 +323,56 @@ export default function VisitorsClient({
                         <span className="text-sm font-medium text-[#F8F5F0]">
                           {session.country ?? "Unknown"}
                         </span>
-                        {session.city && (
+                        {(session.city || session.region) && (
                           <span className="text-xs text-[#F8F5F0]/40">
-                            {session.city}
+                            {[session.city, session.region, session.postal]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </span>
                         )}
                         <span className="text-xs text-[#F8F5F0]/30">
                           {getDeviceIcon(session.device_type)}{" "}
                           {session.device_type ?? "Unknown"}
                         </span>
+                        {session.device_tier &&
+                          session.device_tier !== "unknown" && (
+                            <span
+                              className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                                session.device_tier === "premium"
+                                  ? "bg-[#C9A84C]/20 text-[#C9A84C]"
+                                  : session.device_tier === "mid"
+                                    ? "bg-blue-400/15 text-blue-300"
+                                    : "bg-white/5 text-[#F8F5F0]/40"
+                              }`}
+                              title={`Device tier — ${[
+                                session.os,
+                                session.browser,
+                                session.locale,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}`}
+                            >
+                              {session.device_tier}
+                            </span>
+                          )}
                         <span className="inline-flex rounded bg-[#0D1B2A] px-1.5 py-0.5 text-[10px] font-medium text-[#F8F5F0]/60">
                           {getSourceLabel(session.referrer)}
                         </span>
+                        {typeof session.hot_score === "number" &&
+                          session.hot_score > 0 && (
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                                session.hot_score >= 10
+                                  ? "bg-[#C9A84C]/25 text-[#C9A84C]"
+                                  : session.hot_score >= 5
+                                    ? "bg-orange-400/20 text-orange-300"
+                                    : "bg-white/5 text-[#F8F5F0]/45"
+                              }`}
+                              title="Composite hot-lead score (0-30+)"
+                            >
+                              score {session.hot_score.toFixed(1)}
+                            </span>
+                          )}
                         {isHotLeadSignal(session) && (
                           <span className="inline-flex items-center gap-1 rounded-full bg-[#C9A84C]/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#C9A84C]">
                             &#x1F525; HOT LEAD
@@ -297,7 +383,146 @@ export default function VisitorsClient({
                             &#x1F501; RETURN
                           </span>
                         )}
+                        {session.ip_is_vpn && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-purple-400/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-purple-300"
+                            title="Connected via VPN — geo may be misleading"
+                          >
+                            VPN
+                          </span>
+                        )}
+                        {session.ip_is_hosting && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-red-400/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-300"
+                            title="Hosting / datacenter IP — likely automated traffic"
+                          >
+                            BOT?
+                          </span>
+                        )}
                       </div>
+
+                      {/* Company / network — biggest single business signal */}
+                      {session.ip_company && (
+                        <div className="mt-1.5">
+                          <span
+                            className="inline-flex items-center gap-1 rounded bg-[#0D1B2A] px-2 py-0.5 text-[11px] font-medium text-[#F8F5F0]/75"
+                            title={
+                              session.ip_asn
+                                ? `${session.ip_asn} — ${session.ip_asn_name || ""}`
+                                : undefined
+                            }
+                          >
+                            &#x1F3E2; {session.ip_company}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Attribution row — only render when we have UTM/click-id data */}
+                      {(session.utm_source ||
+                        session.utm_campaign ||
+                        session.gclid ||
+                        session.fbclid ||
+                        session.li_fat_id) && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {session.utm_source && (
+                            <span className="inline-flex rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+                              src: {session.utm_source}
+                            </span>
+                          )}
+                          {session.utm_campaign && (
+                            <span className="inline-flex rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+                              campaign: {session.utm_campaign}
+                            </span>
+                          )}
+                          {session.utm_content && (
+                            <span className="inline-flex rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+                              content: {session.utm_content}
+                            </span>
+                          )}
+                          {session.gclid && (
+                            <span className="inline-flex rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-300">
+                              gclid
+                            </span>
+                          )}
+                          {session.fbclid && (
+                            <span className="inline-flex rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-300">
+                              fbclid
+                            </span>
+                          )}
+                          {session.li_fat_id && (
+                            <span className="inline-flex rounded bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium text-cyan-300">
+                              li_fat_id
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Intent flags — high-intent surfaces used in session */}
+                      {(session.compare_used ||
+                        session.cost_calc_used ||
+                        session.yacht_finder_used ||
+                        session.pricing_calendar_used ||
+                        (session.cta_clicks ?? 0) > 0 ||
+                        session.scroll_deep ||
+                        (session.copy_events ?? 0) > 0 ||
+                        (session.print_events ?? 0) > 0) && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {session.compare_used && (
+                            <span className="inline-flex rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-300">
+                              compare
+                            </span>
+                          )}
+                          {session.cost_calc_used && (
+                            <span className="inline-flex rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-300">
+                              cost-calc
+                            </span>
+                          )}
+                          {session.yacht_finder_used && (
+                            <span className="inline-flex rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-300">
+                              yacht-finder
+                            </span>
+                          )}
+                          {session.pricing_calendar_used && (
+                            <span className="inline-flex rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-300">
+                              pricing-cal
+                            </span>
+                          )}
+                          {(session.cta_clicks ?? 0) > 0 && (
+                            <span
+                              className="inline-flex rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300"
+                              title={
+                                session.last_cta
+                                  ? `last CTA: ${session.last_cta}`
+                                  : undefined
+                              }
+                            >
+                              {session.cta_clicks} CTA{(session.cta_clicks ?? 0) > 1 ? "s" : ""}
+                              {session.last_cta ? ` (${session.last_cta})` : ""}
+                            </span>
+                          )}
+                          {session.scroll_deep && (
+                            <span className="inline-flex rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-[#F8F5F0]/55">
+                              90% scroll
+                            </span>
+                          )}
+                          {(session.copy_events ?? 0) > 0 && (
+                            <span className="inline-flex rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-[#F8F5F0]/55">
+                              copy &times;{session.copy_events}
+                            </span>
+                          )}
+                          {(session.print_events ?? 0) > 0 && (
+                            <span className="inline-flex rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-300">
+                              PRINTED
+                            </span>
+                          )}
+                          {(session.premium_yacht_views ?? 0) > 0 && (
+                            <span className="inline-flex rounded-full bg-[#C9A84C]/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#C9A84C]">
+                              {session.premium_yacht_views} premium yacht
+                              {(session.premium_yacht_views ?? 0) > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       {/* Pages viewed */}
                       {session.pages_visited && session.pages_visited.length > 0 && (
@@ -358,9 +583,18 @@ export default function VisitorsClient({
 
                     {/* Meta */}
                     <div className="shrink-0 text-right">
-                      <p className="text-xs text-[#F8F5F0]/40">
+                      <p className="text-xs text-[#F8F5F0]/55">
                         {formatDuration(session.time_on_site)}
                       </p>
+                      {typeof session.active_seconds === "number" &&
+                        session.active_seconds > 0 && (
+                          <p
+                            className="text-[10px] text-[#F8F5F0]/30"
+                            title="Foreground / active time only (excludes hidden tab)"
+                          >
+                            active {formatDuration(session.active_seconds)}
+                          </p>
+                        )}
                       <p className="mt-0.5 text-[10px] text-[#F8F5F0]/25">
                         {timeAgo(session.started_at)}
                       </p>
