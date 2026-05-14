@@ -15,6 +15,7 @@ import {
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
 import { getIgTokenOptional } from "@/lib/ig-token";
+import { classifyPhotoForStory } from "@/lib/story-link";
 
 // Cron: daily 09:00 UTC (12:00 Athens) — publishes 1 Story per day.
 // Uses a photo from the ROBERTO IG library + AI-generated quote overlay.
@@ -93,9 +94,13 @@ async function _observedImpl() {
   // feed post is excluded from Stories too, matching the previous
   // behaviour. Library is expected to be a few hundred photos max,
   // so pulling them all is cheap and lets us sort LRU in memory.
+  // 2026-05-14 — include tags/description/filename so the
+  // story-link classifier (lib/story-link.ts) has enough signal
+  // to route each story to a relevant page on georgeyachts.com.
+  // Boss directive: "δε θέλω να ξαναδώ story χωρίς link από το site μας".
   const { data: allPhotos } = await sb
     .from("ig_photos")
-    .select("id, public_url")
+    .select("id, public_url, tags, description, filename")
     .is("used_in_post_id", null);
 
   if (!allPhotos || allPhotos.length === 0) {
@@ -113,6 +118,9 @@ async function _observedImpl() {
     return {
       id: p.id,
       public_url: p.public_url,
+      tags: p.tags ?? [],
+      description: p.description ?? null,
+      filename: p.filename ?? null,
       lastUsedMs: ts ? new Date(ts).getTime() : 0,
     };
   });
@@ -138,14 +146,27 @@ async function _observedImpl() {
   const topSlice = pool.slice(0, Math.min(pool.length, 5));
   const photo = topSlice[Math.floor(Math.random() * topSlice.length)];
 
+  // 2026-05-14 — classify the photo and pick the destination URL the
+  // story should drive traffic to. Result is exposed to the Telegram
+  // alert (so George can add the link sticker manually in the IG app
+  // if Meta's API silently strips the `link` param) and stored on
+  // the rotation row for audit.
+  const linkTarget = classifyPhotoForStory(photo);
+
   try {
-    // Create Story container
+    // Create Story container. We pass `link` defensively — most IG
+    // Graph API revisions ignore unknown fields rather than rejecting,
+    // and if Meta ever enables link stickers via Content Publishing
+    // for our follower tier it will start working for free without
+    // a code change. The Telegram alert is the source of truth for
+    // George until then.
     const createRes = await fetch(`https://graph.facebook.com/v21.0/${igId}/media`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         image_url: photo.public_url,
         media_type: "STORIES",
+        link: linkTarget.url,
         access_token: igToken,
       }),
     });
@@ -217,9 +238,31 @@ async function _observedImpl() {
       await logRateLimitAction("story_publish", {
         media_id: publishData.id,
         photo_id: photo.id,
+        story_link_url: linkTarget.url,
+        story_link_category: linkTarget.category,
       });
-      await sendTelegram(`📱 <b>Story published</b>\nTheme: ${theme}`);
-      return NextResponse.json({ ok: true, media_id: publishData.id, theme });
+      // 2026-05-14 — Telegram now carries the resolved link target so
+      // George can swipe-into the just-published story on his phone
+      // and add the official Instagram link sticker in ~5 seconds
+      // (Meta blocks adding link stickers via the public Content
+      // Publishing API — sending `link` in the create call above is
+      // a defensive hedge, not a guarantee).
+      const tgLines = [
+        `📱 <b>Story published</b>`,
+        `Theme: ${theme}`,
+        ``,
+        `🔗 <b>Link target</b> — open story on iPhone → 🎁 sticker → Link → paste:`,
+        `<code>${linkTarget.url}</code>`,
+        ``,
+        `<i>Routing reason: ${linkTarget.label} (${linkTarget.matched})</i>`,
+      ];
+      await sendTelegram(tgLines.join("\n"));
+      return NextResponse.json({
+        ok: true,
+        media_id: publishData.id,
+        theme,
+        story_link: linkTarget,
+      });
     }
 
     return NextResponse.json({ error: publishData.error?.message || "publish failed" });
