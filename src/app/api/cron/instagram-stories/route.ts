@@ -18,6 +18,10 @@ import { getIgTokenOptional } from "@/lib/ig-token";
 import { classifyPhotoForStory, type StoryLinkResult } from "@/lib/story-link";
 import { fetchFleetForStories } from "@/lib/sanity-fleet";
 import { publishPhotoStory } from "@/lib/facebook-client";
+import {
+  composeAndUploadStoryImage,
+  pruneOldStoryComposites,
+} from "@/lib/story-image-uploader";
 
 // Cron: daily 09:00 UTC (12:00 Athens) — publishes 1 Story per day.
 // Uses a photo from the ROBERTO IG library + AI-generated quote overlay.
@@ -186,7 +190,7 @@ async function pickNextYachtForStory(
   return { yachtSlug, yachtName, imageUrl, rotation: updatedRotation };
 }
 
-async function _observedImpl() {
+async function _observedImpl(req?: Request) {
   const igToken = getIgTokenOptional();
   const igId = process.env.IG_BUSINESS_ID;
   if (!igToken || !igId) {
@@ -197,7 +201,13 @@ async function _observedImpl() {
   if (!(await checkRateLimitHealth("story_publish"))) {
     return NextResponse.json({ skipped: "rate_limit" });
   }
-  await applyPublishJitter();
+  // 2026-05-14 — only jitter on cron-fired invocations. Manual
+  // hits (curl from a Mac, dashboard "fire now" button) shouldn't
+  // burn the 60-s Edge proxy timeout idling in jitter.
+  const isCronInvoke = !!req?.headers?.get?.("x-vercel-cron");
+  if (isCronInvoke) {
+    await applyPublishJitter();
+  }
 
   const sb = createServiceClient();
 
@@ -324,6 +334,43 @@ async function _observedImpl() {
   // to /yachts/<slug> via the synthetic tag injected above.
   const linkTarget: StoryLinkResult = classifyPhotoForStory(photo);
 
+  // 2026-05-14 — bake a visible URL banner onto the story image.
+  // Meta's Content Publishing API does NOT permit adding Instagram
+  // Link Stickers programmatically (app-only feature, no API path
+  // even for Business accounts), so we make the destination URL
+  // visible directly inside the photo. Viewers can long-press the
+  // URL on iOS to open it, or simply type it into a browser.
+  //
+  // We hand the story-image generator the SHORT display URL (without
+  // the long UTM tail) so the banner stays legible.
+  let displayUrlForBanner = linkTarget.url
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split("?")[0];
+  if (displayUrlForBanner.length > 64) {
+    displayUrlForBanner = displayUrlForBanner.slice(0, 60) + "…";
+  }
+  // The cron's app baseUrl — we read the Vercel system env var so
+  // dev/preview deploys generate against their own host.
+  const appHost =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    "https://command.georgeyachts.com";
+  const appBaseUrl = appHost.startsWith("http") ? appHost : `https://${appHost}`;
+  // 2026-05-14 — Meta refuses dynamic Edge URLs for STORIES even
+  // when the response is image/png ("Only photo or video can be
+  // accepted as media type"). Workaround: pre-render the composed
+  // image, upload to a public Supabase Storage bucket, then hand
+  // Meta that static URL. Free (1 GB tier), 7-day auto-prune.
+  const composedStoryImageUrl = await composeAndUploadStoryImage({
+    photoUrl: photo.public_url,
+    displayUrl: displayUrlForBanner,
+    eyebrow: yachtChoice ? "Tap to view yacht" : "Visit georgeyachts.com",
+    appBaseUrl,
+  });
+  // Best-effort housekeeping — don't await on the critical path.
+  pruneOldStoryComposites().catch(() => {});
+
   try {
     // Create Story container. We pass `link` defensively — most IG
     // Graph API revisions ignore unknown fields rather than rejecting,
@@ -335,7 +382,11 @@ async function _observedImpl() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        image_url: photo.public_url,
+        // 2026-05-14 — pass the COMPOSED image (photo + URL banner)
+        // so the destination URL is visible inside the story.
+        // composedStoryImageUrl points at our /api/og/story-image
+        // Edge endpoint which is publicly fetchable by Meta.
+        image_url: composedStoryImageUrl,
         media_type: "STORIES",
         link: linkTarget.url,
         access_token: igToken,
@@ -428,13 +479,12 @@ async function _observedImpl() {
       // (Meta blocks adding link stickers via the public Content
       // Publishing API — sending `link` in the create call above is
       // a defensive hedge, not a guarantee).
-      // 2026-05-14 — also mirror the same photo to the Facebook Page
-      // as a FB Story. Best-effort: a failure here doesn't roll back
-      // the successful IG publish, just gets surfaced in the Telegram
-      // card so George knows.
+      // 2026-05-14 — also mirror the SAME composed image to Facebook.
+      // FB Stories get the URL banner overlay just like IG so the
+      // mirror reads identically across both platforms.
       let fbMirrorLine = "";
       try {
-        const fb = await publishPhotoStory({ photoUrl: photo.public_url });
+        const fb = await publishPhotoStory({ photoUrl: composedStoryImageUrl });
         if (fb.ok) {
           fbMirrorLine = `\n📘 FB Story mirrored · post_id ${fb.post_id}`;
         } else {
