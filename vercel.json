@@ -14,6 +14,7 @@
     { "path": "/api/cron/brand-radar",             "schedule": "0 6 * * 0" },
     { "path": "/api/cron/gmail-poll-replies",      "schedule": "*/5 * * * *" },
     { "path": "/api/cron/calendly-watcher",        "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/pinterest-publish",       "schedule": "0 11 * * *" },
     { "path": "/api/cron/cockpit-briefing",        "schedule": "0 4 * * *" },
     { "path": "/api/cron/inbox-refresh",           "schedule": "30 3 * * *" },
     { "path": "/api/cron/inbox-greetings",         "schedule": "0 3 * * *" },

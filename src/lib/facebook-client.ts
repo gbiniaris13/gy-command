@@ -146,21 +146,41 @@ export async function publishPhotoCarousel(args: {
 export async function publishPhotoStory(args: {
   photoUrl: string;
 }): Promise<Result<{ post_id: string }>> {
+  // 2026-05-14 — original 2-step (upload unpublished photo → reference
+  // it from /photo_stories) hit error #200 "Unpublished posts must be
+  // posted to a page as the page itself". The page-photo endpoint was
+  // attributing ownership in a way photo_stories then refused.
+  //
+  // Meta's photo_stories endpoint accepts a direct `url` parameter,
+  // skipping the two-step dance entirely. We try that first and fall
+  // back to the legacy 2-step only if the direct path errors out.
   try {
-    const upload = await callGraph(`/${PAGE_ID}/photos`, {
+    const direct = await callGraph(`/${PAGE_ID}/photo_stories`, {
       url: args.photoUrl,
-      published: "false",
     });
-    if (!upload?.id) {
-      return { ok: false, error: "photo upload returned no id" };
+    if (direct?.post_id || direct?.id) {
+      return { ok: true, post_id: direct.post_id ?? direct.id };
     }
-    const story = await callGraph(`/${PAGE_ID}/photo_stories`, {
-      photo_id: upload.id,
-    });
-    return { ok: true, post_id: story.post_id ?? story.id ?? upload.id };
   } catch (e: any) {
-    return { ok: false, error: e.message };
+    // Direct URL upload not supported on this token tier — try the
+    // legacy 2-step. If THAT also fails we surface the original error.
+    try {
+      const upload = await callGraph(`/${PAGE_ID}/photos`, {
+        url: args.photoUrl,
+        published: "false",
+      });
+      if (!upload?.id) {
+        return { ok: false, error: e.message };
+      }
+      const story = await callGraph(`/${PAGE_ID}/photo_stories`, {
+        photo_id: upload.id,
+      });
+      return { ok: true, post_id: story.post_id ?? story.id ?? upload.id };
+    } catch (e2: any) {
+      return { ok: false, error: `${e.message} | fallback: ${e2.message}` };
+    }
   }
+  return { ok: false, error: "photo_stories returned no id" };
 }
 
 export async function publishVideo(args: {
