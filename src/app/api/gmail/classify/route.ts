@@ -178,25 +178,19 @@ export async function POST(request: NextRequest) {
     });
 
     // 2026-05-14 — Boss directive: WARM Lead Reply Telegram pings are
-    // noise (~ several per day, low actionability — George reads them
-    // in his inbox anyway). HOT keeps its alert. In-app notification
-    // bell row is still created for both so the dashboard counters
-    // stay accurate.
+    // noise. WARM Telegram alert removed; HOT kept (with the reason
+    // stripped 2026-05-15 in a follow-up).
+    //
+    // 2026-05-15 (later) — Boss reiterated that he doesn't want HOT
+    // Telegram alerts either ("σου είπα ότι δε θέλω να μου έρχονται"
+    // after a 🔴 HOT Lead Reply Telegram fired on calendar invites +
+    // Webex meeting notifications). HOT classifications keep moving
+    // contacts to the Hot pipeline stage + create the in-app
+    // notification (bell counter on the dashboard for audit), but the
+    // Telegram channel is now silent for HOT and WARM replies. George
+    // reads his inbox + dashboard manually.
     if (result.classification === "HOT" || result.classification === "WARM") {
       const senderName = from.replace(/<.*>/, "").trim() || senderEmail;
-
-      if (result.classification === "HOT") {
-        // 2026-05-15 — Boss directive: drop AI "Reason:" line from the
-        // Telegram. George reads the email in his inbox and judges
-        // himself; the rationalisation paragraph adds noise without
-        // adding signal. Keep "Reason:" inside the dashboard
-        // notification + email_classifications row for audit trail.
-        await sendTelegram(
-          `🔴 <b>HOT Lead Reply</b>\n` +
-            `From: ${senderName}\n` +
-            `Subject: ${subject}`,
-        );
-      }
 
       await createNotification(sb, {
         type: "reply",
