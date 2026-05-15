@@ -73,29 +73,51 @@ const WARMUP_BODY_TEMPLATES =
 
 const WARMUP_SIGNATURE_HINTS = /(?:warmup|engagement\s*booster|deliverability\s*test|sender\s+reputation)/i;
 
-// Instantly.ai warmup tracker subjects end with " | XXXXX YYYYYYY"
-// — two uppercase alphanumeric tokens separated by a space, after a
-// pipe. The first token is per-message and varies in length, the
-// second token is the recipient's warmup ID and stays constant for a
-// given mailbox. Real prospect emails almost never end with this exact
-// shape because legit subjects either:
-//   • don't have a trailing " | TOKEN TOKEN" suffix at all,
-//   • or end in single trailing words / shorter all-caps acronyms
-//     that the second-token {6,10} bound rejects.
+// Instantly.ai warmup tracker subjects end with two pieces:
+//   1) a VARIABLE middle token (the per-message tracker)
+//   2) a CONSTANT trailing token (the recipient's mailbox fingerprint)
+// e.g. "Subject ... | <variable> <RECIPIENT_ID>"
+//
+// The constant trailing ID is identical for every warmup email landing
+// in a given recipient's mailbox. For george@georgeyachts.com the
+// observed constant is `F8NWHHW`. Eleanna's parallel bot has its own
+// ID. Add new ones to KNOWN_RECIPIENT_IDS (or override via the
+// INSTANTLY_RECIPIENT_IDS env var) as they appear.
+//
+// Two patterns work in tandem:
+//   • KNOWN-TAIL match — 100% reliable for any recipient whose ID we
+//     already catalogued. Catches ALL variable-token shapes including:
+//     - lowercase ("mubeen F8NWHHW")
+//     - dotted ("beyond.yourself F8NWHHW")
+//     - multi-word ("great race F8NWHHW")
+//     - very long ("organizationeverywhe F8NWHHW")
+//     - single punctuation (". F8NWHHW")
+//   • GENERIC fallback — covers warmups from new senders whose
+//     recipient ID we haven't catalogued yet. Requires the legacy
+//     two-uppercase-alphanumeric-tokens shape after pipe.
 //
 // Live samples collected 2026-04-30 / 2026-05-15 from George's inbox:
-//   "A better way to reach your target MRR | EK438PD F8NWHHW"  (7+7)
-//   "Eleanna - need to touch base        | B1VPBNW F8NWHHW"  (7+7)
-//   "commission-based ?                  | EWNCAB5 F8NWHHW"  (7+7)
-//   "What do you think of this?          | UPCXN   F8NWHHW"  (5+7)  ← slipped past {6,10}, fixed to {4,10}
-//
-// All slipped through the existing header / body / msg-id rules because
-// Instantly's warmup uses real Gmail/Outlook mailboxes (no
-// x-instantly-warmup header lands in the recipient's copy) and the body
-// text is varied enough to dodge WARMUP_BODY_TEMPLATES. First-token
-// bound widened to {4,10} on 2026-05-15 after UPCXN (5 chars) slipped
-// past, classified HOT, and triggered a fake contact + Telegram alert.
-const INSTANTLY_SUBJECT_TRACKER =
+//   "... | EK438PD F8NWHHW"               (catches via known-tail)
+//   "... | UPCXN F8NWHHW"                 (catches via known-tail, was missed by {6,10})
+//   "... | mubeen F8NWHHW"                (catches via known-tail, was missed by [A-Z])
+//   "... | beyond.yourself F8NWHHW"       (catches via known-tail, was missed by [A-Z0-9]+\s)
+//   "... | mass.wise.believed.r F8NWHHW"  (catches via known-tail)
+//   "... | great race F8NWHHW"            (catches via known-tail — multi-word middle)
+//   "... | organizationeverywhe F8NWHHW"  (catches via known-tail — long middle)
+//   "... | . F8NWHHW"                     (catches via known-tail — punctuation middle)
+//   "... | ICY-WARM-MAILDOSO F8NWHHW"     (catches via known-tail)
+//   "... | Titan Funding F8NWHHW"         (catches via known-tail)
+const KNOWN_RECIPIENT_IDS = (process.env.INSTANTLY_RECIPIENT_IDS ||
+  "F8NWHHW")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const INSTANTLY_KNOWN_TAIL_TRACKER = new RegExp(
+  "\\|[^|]*\\s(?:" + KNOWN_RECIPIENT_IDS.join("|") + ")\\s*$",
+);
+
+const INSTANTLY_GENERIC_TRACKER =
   /\|\s+[A-Z0-9]{4,10}\s+[A-Z0-9]{6,10}\s*$/;
 
 function stripThreadTail(body: string): string {
@@ -142,9 +164,20 @@ export function detectWarmup(args: {
   }
 
   // 3. Subject-trailer fingerprint — Instantly tracker codes.
-  //    Matches " | XXXXXXX YYYYYYY" at end of subject. Run BEFORE
-  //    the body heuristic because the tracker shape is more specific.
-  if (INSTANTLY_SUBJECT_TRACKER.test(args.subject || "")) {
+  //    Known-recipient-tail check first (100% precision for catalogued
+  //    mailboxes — covers every shape of variable middle token), then
+  //    generic two-uppercase-token fallback. Run BEFORE the body
+  //    heuristic because the tracker shape is more specific than the
+  //    1-2-word reply template.
+  const subj = args.subject || "";
+  if (INSTANTLY_KNOWN_TAIL_TRACKER.test(subj)) {
+    return {
+      isWarmup: true,
+      reason: "subject-tail-known-recipient",
+      service: "instantly",
+    };
+  }
+  if (INSTANTLY_GENERIC_TRACKER.test(subj)) {
     return { isWarmup: true, reason: "subject-tracker", service: "instantly" };
   }
 
