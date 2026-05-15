@@ -148,12 +148,70 @@ async function findSuspects(): Promise<SuspectedFake[]> {
   return suspects;
 }
 
+async function ensureWarmupLabel(
+  cache: Map<string, string>,
+): Promise<string | null> {
+  if (cache.has("gy-warmup")) return cache.get("gy-warmup")!;
+  const listRes = await gmailFetch("/labels");
+  if (!listRes.ok) return null;
+  const listJson = (await listRes.json()) as { labels?: { id: string; name: string }[] };
+  const existing = (listJson.labels ?? []).find((l) => l.name === "gy-warmup");
+  if (existing) {
+    cache.set("gy-warmup", existing.id);
+    return existing.id;
+  }
+  const createRes = await gmailFetch("/labels", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "gy-warmup",
+      labelListVisibility: "labelShow",
+      messageListVisibility: "show",
+    }),
+  });
+  if (!createRes.ok) return null;
+  const created = (await createRes.json()) as { id: string };
+  cache.set("gy-warmup", created.id);
+  return created.id;
+}
+
+async function archiveGmailMessage(
+  messageId: string,
+  warmupLabelId: string,
+): Promise<boolean> {
+  try {
+    const res = await gmailFetch(`/messages/${messageId}/modify`, {
+      method: "POST",
+      body: JSON.stringify({
+        addLabelIds: [warmupLabelId],
+        // Strip every bucket label too — the email belongs in gy-warmup
+        // ONLY, not in HOT/WARM/COLD/NEUTRAL/INBOX.
+        removeLabelIds: ["INBOX", "UNREAD"],
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function executeCleanup(suspects: SuspectedFake[]) {
   const sb = createServiceClient();
   const deletedContacts: string[] = [];
   const skippedContacts: { contact_id: string; reason: string }[] = [];
+  const archivedMessages: string[] = [];
+  const labelCache = new Map<string, string>();
+  const warmupLabelId = await ensureWarmupLabel(labelCache);
 
   for (const s of suspects) {
+    // First: archive the Gmail message so it stops cluttering the inbox
+    // — independent of whether we can also delete the contact. Without
+    // this, deleting just the contact lets the same email re-trigger
+    // contact creation on the next poll.
+    if (warmupLabelId) {
+      const archived = await archiveGmailMessage(s.message_id, warmupLabelId);
+      if (archived) archivedMessages.push(s.message_id);
+    }
+
     if (!s.delete_safe || !s.contact_id) {
       if (s.contact_id) {
         skippedContacts.push({
@@ -181,10 +239,15 @@ async function executeCleanup(suspects: SuspectedFake[]) {
       total_suspects: suspects.length,
       deleted: deletedContacts,
       skipped: skippedContacts,
+      archived_messages: archivedMessages,
     }),
   });
 
-  return { deleted: deletedContacts.length, skipped: skippedContacts };
+  return {
+    deleted: deletedContacts.length,
+    archived: archivedMessages.length,
+    skipped: skippedContacts,
+  };
 }
 
 function authOk(secret: string | null) {

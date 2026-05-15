@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { aiChat } from "@/lib/ai";
 import { detectAutoReply } from "@/lib/auto-reply";
+import { detectWarmup } from "@/lib/email-warmup-detector";
 import { createNotification } from "@/lib/notifications";
 
 interface ClassifyRequest {
@@ -98,6 +99,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(existing);
     }
 
+    // Belt-and-suspenders warmup gate. The cron poller already runs
+    // detectWarmup() before reaching here, but this route is also
+    // called directly from the dashboard EmailClient — without this
+    // gate, manually clicking "Classify" on a warmup that slipped
+    // past would (a) call the LLM for nothing, (b) fire a HOT
+    // Telegram, (c) move the pipeline. Same return shape as the
+    // auto-reply branch so the dashboard renders cleanly.
+    const warmupCheck = detectWarmup({
+      from,
+      subject,
+      body,
+      headers: headers ?? {},
+    });
+    if (warmupCheck.isWarmup) {
+      const neutralResult: ClassifyResult = {
+        classification: "NEUTRAL",
+        reason: `Warmup email detected (${warmupCheck.service ?? "generic"} · ${warmupCheck.reason ?? "—"}) — ignored.`,
+        suggested_response: "",
+      };
+      await sb.from("email_classifications").upsert({
+        message_id: messageId,
+        contact_id: null,
+        classification: neutralResult.classification,
+        reason: neutralResult.reason,
+        suggested_response: neutralResult.suggested_response,
+      });
+      return NextResponse.json(neutralResult);
+    }
+
     // Short-circuit auto-replies / out-of-office BEFORE spending AI credits
     // or touching pipeline stages. The follow-up sequence must continue
     // as if this email had never arrived.
@@ -156,11 +186,15 @@ export async function POST(request: NextRequest) {
       const senderName = from.replace(/<.*>/, "").trim() || senderEmail;
 
       if (result.classification === "HOT") {
+        // 2026-05-15 — Boss directive: drop AI "Reason:" line from the
+        // Telegram. George reads the email in his inbox and judges
+        // himself; the rationalisation paragraph adds noise without
+        // adding signal. Keep "Reason:" inside the dashboard
+        // notification + email_classifications row for audit trail.
         await sendTelegram(
           `🔴 <b>HOT Lead Reply</b>\n` +
             `From: ${senderName}\n` +
-            `Subject: ${subject}\n` +
-            `Reason: ${result.reason}`,
+            `Subject: ${subject}`,
         );
       }
 

@@ -73,27 +73,30 @@ const WARMUP_BODY_TEMPLATES =
 
 const WARMUP_SIGNATURE_HINTS = /(?:warmup|engagement\s*booster|deliverability\s*test|sender\s+reputation)/i;
 
-// Instantly.ai warmup tracker subjects end with " | XXXXXXX YYYYYYY"
-// — two uppercase alphanumeric tokens (6–10 chars) separated by a
-// space, after a pipe. The first token is per-message, the second
-// token is the recipient's warmup ID and stays constant for a given
-// mailbox. Real prospect emails almost never end with this exact
+// Instantly.ai warmup tracker subjects end with " | XXXXX YYYYYYY"
+// — two uppercase alphanumeric tokens separated by a space, after a
+// pipe. The first token is per-message and varies in length, the
+// second token is the recipient's warmup ID and stays constant for a
+// given mailbox. Real prospect emails almost never end with this exact
 // shape because legit subjects either:
 //   • don't have a trailing " | TOKEN TOKEN" suffix at all,
 //   • or end in single trailing words / shorter all-caps acronyms
-//     that the {6,10} bound rejects.
+//     that the second-token {6,10} bound rejects.
 //
-// Live samples collected 2026-04-30 from George's inbox:
-//   "A better way to reach your target MRR | EK438PD F8NWHHW"
-//   "Eleanna - need to touch base | B1VPBNW F8NWHHW"
-//   "commission-based ? | EWNCAB5 F8NWHHW"
+// Live samples collected 2026-04-30 / 2026-05-15 from George's inbox:
+//   "A better way to reach your target MRR | EK438PD F8NWHHW"  (7+7)
+//   "Eleanna - need to touch base        | B1VPBNW F8NWHHW"  (7+7)
+//   "commission-based ?                  | EWNCAB5 F8NWHHW"  (7+7)
+//   "What do you think of this?          | UPCXN   F8NWHHW"  (5+7)  ← slipped past {6,10}, fixed to {4,10}
 //
-// All three slipped through the existing header / body / msg-id
-// rules because Instantly's warmup uses real Gmail/Outlook mailboxes
-// (no x-instantly-warmup header lands in the recipient's copy) and
-// the body text is varied enough to dodge WARMUP_BODY_TEMPLATES.
+// All slipped through the existing header / body / msg-id rules because
+// Instantly's warmup uses real Gmail/Outlook mailboxes (no
+// x-instantly-warmup header lands in the recipient's copy) and the body
+// text is varied enough to dodge WARMUP_BODY_TEMPLATES. First-token
+// bound widened to {4,10} on 2026-05-15 after UPCXN (5 chars) slipped
+// past, classified HOT, and triggered a fake contact + Telegram alert.
 const INSTANTLY_SUBJECT_TRACKER =
-  /\|\s+[A-Z0-9]{6,10}\s+[A-Z0-9]{6,10}\s*$/;
+  /\|\s+[A-Z0-9]{4,10}\s+[A-Z0-9]{6,10}\s*$/;
 
 function stripThreadTail(body: string): string {
   // Kill quoted lines + "On … wrote:" blocks that warmup services don't have.
