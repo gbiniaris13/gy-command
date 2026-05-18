@@ -162,7 +162,7 @@ export default async function PreferenceSheetPage({
         }}
       >
         <span style={{ fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase", fontFamily: FONT_UI }}>
-          Preference sheet · for crew & owner ·{" "}
+          Charter preferences ·{" "}
           <span style={{ color: GOLD }}>⌘P / Ctrl+P to save as PDF</span>
         </span>
         <PrintButton />
@@ -189,7 +189,7 @@ export default async function PreferenceSheetPage({
               fontWeight: 500,
             }}
           >
-            George Yachts · Charterer Preference Sheet
+            George Yachts · Charter preferences
           </div>
           <h1
             style={{
@@ -245,10 +245,12 @@ export default async function PreferenceSheetPage({
               maxWidth: 540,
             }}
           >
-            For the captain, chef and hostess of {cabin.vessel_name}. Please
-            treat as confidential. The principal charterer&apos;s identity is
-            included so port-authority paperwork can be filed in advance; this
-            sheet stays aboard and is destroyed at the close of the charter.
+            Prepared with care by George Yachts — to help everyone caring for
+            our charterer aboard {cabin.vessel_name} give them the most
+            thoughtful week possible. Shared with the operating team, the
+            captain and crew, the chef and hostess, and the yacht&apos;s owner
+            so every preference lands where it can do the most good. Please
+            handle as you would any guest information of your own.
           </p>
         </header>
 
@@ -320,9 +322,9 @@ export default async function PreferenceSheetPage({
         >
           {manifest.length === 0 ? (
             <p style={mutedItalic}>
-              No guests have been added to the manifest yet. Add via the
-              Manifest editor in the cabin detail page so the captain can file
-              port-authority paperwork ahead of arrival.
+              The guest list will appear here once the charterer has filled
+              it in. Until then, please coordinate names and arrival details
+              with George directly.
             </p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
