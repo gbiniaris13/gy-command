@@ -21,6 +21,8 @@ type Guest = {
   cabin_pairing: string;
   shoe_size: string;
   allergies_dietary: string;
+  allergies_severity: string;
+  emergency_note: string;
 };
 
 const EMPTY_GUEST: Guest = {
@@ -35,6 +37,8 @@ const EMPTY_GUEST: Guest = {
   cabin_pairing: "",
   shoe_size: "",
   allergies_dietary: "",
+  allergies_severity: "",
+  emergency_note: "",
 };
 
 function normaliseInitial(
@@ -56,6 +60,8 @@ function normaliseInitial(
       cabin_pairing: (r.cabin_pairing as string) || "",
       shoe_size: (r.shoe_size as string) || "",
       allergies_dietary: (r.allergies_dietary as string) || "",
+      allergies_severity: (r.allergies_severity as string) || "",
+      emergency_note: (r.emergency_note as string) || "",
     }));
   }
   return [
@@ -441,6 +447,32 @@ export default function ManifestForm({
                 placeholder="Severe peanut allergy · gluten-free · pescatarian · none"
               />
             </label>
+
+            {g.allergies_dietary.trim() && (
+              <div className="grid2" style={{ marginTop: 12 }}>
+                <label>
+                  <span>Severity</span>
+                  <select
+                    value={g.allergies_severity}
+                    onChange={(e) => update(i, "allergies_severity", e.target.value)}
+                  >
+                    <option value="">— how serious —</option>
+                    <option value="life_threatening">Life-threatening (anaphylaxis)</option>
+                    <option value="strong_intolerance">Strong intolerance</option>
+                    <option value="preference">Preference / mild</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Emergency note (medication aboard, action)</span>
+                  <input
+                    type="text"
+                    value={g.emergency_note}
+                    onChange={(e) => update(i, "emergency_note", e.target.value)}
+                    placeholder="e.g. EpiPen in cabin · Inhaler in luggage"
+                  />
+                </label>
+              </div>
+            )}
           </div>
         ))}
 

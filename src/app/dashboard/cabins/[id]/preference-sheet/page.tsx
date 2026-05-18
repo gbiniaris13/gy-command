@@ -77,6 +77,8 @@ type GuestRow = {
   cabin_pairing: string | null;
   shoe_size: string | null;
   allergies_dietary: string | null;
+  allergies_severity: string | null;
+  emergency_note: string | null;
 };
 
 type SectionRow = {
@@ -313,13 +315,91 @@ export default async function PreferenceSheetPage({
           </SubBlock>
         </Section>
 
-        {/* ============ 02 — GUEST MANIFEST ============ */}
+        {/* ============ 02 — THE GROUP ============ */}
         <Section
           number="02"
-          title="Guest manifest"
-          italic="who is aboard"
+          title="The group"
+          italic="who is aboard, and why"
           pageBreakBefore
         >
+          {get<string>(guestsSection, "charter_purpose_narrative") ? (
+            <div
+              className="avoid-break"
+              style={{
+                background: "rgba(201,168,76,0.06)",
+                borderLeft: `2px solid ${GOLD}`,
+                padding: "16px 20px",
+                marginBottom: 24,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: FONT_UI,
+                  fontSize: 10.5,
+                  letterSpacing: 3,
+                  textTransform: "uppercase",
+                  color: GOLD,
+                  fontWeight: 500,
+                  marginBottom: 8,
+                }}
+              >
+                In the charterer's words
+              </div>
+              <p
+                style={{
+                  margin: 0,
+                  fontFamily: FONT_EDITORIAL,
+                  fontStyle: "italic",
+                  fontSize: 16,
+                  lineHeight: 1.7,
+                  color: NAVY,
+                }}
+              >
+                &ldquo;{fmtMaybe(get(guestsSection, "charter_purpose_narrative"))}&rdquo;
+              </p>
+            </div>
+          ) : null}
+
+          {(get(guestsSection, "group_type") ||
+            get(guestsSection, "energy_level") ||
+            get(guestsSection, "group_scenarios") ||
+            get(guestsSection, "group_notes")) && (
+            <SubBlock label="Character of the group">
+              <Row k="Type of week" v={fmtMaybe(get(guestsSection, "group_type"))} />
+              <Row k="Energy level" v={fmtMaybe(get(guestsSection, "energy_level"))} />
+              <Row k="Scenarios" v={fmtMaybe(get(guestsSection, "group_scenarios"))} />
+              <Row k="General notes" v={fmtMaybe(get(guestsSection, "group_notes"))} />
+            </SubBlock>
+          )}
+
+          {get(guestsSection, "has_pet") || get(guestsSection, "pet_details") ? (
+            <SubBlock label="Pets on board">
+              <Row
+                k="A four-legged guest?"
+                v={
+                  get(guestsSection, "has_pet") === true ||
+                  get(guestsSection, "has_pet") === "true"
+                    ? "Yes"
+                    : "No"
+                }
+              />
+              <Row k="Details" v={fmtMaybe(get(guestsSection, "pet_details"))} />
+            </SubBlock>
+          ) : null}
+
+          <h3
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: 10.5,
+              letterSpacing: 3.5,
+              textTransform: "uppercase",
+              color: GOLD,
+              margin: "26px 0 14px",
+              fontWeight: 500,
+            }}
+          >
+            Manifest
+          </h3>
           {manifest.length === 0 ? (
             <p style={mutedItalic}>
               The guest list will appear here once the charterer has filled
@@ -333,12 +413,6 @@ export default async function PreferenceSheetPage({
               ))}
             </div>
           )}
-          {get(guestsSection, "group_notes") || get(guestsSection, "group_scenarios") ? (
-            <SubBlock label="About the group">
-              <Row k="Scenarios" v={fmtMaybe(get(guestsSection, "group_scenarios"))} />
-              <Row k="General notes" v={fmtMaybe(get(guestsSection, "group_notes"))} />
-            </SubBlock>
-          ) : null}
         </Section>
 
         {/* ============ 03 — HEALTH & ITINERARY ============ */}
@@ -386,6 +460,7 @@ export default async function PreferenceSheetPage({
             <Row k="Music — late night" v={fmtMaybe(get(lifeAboard, "music.late_night"))} />
             <Row k="Specific artists / playlists" v={fmtMaybe(get(lifeAboard, "music.specific_artists"))} />
             <Row k="Small touches to ask about" v={fmtMaybe(lifeAboard.extras_freeform)} />
+            <Row k="Wellness on board" v={fmtMaybe(lifeAboard.wellness_onboard)} />
           </SubBlock>
         </Section>
 
@@ -545,6 +620,11 @@ export default async function PreferenceSheetPage({
 
           <SubBlock label="Night service in cabins">
             <Row k="Place in each cabin (6–9pm)" v={fmtMaybe(little.night_service)} />
+          </SubBlock>
+
+          <SubBlock label="Photography on the water">
+            <Row k="Drone photography" v={fmtMaybe(little.drone_photography)} />
+            <Row k="Professional photographer day" v={fmtMaybe(little.professional_photographer)} />
           </SubBlock>
 
           <SubBlock label="Practical">
@@ -775,6 +855,55 @@ function GuestCard({ order, g }: { order: number; g: GuestRow }) {
         ) : null}
         <GuestCell label="Allergies / dietary" v={g.allergies_dietary || "—"} fullWidth />
       </dl>
+      {g.allergies_severity === "life_threatening" && (
+        <div
+          className="avoid-break"
+          style={{
+            marginTop: 10,
+            padding: "10px 14px",
+            background: "rgba(185, 28, 28, 0.06)",
+            border: "1px solid rgba(185, 28, 28, 0.35)",
+          }}
+        >
+          <div
+            style={{
+              fontFamily: FONT_UI,
+              fontSize: 10,
+              letterSpacing: 2.5,
+              textTransform: "uppercase",
+              color: "#b91c1c",
+              fontWeight: 600,
+              marginBottom: 4,
+            }}
+          >
+            ⚠ Life-threatening allergy
+          </div>
+          {g.emergency_note ? (
+            <div style={{ fontFamily: FONT_EDITORIAL, fontSize: 13.5, color: "#0D1B2A" }}>
+              {g.emergency_note}
+            </div>
+          ) : null}
+        </div>
+      )}
+      {g.allergies_severity && g.allergies_severity !== "life_threatening" && (
+        <div
+          style={{
+            marginTop: 8,
+            fontFamily: FONT_UI,
+            fontSize: 10,
+            letterSpacing: 2,
+            textTransform: "uppercase",
+            color: GOLD,
+          }}
+        >
+          {g.allergies_severity === "strong_intolerance" ? "Strong intolerance" : "Preference / mild"}
+          {g.emergency_note ? (
+            <span style={{ marginLeft: 8, fontStyle: "italic", textTransform: "none", letterSpacing: 0, fontFamily: FONT_EDITORIAL, fontSize: 13, color: "#0D1B2A" }}>
+              · {g.emergency_note}
+            </span>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

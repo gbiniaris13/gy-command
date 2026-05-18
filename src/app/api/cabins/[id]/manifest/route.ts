@@ -41,6 +41,8 @@ type Guest = {
   cabin_pairing?: string | null;
   shoe_size?: string | null;
   allergies_dietary?: string | null;
+  allergies_severity?: string | null;
+  emergency_note?: string | null;
 };
 
 function clean(v: unknown): string | null {
@@ -87,6 +89,8 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       cabin_pairing: clean(g.cabin_pairing),
       shoe_size: clean(g.shoe_size),
       allergies_dietary: clean(g.allergies_dietary),
+      allergies_severity: clean(g.allergies_severity),
+      emergency_note: clean(g.emergency_note),
     }))
     // Drop rows where the user clicked "add" but never typed a name.
     .filter((r) => r.full_name);
