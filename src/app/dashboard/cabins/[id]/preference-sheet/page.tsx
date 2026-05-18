@@ -360,10 +360,12 @@ export default async function PreferenceSheetPage({
             </div>
           ) : null}
 
-          {(get(guestsSection, "group_type") ||
+          {Boolean(
+            get(guestsSection, "group_type") ||
             get(guestsSection, "energy_level") ||
             get(guestsSection, "group_scenarios") ||
-            get(guestsSection, "group_notes")) && (
+            get(guestsSection, "group_notes"),
+          ) && (
             <SubBlock label="Character of the group">
               <Row k="Type of week" v={fmtMaybe(get(guestsSection, "group_type"))} />
               <Row k="Energy level" v={fmtMaybe(get(guestsSection, "energy_level"))} />
@@ -440,9 +442,11 @@ export default async function PreferenceSheetPage({
             <Row k="Extra activities of interest" v={fmtMaybe(itinerary.activities_extra)} />
           </SubBlock>
 
-          {(itinerary.special_event_types ||
+          {Boolean(
+            itinerary.special_event_types ||
             itinerary.special_event_extras ||
-            itinerary.celebrations) && (
+            itinerary.celebrations,
+          ) && (
             <SubBlock label="Celebrations on board">
               <Row k="Type of occasion" v={fmtMaybe(itinerary.special_event_types)} />
               <Row k="Extras to pre-stage" v={fmtMaybe(itinerary.special_event_extras)} />
@@ -499,13 +503,15 @@ export default async function PreferenceSheetPage({
           </SubBlock>
 
           {/* Food matrix table — only render if any item has a verdict */}
-          {dining.food_matrix &&
-            typeof dining.food_matrix === "object" &&
-            Object.keys(dining.food_matrix as Record<string, unknown>).length > 0 && (
-              <FoodMatrixTable matrix={dining.food_matrix as Record<string, string>} />
-            )}
+          {Boolean(
+            dining.food_matrix &&
+              typeof dining.food_matrix === "object" &&
+              Object.keys(dining.food_matrix as Record<string, unknown>).length > 0,
+          ) && (
+            <FoodMatrixTable matrix={dining.food_matrix as Record<string, string>} />
+          )}
 
-          {(dining.food_loves || dining.food_avoid) && (
+          {Boolean(dining.food_loves || dining.food_avoid) && (
             <SubBlock label="Foods (legacy multi-select)">
               <Row k="Loves" v={fmtMaybe(dining.food_loves)} />
               <Row k="Avoid" v={fmtMaybe(dining.food_avoid)} />
@@ -529,12 +535,14 @@ export default async function PreferenceSheetPage({
             <Row k="Notes" v={fmtMaybe(dining.dining_ashore_notes)} />
           </SubBlock>
 
-          {(dining.kids_meal_arrangement ||
+          {Boolean(
+            dining.kids_meal_arrangement ||
             dining.kids_meal_specifics ||
             dining.kids_needs_baby_cot ||
             dining.kids_needs_high_chair ||
             dining.kids_baby_food_specifics ||
-            dining.children_at_table) && (
+            dining.children_at_table,
+          ) && (
             <SubBlock label="Children at the table">
               <Row k="Meal arrangement" v={fmtMaybe(dining.kids_meal_arrangement)} />
               <Row k="What the children love" v={fmtMaybe(dining.kids_meal_specifics)} />
