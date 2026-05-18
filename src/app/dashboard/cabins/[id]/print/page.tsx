@@ -4,6 +4,7 @@
 
 import { notFound } from "next/navigation";
 import { getCabin, getCabinSections, getCabinMembers } from "@/lib/cabin-admin";
+import PrintButton from "./PrintButton";
 
 export const dynamic = "force-dynamic";
 
@@ -77,12 +78,7 @@ export default async function PrintCabinPage({ params }: { params: Promise<{ id:
         alignItems: "center", zIndex: 10,
       }}>
         <span style={{ fontSize: 12, letterSpacing: 2 }}>Print view · use ⌘P / Ctrl+P to save as PDF</span>
-        <button onClick={() => globalThis.print()} style={{
-          background: "#C9A84C", color: "#0D1B2A", padding: "8px 16px",
-          border: 0, fontSize: 10, letterSpacing: 2, textTransform: "uppercase", cursor: "pointer",
-        }}>
-          Print / save as PDF
-        </button>
+        <PrintButton />
       </div>
 
       <article style={{ maxWidth: 820, margin: "0 auto", padding: "32px 24px 60px" }}>
