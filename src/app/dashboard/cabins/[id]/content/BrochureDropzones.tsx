@@ -1,0 +1,182 @@
+// gy-command — three PDF dropzones at the top of the content
+// editor. Drop a PDF, Claude Haiku extracts structured JSON, the
+// matching cabin field is updated, and George refreshes to see
+// the rendered client view.
+
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
+type Kind = "crew" | "menu" | "vessel";
+
+const ZONE_META: Record<Kind, { title: string; subtitle: string; hint: string }> = {
+  crew: {
+    title: "Crew profile PDF",
+    subtitle: "Captain · Cook · Hostess bios",
+    hint: "Drop the multi-page crew booklet. We extract first name + role + bio per person, ready for the client to read on /cabin/crew.",
+  },
+  menu: {
+    title: "Sample menu PDF",
+    subtitle: "Breakfast · mains · desserts",
+    hint: "Drop the chef's sample menu. We pull every section + dish into a typographic display the client sees on /cabin/menu.",
+  },
+  vessel: {
+    title: "Vessel brochure PDF",
+    subtitle: "Specs · amenities · water toys",
+    hint: "Drop the yacht brochure. We extract specifications, accommodation, amenities, tender + toys list for /cabin/vessel.",
+  },
+};
+
+export default function BrochureDropzones({ cabinId }: { cabinId: string }) {
+  const router = useRouter();
+  const [busyKind, setBusyKind] = useState<Kind | null>(null);
+  const [result, setResult] = useState<Record<Kind, string | null>>({
+    crew: null, menu: null, vessel: null,
+  });
+  const [error, setError] = useState<Record<Kind, string | null>>({
+    crew: null, menu: null, vessel: null,
+  });
+
+  async function handleFile(kind: Kind, file: File) {
+    setBusyKind(kind);
+    setError((e) => ({ ...e, [kind]: null }));
+    setResult((r) => ({ ...r, [kind]: null }));
+
+    if (file.type !== "application/pdf") {
+      setError((e) => ({ ...e, [kind]: "Must be a PDF." }));
+      setBusyKind(null);
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError((e) => ({ ...e, [kind]: "PDF too large (10 MB max). Try compressing it." }));
+      setBusyKind(null);
+      return;
+    }
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("kind", kind);
+
+      const r = await fetch(`/api/cabins/${cabinId}/extract-brochure`, {
+        method: "POST",
+        body: form,
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        const msg = j.error === "ai-cap-or-disabled"
+          ? "Monthly AI budget reached — try again next month or raise the cap."
+          : j.error || "Extraction failed. Check the PDF and try again.";
+        throw new Error(msg);
+      }
+      setResult((rs) => ({
+        ...rs,
+        [kind]: kind === "crew"
+          ? `✓ Extracted ${(j.persisted as unknown[])?.length ?? 0} crew members`
+          : kind === "menu"
+          ? `✓ Extracted ${((j.persisted as { sections?: unknown[] })?.sections?.length) ?? 0} menu sections`
+          : `✓ Extracted vessel brochure`,
+      }));
+      // Refresh the underlying server-rendered editors below so they
+      // pick up the new values.
+      router.refresh();
+    } catch (err) {
+      setError((e) => ({ ...e, [kind]: (err as Error).message }));
+    } finally {
+      setBusyKind(null);
+    }
+  }
+
+  return (
+    <section style={{
+      background: "#0D1B2A",
+      color: "#F8F5F0",
+      padding: 24,
+      borderRadius: 0,
+      marginBottom: 18,
+    }}>
+      <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#C9A84C", fontWeight: 500, marginBottom: 6 }}>
+        ⚡ Auto-fill from PDF
+      </div>
+      <h2 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 300, fontFamily: "Georgia, serif" }}>
+        Drop a brochure, we extract everything for you
+      </h2>
+      <p style={{ margin: "0 0 18px", fontSize: 13, color: "rgba(248,245,240,0.7)", fontStyle: "italic", lineHeight: 1.6 }}>
+        Each dropzone takes one PDF. Claude reads it and fills the matching
+        section below in the brand-correct shape. Review the result in the
+        form editors below, edit anything that looks off, and it saves
+        instantly. Cost per PDF ≈ $0.05 — protected by the €10/month cap.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+        {(Object.keys(ZONE_META) as Kind[]).map((kind) => {
+          const meta = ZONE_META[kind];
+          const isBusy = busyKind === kind;
+          const ok = result[kind];
+          const err = error[kind];
+          return (
+            <label
+              key={kind}
+              style={{
+                background: "rgba(248,245,240,0.05)",
+                border: "1px dashed rgba(201,168,76,0.45)",
+                padding: 18,
+                cursor: isBusy ? "default" : "pointer",
+                display: "block",
+                opacity: busyKind && !isBusy ? 0.4 : 1,
+                transition: "background 160ms ease, border-color 160ms ease",
+              }}
+              onDragOver={(e) => { e.preventDefault(); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const f = e.dataTransfer.files?.[0];
+                if (f && !busyKind) void handleFile(kind, f);
+              }}
+            >
+              <div style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#C9A84C", fontWeight: 500, marginBottom: 4 }}>
+                {meta.title}
+              </div>
+              <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: 13, color: "rgba(248,245,240,0.8)", marginBottom: 10 }}>
+                {meta.subtitle}
+              </div>
+              <p style={{ fontSize: 12, color: "rgba(248,245,240,0.6)", lineHeight: 1.55, margin: "0 0 12px" }}>
+                {meta.hint}
+              </p>
+              <input
+                type="file"
+                accept="application/pdf"
+                disabled={!!busyKind}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void handleFile(kind, f);
+                }}
+                style={{ display: "none" }}
+              />
+              <div style={{
+                background: isBusy ? "rgba(201,168,76,0.18)" : "#C9A84C",
+                color: isBusy ? "rgba(248,245,240,0.7)" : "#0D1B2A",
+                padding: "9px 14px",
+                fontFamily: "-apple-system, sans-serif",
+                fontSize: 10,
+                letterSpacing: 2,
+                textTransform: "uppercase",
+                fontWeight: 600,
+                display: "inline-block",
+              }}>
+                {isBusy ? "Extracting…" : "Drop or browse PDF"}
+              </div>
+              {ok && (
+                <p style={{ marginTop: 10, fontSize: 12, color: "#86efac", fontStyle: "italic" }}>{ok}</p>
+              )}
+              {err && (
+                <p style={{ marginTop: 10, fontSize: 12, color: "#fca5a5", fontStyle: "italic" }}>{err}</p>
+              )}
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

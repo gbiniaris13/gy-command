@@ -24,7 +24,7 @@ async function adminEmail(): Promise<string | null> {
   return user?.email ?? null;
 }
 
-const ALLOWED = new Set(["crew_display", "sample_menu", "inspiration_content"]);
+const ALLOWED = new Set(["crew_display", "sample_menu", "inspiration_content", "vessel_brochure"]);
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;

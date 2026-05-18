@@ -9,6 +9,7 @@ import { getCabin } from "@/lib/cabin-admin";
 import ContentEditor from "./ContentEditor";
 import CrewForm from "./CrewForm";
 import MenuForm from "./MenuForm";
+import BrochureDropzones from "./BrochureDropzones";
 
 export const dynamic = "force-dynamic";
 
@@ -41,9 +42,18 @@ export default async function CabinContentEditPage({
         </p>
       </header>
 
+      <BrochureDropzones cabinId={id} />
+
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <CrewForm cabinId={id} initial={cabin.crew_display ?? []} />
         <MenuForm cabinId={id} initial={cabin.sample_menu ?? {}} />
+        <ContentEditor
+          cabinId={id}
+          field="vessel_brochure"
+          title="Vessel brochure (auto-extracted · raw JSON)"
+          hint="Populated automatically when you drop a brochure PDF above. Edit any field by hand if Claude got something wrong."
+          initial={(cabin as Record<string, unknown>).vessel_brochure ?? {}}
+        />
         <ContentEditor
           cabinId={id}
           field="inspiration_content"
