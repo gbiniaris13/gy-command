@@ -30,8 +30,10 @@ type FormState = {
   captain_name_internal: string;
   chef_name_internal: string;
   hostess_name_internal: string;
-  central_agent_internal: string;
-  vessel_owner_internal: string;
+  // central_agent_internal + vessel_owner_internal — intentionally
+  // removed from the form. The DB columns still exist for archival
+  // use but we never surface them in the UI, per George's principle
+  // that nothing about the supply chain ever leaks toward the client.
   charter_fee_eur: string;
   apa_eur: string;
   // Crew display (what the charterer sees)
@@ -56,8 +58,6 @@ const EMPTY: FormState = {
   captain_name_internal: "",
   chef_name_internal: "",
   hostess_name_internal: "",
-  central_agent_internal: "",
-  vessel_owner_internal: "",
   charter_fee_eur: "",
   apa_eur: "",
   crew_display: [
@@ -152,8 +152,10 @@ export default function NewCabinPage() {
     opt("captain_name_internal", form.captain_name_internal);
     opt("chef_name_internal", form.chef_name_internal);
     opt("hostess_name_internal", form.hostess_name_internal);
-    opt("central_agent_internal", form.central_agent_internal);
-    opt("vessel_owner_internal", form.vessel_owner_internal);
+    // central_agent_internal + vessel_owner_internal intentionally
+    // omitted from the form per George: he doesn't want the client
+    // even to suspect those entities exist. The DB columns remain
+    // nullable for future API-only population if ever needed.
     if (form.vessel_capacity) out.vessel_capacity = Number(form.vessel_capacity);
     if (form.charter_fee_eur) out.charter_fee_eur = Number(form.charter_fee_eur);
     if (form.apa_eur) out.apa_eur = Number(form.apa_eur);
@@ -637,15 +639,6 @@ export default function NewCabinPage() {
                   <span>Hostess</span>
                   <input type="text" value={form.hostess_name_internal} onChange={(e) => set("hostess_name_internal", e.target.value)} placeholder="Eleni Aravantinou" />
                 </label>
-                <label>
-                  <span>Central agent</span>
-                  <input type="text" value={form.central_agent_internal} onChange={(e) => set("central_agent_internal", e.target.value)} placeholder="IYC · Istion · Fraser …" />
-                </label>
-                <label>
-                  <span>Vessel owner</span>
-                  <input type="text" value={form.vessel_owner_internal} onChange={(e) => set("vessel_owner_internal", e.target.value)} placeholder="(private)" />
-                </label>
-                <div />
                 <label>
                   <span>Charter fee (€)</span>
                   <input type="number" inputMode="decimal" value={form.charter_fee_eur} onChange={(e) => set("charter_fee_eur", e.target.value)} placeholder="38000" min="0" />
