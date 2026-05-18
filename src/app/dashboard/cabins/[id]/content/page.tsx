@@ -44,10 +44,26 @@ export default async function CabinContentEditPage({
 
       <BrochureDropzones cabinId={id} />
 
+      {/* Each form's internal useState() is seeded from `initial`
+          only on first mount. When the brochure dropzones above
+          run an extraction and call router.refresh(), the server
+          re-fetches cabin and we land here with new `initial` —
+          but without a key change the form keeps its stale state.
+          A content-derived key (cheap stringify) remounts the
+          form so the extracted data appears. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <CrewForm cabinId={id} initial={cabin.crew_display ?? []} />
-        <MenuForm cabinId={id} initial={cabin.sample_menu ?? {}} />
+        <CrewForm
+          key={`crew:${JSON.stringify(cabin.crew_display ?? []).length}`}
+          cabinId={id}
+          initial={cabin.crew_display ?? []}
+        />
+        <MenuForm
+          key={`menu:${JSON.stringify(cabin.sample_menu ?? {}).length}`}
+          cabinId={id}
+          initial={cabin.sample_menu ?? {}}
+        />
         <ContentEditor
+          key={`vessel:${JSON.stringify((cabin as Record<string, unknown>).vessel_brochure ?? {}).length}`}
           cabinId={id}
           field="vessel_brochure"
           title="Vessel brochure (auto-extracted · raw JSON)"
