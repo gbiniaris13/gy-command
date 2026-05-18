@@ -12,7 +12,39 @@ type Msg = {
   failed?: boolean;
 };
 
-const POLL = 5000;
+// Tighter polling for live-feel parity with /cabin/chat on the
+// public site. Cheap: one ~1KB GET every 3s while the tab is
+// visible. Belt-and-suspenders alongside the Telegram nudge that
+// already fires when a charterer message hits chat.js.
+const POLL = 3000;
+
+// Soft two-tone chime to give George the "ping" feedback he asked
+// for ("να παίρνω σαν να μου στέλνεις στο WhatsApp") whenever a
+// new charterer message arrives while he's looking at the CRM.
+function playChime() {
+  try {
+    const W = window as typeof window & { webkitAudioContext?: typeof AudioContext };
+    const Ctx = window.AudioContext || W.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const now = ctx.currentTime;
+    const make = (freq: number, start: number, dur: number) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, now + start);
+      g.gain.exponentialRampToValueAtTime(0.18, now + start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + start + dur);
+      o.connect(g).connect(ctx.destination);
+      o.start(now + start);
+      o.stop(now + start + dur + 0.02);
+    };
+    make(880, 0, 0.14);
+    make(1175, 0.14, 0.18);
+    setTimeout(() => ctx.close().catch(() => {}), 600);
+  } catch { /* decorative */ }
+}
 
 function fmt(iso: string) {
   const d = new Date(iso);
@@ -47,8 +79,35 @@ export default function AdminChat({ cabinId }: { cabinId: string }) {
       if (newM.length) {
         setMessages((prev) => [...(prev ?? []), ...newM]);
         sinceRef.current = newM[newM.length - 1].created_at;
+        // Ping for any incoming charterer message. George's own
+        // sends never arrive via polling — they're already in
+        // state when the POST resolves — so a "charterer" role
+        // here is unambiguously the client typing on the boat.
+        const fromCharterer = newM.some((m) => m.sender_role === "charterer");
+        if (fromCharterer) {
+          playChime();
+          if (
+            typeof Notification !== "undefined" &&
+            Notification.permission === "granted" &&
+            document.visibilityState !== "visible"
+          ) {
+            try {
+              const last = newM[newM.length - 1];
+              new Notification("New message in Cabin chat", {
+                body: (last.body || "").slice(0, 140),
+                tag: `cabin-chat-${cabinId}`,
+              });
+            } catch { /* notification API varies by browser */ }
+          }
+        }
       }
     } catch {}
+  }
+
+  function enableNotifications() {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "granted") return;
+    Notification.requestPermission().catch(() => {});
   }
 
   useEffect(() => {
@@ -69,6 +128,10 @@ export default function AdminChat({ cabinId }: { cabinId: string }) {
     e.preventDefault();
     const body = draft.trim();
     if (!body || sending) return;
+    // Browsers require requestPermission() to run inside a real
+    // gesture. Piggybacking on the send click is the natural moment
+    // — by the time George hits send he's said "I'm using this."
+    enableNotifications();
     setSending(true);
     const localId = "local-" + Date.now();
     setMessages((p) => [...(p ?? []), {
