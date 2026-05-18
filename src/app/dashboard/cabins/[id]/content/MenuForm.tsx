@@ -1,13 +1,51 @@
 "use client";
 
-// Sample menu editor — tagline + a day-by-day list. Each day has
-// a short title and a free-text body the chef can describe the
-// courses in their own voice. We stay loose on schema so George
-// can paste whatever copy the chef sends back.
+// Sample menu editor — tagline + a section-by-section list. Each
+// section has a name (BREAKFAST, APPETIZERS, MAIN COURSES, etc.)
+// and a list of dishes (one per line). Matches the shape Gemini
+// extracts from the chef's PDF, and the shape the client-side
+// /cabin/menu page renders.
 
 import { useState } from "react";
 
-type Day = { title: string; body: string };
+type Section = { name: string; dishes: string[] };
+
+function normaliseInitial(initial: unknown): { tagline: string; sections: Section[] } {
+  const init = (initial && typeof initial === "object" ? (initial as Record<string, unknown>) : {});
+  const tagline = typeof init.tagline === "string" ? init.tagline : "";
+
+  // New shape (Gemini extraction): sections[]
+  if (Array.isArray(init.sections) && init.sections.length > 0) {
+    return {
+      tagline,
+      sections: (init.sections as Array<Record<string, unknown>>).map((s) => ({
+        name: typeof s.name === "string" ? s.name : "",
+        dishes: Array.isArray(s.dishes) ? (s.dishes as unknown[]).map(String).filter(Boolean) : [],
+      })),
+    };
+  }
+
+  // Legacy shape: days[] with title + body or courses
+  if (Array.isArray(init.days) && init.days.length > 0) {
+    return {
+      tagline,
+      sections: (init.days as Array<Record<string, unknown>>).map((d) => {
+        const dishes: string[] = [];
+        if (typeof d.body === "string" && d.body.trim()) {
+          d.body.split(/\n+/).map((s) => s.trim()).filter(Boolean).forEach((s) => dishes.push(s));
+        }
+        if (Array.isArray(d.courses)) {
+          (d.courses as unknown[]).forEach((c) => {
+            if (typeof c === "string" && c.trim()) dishes.push(c.trim());
+          });
+        }
+        return { name: (d.title as string) ?? "Day", dishes };
+      }),
+    };
+  }
+
+  return { tagline, sections: [] };
+}
 
 export default function MenuForm({
   cabinId,
@@ -16,43 +54,30 @@ export default function MenuForm({
   cabinId: string;
   initial: unknown;
 }) {
-  const init = (initial && typeof initial === "object" ? (initial as Record<string, unknown>) : {}) as {
-    tagline?: string;
-    days?: Array<{ title?: string; body?: string; courses?: unknown }>;
-  };
-  const [tagline, setTagline] = useState<string>(init.tagline ?? "");
-  const [days, setDays] = useState<Day[]>(() => {
-    const src = Array.isArray(init.days) ? init.days : [];
-    return src.map((d) => ({
-      title: d?.title ?? "",
-      // Older docs use courses[]; collapse to a readable body.
-      body:
-        d?.body ??
-        (Array.isArray(d?.courses)
-          ? d.courses
-              .map((c) =>
-                typeof c === "string"
-                  ? c
-                  : c && typeof c === "object" && "heading" in (c as Record<string, unknown>)
-                  ? `${(c as Record<string, string>).heading}: ${(c as Record<string, string>).body ?? ""}`
-                  : ""
-              )
-              .filter(Boolean)
-              .join("\n")
-          : ""),
-    }));
-  });
+  const init = normaliseInitial(initial);
+  const [tagline, setTagline] = useState<string>(init.tagline);
+  const [sections, setSections] = useState<Section[]>(init.sections);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  function updateDay(i: number, patch: Partial<Day>) {
-    setDays((d) => d.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  function updateSection(i: number, patch: Partial<{ name: string; dishesText: string }>) {
+    setSections((rows) =>
+      rows.map((row, j) => {
+        if (j !== i) return row;
+        const next = { ...row };
+        if (patch.name !== undefined) next.name = patch.name;
+        if (patch.dishesText !== undefined) {
+          next.dishes = patch.dishesText.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+        }
+        return next;
+      }),
+    );
   }
-  function removeDay(i: number) {
-    setDays((d) => d.filter((_, j) => j !== i));
+  function removeSection(i: number) {
+    setSections((rows) => rows.filter((_, j) => j !== i));
   }
-  function addDay() {
-    setDays((d) => [...d, { title: `Day ${d.length + 1}`, body: "" }]);
+  function addSection() {
+    setSections((rows) => [...rows, { name: "", dishes: [] }]);
   }
 
   async function save() {
@@ -60,9 +85,9 @@ export default function MenuForm({
     setMsg(null);
     const cleaned = {
       tagline: tagline.trim() || undefined,
-      days: days
-        .map((d) => ({ title: d.title.trim(), body: d.body.trim() }))
-        .filter((d) => d.title || d.body),
+      sections: sections
+        .map((s) => ({ name: s.name.trim(), dishes: s.dishes.filter(Boolean) }))
+        .filter((s) => s.name || s.dishes.length),
     };
     try {
       const r = await fetch(`/api/cabins/${cabinId}/content`, {
@@ -85,15 +110,15 @@ export default function MenuForm({
       <header style={hdr}>
         <h3 style={h3}>Sample menu (what the client sees on /cabin/menu)</h3>
         <p style={sub}>
-          One day per row. Tagline at the top is the chef’s overall voice
-          (e.g. “Cretan-Aegean, what the morning fishmonger has”). Inside
-          each day, paste the menu in your own format — the client view
-          renders it as plain text.
+          One section per row (Breakfast, Appetizers, Main Courses, Desserts —
+          or by day if the chef’s sample is structured that way). Inside each
+          section, paste one dish per line. The client view renders them as
+          a typographic list.
         </p>
       </header>
 
       <label style={field}>
-        <span>Tagline</span>
+        <span>Tagline (optional)</span>
         <input
           type="text"
           value={tagline}
@@ -103,39 +128,42 @@ export default function MenuForm({
       </label>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 14 }}>
-        {days.length === 0 && (
-          <p style={empty}><em>No sample days yet — add Day 1 below.</em></p>
+        {sections.length === 0 && (
+          <p style={empty}><em>No menu sections yet — add one below, or drop the chef’s PDF in the dropzone above.</em></p>
         )}
-        {days.map((d, i) => (
+        {sections.map((s, i) => (
           <div key={i} style={row}>
             <label style={field}>
-              <span>Day title</span>
+              <span>Section name</span>
               <input
                 type="text"
-                value={d.title}
-                onChange={(e) => updateDay(i, { title: e.target.value })}
-                placeholder="Day 1 · Arrival sunset"
+                value={s.name}
+                onChange={(e) => updateSection(i, { name: e.target.value })}
+                placeholder="Breakfast · Appetizers · Main Courses · Desserts"
               />
             </label>
             <label style={field}>
-              <span>Courses / description</span>
+              <span>Dishes (one per line)</span>
               <textarea
-                value={d.body}
-                onChange={(e) => updateDay(i, { body: e.target.value })}
-                rows={5}
-                placeholder={"Welcome aperitif — Domaine Sigalas Assyrtiko\nGrilled octopus on a bed of fava\nLamb shoulder, oregano potatoes\nFig & yoghurt with thyme honey"}
+                value={s.dishes.join("\n")}
+                onChange={(e) => updateSection(i, { dishesText: e.target.value })}
+                rows={Math.max(4, s.dishes.length + 1)}
+                placeholder={"Butter Croissant\nChocolate Croissant\nGreek Yogurt with Nuts & Honey\nPancakes with Maple Syrup"}
               />
+              <small style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic", marginTop: 4 }}>
+                {s.dishes.length} dish{s.dishes.length === 1 ? "" : "es"}
+              </small>
             </label>
-            <button type="button" onClick={() => removeDay(i)} style={removeBtn}>
-              × Remove this day
+            <button type="button" onClick={() => removeSection(i)} style={removeBtn}>
+              × Remove this section
             </button>
           </div>
         ))}
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-        <button type="button" onClick={addDay} style={btnGhost}>
-          + Add another day
+        <button type="button" onClick={addSection} style={btnGhost}>
+          + Add another section
         </button>
         <button type="button" onClick={save} disabled={busy} style={btnPrimary}>
           {busy ? "Saving…" : "Save menu"}
