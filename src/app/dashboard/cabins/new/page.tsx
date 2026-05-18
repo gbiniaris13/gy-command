@@ -185,40 +185,47 @@ export default function NewCabinPage() {
   }
 
   return (
-    <div style={{ background: "#F8F5F0", minHeight: "100vh", color: "#0D1B2A", margin: -24, padding: 0 }}>
+    <div
+      // Fixed full-viewport overlay sits ABOVE every dashboard
+      // chrome layer (matrix bg, CRT, scan-beam, sidebar). George
+      // can't see those while this form is open — we're not
+      // competing with z-index, we're stacking on top.
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "#F8F5F0",
+        color: "#0D1B2A",
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
+      }}
+    >
       <style>{`
-        /* ─── Hide the dashboard's matrix chrome while this page is open ─── */
+        /* Belt-and-suspenders: also hide the matrix chrome via class,
+           so when the overlay closes the dashboard is intact. */
         body.cabin-form-mode .crt-overlay,
-        body.cabin-form-mode .scan-beam,
-        body.cabin-form-mode canvas[class*="alien" i],
-        body.cabin-form-mode [class*="AlienBackground" i],
-        body.cabin-form-mode [class*="alien-bg" i] {
+        body.cabin-form-mode .scan-beam {
           display: none !important;
         }
-        /* Force a calm ivory page behind the form, overriding the
-           dashboard's transparent main wrapper that lets the dark
-           theme bleed through. */
-        body.cabin-form-mode main {
-          background: #F8F5F0 !important;
+        /* Close button top-right */
+        .cabin-form-close {
+          position: fixed;
+          top: 14px;
+          right: 14px;
+          z-index: 1001;
+          background: #0D1B2A;
+          color: #F8F5F0;
+          border: 1px solid #C9A84C;
+          width: 40px;
+          height: 40px;
+          font-size: 18px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-family: Georgia, serif;
         }
-        /* Reset any inherited electric-cyan / muted-blue from the
-           dashboard theme. The form's own rules below set their
-           own gold/navy palette per element — this only kills
-           inheritance, doesn't override deliberate colors. */
-        body.cabin-form-mode .cabin-form {
-          color: #0D1B2A;
-        }
-        body.cabin-form-mode .cabin-form h1,
-        body.cabin-form-mode .cabin-form h2,
-        body.cabin-form-mode .cabin-form p,
-        body.cabin-form-mode .cabin-form div,
-        body.cabin-form-mode .cabin-form summary {
-          color: #0D1B2A;
-        }
-        /* Headings always stay dark navy regardless of theme */
-        body.cabin-form-mode .cabin-form em {
-          color: #C9A84C;
-        }
+        .cabin-form-close:hover { background: #142233; }
 
         .cabin-form *:not(svg):not(path) {
           font-family: Georgia, "Times New Roman", serif;
@@ -351,6 +358,16 @@ export default function NewCabinPage() {
           .cabin-form .crew-row { grid-template-columns: 1fr; }
         }
       `}</style>
+
+      {/* Close → back to cabins list */}
+      <button
+        type="button"
+        className="cabin-form-close"
+        aria-label="Close"
+        onClick={() => router.push("/dashboard/cabins")}
+      >
+        ×
+      </button>
 
       <div className="cabin-form" style={{ maxWidth: 920, margin: "0 auto", padding: "32px 20px 80px" }}>
         <header style={{ borderBottom: "1px solid rgba(201,168,76,0.4)", paddingBottom: 20, marginBottom: 28 }}>
