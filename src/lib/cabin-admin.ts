@@ -54,6 +54,22 @@ export async function getCabinSections(cabinId: string) {
   return data ?? [];
 }
 
+// Per-guest manifest rows (full_name, DOB, passport, nationality,
+// cabin pairing, shoe size, allergies, etc.). Drives the Guest
+// Preferences section of the preference sheet and the captain's
+// port-authority crew list. Returned in submission order so the
+// principal stays first.
+export async function getCabinGuestsManifest(cabinId: string) {
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("cabin_guests_manifest")
+    .select("*")
+    .eq("cabin_id", cabinId)
+    .order("guest_order", { ascending: true });
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
 export async function getCabinMembers(cabinId: string) {
   const db = createServiceClient();
   const { data, error } = await db

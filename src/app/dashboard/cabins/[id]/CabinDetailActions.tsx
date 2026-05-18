@@ -76,6 +76,13 @@ export default function CabinDetailActions({
         Edit cabin details →
       </a>
       <a
+        href={`/dashboard/cabins/${cabinId}/manifest`}
+        style={btnGhost as React.CSSProperties}
+        title="Per-guest passport, DOB, nationality, allergies. Feeds the preference sheet + port authorities."
+      >
+        Guest manifest →
+      </a>
+      <a
         href={`/dashboard/cabins/${cabinId}/edit`}
         style={btnGhost as React.CSSProperties}
       >
