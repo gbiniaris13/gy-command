@@ -4,21 +4,25 @@
 // invite, copy public link, print/PDF.
 
 import { useState } from "react";
+import SharePreferenceSheetDialog from "./SharePreferenceSheetDialog";
 
 export default function CabinDetailActions({
   cabinId,
   conciergeOn,
   status,
   principalEmail,
+  vesselName,
 }: {
   cabinId: string;
   conciergeOn: boolean;
   status: string;
   principalEmail: string;
+  vesselName: string;
 }) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [concierge, setConcierge] = useState(conciergeOn);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   async function call(action: string, label: string, body?: unknown) {
     setBusyKey(action);
@@ -125,10 +129,18 @@ export default function CabinDetailActions({
         target="_blank"
         rel="noreferrer"
         style={btnGhost as React.CSSProperties}
-        title="PII-stripped preference sheet for the yacht owner / management / captain"
+        title="Charter preferences sheet — open in this browser to review or print"
       >
-        Preference sheet (no PII) →
+        Preference sheet →
       </a>
+      <button
+        type="button"
+        onClick={() => setShareDialogOpen(true)}
+        style={btnGold as React.CSSProperties}
+        title="Email a tokenised read-only link to the captain, chef, hostess, management, or owner"
+      >
+        Share with the team ↗
+      </button>
       <button
         type="button"
         onClick={() => {
@@ -174,6 +186,14 @@ export default function CabinDetailActions({
       <span style={{ marginLeft: "auto", fontSize: 12, color: msg?.startsWith("✓") ? "#16a34a" : "#b91c1c" }}>
         {msg}
       </span>
+
+      {shareDialogOpen && (
+        <SharePreferenceSheetDialog
+          cabinId={cabinId}
+          vesselName={vesselName}
+          onClose={() => setShareDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }

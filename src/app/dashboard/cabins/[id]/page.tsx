@@ -62,6 +62,7 @@ export default async function CabinDetailPage({
         conciergeOn={!!cabin.concierge_mode_active}
         status={cabin.status}
         principalEmail={cabin.principal_charterer_email}
+        vesselName={cabin.vessel_name}
       />
       <StatusTransitions cabinId={id} current={cabin.status} />
 
