@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type FormState = {
@@ -72,6 +72,16 @@ const CREW_ROLES = ["Captain", "Chef", "Hostess", "Steward", "Engineer", "Deckha
 
 export default function NewCabinPage() {
   const router = useRouter();
+
+  // The dashboard layout paints a matrix-themed background with
+  // scan-beam + CRT overlay + AlienBackground. They make the form
+  // hard to read. We add a body class while this page is mounted
+  // so the global CSS below can hide those layers.
+  useEffect(() => {
+    document.body.classList.add("cabin-form-mode");
+    return () => document.body.classList.remove("cabin-form-mode");
+  }, []);
+
   const [form, setForm] = useState<FormState>(EMPTY);
   const [showInternal, setShowInternal] = useState(false);
   const [showCrew, setShowCrew] = useState(false);
@@ -177,6 +187,39 @@ export default function NewCabinPage() {
   return (
     <div style={{ background: "#F8F5F0", minHeight: "100vh", color: "#0D1B2A", margin: -24, padding: 0 }}>
       <style>{`
+        /* ─── Hide the dashboard's matrix chrome while this page is open ─── */
+        body.cabin-form-mode .crt-overlay,
+        body.cabin-form-mode .scan-beam,
+        body.cabin-form-mode canvas[class*="alien" i],
+        body.cabin-form-mode [class*="AlienBackground" i],
+        body.cabin-form-mode [class*="alien-bg" i] {
+          display: none !important;
+        }
+        /* Force a calm ivory page behind the form, overriding the
+           dashboard's transparent main wrapper that lets the dark
+           theme bleed through. */
+        body.cabin-form-mode main {
+          background: #F8F5F0 !important;
+        }
+        /* Reset any inherited electric-cyan / muted-blue from the
+           dashboard theme. The form's own rules below set their
+           own gold/navy palette per element — this only kills
+           inheritance, doesn't override deliberate colors. */
+        body.cabin-form-mode .cabin-form {
+          color: #0D1B2A;
+        }
+        body.cabin-form-mode .cabin-form h1,
+        body.cabin-form-mode .cabin-form h2,
+        body.cabin-form-mode .cabin-form p,
+        body.cabin-form-mode .cabin-form div,
+        body.cabin-form-mode .cabin-form summary {
+          color: #0D1B2A;
+        }
+        /* Headings always stay dark navy regardless of theme */
+        body.cabin-form-mode .cabin-form em {
+          color: #C9A84C;
+        }
+
         .cabin-form *:not(svg):not(path) {
           font-family: Georgia, "Times New Roman", serif;
         }
