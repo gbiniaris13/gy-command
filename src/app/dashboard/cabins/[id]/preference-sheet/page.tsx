@@ -270,6 +270,7 @@ export default async function PreferenceSheetPage({
               k="Flight"
               v={fmtMaybe(get(arrival, "flight_group_1.airline_and_flight"))}
             />
+            <Row k="Flight type" v={fmtMaybe(get(arrival, "flight_group_1.flight_type"))} />
             <Row k="Coming from" v={fmtMaybe(get(arrival, "flight_group_1.coming_from"))} />
             <Row k="Guests on flight" v={fmtMaybe(get(arrival, "flight_group_1.number_of_guests"))} />
             {get(arrival, "flight_group_2.airline_and_flight") ? (
@@ -277,9 +278,11 @@ export default async function PreferenceSheetPage({
                 <Row k="Flight #2" v={fmtMaybe(get(arrival, "flight_group_2.airline_and_flight"))} />
                 <Row k="Date #2" v={fmtMaybe(get(arrival, "flight_group_2.date_of_arrival"))} />
                 <Row k="Time #2" v={fmtMaybe(get(arrival, "flight_group_2.time_of_arrival"))} />
+                <Row k="Flight #2 type" v={fmtMaybe(get(arrival, "flight_group_2.flight_type"))} />
               </>
             ) : null}
             <Row k="Private arrival notes" v={fmtMaybe(get(arrival, "private_arrival_notes"))} />
+            <Row k="Yachting experience" v={fmtMaybe(get(arrival, "yachting_experience"))} />
           </SubBlock>
 
           <SubBlock label="Accommodation ashore">
@@ -353,11 +356,23 @@ export default async function PreferenceSheetPage({
 
           <SubBlock label="Itinerary">
             <Row k="Pace of the week" v={fmtMaybe(itinerary.pace)} />
+            <Row k="Overall character" v={fmtMaybe(itinerary.overall_experience)} />
+            <Row k="Docking preference" v={fmtMaybe(itinerary.docking_preference)} />
             <Row k="Preferred areas" v={fmtMaybe(itinerary.preferred_areas)} />
             <Row k="Specific places they would love" v={fmtMaybe(itinerary.specific_places)} />
             <Row k="Night-time preference" v={fmtMaybe(itinerary.night_preference)} />
-            <Row k="Celebrations during the week" v={fmtMaybe(itinerary.celebrations)} />
+            <Row k="Extra activities of interest" v={fmtMaybe(itinerary.activities_extra)} />
           </SubBlock>
+
+          {(itinerary.special_event_types ||
+            itinerary.special_event_extras ||
+            itinerary.celebrations) && (
+            <SubBlock label="Celebrations on board">
+              <Row k="Type of occasion" v={fmtMaybe(itinerary.special_event_types)} />
+              <Row k="Extras to pre-stage" v={fmtMaybe(itinerary.special_event_extras)} />
+              <Row k="Details" v={fmtMaybe(itinerary.celebrations)} />
+            </SubBlock>
+          )}
 
           <SubBlock label="Life aboard">
             <Row k="Crew presence preference" v={fmtMaybe(lifeAboard.crew_interaction)} />
@@ -385,21 +400,51 @@ export default async function PreferenceSheetPage({
             <Row k="Dinner" v={fmtMaybe(dining.dinner_time)} />
           </SubBlock>
 
+          <SubBlock label="Service preferences">
+            <Row k="Lunch service" v={fmtMaybe(dining.lunch_service)} />
+            <Row k="Dinner service" v={fmtMaybe(dining.dinner_service)} />
+          </SubBlock>
+
           <SubBlock label="Breakfast">
-            <Row k="Style" v={fmtMaybe(dining.breakfast_style)} />
-            <Row k="Specifics" v={fmtMaybe(dining.breakfast_specifics)} />
+            <Row k="Styles" v={fmtMaybe(dining.breakfast_styles || dining.breakfast_style)} />
+            <Row k="Items to stock" v={fmtMaybe(dining.breakfast_items)} />
+            <Row k="Cheese kind" v={fmtMaybe(dining.breakfast_cheese_kind)} />
+            <Row k="Cereal kind" v={fmtMaybe(dining.breakfast_cereal_kind)} />
+            <Row k="Jam kind" v={fmtMaybe(dining.breakfast_jam_kind)} />
+            <Row k="Tea kind" v={fmtMaybe(dining.breakfast_tea_kind)} />
+            <Row k="Juice kind" v={fmtMaybe(dining.breakfast_juice_kind)} />
+            <Row k="Anything else" v={fmtMaybe(dining.breakfast_specifics)} />
           </SubBlock>
 
-          <SubBlock label="Coffee & tea">
-            <Row k="Preference" v={fmtMaybe(dining.coffee_tea)} />
-            <Row k="Specifics" v={fmtMaybe(dining.coffee_tea_specifics)} />
+          <SubBlock label="Coffee, tea & cold drinks">
+            <Row k="Preferences" v={fmtMaybe(dining.coffee_tea)} />
+            <Row k="Brand specifics" v={fmtMaybe(dining.coffee_tea_specifics)} />
           </SubBlock>
 
-          <SubBlock label="At the table">
-            <Row k="Foods they love" v={fmtMaybe(dining.food_loves)} />
-            <Row k="Foods to avoid" v={fmtMaybe(dining.food_avoid)} />
-            <Row k="Children at the table" v={fmtMaybe(dining.children_at_table)} />
-            <Row k="Open note to the chef" v={fmtMaybe(dining.chef_open_note)} />
+          {/* Food matrix table — only render if any item has a verdict */}
+          {dining.food_matrix &&
+            typeof dining.food_matrix === "object" &&
+            Object.keys(dining.food_matrix as Record<string, unknown>).length > 0 && (
+              <FoodMatrixTable matrix={dining.food_matrix as Record<string, string>} />
+            )}
+
+          {(dining.food_loves || dining.food_avoid) && (
+            <SubBlock label="Foods (legacy multi-select)">
+              <Row k="Loves" v={fmtMaybe(dining.food_loves)} />
+              <Row k="Avoid" v={fmtMaybe(dining.food_avoid)} />
+            </SubBlock>
+          )}
+
+          <SubBlock label="Dessert">
+            <Row k="Styles" v={fmtMaybe(dining.dessert_styles)} />
+            <Row k="Specifics" v={fmtMaybe(dining.dessert_specifics)} />
+          </SubBlock>
+
+          <SubBlock label="Snacks & afternoon tea">
+            <Row k="Snacks between meals" v={fmtMaybe(dining.snacks_yes_no)} />
+            <Row k="Snack details" v={fmtMaybe(dining.snacks_details)} />
+            <Row k="Afternoon tea" v={fmtMaybe(dining.afternoon_tea_yes_no)} />
+            <Row k="Tea details" v={fmtMaybe(dining.afternoon_tea_details)} />
           </SubBlock>
 
           <SubBlock label="Dining ashore">
@@ -407,9 +452,28 @@ export default async function PreferenceSheetPage({
             <Row k="Notes" v={fmtMaybe(dining.dining_ashore_notes)} />
           </SubBlock>
 
-          {/* CHILDREN — only show if data exists */}
+          {(dining.kids_meal_arrangement ||
+            dining.kids_meal_specifics ||
+            dining.kids_needs_baby_cot ||
+            dining.kids_needs_high_chair ||
+            dining.kids_baby_food_specifics ||
+            dining.children_at_table) && (
+            <SubBlock label="Children at the table">
+              <Row k="Meal arrangement" v={fmtMaybe(dining.kids_meal_arrangement)} />
+              <Row k="What the children love" v={fmtMaybe(dining.kids_meal_specifics)} />
+              <Row k="Baby cot needed" v={fmtMaybe(dining.kids_needs_baby_cot ? "Yes" : null)} />
+              <Row k="High chair needed" v={fmtMaybe(dining.kids_needs_high_chair ? "Yes" : null)} />
+              <Row k="Baby food / formula" v={fmtMaybe(dining.kids_baby_food_specifics)} />
+              <Row k="Other notes" v={fmtMaybe(dining.children_at_table)} />
+            </SubBlock>
+          )}
+
+          <SubBlock label="Open note to the chef">
+            <Row k="From the charterer" v={fmtMaybe(dining.chef_open_note)} />
+          </SubBlock>
+
           {Object.keys(children).length > 0 && (
-            <SubBlock label="Children on board">
+            <SubBlock label="Children on board (legacy)">
               <Row k="Children profiles" v={fmtMaybe(children.children)} />
               <Row k="Equipment requested" v={fmtMaybe(children.equipment)} />
               <Row k="Other equipment" v={fmtMaybe(children.equipment_other)} />
@@ -424,39 +488,45 @@ export default async function PreferenceSheetPage({
           italic="what to provision"
           pageBreakBefore
         >
-          <SubBlock label="Water">
-            <Row k="Preference" v={fmtMaybe(beverages.water)} />
-            <Row k="Brand" v={fmtMaybe(beverages.water_brand)} />
+          <SubBlock label="Bottled water">
+            <Row k="Type" v={fmtMaybe(beverages.water_type || beverages.water)} />
+            <Row k="Preferred brands" v={fmtMaybe(beverages.water_brand)} />
+            <Row k="Consumption estimate" v={fmtMaybe(beverages.water_consumption_estimate)} />
           </SubBlock>
 
-          <SubBlock label="Bar">
-            <Row k="Standard items" v={fmtMaybe(beverages.standard_bar_items)} />
+          <LabelQtyTable label="Soft drinks" rows={beverages.soft_drinks} />
+
+          <SubBlock label="Standard bar (classics included)">
+            <Row k="Tick-list" v={fmtMaybe(beverages.standard_bar_items)} />
             <Row k="Specific preferences" v={fmtMaybe(beverages.specific_preferences)} />
+          </SubBlock>
+
+          <SubBlock label="Wine — approach">
+            <Row k="Greek vineyards" v={fmtMaybe(beverages.wine_greek_vineyards)} />
+            <Row k="Preferred price range" v={fmtMaybe(beverages.wine_price_range)} />
+            <Row k="Overall style" v={fmtMaybe(beverages.wine_style)} />
+          </SubBlock>
+
+          <LabelQtyTable
+            label="Wine — specific labels"
+            rows={beverages.wines}
+            withPriceRange
+          />
+
+          <LabelQtyTable label="Whiskey"  rows={beverages.whiskey} />
+          <LabelQtyTable label="Vodka"    rows={beverages.vodka} />
+          <LabelQtyTable label="Gin"      rows={beverages.gin} />
+          <LabelQtyTable label="Rum"      rows={beverages.rum} />
+          <LabelQtyTable label="Tequila"  rows={beverages.tequila} />
+          <LabelQtyTable label="Liqueur"  rows={beverages.liqueur} />
+
+          <LabelQtyTable label="Beers — international" rows={beverages.beers} />
+          <LabelQtyTable label="Beers — local Greek"   rows={beverages.beers_local} />
+
+          <SubBlock label="Cocktails & mocktails">
             <Row k="Cocktails the hostess should know" v={fmtMaybe(beverages.cocktails)} />
+            <Row k="Mocktails" v={fmtMaybe(beverages.mocktails)} />
           </SubBlock>
-
-          <SubBlock label="Wine">
-            <Row k="Style" v={fmtMaybe(beverages.wine_style)} />
-          </SubBlock>
-
-          {/* Provisioning-list note. Until we ship the detailed
-              beverage / wine / spirit label-and-quantity grids,
-              this paragraph tells the captain what to do. */}
-          <p
-            style={{
-              ...mutedItalic,
-              marginTop: 14,
-              padding: "12px 14px",
-              background: "rgba(201,168,76,0.06)",
-              borderLeft: `2px solid ${GOLD}`,
-            }}
-          >
-            Detailed provisioning quantities (specific bottle labels, soft-drink
-            counts, wine labels with price ranges) are agreed in a follow-up
-            conversation between the charterer and George ahead of embarkation
-            — they are not collected in The Cabin yet. Please coordinate via
-            the broker for the captain&apos;s shopping list.
-          </p>
         </Section>
 
         {/* ============ 06 — CLOSING NOTES ============ */}
@@ -469,6 +539,10 @@ export default async function PreferenceSheetPage({
           <SubBlock label="Surprises & celebrations">
             <Row k="Surprises to plan" v={fmtMaybe(little.surprises_celebrations)} />
             <Row k="Things to avoid" v={fmtMaybe(little.things_to_avoid)} />
+          </SubBlock>
+
+          <SubBlock label="Night service in cabins">
+            <Row k="Place in each cabin (6–9pm)" v={fmtMaybe(little.night_service)} />
           </SubBlock>
 
           <SubBlock label="Practical">
@@ -743,6 +817,172 @@ function GuestCell({
       >
         {empty ? "—" : v}
       </dd>
+    </div>
+  );
+}
+
+// =================== FOOD MATRIX TABLE =======================
+// Renders the per-item Like/Dislike/Indifferent verdict as a
+// compact navy-header table. We list every captured item regardless
+// of verdict so absences are visible. Items with no verdict at all
+// are intentionally dropped — caller already gated on truthy keys.
+const FOOD_MATRIX_LABELS: Record<string, string> = {
+  fish: "Fish",
+  shellfish: "Shellfish",
+  beef: "Beef",
+  pork: "Pork",
+  lamb: "Lamb",
+  veal: "Veal",
+  chicken: "Chicken",
+  turkey: "Turkey",
+  greek_meze: "Greek meze",
+  pasta: "Pasta",
+  rice: "Rice",
+  vegetables: "Vegetables",
+  salad: "Salad",
+};
+
+function FoodMatrixTable({ matrix }: { matrix: Record<string, string> }) {
+  const entries = Object.entries(matrix).filter(([, v]) => v);
+  if (entries.length === 0) return null;
+  return (
+    <div className="avoid-break" style={{ marginTop: 18 }}>
+      <h3
+        style={{
+          fontFamily: FONT_UI,
+          fontSize: 10.5,
+          letterSpacing: 3.5,
+          textTransform: "uppercase",
+          color: GOLD,
+          margin: "0 0 10px",
+          fontWeight: 500,
+        }}
+      >
+        Lunch & dinner — preferences matrix
+      </h3>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontFamily: FONT_EDITORIAL,
+          fontSize: 13,
+        }}
+      >
+        <thead>
+          <tr style={{ background: NAVY, color: IVORY }}>
+            <th style={matrixHead}>Item</th>
+            <th style={matrixHead}>Like</th>
+            <th style={matrixHead}>Dislike</th>
+            <th style={matrixHead}>Indifferent</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map(([key, verdict]) => {
+            const label = FOOD_MATRIX_LABELS[key] || key.replace(/_/g, " ");
+            return (
+              <tr key={key} style={{ borderBottom: `1px solid ${RULE}` }}>
+                <td style={matrixCellLabel}>{label}</td>
+                <td style={matrixCell}>{verdict === "like" ? "✓" : ""}</td>
+                <td style={matrixCell}>{verdict === "dislike" ? "✓" : ""}</td>
+                <td style={matrixCell}>{verdict === "indifferent" ? "✓" : ""}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const matrixHead: React.CSSProperties = {
+  padding: "8px 10px",
+  fontFamily: FONT_UI,
+  fontSize: 10,
+  letterSpacing: 2,
+  textTransform: "uppercase",
+  textAlign: "left",
+  color: "rgba(248,245,240,0.85)",
+  fontWeight: 500,
+};
+
+const matrixCellLabel: React.CSSProperties = {
+  padding: "8px 10px",
+  fontFamily: FONT_EDITORIAL,
+  fontSize: 14,
+  color: NAVY,
+};
+
+const matrixCell: React.CSSProperties = {
+  padding: "8px 10px",
+  fontFamily: FONT_EDITORIAL,
+  fontSize: 15,
+  color: GOLD,
+  fontWeight: 600,
+};
+
+// =================== LABEL × QTY TABLE =======================
+// Renders soft drinks, wines, spirits, beers — any "label +
+// quantity" provisioning list. Hidden entirely when the source
+// is empty or every row is blank.
+type LqRow = { label?: string | null; quantity?: string | null; price_range_per_bottle?: string | null };
+
+function LabelQtyTable({
+  label,
+  rows,
+  withPriceRange,
+}: {
+  label: string;
+  rows: unknown;
+  withPriceRange?: boolean;
+}) {
+  if (!Array.isArray(rows)) return null;
+  const filled = (rows as LqRow[]).filter(
+    (r) => (r?.label && r.label.trim()) || (r?.quantity && String(r.quantity).trim()),
+  );
+  if (filled.length === 0) return null;
+
+  return (
+    <div className="avoid-break" style={{ marginTop: 18 }}>
+      <h3
+        style={{
+          fontFamily: FONT_UI,
+          fontSize: 10.5,
+          letterSpacing: 3.5,
+          textTransform: "uppercase",
+          color: GOLD,
+          margin: "0 0 10px",
+          fontWeight: 500,
+        }}
+      >
+        {label}
+      </h3>
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          fontFamily: FONT_EDITORIAL,
+          fontSize: 13,
+        }}
+      >
+        <thead>
+          <tr style={{ background: NAVY, color: IVORY }}>
+            <th style={{ ...matrixHead, width: "60%" }}>Label</th>
+            <th style={{ ...matrixHead, width: withPriceRange ? "20%" : "40%" }}>Quantity</th>
+            {withPriceRange && <th style={{ ...matrixHead, width: "20%" }}>Price / bottle</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {filled.map((r, i) => (
+            <tr key={i} style={{ borderBottom: `1px solid ${RULE}` }}>
+              <td style={matrixCellLabel}>{r.label || "—"}</td>
+              <td style={matrixCellLabel}>{r.quantity || "—"}</td>
+              {withPriceRange && (
+                <td style={matrixCellLabel}>{r.price_range_per_bottle || "—"}</td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
