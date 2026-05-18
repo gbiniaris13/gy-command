@@ -241,10 +241,18 @@ export async function sendInvite(id: string, actorEmail: string) {
   const publicHost =
     process.env.CABIN_PUBLIC_URL || "https://georgeyachts.com";
 
+  // Pass cabin_id so the public site pins this specific cabin as
+  // the active one for this magic-link session. Without it, the
+  // recipient (especially an admin like George who is principal on
+  // multiple test cabins) lands on whichever cabin sorts first,
+  // not the one we just clicked "Send invite" from.
   const r = await fetch(`${publicHost}/api/cabin/auth/request-link`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: cabin.principal_charterer_email }),
+    body: JSON.stringify({
+      email: cabin.principal_charterer_email,
+      cabin_id: id,
+    }),
   });
   if (!r.ok) throw new Error(`request-link failed: ${r.status}`);
 
