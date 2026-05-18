@@ -69,6 +69,13 @@ export default function CabinDetailActions({
         Open chat ✺
       </a>
       <a
+        href={`/dashboard/cabins/${cabinId}/edit-basics`}
+        style={btnGhost as React.CSSProperties}
+        title="Vessel, ports, dates, principal charterer, internal ops"
+      >
+        Edit cabin details →
+      </a>
+      <a
         href={`/dashboard/cabins/${cabinId}/edit`}
         style={btnGhost as React.CSSProperties}
       >
