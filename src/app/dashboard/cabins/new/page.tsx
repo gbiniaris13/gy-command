@@ -227,6 +227,71 @@ export default function NewCabinPage() {
         }
         .cabin-form-close:hover { background: #142233; }
 
+        /* ─── NUKE ALL INHERITED CYAN — force navy/gold palette ─── */
+        /* The dashboard's electric-cyan CSS variables were leaking
+           into every text element. We reset everything to navy with
+           !important, then paint gold on the specific accents below. */
+        .cabin-form,
+        .cabin-form * {
+          color: #0D1B2A !important;
+        }
+        /* Gold accents — these win specificity by adding !important too */
+        .cabin-form h1 em,
+        .cabin-form em,
+        .cabin-form .label-text,
+        .cabin-form label > span,
+        .cabin-form .req,
+        .cabin-form .lede-eyebrow,
+        .cabin-form summary {
+          color: #C9A84C !important;
+        }
+        /* Required-field dot */
+        .cabin-form .req::after {
+          color: #C9A84C !important;
+        }
+        /* Placeholders should be soft grey, not cyan */
+        .cabin-form input::placeholder,
+        .cabin-form textarea::placeholder {
+          color: rgba(13,27,42,0.35) !important;
+          opacity: 1;
+        }
+        /* Input/select/textarea fields: white bg, navy text, no neon glow */
+        .cabin-form input,
+        .cabin-form select,
+        .cabin-form textarea {
+          background: #FFFFFF !important;
+          color: #0D1B2A !important;
+          border: 1px solid rgba(13,27,42,0.18) !important;
+          box-shadow: none !important;
+        }
+        .cabin-form input:focus,
+        .cabin-form select:focus,
+        .cabin-form textarea:focus {
+          border-color: #C9A84C !important;
+          outline: none !important;
+        }
+        /* Eyebrow line — small uppercase header "THE CABIN · ADMIN" */
+        .cabin-form .eyebrow {
+          color: #C9A84C !important;
+        }
+        /* Lede (italic paragraph below headings) — softer navy */
+        .cabin-form .lede,
+        .cabin-form .field-hint {
+          color: rgba(13,27,42,0.6) !important;
+        }
+        /* Primary CTA: navy bg, ivory text */
+        .cabin-form .primary {
+          background: #0D1B2A !important;
+          color: #F8F5F0 !important;
+        }
+        .cabin-form .primary:hover:not(:disabled) {
+          background: #142233 !important;
+        }
+        /* Section cards on ivory bg */
+        .cabin-form .section {
+          background: #FFFFFF !important;
+        }
+
         .cabin-form *:not(svg):not(path) {
           font-family: Georgia, "Times New Roman", serif;
         }
@@ -371,7 +436,7 @@ export default function NewCabinPage() {
 
       <div className="cabin-form" style={{ maxWidth: 920, margin: "0 auto", padding: "32px 20px 80px" }}>
         <header style={{ borderBottom: "1px solid rgba(201,168,76,0.4)", paddingBottom: 20, marginBottom: 28 }}>
-          <div style={{ fontFamily: "-apple-system, sans-serif", fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#C9A84C", fontWeight: 500 }}>
+          <div className="eyebrow" style={{ fontFamily: "-apple-system, sans-serif", fontSize: 10, letterSpacing: 3, textTransform: "uppercase", fontWeight: 500 }}>
             The Cabin · Admin
           </div>
           <h1 style={{ margin: "8px 0 4px", fontSize: 32, fontWeight: 300, fontFamily: "Georgia, serif" }}>
