@@ -5,7 +5,10 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect, type ReactNode } from "react";
 import NotificationBell from "./NotificationBell";
 import { isSoundEnabled, toggleSound, playBlip, playChord } from "@/lib/sounds";
-import AlienBackground from "@/app/components/AlienBackground";
+// 2026-05-20 — AlienBackground import removed. The Matrix-rain
+// canvas is incompatible with the new calm operator theme. File
+// kept at src/app/components/AlienBackground.tsx in case we ever
+// want a "hacker mode" toggle, but no longer mounted anywhere.
 import AutoRefresh from "@/app/components/AutoRefresh";
 import PullToRefresh from "@/app/components/PullToRefresh";
 
@@ -637,15 +640,16 @@ export default function DashboardLayout({
 
   return (
     <WelcomeGate>
-      <AlienBackground />
+      {/* 2026-05-20 — <AlienBackground /> removed (Matrix-rain
+          canvas, see calm operator theme rationale in globals.css). */}
       <AutoRefresh intervalMs={60000} />
-      <div className="flex h-screen overflow-hidden" style={{ position: "relative", zIndex: 10, background: "transparent" }}>
+      <div className="flex h-screen overflow-hidden" style={{ position: "relative", zIndex: 10, background: "var(--gy-ivory)" }}>
         {/* ─── Desktop Sidebar ─────────────────────────────────────────── */}
         <aside
-          className={`hidden lg:flex shrink-0 flex-col border-r border-border-glow transition-all duration-300 ${
+          className={`hidden lg:flex shrink-0 flex-col border-r transition-all duration-300 ${
             collapsed ? "w-16" : "w-60"
           }`}
-          style={{ background: "rgba(1,8,16,0.85)", backdropFilter: "blur(8px)" }}
+          style={{ background: "var(--gy-paper)", borderRightColor: "var(--gy-border)" }}
         >
           {/* Logo row + collapse toggle */}
           <div className="flex h-14 items-center justify-between px-3">
@@ -864,10 +868,10 @@ export default function DashboardLayout({
             );
           })}
         </nav>
-        {/* ─── CRT Scanline Overlay ─── */}
-        <div className="crt-overlay" />
-        {/* ─── Scan Beam ─── */}
-        <div className="scan-beam" />
+        {/* 2026-05-20 — CRT scanline + scan beam removed (calm
+            operator theme — see globals.css). The .crt-overlay
+            and .scan-beam selectors are kept in CSS as no-ops so
+            any straggler markup elsewhere stays harmless. */}
       </div>
     </WelcomeGate>
   );
