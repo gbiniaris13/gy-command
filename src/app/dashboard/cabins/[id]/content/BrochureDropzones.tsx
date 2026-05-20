@@ -67,15 +67,62 @@ export default function BrochureDropzones({ cabinId }: { cabinId: string }) {
     }
 
     try {
+      // 2026-05-20 — Friend-test pass 4 +: Vercel serverless
+      // functions cap body size at 4.5 MB. George's MYBA contract
+      // PDF is 5.2 MB (8 pages of boilerplate clauses around the
+      // 1-page Charter Particulars block we actually need). Slim
+      // contract PDFs to page 1 only in the browser BEFORE upload
+      // — every field we extract lives there. ~300 KB instead of
+      // 5.2 MB, no body-limit error.
+      //
+      // Crew / menu / vessel brochures DO need all pages (multi-
+      // page crew bios, multi-day menus, full vessel specs spread
+      // across the brochure), so the slim path is contract-only.
+      let uploadFile: File | Blob = file;
+      if (kind === "contract") {
+        try {
+          const { PDFDocument } = await import("pdf-lib");
+          const buf = await file.arrayBuffer();
+          const src = await PDFDocument.load(buf);
+          if (src.getPageCount() > 1) {
+            const slim = await PDFDocument.create();
+            const [first] = await slim.copyPages(src, [0]);
+            slim.addPage(first);
+            const bytes = await slim.save();
+            uploadFile = new Blob([bytes as BlobPart], { type: "application/pdf" });
+          }
+        } catch (e) {
+          // Best effort — if pdf-lib chokes, fall back to original
+          // and let the server return the body-limit error so we
+          // see it cleanly in logs rather than silently failing.
+          console.warn("[contract-slim] pdf-lib failed:", e);
+        }
+      }
+
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", uploadFile, "contract.pdf");
       form.append("kind", kind);
 
       const r = await fetch(`/api/cabins/${cabinId}/extract-brochure`, {
         method: "POST",
         body: form,
       });
-      const j = await r.json();
+      // 2026-05-20 — friend-test pass 4 +: defend against Vercel
+      // edge HTML errors (Request Entity Too Large etc.) — read
+      // the body as text first, then attempt JSON. Bad parse
+      // surfaces a meaningful error instead of "Unexpected token R".
+      const text = await r.text();
+      let j: { ok?: boolean; error?: string; persisted?: unknown; summary?: unknown };
+      try {
+        j = JSON.parse(text);
+      } catch {
+        const trimmed = text.length > 200 ? text.slice(0, 200) + "…" : text;
+        throw new Error(
+          r.status === 413
+            ? "PDF too large for our serverless functions. Try compressing the PDF and retry — contracts are auto-trimmed to page 1, but other PDFs may need manual compression."
+            : `Server responded with non-JSON (${r.status}): ${trimmed}`
+        );
+      }
       if (!r.ok || !j.ok) {
         const msg = j.error === "ai-cap-or-disabled"
           ? "Monthly AI budget reached — try again next month or raise the cap."
