@@ -78,6 +78,84 @@ export default async function CabinContentEditPage({
           initial={cabin.inspiration_content ?? {}}
         />
       </div>
+
+      {/*
+        2026-05-20 — George friend-test pass 2: after uploading the
+        crew / menu / vessel brochures and saving, he was stuck on
+        this page with no clear "where do I go next" cue (only the
+        small grey "← Back to cabin" link at the top). Adding an
+        explicit footer with primary "Done" + a row of related
+        cabin sections he commonly needs to fill before sending to
+        the client.
+      */}
+      <footer
+        style={{
+          marginTop: 48,
+          paddingTop: 24,
+          borderTop: "1px solid var(--gy-border, rgba(13,27,42,0.12))",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <Link
+            href={`/dashboard/cabins/${id}`}
+            style={{
+              background: "var(--gy-navy, #0D1B2A)",
+              color: "var(--gy-ivory, #F8F5F0)",
+              padding: "11px 22px",
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: 2.2,
+              textTransform: "uppercase",
+              border: "1px solid var(--gy-gold, #C9A84C)",
+              textDecoration: "none",
+              display: "inline-block",
+            }}
+          >
+            ✓ Done — back to cabin overview
+          </Link>
+          <div
+            style={{
+              display: "flex",
+              gap: 18,
+              fontSize: 10,
+              letterSpacing: 2,
+              textTransform: "uppercase",
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <span style={{ color: "var(--gy-navy-soft, rgba(13,27,42,0.55))" }}>
+              Continue with:
+            </span>
+            <Link
+              href={`/dashboard/cabins/${id}/edit-basics`}
+              style={{ color: "var(--gy-gold, #C9A84C)", textDecoration: "none" }}
+            >
+              Cabin details →
+            </Link>
+            <Link
+              href={`/dashboard/cabins/${id}/manifest`}
+              style={{ color: "var(--gy-gold, #C9A84C)", textDecoration: "none" }}
+            >
+              Guest manifest →
+            </Link>
+            <Link
+              href={`/dashboard/cabins/${id}/preference-sheet`}
+              style={{ color: "var(--gy-gold, #C9A84C)", textDecoration: "none" }}
+            >
+              Preference sheet →
+            </Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
