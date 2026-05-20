@@ -394,15 +394,12 @@ export default function ManifestForm({
                   placeholder="Names of those sharing the cabin"
                 />
               </label>
-              <label>
-                <span>Shoe size (EU)</span>
-                <input
-                  type="text"
-                  value={g.shoe_size}
-                  onChange={(e) => update(i, "shoe_size", e.target.value)}
-                  placeholder="42, 38, etc."
-                />
-              </label>
+              {/* 2026-05-20 — Friend-test pass 4 (George):
+                  "Δεν ξέρω γιατί πρέπει να υπάρχει το νούμερο του
+                   παπουτσιού — εγώ δεν θα το βάζα." Removed from
+                  the UI. The shoe_size column on cabin_guests_manifest
+                  stays in the schema for back-compat with any old
+                  rows; we simply stop collecting it. */}
               <label className="minor-row" style={{ alignSelf: "end" }}>
                 <input
                   type="checkbox"

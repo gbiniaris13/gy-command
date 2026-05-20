@@ -133,6 +133,22 @@ export default function CabinDetailActions({
       >
         Preference sheet →
       </a>
+      {/* 2026-05-20 — Friend-test pass 4 (George):
+          "Στο GY Command όπως πατάω το preference sheet, να πατάω
+           και το crew list — να το παίρνω σαν PDF να το στέλνω."
+          The crew list pulls from cabin_members.personal_details
+          (what each guest filled via /cabin/me) merged with
+          cabin_guests_manifest (anything George filled directly).
+          Print → "Save as PDF" gives the file. */}
+      <a
+        href={`/dashboard/cabins/${cabinId}/crew-list`}
+        target="_blank"
+        rel="noreferrer"
+        style={btnGhost as React.CSSProperties}
+        title="Crew list for marina paperwork — print or save as PDF. Pulls each guest's self-filled details from The Cabin."
+      >
+        Crew list →
+      </a>
       <button
         type="button"
         onClick={() => setShareDialogOpen(true)}
