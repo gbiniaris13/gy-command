@@ -36,7 +36,11 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#00ffc8",
+  // 2026-05-20 — was #00ffc8 (electric cyan) for the old Alien
+  // Mothership theme; now matches the calm operator theme's ivory
+  // background so the iOS PWA status bar / browser chrome doesn't
+  // flash neon when the app opens.
+  themeColor: "#F8F5F0",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
