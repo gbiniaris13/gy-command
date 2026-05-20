@@ -8,9 +8,21 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type Kind = "crew" | "menu" | "vessel";
+type Kind = "contract" | "crew" | "menu" | "vessel";
 
+// 2026-05-20 — Friend-test pass 4 +: contract added FIRST in the
+// grid because that's the primary source-of-truth document. Once
+// signed, it auto-fills vessel name, model, ports, charter dates,
+// principal charterer name, cruising area on the cabin record.
+// George's principle: client never sees the contract's internal
+// half (owner, stakeholder, fees, bank) — those live in
+// cabins.contract_internal JSONB and don't surface client-side.
 const ZONE_META: Record<Kind, { title: string; subtitle: string; hint: string }> = {
+  contract: {
+    title: "MYBA contract PDF",
+    subtitle: "The signed source of truth",
+    hint: "Drop the signed MYBA E-Charter agreement. We extract vessel + dates + ports + charterer details onto the cabin record automatically. Owner, stakeholder, fees and bank details are captured separately — never shown to the client.",
+  },
   crew: {
     title: "Crew profile PDF",
     subtitle: "Captain · Cook · Hostess bios",
@@ -32,10 +44,10 @@ export default function BrochureDropzones({ cabinId }: { cabinId: string }) {
   const router = useRouter();
   const [busyKind, setBusyKind] = useState<Kind | null>(null);
   const [result, setResult] = useState<Record<Kind, string | null>>({
-    crew: null, menu: null, vessel: null,
+    contract: null, crew: null, menu: null, vessel: null,
   });
   const [error, setError] = useState<Record<Kind, string | null>>({
-    crew: null, menu: null, vessel: null,
+    contract: null, crew: null, menu: null, vessel: null,
   });
 
   async function handleFile(kind: Kind, file: File) {
@@ -76,6 +88,14 @@ export default function BrochureDropzones({ cabinId }: { cabinId: string }) {
           ? `✓ Extracted ${(j.persisted as unknown[])?.length ?? 0} crew members`
           : kind === "menu"
           ? `✓ Extracted ${((j.persisted as { sections?: unknown[] })?.sections?.length) ?? 0} menu sections`
+          : kind === "contract"
+          ? (() => {
+              const s = (j.summary as Record<string, unknown> | undefined) || {};
+              const applied = Array.isArray(s.applied_columns) ? (s.applied_columns as string[]).length : 0;
+              const vessel = (s.vessel_name as string | null) || "—";
+              const window = (s.charter_window as string | null) || "";
+              return `✓ Applied ${applied} fields to ${vessel}${window ? ` · ${window}` : ""}`;
+            })()
           : `✓ Extracted vessel brochure`,
       }));
       // Refresh the underlying server-rendered editors below so they

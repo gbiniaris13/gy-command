@@ -24,7 +24,14 @@ async function adminEmail(): Promise<string | null> {
   return user?.email ?? null;
 }
 
-const ALLOWED_KINDS = new Set(["crew", "menu", "vessel"]);
+// 2026-05-20 — Added "contract" kind for MYBA charter agreement
+// extraction. The public-site endpoint writes the safe half to
+// flat columns on `cabins` and the internal half (owner,
+// stakeholder, fees, payment schedule, bank) to the
+// contract_internal JSONB. Client-facing pages never read the
+// internal column. See public-site
+// /api/cabin/admin/extract-brochure for the prompt + persistence.
+const ALLOWED_KINDS = new Set(["crew", "menu", "vessel", "contract"]);
 const MAX_BYTES = 10 * 1024 * 1024;
 
 export async function POST(
@@ -53,7 +60,7 @@ export async function POST(
   const file = form.get("file");
   const kind = String(form.get("kind") || "");
   if (!ALLOWED_KINDS.has(kind)) {
-    return NextResponse.json({ error: "kind-must-be-crew-menu-or-vessel" }, { status: 400 });
+    return NextResponse.json({ error: "kind-must-be-crew-menu-vessel-or-contract" }, { status: 400 });
   }
   if (!file || typeof file === "string" || !("arrayBuffer" in file)) {
     return NextResponse.json({ error: "no-file" }, { status: 400 });
