@@ -24,7 +24,16 @@ async function adminEmail(): Promise<string | null> {
   return user?.email ?? null;
 }
 
-const ALLOWED = new Set(["crew_display", "sample_menu", "inspiration_content", "vessel_brochure"]);
+// 2026-05-20 — Friend-test pass 4: added vessel_photos so George
+// can paste public photo URLs for the vessel from the GY Command
+// content page. Stored as JSONB array of { url, caption?, credit? }.
+const ALLOWED = new Set([
+  "crew_display",
+  "sample_menu",
+  "inspiration_content",
+  "vessel_brochure",
+  "vessel_photos",
+]);
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;

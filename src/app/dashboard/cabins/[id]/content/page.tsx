@@ -10,6 +10,7 @@ import ContentEditor from "./ContentEditor";
 import CrewForm from "./CrewForm";
 import MenuForm from "./MenuForm";
 import BrochureDropzones from "./BrochureDropzones";
+import VesselPhotosForm from "./VesselPhotosForm";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,11 @@ export default async function CabinContentEditPage({
           key={`menu:${JSON.stringify(cabin.sample_menu ?? {}).length}`}
           cabinId={id}
           initial={cabin.sample_menu ?? {}}
+        />
+        <VesselPhotosForm
+          key={`vessel-photos:${JSON.stringify((cabin as Record<string, unknown>).vessel_photos ?? []).length}`}
+          cabinId={id}
+          initial={((cabin as Record<string, unknown>).vessel_photos as Array<{ url: string; caption?: string; credit?: string }>) ?? []}
         />
         <ContentEditor
           key={`vessel:${JSON.stringify((cabin as Record<string, unknown>).vessel_brochure ?? {}).length}`}
