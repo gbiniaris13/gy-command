@@ -222,6 +222,91 @@ async function triggerAutoAnchors(cabinId: string, actorEmail: string) {
   }
 }
 
+// 2026-05-21 — Pass 7 follow-up (George):
+//   "Έχω πάρα πολλά τεστς εκεί μέσα, θέλω να μπορώ να διαγράφω
+//    κάποιες καμπίνες, έτσι ώστε να τις ξαναρχίζω από την αρχή."
+//
+// Two flavours of delete, both safe:
+//
+// SOFT — set deleted_at = NOW() on the cabins row. Reversible by
+//   manual SQL. The cabin disappears from:
+//     - the CRM dashboard list (cabin_listing view filters
+//       deleted_at IS NULL)
+//     - the public-site /cabin auth lookup (lib/cabin/auth.js
+//       filters deleted_at IS NULL on resolveSessionCabin)
+//     - the brief, chat, mood-board, anchors, voyage-photos
+//       loaders (all gate on deleted_at IS NULL through the cabin
+//       lookup)
+//   Operational data (cabin_members, cabin_brief_sections,
+//   cabin_guests_manifest, cabin_chat_messages, cabin_mood_board,
+//   cabin_voyage_photos, cabin_memory_anchors) is preserved on
+//   disk, so a soft-delete can be undone by clearing deleted_at.
+//
+// HARD — actually DELETE FROM cabins WHERE id = ?. The FK cascade
+//   chain wipes everything operational (members, brief, manifest,
+//   chat, mood board, voyage photos, memory anchors) but PRESERVES
+//   the GDPR / audit / trust-trail tables:
+//     - cabin_audit_log         (ON DELETE SET NULL)
+//     - cabin_data_consents     (ON DELETE SET NULL)
+//     - cabin_time_capsules     (ON DELETE SET NULL — the guest's
+//                                letter-to-future-self survives)
+//     - filotimo_circle_members.last_voyage_cabin_id
+//                               (ON DELETE SET NULL — loyalty record
+//                                survives, just unlinks from cabin)
+//   Hard-delete is appropriate for test fixtures George wants to
+//   re-create from scratch. NOT appropriate for real customer
+//   cabins after the voyage — those should soft-delete (or archive
+//   via status change) to keep the operational record.
+export async function deleteCabin(
+  id: string,
+  actorEmail: string,
+  mode: "soft" | "hard" = "soft",
+): Promise<{ ok: true; mode: "soft" | "hard"; vessel_name: string | null }> {
+  const db = createServiceClient();
+
+  // Snapshot what we're about to delete — so the audit log line
+  // carries the vessel name even after the row is gone (hard mode).
+  const { data: snap } = await db
+    .from("cabins")
+    .select("vessel_name, principal_charterer_email, status")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!snap) {
+    throw new Error("cabin-not-found");
+  }
+
+  // Write the audit line BEFORE the cabin row goes away in hard
+  // mode — the FK is SET NULL on cabin_audit_log so the row would
+  // survive either way, but stamping the metadata explicitly keeps
+  // the line legible if you grep the log later.
+  await db.from("cabin_audit_log").insert({
+    cabin_id: id,
+    actor_email: actorEmail.toLowerCase(),
+    actor_role: "admin",
+    action: mode === "hard" ? "cabin_hard_deleted" : "cabin_soft_deleted",
+    metadata: {
+      mode,
+      vessel_name: snap.vessel_name,
+      principal_email: snap.principal_charterer_email,
+      previous_status: snap.status,
+    },
+  });
+
+  if (mode === "hard") {
+    const { error } = await db.from("cabins").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return { ok: true, mode, vessel_name: snap.vessel_name };
+  }
+
+  const { error } = await db
+    .from("cabins")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  return { ok: true, mode, vessel_name: snap.vessel_name };
+}
+
 export async function toggleConciergeMode(id: string, on: boolean, actorEmail: string) {
   const db = createServiceClient();
   await db

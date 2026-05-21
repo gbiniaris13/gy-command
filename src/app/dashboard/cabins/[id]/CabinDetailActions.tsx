@@ -1,9 +1,10 @@
 "use client";
 
 // Action bar on the Cabin detail page: concierge toggle, send
-// invite, copy public link, print/PDF.
+// invite, copy public link, print/PDF, delete cabin.
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import SharePreferenceSheetDialog from "./SharePreferenceSheetDialog";
 
 export default function CabinDetailActions({
@@ -19,10 +20,12 @@ export default function CabinDetailActions({
   principalEmail: string;
   vesselName: string;
 }) {
+  const router = useRouter();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [concierge, setConcierge] = useState(conciergeOn);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   async function call(action: string, label: string, body?: unknown) {
     setBusyKey(action);
@@ -203,6 +206,30 @@ export default function CabinDetailActions({
         {msg}
       </span>
 
+      {/* 2026-05-21 — Pass 7 follow-up (George):
+          Destructive delete button. Two modes (soft hides, hard
+          wipes operational data). Confirmation modal requires
+          typing the vessel name verbatim — same pattern GitHub /
+          Vercel / Linear use for repo / project / workspace
+          deletion. Placed on its own row separated by a small
+          divider so it's never adjacent to the casual concierge
+          toggle. Red border (no fill) so it reads as a deliberate
+          action, not a primary CTA. */}
+      <div style={{
+        flexBasis: "100%",
+        height: 1,
+        background: "rgba(13,27,42,0.08)",
+        margin: "10px 0 4px 0",
+      }} />
+      <button
+        type="button"
+        onClick={() => setDeleteDialogOpen(true)}
+        style={btnDanger}
+        title="Delete this cabin (soft or hard)"
+      >
+        Delete cabin…
+      </button>
+
       {shareDialogOpen && (
         <SharePreferenceSheetDialog
           cabinId={cabinId}
@@ -210,8 +237,252 @@ export default function CabinDetailActions({
           onClose={() => setShareDialogOpen(false)}
         />
       )}
+
+      {deleteDialogOpen && (
+        <DeleteCabinDialog
+          cabinId={cabinId}
+          vesselName={vesselName}
+          principalEmail={principalEmail}
+          status={status}
+          onClose={() => setDeleteDialogOpen(false)}
+          onDeleted={() => {
+            // Bounce back to the cabin list — the cabin row is now
+            // gone (hard) or hidden (soft) so this detail page would
+            // 404 on refresh anyway.
+            router.push("/dashboard/cabins");
+          }}
+        />
+      )}
     </div>
   );
+}
+
+// =============================================================
+// DeleteCabinDialog — type-to-confirm modal
+// =============================================================
+function DeleteCabinDialog({
+  cabinId,
+  vesselName,
+  principalEmail,
+  status,
+  onClose,
+  onDeleted,
+}: {
+  cabinId: string;
+  vesselName: string;
+  principalEmail: string;
+  status: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [mode, setMode] = useState<"soft" | "hard">("soft");
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const canDelete = typed.trim() === vesselName.trim() && !busy;
+
+  async function onConfirm() {
+    if (!canDelete) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/api/cabins/${cabinId}?mode=${mode}`, {
+        method: "DELETE",
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        throw new Error(j?.error || `status ${r.status}`);
+      }
+      onDeleted();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Delete ${vesselName}`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(13,27,42,0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#ffffff",
+          border: "1px solid rgba(13,27,42,0.18)",
+          padding: "24px 26px 22px 26px",
+          width: "min(560px, 100%)",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          fontFamily: "inherit",
+        }}
+      >
+        <header style={{ marginBottom: 14 }}>
+          <div style={{
+            fontSize: 10,
+            letterSpacing: 2.5,
+            textTransform: "uppercase",
+            color: "#b91c1c",
+            fontWeight: 600,
+          }}>
+            Delete cabin
+          </div>
+          <h2 style={{
+            fontFamily: "var(--gy-font-editorial, Georgia, serif)",
+            fontSize: 22,
+            fontWeight: 400,
+            margin: "8px 0 0 0",
+            color: "#0D1B2A",
+          }}>
+            {vesselName}
+          </h2>
+          <p style={{
+            fontSize: 12,
+            color: "#4b5563",
+            margin: "4px 0 0 0",
+          }}>
+            Principal: {principalEmail} · status: {status}
+          </p>
+        </header>
+
+        <fieldset style={{ border: 0, padding: 0, margin: "12px 0 18px 0" }}>
+          <legend style={{
+            fontSize: 10,
+            letterSpacing: 1.8,
+            textTransform: "uppercase",
+            color: "#4b5563",
+            fontWeight: 600,
+            marginBottom: 8,
+          }}>
+            Mode
+          </legend>
+          <label style={modeLabelStyle(mode === "soft")}>
+            <input
+              type="radio"
+              name="delete-mode"
+              value="soft"
+              checked={mode === "soft"}
+              onChange={() => setMode("soft")}
+              style={{ marginRight: 8 }}
+            />
+            <strong>Soft delete</strong>
+            <em style={{ display: "block", marginTop: 4, color: "#4b5563", fontSize: 12, lineHeight: 1.5 }}>
+              Sets <code>deleted_at = now()</code>. The cabin disappears from the dashboard list and from the customer&apos;s view. All operational data (brief, manifest, chat, photos, mood board, anchors) is kept on disk. Reversible by clearing <code>deleted_at</code> in SQL.
+            </em>
+          </label>
+          <label style={modeLabelStyle(mode === "hard")}>
+            <input
+              type="radio"
+              name="delete-mode"
+              value="hard"
+              checked={mode === "hard"}
+              onChange={() => setMode("hard")}
+              style={{ marginRight: 8 }}
+            />
+            <strong>Hard delete</strong>
+            <em style={{ display: "block", marginTop: 4, color: "#4b5563", fontSize: 12, lineHeight: 1.5 }}>
+              Permanently removes the cabin row. The brief, manifest, chat, mood board, voyage photos, memory anchors and any cabin_members rows go with it via foreign-key cascade. Preserved: the audit log line, any data-consent records, time-capsule letters, and the Filotimo Circle loyalty record (unlinks but doesn&apos;t delete those). Use this for test fixtures you want to recreate from scratch.
+            </em>
+          </label>
+        </fieldset>
+
+        <div style={{ margin: "0 0 12px 0" }}>
+          <label htmlFor="delete-confirm" style={{
+            display: "block",
+            fontSize: 10,
+            letterSpacing: 1.8,
+            textTransform: "uppercase",
+            color: "#4b5563",
+            fontWeight: 600,
+            marginBottom: 6,
+          }}>
+            Type the vessel name to confirm
+          </label>
+          <input
+            id="delete-confirm"
+            type="text"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder={vesselName}
+            autoComplete="off"
+            spellCheck={false}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              fontSize: 14,
+              fontFamily: "inherit",
+              border: "1px solid rgba(13,27,42,0.18)",
+              background: "#fff",
+              color: "#0D1B2A",
+            }}
+          />
+        </div>
+
+        {err && (
+          <p style={{ color: "#b91c1c", fontSize: 13, margin: "0 0 12px 0" }}>
+            Failed: {err}
+          </p>
+        )}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={btnGhost as React.CSSProperties}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={!canDelete}
+            style={{
+              ...btnDanger,
+              opacity: canDelete ? 1 : 0.45,
+              cursor: canDelete ? "pointer" : "not-allowed",
+            }}
+          >
+            {busy
+              ? "Deleting…"
+              : mode === "hard"
+                ? "Hard delete permanently"
+                : "Soft delete (hide)"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function modeLabelStyle(selected: boolean): React.CSSProperties {
+  return {
+    display: "block",
+    padding: "12px 14px",
+    border: selected
+      ? "1px solid #b91c1c"
+      : "1px solid rgba(13,27,42,0.12)",
+    background: selected ? "rgba(185,28,28,0.04)" : "#fff",
+    marginBottom: 10,
+    cursor: "pointer",
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "#0D1B2A",
+  };
 }
 
 const baseBtn = {
@@ -232,4 +503,14 @@ const btnGhost: React.CSSProperties = {
   background: "transparent", color: "#0D1B2A",
   borderColor: "rgba(13,27,42,0.2)", textDecoration: "none",
   display: "inline-block",
+};
+// 2026-05-21 — Pass 7 follow-up: destructive action button.
+// Red border on white background — recognisable as "this is the
+// dangerous one" without competing with primary CTAs (which are
+// navy or gold).
+const btnDanger: React.CSSProperties = {
+  ...baseBtn,
+  background: "transparent",
+  color: "#b91c1c",
+  borderColor: "#b91c1c",
 };

@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { updateCabin } from "@/lib/cabin-admin";
+import { updateCabin, deleteCabin } from "@/lib/cabin-admin";
 
 export const runtime = "nodejs";
 
@@ -55,5 +55,33 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ ok: true, cabin });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
+}
+
+// 2026-05-21 — Pass 7 follow-up:
+//   DELETE /api/cabins/:id?mode=soft  (default) — set deleted_at
+//   DELETE /api/cabins/:id?mode=hard           — actual DELETE,
+//     cascades to operational tables but preserves audit / consents
+//     / time capsules / Filotimo record.
+//
+//   See lib/cabin-admin.ts deleteCabin() for the full semantics.
+//   This route just authenticates the admin session, parses the
+//   mode, and forwards.
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const email = await adminEmail();
+  if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const url = new URL(req.url);
+  const mode: "soft" | "hard" =
+    url.searchParams.get("mode") === "hard" ? "hard" : "soft";
+
+  try {
+    const result = await deleteCabin(id, email, mode);
+    return NextResponse.json(result);
+  } catch (e) {
+    const msg = (e as Error).message;
+    const status = msg === "cabin-not-found" ? 404 : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }
