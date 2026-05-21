@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PDFDocument } from "pdf-lib";
 
 type FormState = {
   // Vessel
@@ -90,6 +91,33 @@ export default function NewCabinPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // 2026-05-21 — Roberto P1 + George's explicit ask:
+  //   "I'm not going to type 15 fields. I'll upload the MYBA
+  //    contract, press save, and the fields should populate."
+  //
+  // Step machine for the extract-first creation flow:
+  //   "upload" — show only the MYBA dropzone. The form is hidden.
+  //              When the PDF is dropped we slim it to page 1
+  //              (where every Charter Particulars field lives),
+  //              call the preview-extract endpoint, pre-fill
+  //              form state, and advance to the form step.
+  //   "form"   — the existing form, pre-filled. George reviews,
+  //              fixes anything Gemini misread, fills in the email
+  //              and mobile (the contract doesn't carry those),
+  //              then submits to /api/cabins to actually create.
+  //
+  // "skip extraction" is available on the upload step for the
+  // edge case where the MYBA isn't ready yet but a placeholder
+  // cabin needs to exist.
+  type Step = "upload" | "form";
+  const [step, setStep] = useState<Step>("upload");
+  const [extractBusy, setExtractBusy] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [extractedInternal, setExtractedInternal] = useState<
+    Record<string, unknown> | null
+  >(null);
+  const [extractedRaw, setExtractedRaw] = useState<unknown>(null);
+
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
@@ -113,6 +141,107 @@ export default function NewCabinPage() {
       ...f,
       crew_display: f.crew_display.filter((_, idx) => idx !== i),
     }));
+  }
+
+  // 2026-05-21 — Slim a multi-page MYBA contract PDF to page 1 only.
+  // Page 1 carries every Charter Particulars field; pages 2-10 are
+  // boilerplate clauses we don't need to send to Gemini, and slimming
+  // keeps the upload comfortably inside Vercel's 4.5 MB body limit.
+  async function slimToPageOne(file: File): Promise<File> {
+    const buf = await file.arrayBuffer();
+    const src = await PDFDocument.load(buf);
+    if (src.getPageCount() <= 1) return file;
+    const out = await PDFDocument.create();
+    const [page1] = await out.copyPages(src, [0]);
+    out.addPage(page1);
+    const slimBytes = await out.save();
+    const slimBlob = new Blob([slimBytes as BlobPart], {
+      type: "application/pdf",
+    });
+    return new File([slimBlob], file.name.replace(/\.pdf$/i, "-p1.pdf"), {
+      type: "application/pdf",
+    });
+  }
+
+  // Map the verbatim extraction shape onto the FormState we already
+  // had. We do NOT validate or transform values here — Roberto's
+  // brief is faithful extraction; if Gemini misreads a field, the
+  // human review step is where it gets fixed.
+  function applyExtraction(extracted: {
+    safe?: Record<string, unknown>;
+    internal?: Record<string, unknown>;
+  }) {
+    const safe = (extracted?.safe || {}) as Record<string, unknown>;
+    const internal = (extracted?.internal || {}) as Record<string, unknown>;
+    const str = (v: unknown) =>
+      typeof v === "string" ? v : v == null ? "" : String(v);
+    const num = (v: unknown) =>
+      typeof v === "number" || typeof v === "string" ? String(v) : "";
+
+    setForm((f) => ({
+      ...f,
+      vessel_name: str(safe.vessel_name) || f.vessel_name,
+      vessel_make_model: str(safe.vessel_make_model) || f.vessel_make_model,
+      vessel_length: str(safe.vessel_length) || f.vessel_length,
+      vessel_capacity:
+        num(safe.max_guests_sleeping) ||
+        num(safe.max_guests_cruising) ||
+        f.vessel_capacity,
+      // 2026-05-20 — Pass 6 ruling: customer-facing homeport is the
+      // embarkation port (where they actually board), NOT the legal
+      // Port of Registry. We pre-fill from safe.port_embarkation
+      // for the same reason.
+      homeport: str(safe.port_embarkation) || str(safe.homeport) || f.homeport,
+      myba_contract_number:
+        str(internal.contract_number) || f.myba_contract_number,
+      charter_period_from: str(safe.charter_period_from) || f.charter_period_from,
+      charter_period_to: str(safe.charter_period_to) || f.charter_period_to,
+      port_embarkation: str(safe.port_embarkation) || f.port_embarkation,
+      port_disembarkation: str(safe.port_disembarkation) || f.port_disembarkation,
+      cruising_area: str(safe.cruising_area) || f.cruising_area,
+      principal_charterer_name:
+        str(safe.principal_charterer_name) || f.principal_charterer_name,
+      // principal_charterer_email + mobile NOT in the contract —
+      // George (or the real customer) fills them at review.
+      charter_fee_eur: num(internal.charter_fee_eur) || f.charter_fee_eur,
+      apa_eur: num(internal.apa_eur) || f.apa_eur,
+    }));
+    setExtractedInternal(internal);
+    setExtractedRaw(extracted);
+  }
+
+  async function onMybaDropped(file: File) {
+    setExtractError(null);
+    setExtractBusy(true);
+    try {
+      if (file.type !== "application/pdf") {
+        throw new Error("Please upload a PDF.");
+      }
+      const slim = await slimToPageOne(file);
+      const fd = new FormData();
+      fd.append("file", slim);
+      const r = await fetch("/api/cabins/extract-myba-preview", {
+        method: "POST",
+        body: fd,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        const msg =
+          j?.error || j?.message || `Extraction failed (${r.status}).`;
+        throw new Error(msg);
+      }
+      applyExtraction(j.extracted);
+      setStep("form");
+    } catch (e) {
+      setExtractError((e as Error).message);
+    } finally {
+      setExtractBusy(false);
+    }
+  }
+
+  function skipExtraction() {
+    setExtractError(null);
+    setStep("form");
   }
 
   function validate(): string | null {
@@ -445,11 +574,22 @@ export default function NewCabinPage() {
             Create a new <em style={{ color: "#C9A84C", fontStyle: "italic" }}>cabin</em>
           </h1>
           <p style={{ margin: 0, fontStyle: "italic", color: "rgba(13,27,42,0.6)", fontSize: 14, fontFamily: "Georgia, serif" }}>
-            Fields marked with a small gold dot are required. Everything else can wait.
-            You can edit anything after saving.
+            {step === "upload"
+              ? "Drop the signed MYBA contract — we'll auto-fill the cabin from it. You'll get a chance to review every field before saving."
+              : "Fields marked with a small gold dot are required. Everything else can wait. You can edit anything after saving."}
           </p>
         </header>
 
+        {step === "upload" && (
+          <MybaUploadStep
+            busy={extractBusy}
+            error={extractError}
+            onFile={onMybaDropped}
+            onSkip={skipExtraction}
+          />
+        )}
+
+        {step === "form" && (
         <form onSubmit={submit}>
           {/* ────── Vessel ────── */}
           <div className="section">
@@ -772,6 +912,166 @@ export default function NewCabinPage() {
             anything, send the magic-link invite, and trigger concierge mode.
           </p>
         </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
+// MybaUploadStep — Step 1 of the extract-first creation flow.
+// Dropzone + "skip extraction" escape hatch. The dropzone accepts
+// a single MYBA contract PDF, slims it to page 1 client-side
+// (where every Charter Particulars field lives), and forwards to
+// the parent's onFile callback.
+// =============================================================
+function MybaUploadStep({
+  busy,
+  error,
+  onFile,
+  onSkip,
+}: {
+  busy: boolean;
+  error: string | null;
+  onFile: (f: File) => void;
+  onSkip: () => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    if (busy) return;
+    const f = e.dataTransfer?.files?.[0];
+    if (f) onFile(f);
+  }
+  function handlePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) onFile(f);
+    e.target.value = ""; // reset so the same file can be re-picked
+  }
+
+  return (
+    <div className="section" style={{ padding: "36px 32px" }}>
+      <h2 style={{ margin: "0 0 6px" }}>Upload the MYBA contract</h2>
+      <p className="lede" style={{ margin: "0 0 18px" }}>
+        Page one of the signed MYBA Charter Agreement contains every cabin
+        detail we need — vessel, dates, ports, principal charterer, fees,
+        contract number. Drop it here and we&apos;ll fill the form for you.
+      </p>
+
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        style={{
+          border: `2px dashed ${dragOver ? "#C9A84C" : "rgba(13,27,42,0.25)"}`,
+          background: dragOver ? "rgba(201,168,76,0.04)" : "#FBFAF7",
+          padding: "44px 24px",
+          textAlign: "center",
+          fontFamily: "Georgia, serif",
+          color: "rgba(13,27,42,0.78)",
+          transition: "border-color 140ms ease, background 140ms ease",
+        }}
+      >
+        {busy ? (
+          <>
+            <div style={{ fontStyle: "italic", fontSize: 16, marginBottom: 6 }}>
+              Reading the contract…
+            </div>
+            <div
+              style={{
+                fontFamily: "-apple-system, sans-serif",
+                fontSize: 11,
+                letterSpacing: 1.5,
+                color: "rgba(13,27,42,0.5)",
+              }}
+            >
+              extracting · usually takes 8–15 seconds
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 16, marginBottom: 14 }}>
+              Drag the MYBA PDF here
+            </div>
+            <label
+              style={{
+                display: "inline-block",
+                background: "#0D1B2A",
+                color: "#F8F5F0",
+                border: "1px solid #C9A84C",
+                padding: "12px 22px",
+                fontFamily: "-apple-system, sans-serif",
+                fontSize: 11,
+                letterSpacing: 2.5,
+                textTransform: "uppercase",
+                cursor: "pointer",
+              }}
+            >
+              Or click to choose a file
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={handlePick}
+                style={{ display: "none" }}
+              />
+            </label>
+            <p
+              style={{
+                margin: "16px 0 0 0",
+                fontStyle: "italic",
+                fontSize: 12,
+                color: "rgba(13,27,42,0.55)",
+              }}
+            >
+              We send only page 1 to extraction — the rest stays on your
+              machine. The contract is never persisted by the preview step.
+            </p>
+          </>
+        )}
+      </div>
+
+      {error && (
+        <p
+          className="err"
+          role="alert"
+          style={{ marginTop: 16 }}
+        >
+          {error}
+        </p>
+      )}
+
+      <div
+        style={{
+          marginTop: 22,
+          paddingTop: 18,
+          borderTop: "1px solid rgba(13,27,42,0.08)",
+          textAlign: "center",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onSkip}
+          disabled={busy}
+          style={{
+            background: "transparent",
+            border: 0,
+            color: "rgba(13,27,42,0.55)",
+            fontFamily: "-apple-system, sans-serif",
+            fontSize: 11,
+            letterSpacing: 1.8,
+            textTransform: "uppercase",
+            cursor: busy ? "default" : "pointer",
+            padding: "8px 16px",
+            textDecoration: "underline",
+          }}
+        >
+          Skip extraction · fill the form manually
+        </button>
       </div>
     </div>
   );
