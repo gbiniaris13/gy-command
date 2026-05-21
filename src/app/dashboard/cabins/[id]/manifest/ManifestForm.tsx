@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { compressPassportForUpload } from "@/lib/passport-compress";
 
 type Guest = {
   full_name: string;
@@ -602,8 +603,14 @@ function PassportDropzone({
       ) {
         throw new Error("Please upload a passport PDF or image.");
       }
+      // 2026-05-21 — passport scans frequently exceed Vercel's
+      // 4.5 MB request-body cap (Tricia's was 22 MB). Compress to a
+      // ~1 MB JPEG client-side first. compressPassportForUpload
+      // preserves enough resolution for both the visual bio panel
+      // and the Machine Readable Zone.
+      const compressed = await compressPassportForUpload(file);
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", compressed);
       fd.append("guest_order", "1");
       const r = await fetch(`/api/cabins/${cabinId}/extract-passport`, {
         method: "POST",

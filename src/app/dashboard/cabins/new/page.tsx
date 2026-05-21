@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PDFDocument } from "pdf-lib";
+import { compressPassportForUpload } from "@/lib/passport-compress";
 
 type FormState = {
   // Vessel
@@ -385,10 +386,19 @@ export default function NewCabinPage() {
       }
 
       async function applyPassportFile(file: File) {
-        setPostCreateStatus("Reading the principal's passport…");
+        setPostCreateStatus("Compressing the passport scan…");
         try {
+          // 2026-05-21 — Vercel caps the request body at ~4.5 MB.
+          // Tricia's 22 MB phone-scanned passport PDF triggered HTTP
+          // 413 on the first attempt. Compress to a ~1 MB JPEG in
+          // the browser before upload — the MRZ and visual bio
+          // remain perfectly readable at 1800px on the long edge,
+          // and Gemini accepts image/jpeg the same way it accepts
+          // application/pdf.
+          const compressed = await compressPassportForUpload(file);
+          setPostCreateStatus("Reading the principal's passport…");
           const fd = new FormData();
-          fd.append("file", file);
+          fd.append("file", compressed);
           fd.append("guest_order", "1");
           const rr = await fetch(`/api/cabins/${cabinId}/extract-passport`, {
             method: "POST",
