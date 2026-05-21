@@ -26,6 +26,32 @@ export default function CabinDetailActions({
   const [concierge, setConcierge] = useState(conciergeOn);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
+
+  // 2026-05-21 — Open The Cabin as the principal would see it,
+  // in a new tab, in read-only mode. The session expires in
+  // 15 min and all writes are blocked at the edge. Doesn't
+  // notify the customer; doesn't consume the principal's real
+  // session.
+  async function openPreview() {
+    setPreviewBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/cabins/${cabinId}/preview-session`, {
+        method: "POST",
+      });
+      const j = await r.json();
+      if (!r.ok || !j?.url) {
+        throw new Error(j?.error || `status ${r.status}`);
+      }
+      window.open(j.url, "_blank", "noopener");
+      setMsg("✓ Preview opened in a new tab");
+    } catch (e) {
+      setMsg(`✕ Preview failed: ${(e as Error).message}`);
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
 
   async function call(action: string, label: string, body?: unknown) {
     setBusyKey(action);
@@ -53,13 +79,33 @@ export default function CabinDetailActions({
       border: "1px solid rgba(13,27,42,0.08)", display: "flex",
       gap: 10, alignItems: "center", flexWrap: "wrap",
     }}>
+      {/* 2026-05-21 — George's "steps as colours" request.
+          Three primary actions sit at the head of the bar in
+          the order the operator works through them:
+            1. TEAL  · Preview as customer  — verify nothing
+               looks off from the charterer's side.
+            2. GOLD  · Send / resend invite — the magic link
+               that actually puts the cabin in their hands.
+            3. GHOST · Concierge mode toggle, navigation, etc.
+          Sharing with the team and voyage-bundle were gold
+          before and competed with #2; both are now ghost. */}
+      <button
+        type="button"
+        onClick={openPreview}
+        disabled={previewBusy}
+        style={btnPreview}
+        title="Opens this cabin in a new tab AS the charterer would see it. Read-only, expires in 15 minutes, the client is never notified."
+      >
+        {previewBusy ? "Opening…" : "Preview as customer ◉"}
+      </button>
       <button
         type="button"
         onClick={() => call("invite", "Magic link sent to " + principalEmail)}
         disabled={busyKey === "invite"}
-        style={btnPrimary}
+        style={btnGold}
+        title="Email the magic link to the head charterer — this is the link the client uses to enter The Cabin."
       >
-        {busyKey === "invite" ? "Sending…" : "Send / resend invite"}
+        {busyKey === "invite" ? "Sending…" : "Send / resend invite ✉"}
       </button>
       <button
         type="button"
@@ -155,7 +201,7 @@ export default function CabinDetailActions({
       <button
         type="button"
         onClick={() => setShareDialogOpen(true)}
-        style={btnGold as React.CSSProperties}
+        style={btnGhost as React.CSSProperties}
         title="Email a tokenised read-only link to the captain, chef, hostess, management, or owner"
       >
         Share with the team ↗
@@ -197,7 +243,7 @@ export default function CabinDetailActions({
           }
         }}
         disabled={busyKey === "voyage-bundle"}
-        style={btnGold}
+        style={btnGhost as React.CSSProperties}
         title="Send the album email to every cabin member"
       >
         {busyKey === "voyage-bundle" ? "Sending…" : "Send voyage bundle ✉"}
@@ -497,6 +543,16 @@ const btnPrimary: React.CSSProperties = {
 const btnGold: React.CSSProperties = {
   ...baseBtn,
   background: "#C9A84C", color: "#0D1B2A", borderColor: "#C9A84C",
+};
+// 2026-05-21 — Teal "preview" step. Distinct enough from gold
+// (warm) and ghost (neutral) that the operator can read the
+// three primary buttons at a glance: teal preview → gold send →
+// ghost everything-else. Same teal as the in-Cabin preview
+// banner (#0E7C7B) so a visual through-line connects "click
+// here in CRM" to "this is what shows up on the preview".
+const btnPreview: React.CSSProperties = {
+  ...baseBtn,
+  background: "#0E7C7B", color: "#ffffff", borderColor: "#0E7C7B",
 };
 const btnGhost: React.CSSProperties = {
   ...baseBtn,
