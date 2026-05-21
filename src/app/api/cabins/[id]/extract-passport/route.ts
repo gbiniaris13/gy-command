@@ -16,7 +16,12 @@ import { createServerClient } from "@supabase/ssr";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_BYTES = 10 * 1024 * 1024;
+// 2026-05-21 — Compressed passports come in well under 4 MB; the
+// real ceiling here is whatever Vercel imposes on the function body
+// (~4.5 MB on the Pro plan). Our own check is a defensive backstop,
+// not the gate. Set generously so a slightly larger compressed file
+// (e.g. an OS X HEIC route-around) still passes through.
+const MAX_BYTES = 8 * 1024 * 1024;
 
 async function adminEmail(): Promise<string | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;

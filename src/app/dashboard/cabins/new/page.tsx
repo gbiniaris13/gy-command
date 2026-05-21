@@ -1218,10 +1218,13 @@ function CompanionFileSlot({
             cursor: "pointer",
           }}
         >
-          Choose PDF
+          Choose file
+          {/* 2026-05-21 — accept everything. Clients send whatever
+              their phone or scanner produces: PDF, JPG, PNG, HEIC.
+              The compressor + extractor handle the dispatching by
+              content-sniffing rather than relying on MIME alone. */}
           <input
             type="file"
-            accept="application/pdf,image/*"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) onPick(f);

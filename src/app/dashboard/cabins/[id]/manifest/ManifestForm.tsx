@@ -597,17 +597,12 @@ function PassportDropzone({
     setOk(null);
     setBusy(true);
     try {
-      if (
-        file.type !== "application/pdf" &&
-        !file.type.startsWith("image/")
-      ) {
-        throw new Error("Please upload a passport PDF or image.");
-      }
-      // 2026-05-21 — passport scans frequently exceed Vercel's
-      // 4.5 MB request-body cap (Tricia's was 22 MB). Compress to a
-      // ~1 MB JPEG client-side first. compressPassportForUpload
-      // preserves enough resolution for both the visual bio panel
-      // and the Machine Readable Zone.
+      // 2026-05-21 — No MIME guard here. The compressor sniffs
+      // the file's content (PDF magic, JPEG, PNG, HEIC) and
+      // throws a clear human-readable error if it genuinely
+      // can't read it. We don't want to second-guess the
+      // browser's MIME labelling for 70-year-old clients
+      // uploading photos taken on phones.
       const compressed = await compressPassportForUpload(file);
       const fd = new FormData();
       fd.append("file", compressed);
@@ -729,9 +724,11 @@ function PassportDropzone({
               }}
             >
               Or choose a file
+              {/* 2026-05-21 — accept everything. The compressor
+                  content-sniffs the file (PDF magic, JPEG, PNG,
+                  HEIC) and converts to JPEG before upload. */}
               <input
                 type="file"
-                accept="application/pdf,image/*"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) void send(f);
