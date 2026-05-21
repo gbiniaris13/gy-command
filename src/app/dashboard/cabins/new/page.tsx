@@ -118,6 +118,30 @@ export default function NewCabinPage() {
   >(null);
   const [extractedRaw, setExtractedRaw] = useState<unknown>(null);
 
+  // 2026-05-21 — George's UX directive: "If I upload all PDFs at the
+  // start, confirm, send to client, we're done."
+  //
+  // We hold the optional companion PDFs (crew booklet, sample menu,
+  // vessel brochure, principal passport) in browser memory during
+  // the upload step. They are NOT sent to the server here — each
+  // one requires a cabin_id (the cabin doesn't exist yet). When
+  // George clicks "Create cabin", the submit handler:
+  //   1. POSTs the form to /api/cabins to create the row
+  //   2. Then sequentially POSTs each held PDF to its existing
+  //      cabin-scoped extraction endpoint
+  //   3. Redirects when all extractions land
+  //
+  // From George's point of view there's ONE button click. The
+  // server-side orchestration is invisible.
+  type HeldFiles = {
+    crew?: File;
+    menu?: File;
+    brochure?: File;
+    passport?: File;
+  };
+  const [heldFiles, setHeldFiles] = useState<HeldFiles>({});
+  const [postCreateStatus, setPostCreateStatus] = useState<string | null>(null);
+
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
@@ -293,11 +317,28 @@ export default function NewCabinPage() {
     return out;
   }
 
+  // 2026-05-21 — Submit handler orchestrates the full "one-click
+  // cabin from George's stack of PDFs" workflow:
+  //   1. Create the cabin row from the form payload (existing path).
+  //   2. For each held PDF (crew booklet, sample menu, vessel
+  //      brochure, passport), POST to its cabin-scoped extraction
+  //      endpoint in series. Series matters: keeps Gemini load
+  //      gentle and surfaces individual failures cleanly.
+  //   3. Redirect to the cabin detail page once everything lands.
+  //
+  // If a companion extraction fails, we don't roll back the cabin —
+  // the cabin exists, the MYBA data is in, and George can re-upload
+  // the failed PDF from the cabin detail page. The error is shown
+  // inline so he knows what didn't land.
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setPostCreateStatus(null);
     const v = validate();
-    if (v) { setError(v); return; }
+    if (v) {
+      setError(v);
+      return;
+    }
     setBusy(true);
     try {
       const payload = showJsonMode ? JSON.parse(jsonText) : buildPayload();
@@ -308,10 +349,86 @@ export default function NewCabinPage() {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "create-failed");
-      router.push(`/dashboard/cabins/${j.id}`);
+      const cabinId = j.id as string;
+
+      // Run held-PDF extractions sequentially. Each call writes to
+      // its own column / table so the order is purely cosmetic
+      // (progress feedback). Errors per file are surfaced inline
+      // but do NOT abort the chain — the cabin already exists and
+      // the user can retry individual uploads from /content.
+      const extractionFailures: string[] = [];
+
+      async function applyExtractFile(
+        kind: "crew" | "menu" | "vessel",
+        file: File,
+      ) {
+        setPostCreateStatus(
+          `Applying ${kind === "vessel" ? "vessel brochure" : kind}…`,
+        );
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("kind", kind);
+          const rr = await fetch(`/api/cabins/${cabinId}/extract-brochure`, {
+            method: "POST",
+            body: fd,
+          });
+          if (!rr.ok) {
+            const jj = await rr.json().catch(() => ({}));
+            throw new Error(
+              jj?.error || jj?.message || `Failed (${rr.status})`,
+            );
+          }
+        } catch (xx) {
+          extractionFailures.push(`${kind}: ${(xx as Error).message}`);
+        }
+      }
+
+      async function applyPassportFile(file: File) {
+        setPostCreateStatus("Reading the principal's passport…");
+        try {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("guest_order", "1");
+          const rr = await fetch(`/api/cabins/${cabinId}/extract-passport`, {
+            method: "POST",
+            body: fd,
+          });
+          if (!rr.ok) {
+            const jj = await rr.json().catch(() => ({}));
+            throw new Error(
+              jj?.error || jj?.message || `Failed (${rr.status})`,
+            );
+          }
+        } catch (xx) {
+          extractionFailures.push(`passport: ${(xx as Error).message}`);
+        }
+      }
+
+      if (heldFiles.crew) await applyExtractFile("crew", heldFiles.crew);
+      if (heldFiles.menu) await applyExtractFile("menu", heldFiles.menu);
+      if (heldFiles.brochure)
+        await applyExtractFile("vessel", heldFiles.brochure);
+      if (heldFiles.passport) await applyPassportFile(heldFiles.passport);
+
+      if (extractionFailures.length > 0) {
+        setPostCreateStatus(null);
+        setError(
+          `Cabin created, but some extractions failed:\n• ${extractionFailures.join("\n• ")}\nYou can re-upload them from the cabin's content panel.`,
+        );
+        setBusy(false);
+        // Still navigate after a short pause so George can read the
+        // error AND end up on the cabin page.
+        setTimeout(() => router.push(`/dashboard/cabins/${cabinId}`), 4000);
+        return;
+      }
+
+      setPostCreateStatus("Done. Opening the cabin…");
+      router.push(`/dashboard/cabins/${cabinId}`);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
+      setPostCreateStatus(null);
     }
   }
 
@@ -893,7 +1010,80 @@ export default function NewCabinPage() {
             </div>
           </details>
 
-          {error && <p className="err" role="alert">{error}</p>}
+          {/* ────── Companion PDFs (queued for post-creation) ────── */}
+          {/* 2026-05-21 — George's UX directive: "If I upload all PDFs
+              at the start, confirm, send to client, we're done."
+              The four companion PDFs (crew booklet, sample menu,
+              vessel brochure, principal passport) are HELD in browser
+              memory while George reviews the MYBA-derived form.
+              When he clicks "Create cabin", the submit handler
+              creates the row then sequentially uploads each held PDF
+              to its existing cabin-scoped extraction endpoint. From
+              George's view: one button click, full cabin populated. */}
+          <div className="section">
+            <h2>Companion PDFs</h2>
+            <p className="lede">
+              Drop everything else you have for this charter — crew booklet,
+              sample menu, vessel brochure, principal&apos;s passport. They&apos;ll
+              be applied automatically right after the cabin is created. All
+              optional; you can also add them later from the cabin&apos;s
+              content panel.
+            </p>
+            <div className="grid2">
+              <CompanionFileSlot
+                label="Crew booklet"
+                hint="Captain + chef + hostess bios with photos."
+                file={heldFiles.crew}
+                onPick={(f) => setHeldFiles((h) => ({ ...h, crew: f }))}
+              />
+              <CompanionFileSlot
+                label="Sample menu"
+                hint="Chef's repertoire by course. Title Case preserved."
+                file={heldFiles.menu}
+                onPick={(f) => setHeldFiles((h) => ({ ...h, menu: f }))}
+              />
+              <CompanionFileSlot
+                label="Vessel brochure"
+                hint="Specs, amenities, water toys, photos."
+                file={heldFiles.brochure}
+                onPick={(f) => setHeldFiles((h) => ({ ...h, brochure: f }))}
+              />
+              <CompanionFileSlot
+                label="Principal passport"
+                hint="Name from passport · DOB stored for Filotimo · never shown in cabin."
+                file={heldFiles.passport}
+                onPick={(f) => setHeldFiles((h) => ({ ...h, passport: f }))}
+              />
+            </div>
+          </div>
+
+          {postCreateStatus && (
+            <p
+              role="status"
+              style={{
+                fontFamily: "Georgia, serif",
+                fontStyle: "italic",
+                fontSize: 14,
+                color: "#0D1B2A",
+                background: "#FEF8E6",
+                border: "1px solid rgba(201,168,76,0.4)",
+                padding: "10px 14px",
+                marginTop: 16,
+              }}
+            >
+              {postCreateStatus}
+            </p>
+          )}
+
+          {error && (
+            <p
+              className="err"
+              role="alert"
+              style={{ whiteSpace: "pre-line" }}
+            >
+              {error}
+            </p>
+          )}
 
           <div style={{ display: "flex", gap: 14, marginTop: 24, flexWrap: "wrap" }}>
             <button type="submit" className="primary" disabled={busy}>
@@ -902,13 +1092,13 @@ export default function NewCabinPage() {
             <button
               type="button"
               className="ghost"
-              onClick={() => { setForm(EMPTY); setJsonText(""); setShowJsonMode(false); setError(null); }}
+              onClick={() => { setForm(EMPTY); setJsonText(""); setShowJsonMode(false); setError(null); setHeldFiles({}); }}
             >
               Clear all
             </button>
           </div>
           <p className="field-hint" style={{ marginTop: 14 }}>
-            After saving you’ll land on the cabin detail page. From there you can edit
+            After saving you&apos;ll land on the cabin detail page. From there you can edit
             anything, send the magic-link invite, and trigger concierge mode.
           </p>
         </form>
@@ -925,6 +1115,116 @@ export default function NewCabinPage() {
 // (where every Charter Particulars field lives), and forwards to
 // the parent's onFile callback.
 // =============================================================
+// =============================================================
+// CompanionFileSlot — a small file picker for the optional PDFs
+// queued at creation time (crew booklet, menu, brochure,
+// passport). We don't extract here — the file is just held in
+// state until the parent's submit handler runs the cabin-scoped
+// extraction endpoints after the cabin is created.
+// =============================================================
+function CompanionFileSlot({
+  label,
+  hint,
+  file,
+  onPick,
+}: {
+  label: string;
+  hint: string;
+  file: File | undefined;
+  onPick: (f: File | undefined) => void;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid rgba(13,27,42,0.12)",
+        padding: 14,
+        background: "#FBFAF7",
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "-apple-system, sans-serif",
+          fontSize: 10,
+          letterSpacing: 1.8,
+          textTransform: "uppercase",
+          color: "#C9A84C",
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </div>
+      <p
+        className="field-hint"
+        style={{ margin: "4px 0 10px 0", fontSize: 11.5 }}
+      >
+        {hint}
+      </p>
+      {file ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            background: "#fff",
+            border: "1px solid rgba(13,27,42,0.12)",
+            padding: "8px 10px",
+            fontFamily: "Georgia, serif",
+            fontSize: 13,
+          }}
+        >
+          <span style={{ color: "#16a34a" }}>
+            ✓ {file.name} · queued
+          </span>
+          <button
+            type="button"
+            onClick={() => onPick(undefined)}
+            style={{
+              background: "transparent",
+              border: 0,
+              color: "rgba(13,27,42,0.55)",
+              fontFamily: "-apple-system, sans-serif",
+              fontSize: 10,
+              letterSpacing: 1.5,
+              textTransform: "uppercase",
+              cursor: "pointer",
+            }}
+          >
+            Remove
+          </button>
+        </div>
+      ) : (
+        <label
+          style={{
+            display: "inline-block",
+            background: "transparent",
+            color: "#0D1B2A",
+            border: "1px dashed rgba(13,27,42,0.25)",
+            padding: "10px 14px",
+            fontFamily: "-apple-system, sans-serif",
+            fontSize: 10.5,
+            letterSpacing: 2,
+            textTransform: "uppercase",
+            cursor: "pointer",
+          }}
+        >
+          Choose PDF
+          <input
+            type="file"
+            accept="application/pdf,image/*"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onPick(f);
+              e.target.value = "";
+            }}
+            style={{ display: "none" }}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
 function MybaUploadStep({
   busy,
   error,

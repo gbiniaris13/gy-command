@@ -177,7 +177,16 @@ export default function BrochureDropzones({ cabinId }: { cabinId: string }) {
       </p>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-        {(Object.keys(ZONE_META) as Kind[]).map((kind) => {
+        {/* 2026-05-21 — George's UX directive: MYBA is uploaded at
+            cabin creation (extract-first flow in /dashboard/cabins/new
+            since Phase 4). Showing it again here is redundant and
+            confused him during testing — he thought he had to upload
+            it twice. Filter "contract" out of the kinds rendered on
+            this page. If a re-extraction is ever needed (e.g. a
+            revised MYBA), it can run via the edit flow or a future
+            dedicated affordance — but the everyday path is one upload
+            at creation, period. */}
+        {(Object.keys(ZONE_META) as Kind[]).filter((k) => k !== "contract").map((kind) => {
           const meta = ZONE_META[kind];
           const isBusy = busyKind === kind;
           const ok = result[kind];
