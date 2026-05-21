@@ -322,6 +322,39 @@ export default function ManifestForm({
           </p>
         </header>
 
+        {/* 2026-05-21 — Roberto P1 + George: passport extraction for
+            the principal. Upload the principal charterer's passport
+            PDF / image; we read the bio page (cross-referencing the
+            MRZ) and populate row #1's full name, DOB, nationality,
+            passport number and expiry. The signature-form name
+            ("Patricia R. Stevens") goes onto the cabin's display
+            field; the full bundle stays in this manifest for
+            marina paperwork and the back-office crew list. */}
+        <PassportDropzone
+          cabinId={cabinId}
+          onApplied={(extracted, manifestPatch) => {
+            // Patch row #1 (principal) with what passport extraction
+            // returned so George sees the values without a refresh.
+            setGuests((prev) => {
+              const next = [...prev];
+              const r0 = next[0] ?? { ...EMPTY_GUEST };
+              next[0] = {
+                ...r0,
+                full_name: manifestPatch.full_name ?? r0.full_name,
+                date_of_birth: manifestPatch.date_of_birth ?? r0.date_of_birth,
+                nationality: manifestPatch.nationality ?? r0.nationality,
+                passport_number: manifestPatch.passport_number ?? r0.passport_number,
+                passport_expiry: manifestPatch.passport_expiry ?? r0.passport_expiry,
+                is_minor: manifestPatch.is_minor ?? r0.is_minor,
+              };
+              return next;
+            });
+            // Soft refresh so the parent cabin page picks up the
+            // patched principal_charterer_name on next nav.
+            router.refresh();
+          }}
+        />
+
         {guests.map((g, i) => (
           <div key={i} className="row">
             <div className="row-header">
@@ -525,6 +558,224 @@ export default function ManifestForm({
           when.
         </p>
       </div>
+    </div>
+  );
+}
+
+// =============================================================
+// PassportDropzone — uploads the principal's passport PDF/image
+// to the extract-passport endpoint. On success, the server has
+// already written the manifest row #1 and patched the cabin's
+// display name; the parent component just patches local state so
+// George sees the populated row without a refresh.
+// =============================================================
+function PassportDropzone({
+  cabinId,
+  onApplied,
+}: {
+  cabinId: string;
+  onApplied: (
+    extracted: Record<string, unknown>,
+    manifestPatch: {
+      full_name?: string | null;
+      date_of_birth?: string | null;
+      nationality?: string | null;
+      passport_number?: string | null;
+      passport_expiry?: string | null;
+      is_minor?: boolean | null;
+    },
+  ) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  async function send(file: File) {
+    setErr(null);
+    setOk(null);
+    setBusy(true);
+    try {
+      if (
+        file.type !== "application/pdf" &&
+        !file.type.startsWith("image/")
+      ) {
+        throw new Error("Please upload a passport PDF or image.");
+      }
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("guest_order", "1");
+      const r = await fetch(`/api/cabins/${cabinId}/extract-passport`, {
+        method: "POST",
+        body: fd,
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        throw new Error(j?.error || j?.message || `Failed (${r.status})`);
+      }
+      const e = j.extracted || {};
+      const dob =
+        typeof e.date_of_birth === "string" ? e.date_of_birth : null;
+      let isMinor: boolean | null = null;
+      if (dob) {
+        const dobMs = Date.parse(dob);
+        if (!Number.isNaN(dobMs)) {
+          const years =
+            (Date.now() - dobMs) / (365.25 * 24 * 3600 * 1000);
+          isMinor = years < 18;
+        }
+      }
+      onApplied(e, {
+        full_name: typeof e.full_name === "string" ? e.full_name : null,
+        date_of_birth: dob,
+        nationality:
+          typeof e.nationality === "string" ? e.nationality : null,
+        passport_number:
+          typeof e.passport_number === "string" ? e.passport_number : null,
+        passport_expiry:
+          typeof e.date_of_expiration === "string"
+            ? e.date_of_expiration
+            : null,
+        is_minor: isMinor,
+      });
+      const niceName =
+        typeof e.signature_display_name === "string"
+          ? e.signature_display_name
+          : typeof e.full_name === "string"
+            ? e.full_name
+            : "the principal";
+      setOk(
+        `Read ${niceName}. Cabin display name updated. Manifest row 1 populated.`,
+      );
+    } catch (x) {
+      setErr((x as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        marginBottom: 24,
+        background: "#fff",
+        border: "1px solid rgba(13,27,42,0.08)",
+        padding: 22,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "-apple-system, sans-serif",
+          fontSize: 10,
+          letterSpacing: 2.5,
+          textTransform: "uppercase",
+          color: "#C9A84C",
+          fontWeight: 600,
+          marginBottom: 10,
+        }}
+      >
+        Principal passport · auto-fill row 1
+      </div>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (busy) return;
+          const f = e.dataTransfer?.files?.[0];
+          if (f) void send(f);
+        }}
+        style={{
+          border: `2px dashed ${dragOver ? "#C9A84C" : "rgba(13,27,42,0.22)"}`,
+          background: dragOver ? "rgba(201,168,76,0.04)" : "#FBFAF7",
+          padding: "26px 20px",
+          textAlign: "center",
+          fontFamily: "Georgia, serif",
+          color: "rgba(13,27,42,0.78)",
+        }}
+      >
+        {busy ? (
+          <span style={{ fontStyle: "italic", fontSize: 14 }}>
+            Reading passport…
+          </span>
+        ) : (
+          <>
+            <div style={{ fontSize: 14, marginBottom: 10 }}>
+              Drag the passport PDF or photo here
+            </div>
+            <label
+              style={{
+                display: "inline-block",
+                background: "#0D1B2A",
+                color: "#F8F5F0",
+                border: "1px solid #C9A84C",
+                padding: "10px 18px",
+                fontFamily: "-apple-system, sans-serif",
+                fontSize: 10.5,
+                letterSpacing: 2,
+                textTransform: "uppercase",
+                cursor: "pointer",
+              }}
+            >
+              Or choose a file
+              <input
+                type="file"
+                accept="application/pdf,image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void send(f);
+                  e.target.value = "";
+                }}
+                style={{ display: "none" }}
+              />
+            </label>
+            <p
+              style={{
+                margin: "12px 0 0 0",
+                fontStyle: "italic",
+                fontSize: 12,
+                color: "rgba(13,27,42,0.55)",
+              }}
+            >
+              We read full name, date of birth, nationality, passport number
+              and expiry. Only the signature-form name appears in the
+              customer&apos;s cabin — the rest stays here in the back office.
+            </p>
+          </>
+        )}
+      </div>
+
+      {err && (
+        <p
+          role="alert"
+          style={{
+            margin: "12px 0 0",
+            color: "#b91c1c",
+            fontFamily: "Georgia, serif",
+            fontStyle: "italic",
+            fontSize: 13,
+          }}
+        >
+          {err}
+        </p>
+      )}
+      {ok && (
+        <p
+          style={{
+            margin: "12px 0 0",
+            color: "#16a34a",
+            fontFamily: "Georgia, serif",
+            fontStyle: "italic",
+            fontSize: 13,
+          }}
+        >
+          ✓ {ok}
+        </p>
+      )}
     </div>
   );
 }
