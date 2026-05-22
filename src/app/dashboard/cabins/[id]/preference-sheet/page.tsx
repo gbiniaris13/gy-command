@@ -440,6 +440,20 @@ export default async function PreferenceSheetPage({
             </SubBlock>
           ) : null}
 
+          {/* 2026-05-22 — Photo preference for the group. Only renders
+              when the principal has actively chosen to refrain — by
+              default unset, so the captain sees nothing and treats
+              the cabin like every other (discreet but normal). */}
+          {(get(guestsSection, "no_photos_of_guests") === true ||
+            get(guestsSection, "no_photos_of_guests") === "true") && (
+            <SubBlock label="Photography preference">
+              <Row
+                k="Photographing the guests"
+                v="The principal has asked the crew NOT to photograph the guests during the week. No phones pointed at the cabin."
+              />
+            </SubBlock>
+          )}
+
           <h3
             style={{
               fontFamily: FONT_UI,
@@ -510,13 +524,17 @@ export default async function PreferenceSheetPage({
             <Row k="Crew presence preference" v={fmtMaybe(lifeAboard.crew_interaction)} />
             <Row k="Activities of interest" v={fmtMaybe(lifeAboard.activities)} />
             <Row k="Other activities" v={fmtMaybe(lifeAboard.activities_other)} />
-            <Row k="Music — morning" v={fmtMaybe(get(lifeAboard, "music.morning"))} />
-            <Row k="Music — lunch & afternoon" v={fmtMaybe(get(lifeAboard, "music.lunch_afternoon"))} />
-            <Row k="Music — sunset & dinner" v={fmtMaybe(get(lifeAboard, "music.sunset_dinner"))} />
-            <Row k="Music — late night" v={fmtMaybe(get(lifeAboard, "music.late_night"))} />
-            <Row k="Specific artists / playlists" v={fmtMaybe(get(lifeAboard, "music.specific_artists"))} />
+            {/* 2026-05-22 — Music collapsed from four per-time-of-
+                day rows to one freeform "general taste" row.
+                Wellness onboard row removed entirely (yoga, etc.
+                were a paid-extra trap). Legacy keys still rendered
+                IF an older brief has them, so the captain doesn't
+                lose anything that was already captured. */}
+            <Row k="Music taste" v={fmtMaybe(get(lifeAboard, "music_taste"))} />
+            {Boolean(get(lifeAboard, "music.specific_artists")) && (
+              <Row k="Music — legacy detailed notes" v={fmtMaybe(get(lifeAboard, "music.specific_artists"))} />
+            )}
             <Row k="Small touches to ask about" v={fmtMaybe(lifeAboard.extras_freeform)} />
-            <Row k="Wellness on board" v={fmtMaybe(lifeAboard.wellness_onboard)} />
           </SubBlock>
         </Section>
 
@@ -628,7 +646,10 @@ export default async function PreferenceSheetPage({
           <SubBlock label="Bottled water">
             <Row k="Type" v={fmtMaybe(beverages.water_type || beverages.water)} />
             <Row k="Preferred brands" v={fmtMaybe(beverages.water_brand)} />
-            <Row k="Consumption estimate" v={fmtMaybe(beverages.water_consumption_estimate)} />
+            {/* 2026-05-22 — `water_consumption_estimate` row removed.
+                George: "αυτό βγαίνει — θα το υπολογίσει η εταιρεία.
+                Δεν χρειάζεται να τους κουράζουμε." Schema field
+                stays for back-compat with old briefs. */}
           </SubBlock>
 
           {/* 2026-05-22 — Frequency-based bar preferences (pass-3
@@ -759,13 +780,16 @@ export default async function PreferenceSheetPage({
             <Row k="Place in each cabin (6–9pm)" v={fmtMaybe(little.night_service)} />
           </SubBlock>
 
-          <SubBlock label="Photography on the water">
-            <Row k="Drone photography" v={fmtMaybe(little.drone_photography)} />
-            <Row k="Professional photographer day" v={fmtMaybe(little.professional_photographer)} />
-          </SubBlock>
+          {/* 2026-05-22 — Drone photography / professional photographer
+              SubBlock removed. George: "Είναι έξτρα — το βγάζουμε για
+              τους ίδιους λόγους που βγάζουμε τα άλλα έξτρα." Schema
+              keys stay for back-compat. */}
 
-          <SubBlock label="Practical">
-            <Row k="Connectivity preference" v={fmtMaybe(little.connectivity)} />
+          <SubBlock label="Privacy & archive">
+            {/* `connectivity` row removed — Internet quality is fixed
+                per vessel and we can't change it from a brief.
+                Keeping photo_archive_permission (GDPR self-consent
+                for our archive use) is unrelated. */}
             <Row k="Photo archive permission" v={fmtMaybe(little.photo_archive_permission)} />
           </SubBlock>
 
