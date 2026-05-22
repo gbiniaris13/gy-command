@@ -664,7 +664,6 @@ export default async function PreferenceSheetPage({
 
           <SubBlock label="Coffee, tea & cold drinks">
             <Row k="Preferences" v={fmtMaybe(dining.coffee_tea)} />
-            <Row k="Brand specifics" v={fmtMaybe(dining.coffee_tea_specifics)} />
           </SubBlock>
 
           {/* Food matrix table — only render if any item has a verdict */}
