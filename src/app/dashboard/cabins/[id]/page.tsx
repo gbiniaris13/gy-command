@@ -55,6 +55,58 @@ export default async function CabinDetailPage({
         <div style={{ color: "#6b7280", marginTop: 6 }}>
           {cabin.charter_period_from} – {cabin.charter_period_to} · {cabin.port_embarkation} → {cabin.port_disembarkation}
         </div>
+        {/* 2026-05-22 — Brief submission badge. Renders only when
+            the principal has hit "Send to George" in the cabin
+            review screen. Gold pill, surfaces in-place at the
+            cabin head so it's the first thing the operator sees
+            walking into the page. */}
+        {cabin.brief_submitted_at && (
+          <div style={{
+            marginTop: 14,
+            padding: "10px 14px",
+            background: "rgba(201,168,76,0.12)",
+            border: "1px solid rgba(201,168,76,0.55)",
+            borderLeft: "3px solid #C9A84C",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            fontSize: 12.5,
+          }}>
+            <span style={{ fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase", color: "#0D1B2A", fontWeight: 700 }}>
+              ✓ Brief submitted
+            </span>
+            <span style={{ color: "rgba(13,27,42,0.65)" }}>
+              {new Date(cabin.brief_submitted_at).toLocaleString("en-GB", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            <span style={{ color: "rgba(13,27,42,0.45)", fontSize: 11.5 }}>
+              · The cabin is locked for guests. Open Preference sheet to read or forward to the captain.
+            </span>
+            <form action={`/api/cabins/${id}/reopen-brief`} method="post" style={{ marginLeft: "auto" }}>
+              <button
+                type="submit"
+                style={{
+                  fontSize: 10,
+                  letterSpacing: 2,
+                  textTransform: "uppercase",
+                  background: "transparent",
+                  border: "1px solid rgba(13,27,42,0.3)",
+                  padding: "7px 12px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                Reopen brief
+              </button>
+            </form>
+          </div>
+        )}
       </header>
 
       <CabinDetailActions
