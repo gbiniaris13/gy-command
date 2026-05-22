@@ -313,6 +313,44 @@ export default async function PreferenceSheetPage({
               </>
             ) : null}
           </SubBlock>
+
+          {/* 2026-05-22 — Local Contact in Greece (BF preference-
+              sheet parity). Renders only when the principal flagged
+              "someone else is on the ground" OR explicitly filled
+              the local-contact fields. When same_as_principal is
+              true / unset and no fields exist, we suppress the
+              SubBlock entirely to avoid an empty card on the
+              captain's printout. */}
+          {(() => {
+            const sameAsPrincipal = get(arrival, "local_contact.same_as_principal");
+            const fullName = get<string>(arrival, "local_contact.full_name");
+            const relationship = get<string>(arrival, "local_contact.relationship");
+            const mobile = get<string>(arrival, "local_contact.mobile");
+            const notes = get<string>(arrival, "local_contact.notes");
+            const hasAny =
+              Boolean(fullName) ||
+              Boolean(relationship) ||
+              Boolean(mobile) ||
+              Boolean(notes);
+
+            if (sameAsPrincipal === false || sameAsPrincipal === "false" || hasAny) {
+              return (
+                <SubBlock label="Local contact in Greece">
+                  <Row k="Full name" v={fmtMaybe(fullName)} />
+                  <Row k="Relationship" v={fmtMaybe(relationship)} />
+                  <Row k="Mobile" v={fmtMaybe(mobile)} />
+                  <Row k="Notes for the captain" v={fmtMaybe(notes)} />
+                </SubBlock>
+              );
+            }
+            return (
+              <SubBlock label="Local contact in Greece">
+                <p style={{ margin: 0, fontStyle: "italic", color: "rgba(13,27,42,0.6)", fontSize: 12.5 }}>
+                  Captain to coordinate directly with the principal charterer.
+                </p>
+              </SubBlock>
+            );
+          })()}
         </Section>
 
         {/* ============ 02 — THE GROUP ============ */}
@@ -440,6 +478,7 @@ export default async function PreferenceSheetPage({
             <Row k="Specific places they would love" v={fmtMaybe(itinerary.specific_places)} />
             <Row k="Night-time preference" v={fmtMaybe(itinerary.night_preference)} />
             <Row k="Extra activities of interest" v={fmtMaybe(itinerary.activities_extra)} />
+            <Row k="Diving certifications in the group" v={fmtMaybe(itinerary.diving_certifications)} />
           </SubBlock>
 
           {Boolean(
@@ -579,7 +618,84 @@ export default async function PreferenceSheetPage({
             <Row k="Consumption estimate" v={fmtMaybe(beverages.water_consumption_estimate)} />
           </SubBlock>
 
-          <LabelQtyTable label="Soft drinks" rows={beverages.soft_drinks} />
+          {/* 2026-05-22 — Frequency-based bar preferences (pass-3
+              George capture mode). Previously the sheet only
+              printed the legacy label/qty tables; the canonical
+              freeform "we drink gin often, vodka rarely" capture
+              never made it onto the captain's printout. Now first,
+              so the hostess provisions from this and the label/qty
+              tables (further below) act as label-specific overrides. */}
+          {Boolean(
+            beverages.champagne_wanted ||
+              beverages.champagne_tier ||
+              beverages.champagne_specifics,
+          ) && (
+            <SubBlock label="Champagne">
+              <Row k="Wanted aboard" v={fmtMaybe(beverages.champagne_wanted)} />
+              <Row k="Tier" v={fmtMaybe(beverages.champagne_tier)} />
+              <Row k="Labels / notes" v={fmtMaybe(beverages.champagne_specifics)} />
+            </SubBlock>
+          )}
+
+          {Boolean(
+            beverages.wine_wanted ||
+              beverages.wine_colors ||
+              beverages.wine_grapes ||
+              beverages.wine_tier ||
+              beverages.wine_specifics,
+          ) && (
+            <SubBlock label="Wine — character preferences">
+              <Row k="Wanted aboard" v={fmtMaybe(beverages.wine_wanted)} />
+              <Row k="Colours" v={fmtMaybe(beverages.wine_colors)} />
+              <Row k="Grapes / styles" v={fmtMaybe(beverages.wine_grapes)} />
+              <Row k="Tier" v={fmtMaybe(beverages.wine_tier)} />
+              <Row k="Labels / notes" v={fmtMaybe(beverages.wine_specifics)} />
+            </SubBlock>
+          )}
+
+          {Boolean(
+            beverages.spirits_frequency ||
+              beverages.spirits_brands ||
+              beverages.spirits_notes,
+          ) && (
+            <SubBlock label="Spirits — how often, which brands">
+              <Row
+                k="Frequency by spirit"
+                v={fmtMaybe(beverages.spirits_frequency)}
+              />
+              <Row k="Brands the bar should carry" v={fmtMaybe(beverages.spirits_brands)} />
+              <Row k="Notes" v={fmtMaybe(beverages.spirits_notes)} />
+            </SubBlock>
+          )}
+
+          {Boolean(
+            beverages.beers_frequency ||
+              beverages.beers_origin ||
+              beverages.beers_specifics ||
+              beverages.beers_notes,
+          ) && (
+            <SubBlock label="Beers — character preferences">
+              <Row k="Frequency" v={fmtMaybe(beverages.beers_frequency)} />
+              <Row k="Origin preference" v={fmtMaybe(beverages.beers_origin)} />
+              <Row k="Labels / notes" v={fmtMaybe(beverages.beers_specifics)} />
+              <Row k="Other notes" v={fmtMaybe(beverages.beers_notes)} />
+            </SubBlock>
+          )}
+
+          {Boolean(
+            beverages.soft_drinks_frequency ||
+              beverages.soft_drinks_brands,
+          ) && (
+            <SubBlock label="Soft drinks — frequency & brands">
+              <Row
+                k="Frequency by drink"
+                v={fmtMaybe(beverages.soft_drinks_frequency)}
+              />
+              <Row k="Brands" v={fmtMaybe(beverages.soft_drinks_brands)} />
+            </SubBlock>
+          )}
+
+          <LabelQtyTable label="Soft drinks (legacy label / qty)" rows={beverages.soft_drinks} />
 
           <SubBlock label="Standard bar (classics included)">
             <Row k="Tick-list" v={fmtMaybe(beverages.standard_bar_items)} />

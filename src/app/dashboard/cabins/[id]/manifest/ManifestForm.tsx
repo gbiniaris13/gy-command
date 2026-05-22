@@ -420,20 +420,31 @@ export default function ManifestForm({
 
             <div className="grid3" style={{ marginBottom: 12 }}>
               <label>
-                <span>Cabin pairing (sharing with)</span>
+                <span>Cabin assignment</span>
                 <input
                   type="text"
                   value={g.cabin_pairing}
                   onChange={(e) => update(i, "cabin_pairing", e.target.value)}
-                  placeholder="Names of those sharing the cabin"
+                  placeholder="Master · Front · Aft Starboard Twin"
                 />
               </label>
-              {/* 2026-05-20 — Friend-test pass 4 (George):
-                  "Δεν ξέρω γιατί πρέπει να υπάρχει το νούμερο του
-                   παπουτσιού — εγώ δεν θα το βάζα." Removed from
-                  the UI. The shoe_size column on cabin_guests_manifest
-                  stays in the schema for back-compat with any old
-                  rows; we simply stop collecting it. */}
+              {/* 2026-05-22 — Shoe Size re-added at George's request
+                  after comparing our brief against the BF Charter
+                  Preferences Form: "Cabin Share / Shoe Size — το
+                  ξαναβάζεις." Industry sheets capture shoe size so
+                  the boat can pre-stage snorkel fins / wakeboard
+                  bindings / ski boots that fit each guest before
+                  they board. Free-text on purpose: EU "39", US "8",
+                  UK "6.5", kid's "12c" — formats vary. */}
+              <label>
+                <span>Shoe size</span>
+                <input
+                  type="text"
+                  value={g.shoe_size}
+                  onChange={(e) => update(i, "shoe_size", e.target.value)}
+                  placeholder="EU 42 / US 9"
+                />
+              </label>
               <label className="minor-row" style={{ alignSelf: "end" }}>
                 <input
                   type="checkbox"
