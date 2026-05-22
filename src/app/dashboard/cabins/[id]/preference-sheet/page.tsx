@@ -601,8 +601,6 @@ export default async function PreferenceSheetPage({
             <Row k="Preferred areas" v={fmtMaybe(itinerary.preferred_areas)} />
             <Row k="Specific places they would love" v={fmtMaybe(itinerary.specific_places)} />
             <Row k="Night-time preference" v={fmtMaybe(itinerary.night_preference)} />
-            <Row k="Extra activities of interest" v={fmtMaybe(itinerary.activities_extra)} />
-            <Row k="Diving certifications in the group" v={fmtMaybe(itinerary.diving_certifications)} />
           </SubBlock>
 
           {Boolean(
