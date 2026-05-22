@@ -145,6 +145,80 @@ export default function BrochureDropzones({ cabinId }: { cabinId: string }) {
             })()
           : `✓ Extracted vessel brochure`,
       }));
+
+      // 2026-05-22 — George's directive on the EFFIE STAR preview:
+      //   "Στο GY Command υπάρχει η μπροσούρα του σκάφους, άρα
+      //    από εκεί δεν θα πρέπει να είναι όλες τις φωτογραφίες?"
+      //
+      // When the vessel brochure has just been text-extracted
+      // successfully, ALSO extract its visual pages as JPEGs and
+      // upload them as cabin.vessel_photos. We do this in the
+      // browser via pdfjs-dist (already on this page for passport
+      // compression) so the operator gets all the brochure value
+      // in a single drop — text + photos.
+      //
+      // Quietly best-effort: if photo extraction fails we leave
+      // the text extraction's success message in place and report
+      // the photo error inline. The cabin still works without
+      // auto-photos — the operator can always paste URLs in the
+      // VesselPhotosForm below.
+      if (kind === "vessel") {
+        try {
+          const { extractBrochurePhotos } = await import(
+            "@/lib/brochure-photos"
+          );
+          const out = await extractBrochurePhotos(file);
+          if (out.photos.length === 0) {
+            setResult((rs) => ({
+              ...rs,
+              vessel:
+                (rs.vessel ?? "✓ Extracted vessel brochure") +
+                " · no photo pages detected (all pages text-heavy)",
+            }));
+          } else {
+            const photoForm = new FormData();
+            photoForm.append("replace_existing", "true");
+            for (const p of out.photos) {
+              photoForm.append("photo", p.file);
+              photoForm.append("captions[]", "");
+              photoForm.append("pages[]", String(p.page));
+            }
+            const pr = await fetch(
+              `/api/cabins/${cabinId}/brochure-photos`,
+              { method: "POST", body: photoForm },
+            );
+            const pj = await pr.json().catch(() => ({}));
+            if (!pr.ok || !pj.ok) {
+              setError((e) => ({
+                ...e,
+                vessel:
+                  (pj?.error as string) ||
+                  `Photo upload failed (status ${pr.status})`,
+              }));
+            } else {
+              setResult((rs) => ({
+                ...rs,
+                vessel:
+                  (rs.vessel ?? "✓ Extracted vessel brochure") +
+                  ` · ${pj.uploaded_count ?? 0} photos uploaded` +
+                  (out.skippedTextHeavyPages > 0
+                    ? ` (${out.skippedTextHeavyPages} text-heavy pages skipped)`
+                    : ""),
+              }));
+            }
+          }
+        } catch (photoErr) {
+          // Don't blow up the whole flow on a photo extraction
+          // failure — text extraction already succeeded.
+          setError((e) => ({
+            ...e,
+            vessel:
+              "Photo extraction failed: " +
+              ((photoErr as Error).message ?? String(photoErr)),
+          }));
+        }
+      }
+
       // Refresh the underlying server-rendered editors below so they
       // pick up the new values.
       router.refresh();
