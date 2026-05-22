@@ -12,6 +12,7 @@
 // chef, or owner who has never seen our system before.
 
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import {
   getCabin,
   getCabinSections,
@@ -21,6 +22,20 @@ import {
 import PrintButton from "../print/PrintButton";
 
 export const dynamic = "force-dynamic";
+
+// 2026-05-22 — Sensible PDF filename when Save-as-PDF is used.
+// Without this, macOS uses the browser-tab title ("(50) GY Command
+// | George Yachts.pdf") which George couldn't find.
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const cabin = await getCabin(id);
+  const vessel = cabin?.vessel_name || "Cabin";
+  return { title: `${vessel} — Charter Preferences` };
+}
 
 // =================== BRAND TOKENS ============================
 const NAVY = "#0D1B2A";

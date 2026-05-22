@@ -22,6 +22,7 @@
 // as PDF" gives George the file to email to the captain / marina.
 
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import {
   getCabin,
   getCabinMembers,
@@ -30,6 +31,21 @@ import {
 import PrintButton from "../print/PrintButton";
 
 export const dynamic = "force-dynamic";
+
+// 2026-05-22 — Give the browser tab a sensible title so when George
+// hits ⌘P → "Save as PDF" the default filename becomes
+// "EFFIE STAR — Crew List.pdf", not "(50) GY Command _ George Yachts".
+// macOS native save dialog reads this <title> verbatim.
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const cabin = await getCabin(id);
+  const vessel = cabin?.vessel_name || "Cabin";
+  return { title: `${vessel} — Crew List` };
+}
 
 // Brand tokens (matched to /print/page.tsx so the two read as a pair)
 const NAVY = "#0D1B2A";
@@ -70,22 +86,22 @@ interface MergedGuest {
   role: string;
   email: string;
   mobile: string;
+  gender: string;
   date_of_birth: string;
   nationality: string;
   passport_number: string;
   passport_expiry: string;
-  allergies_dietary: string;
-  dietary_preferences: string[];
-  swims: string;
-  mobility_notes: string;
-  cabin_pairing: string;
   source: "member_self" | "manifest" | "principal_seed";
 }
 
-const SWIMS_LABEL: Record<string, string> = {
-  confident: "Confident swimmer",
-  some: "Comfortable with help",
-  non_swimmer: "Non-swimmer",
+// 2026-05-22 — George directive: the Crew List PDF carries ONLY
+// port-authority essentials (name, gender, DOB, ID/passport, mobile).
+// Allergies, dietary, swimming, mobility, cabin pairing belong on
+// the Preference Sheet and are stripped from here.
+const GENDER_LABEL: Record<string, string> = {
+  male: "Male",
+  female: "Female",
+  non_binary: "Non-binary",
   prefer_not_say: "Prefers not to say",
 };
 
@@ -105,18 +121,12 @@ function merge(
       name: s(m.display_name) || principalSeed.full_name,
       role: s(m.role),
       email,
-      mobile: s(m.mobile),
+      mobile: s(pd.mobile) || s(m.mobile),
+      gender: s(pd.gender),
       date_of_birth: s(pd.date_of_birth),
       nationality: s(pd.nationality),
       passport_number: s(pd.passport_number),
       passport_expiry: s(pd.passport_expiry),
-      allergies_dietary: s(pd.allergies_dietary),
-      dietary_preferences: Array.isArray(pd.dietary_preferences)
-        ? (pd.dietary_preferences as string[])
-        : [],
-      swims: s(pd.swims),
-      mobility_notes: s(pd.mobility_notes),
-      cabin_pairing: s(pd.cabin_pairing),
       source: "member_self",
     });
   }
@@ -132,9 +142,8 @@ function merge(
       existing.nationality ||= s(g.nationality);
       existing.passport_number ||= s(g.passport_number);
       existing.passport_expiry ||= fmtIsoSafe(g.passport_expiry);
-      existing.allergies_dietary ||= s(g.allergies_dietary);
-      existing.cabin_pairing ||= s(g.cabin_pairing);
       existing.mobile ||= s(g.mobile);
+      existing.gender ||= s(g.gender);
       existing.name = s(g.full_name) || existing.name;
     } else {
       // Manifest-only entry (no portal member yet). Include with
@@ -144,15 +153,11 @@ function merge(
         role: "guest",
         email,
         mobile: s(g.mobile),
+        gender: s(g.gender),
         date_of_birth: fmtIsoSafe(g.date_of_birth),
         nationality: s(g.nationality),
         passport_number: s(g.passport_number),
         passport_expiry: fmtIsoSafe(g.passport_expiry),
-        allergies_dietary: s(g.allergies_dietary),
-        dietary_preferences: [],
-        swims: "",
-        mobility_notes: "",
-        cabin_pairing: s(g.cabin_pairing),
         source: "manifest",
       });
     }
@@ -369,32 +374,13 @@ export default async function CabinCrewListPage({
                 }}
               >
                 <tbody>
+                  <Row label="Gender" value={GENDER_LABEL[g.gender] ?? g.gender} />
                   <Row label="Date of birth" value={fmtDate(g.date_of_birth)} />
                   <Row label="Nationality" value={g.nationality} />
-                  <Row label="Passport number" value={g.passport_number} />
+                  <Row label="ID / Passport number" value={g.passport_number} />
                   <Row label="Passport expiry" value={fmtDate(g.passport_expiry)} />
                   <Row label="Email" value={g.email} />
                   <Row label="Mobile" value={g.mobile} />
-                  <Row label="Cabin pairing" value={g.cabin_pairing} />
-                  <Row
-                    label="Allergies & dietary"
-                    value={
-                      [
-                        g.allergies_dietary,
-                        g.dietary_preferences?.length
-                          ? `(${g.dietary_preferences.join(", ")})`
-                          : "",
-                      ]
-                        .filter(Boolean)
-                        .join(" ")
-                    }
-                    highlight={Boolean(g.allergies_dietary)}
-                  />
-                  <Row
-                    label="Swimming"
-                    value={SWIMS_LABEL[g.swims] ?? g.swims}
-                  />
-                  <Row label="Mobility / medical" value={g.mobility_notes} />
                 </tbody>
               </table>
             </li>
