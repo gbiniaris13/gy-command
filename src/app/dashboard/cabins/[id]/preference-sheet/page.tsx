@@ -16,6 +16,7 @@ import {
   getCabin,
   getCabinSections,
   getCabinGuestsManifest,
+  getCabinMembers,
 } from "@/lib/cabin-admin";
 import PrintButton from "../print/PrintButton";
 
@@ -118,10 +119,31 @@ export default async function PreferenceSheetPage({
   const cabin = await getCabin(id);
   if (!cabin) notFound();
 
-  const [sections, manifest] = await Promise.all([
+  const [sections, manifest, members] = await Promise.all([
     getCabinSections(id),
     getCabinGuestsManifest(id),
+    getCabinMembers(id),
   ]);
+
+  // 2026-05-22 — Brief delegation + opt-out surfacing on the sheet.
+  // The captain/chef/George see at a glance who can sign-off and who
+  // has formally stepped aside from order/cellar decisions. Personal
+  // facts (allergies, dietary, swimming, passport) still apply to
+  // every member regardless of opt-out status.
+  type MemberRow = {
+    id: string;
+    role: string | null;
+    display_name: string | null;
+    email: string | null;
+    is_brief_admin: boolean | null;
+    brief_participation_opt_out_at: string | null;
+    brief_participation_opt_out_note: string | null;
+  };
+  const memberRows = (members ?? []) as MemberRow[];
+  const delegatedAdmins = memberRows.filter(
+    (m) => m.is_brief_admin && m.role !== "principal_charterer",
+  );
+  const optedOut = memberRows.filter((m) => m.brief_participation_opt_out_at);
 
   const arrival = getSection(sections, "arrival");
   const guestsSection = getSection(sections, "guests");
@@ -452,6 +474,81 @@ export default async function PreferenceSheetPage({
                 v="The principal has asked the crew NOT to photograph the guests during the week. No phones pointed at the cabin."
               />
             </SubBlock>
+          )}
+
+          {(delegatedAdmins.length > 0 || optedOut.length > 0) && (
+            <div
+              style={{
+                marginTop: 18,
+                padding: "14px 16px",
+                background: "rgba(201, 168, 76, 0.07)",
+                borderLeft: `2px solid ${GOLD}`,
+              }}
+              className="avoid-break"
+            >
+              <div
+                style={{
+                  fontFamily: FONT_UI,
+                  fontSize: 10,
+                  letterSpacing: 3,
+                  textTransform: "uppercase",
+                  color: "#8a7327",
+                  fontWeight: 600,
+                  marginBottom: 8,
+                }}
+              >
+                Brief sign-off &amp; opt-outs
+              </div>
+              {delegatedAdmins.length > 0 && (
+                <p
+                  style={{
+                    fontFamily: FONT_EDITORIAL,
+                    fontSize: 13,
+                    lineHeight: 1.65,
+                    color: "rgba(13, 27, 42, 0.8)",
+                    margin: "0 0 6px 0",
+                  }}
+                >
+                  <strong style={{ fontWeight: 500, color: NAVY }}>
+                    Delegated brief admin
+                    {delegatedAdmins.length > 1 ? "s" : ""}:
+                  </strong>{" "}
+                  {delegatedAdmins
+                    .map((m) => m.display_name || m.email)
+                    .join(", ")}
+                  . The principal has explicitly authorised{" "}
+                  {delegatedAdmins.length > 1 ? "them" : "this guest"} to
+                  send the brief on their behalf — logged in the
+                  cabin&apos;s audit trail.
+                </p>
+              )}
+              {optedOut.length > 0 && (
+                <p
+                  style={{
+                    fontFamily: FONT_EDITORIAL,
+                    fontSize: 13,
+                    lineHeight: 1.65,
+                    color: "rgba(13, 27, 42, 0.8)",
+                    margin: 0,
+                  }}
+                >
+                  <strong style={{ fontWeight: 500, color: NAVY }}>
+                    Opted out of orders &amp; cellar:
+                  </strong>{" "}
+                  {optedOut
+                    .map((m) => {
+                      const name = m.display_name || m.email;
+                      const note = m.brief_participation_opt_out_note;
+                      return note ? `${name} ("${note}")` : name;
+                    })
+                    .join(", ")}
+                  . Personal facts (allergies, dietary, swimming,
+                  passport) still apply to{" "}
+                  {optedOut.length > 1 ? "them" : "this guest"} — they
+                  have only stepped aside from group purchasing choices.
+                </p>
+              )}
+            </div>
           )}
 
           <h3
