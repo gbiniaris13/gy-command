@@ -329,8 +329,18 @@ export async function toggleConciergeMode(id: string, on: boolean, actorEmail: s
 export async function sendInvite(id: string, actorEmail: string) {
   // The actual magic-link send lives in the public site
   // (georgeyachts.com /api/cabin/auth/request-link). The admin
-  // here just stamps invite_sent_at and writes the audit log,
-  // then calls the public endpoint with a server-to-server fetch.
+  // here calls the public endpoint with a server-to-server fetch,
+  // verifies the email actually went out (mailed:true), and only
+  // then stamps invite_sent_at + audits.
+  //
+  // 2026-05-22 — Previously this stamped invite_sent_at + audited
+  // BEFORE checking whether Resend had accepted the send. The
+  // public endpoint silently swallowed Resend exceptions and
+  // returned 200, so the CRM showed "✓ Magic link sent" while
+  // the customer never received anything. Now: we pass the shared
+  // CABIN_ADMIN_SECRET as a Bearer header, the public endpoint
+  // returns { mailed, error? }, and we throw with the actual
+  // Resend error if it failed.
   const db = createServiceClient();
   const { data: cabin, error: e1 } = await db
     .from("cabins")
@@ -341,6 +351,10 @@ export async function sendInvite(id: string, actorEmail: string) {
 
   const publicHost =
     process.env.CABIN_PUBLIC_URL || "https://georgeyachts.com";
+  const adminSecret = process.env.CABIN_ADMIN_SECRET;
+  if (!adminSecret) {
+    throw new Error("CABIN_ADMIN_SECRET not configured on the CRM");
+  }
 
   // Pass cabin_id so the public site pins this specific cabin as
   // the active one for this magic-link session. Without it, the
@@ -349,13 +363,29 @@ export async function sendInvite(id: string, actorEmail: string) {
   // not the one we just clicked "Send invite" from.
   const r = await fetch(`${publicHost}/api/cabin/auth/request-link`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${adminSecret}`,
+    },
     body: JSON.stringify({
       email: cabin.principal_charterer_email,
       cabin_id: id,
     }),
   });
-  if (!r.ok) throw new Error(`request-link failed: ${r.status}`);
+  let payload: { ok?: boolean; mailed?: boolean; error?: string } = {};
+  try {
+    payload = await r.json();
+  } catch {
+    // body wasn't JSON — fall through to status-based error
+  }
+  if (!r.ok) {
+    throw new Error(payload?.error || `request-link failed: ${r.status}`);
+  }
+  if (payload?.mailed !== true) {
+    // The send failed (or no membership exists). Surface the real
+    // reason so the operator UI can show it instead of lying.
+    throw new Error(payload?.error || "email send failed (no detail)");
+  }
 
   await db
     .from("cabin_members")
