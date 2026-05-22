@@ -415,10 +415,56 @@ export default function NewCabinPage() {
         }
       }
 
+      // 2026-05-22 — When a vessel brochure is dropped, we now ALSO
+      // auto-extract photos from its non-text-heavy pages and upload
+      // them to the cabin-photos bucket. Same pdfjs-dist client-side
+      // render + filter logic used on /content's brochure dropzone,
+      // so a single drop in the new-cabin flow lands BOTH the text
+      // extraction AND the photo gallery in one pass.
+      async function applyVesselPhotos(file: File) {
+        setPostCreateStatus("Reading the brochure photos…");
+        try {
+          const { extractBrochurePhotos } = await import(
+            "@/lib/brochure-photos"
+          );
+          const out = await extractBrochurePhotos(file);
+          if (out.photos.length === 0) return; // brochure had no photo pages
+          const photoForm = new FormData();
+          photoForm.append("replace_existing", "true");
+          for (const p of out.photos) {
+            photoForm.append("photo", p.file);
+            photoForm.append("captions[]", "");
+            photoForm.append("pages[]", String(p.page));
+          }
+          setPostCreateStatus(
+            `Uploading ${out.photos.length} vessel photo${out.photos.length === 1 ? "" : "s"}…`,
+          );
+          const pr = await fetch(
+            `/api/cabins/${cabinId}/brochure-photos`,
+            { method: "POST", body: photoForm },
+          );
+          if (!pr.ok) {
+            const pj = await pr.json().catch(() => ({}));
+            throw new Error(
+              (pj?.error as string) ||
+                `Photo upload failed (${pr.status})`,
+            );
+          }
+        } catch (xx) {
+          extractionFailures.push(
+            `vessel photos: ${(xx as Error).message}`,
+          );
+        }
+      }
+
       if (heldFiles.crew) await applyExtractFile("crew", heldFiles.crew);
       if (heldFiles.menu) await applyExtractFile("menu", heldFiles.menu);
-      if (heldFiles.brochure)
+      if (heldFiles.brochure) {
         await applyExtractFile("vessel", heldFiles.brochure);
+        // Photo extraction runs independently — text-extraction
+        // failure doesn't block photo capture (or vice versa).
+        await applyVesselPhotos(heldFiles.brochure);
+      }
       if (heldFiles.passport) await applyPassportFile(heldFiles.passport);
 
       if (extractionFailures.length > 0) {
