@@ -238,8 +238,13 @@ export default async function CabinCrewListPage({
           marginBottom: 26,
         }}
       >
-        <div style={{ fontFamily: FONT_UI, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: MUTED }}>
-          Crew list · Internal
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ fontFamily: FONT_UI, fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: MUTED }}>
+            Crew list · Port-authority paperwork
+          </div>
+          <div style={{ fontFamily: FONT_UI, fontSize: 10, color: MUTED, fontStyle: "italic" }}>
+            In the print dialog, UNCHECK &ldquo;Headers and footers&rdquo; for a clean document.
+          </div>
         </div>
         <PrintButton />
       </div>
@@ -406,13 +411,40 @@ export default async function CabinCrewListPage({
       </p>
 
       <style>{`
+        /* 2026-05-22 — Full print-mode reset for the Crew List PDF.
+           Without these overrides, the dashboard layout's flex
+           h-screen overflow-hidden shell + sticky top bar + bottom
+           tab bar all leak into the saved PDF, and the content
+           clips to a single page. */
         @media print {
-          .no-print { display: none !important; }
-          @page {
-            size: A4;
-            margin: 12mm;
+          @page { size: A4; margin: 14mm 12mm 16mm 12mm; }
+          html, body {
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
-          body { background: #ffffff !important; }
+          aside { display: none !important; }
+          .no-print { display: none !important; }
+          main > div.sticky,
+          nav.fixed,
+          a.fixed,
+          div.fixed { display: none !important; }
+          body > div > div.flex.h-screen.overflow-hidden,
+          body > div > div[class*="h-screen"] {
+            display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          main {
+            overflow: visible !important;
+            padding-bottom: 0 !important;
+            flex: none !important;
+            max-width: none !important;
+          }
         }
       `}</style>
     </main>

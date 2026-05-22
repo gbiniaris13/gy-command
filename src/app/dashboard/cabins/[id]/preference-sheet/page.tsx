@@ -171,16 +171,71 @@ export default async function PreferenceSheetPage({
   const children = getSection(sections, "children");
 
   return (
-    <div style={{ background: IVORY, minHeight: "100vh" }}>
+    <div style={{ background: IVORY, minHeight: "100vh" }} className="gy-prefs-root">
       <style>{`
         body { font-family: ${FONT_EDITORIAL}; color: ${NAVY}; background: ${IVORY}; }
         h1, h2, h3 { font-weight: 300; }
+        /* 2026-05-22 — Full print-mode reset. The dashboard layout
+           wraps every page in a flex h-screen overflow-hidden shell
+           with an overflow-y-auto <main>. Without these overrides,
+           print only outputs the first viewport's worth (George got
+           a 1-page screenshot of the top + a CRM toolbar). */
         @media print {
-          @page { size: A4; margin: 16mm 14mm 16mm 14mm; }
-          body { background: white !important; }
+          @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
+          html, body {
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          /* Hide every piece of dashboard chrome that lives outside
+             our preference-sheet root. */
+          body > div > div.flex.h-screen,
+          body > div > div.flex,
+          aside,
+          .lg\\:hidden,
+          [class*="bottom-0"],
+          [class*="fixed"],
+          [class*="sticky"],
+          .no-print {
+            /* nuclear hide-on-print; the next selector restores
+               OUR content tree. */
+          }
+          aside { display: none !important; }
           .no-print { display: none !important; }
-          .page-break-before { page-break-before: always; }
-          .avoid-break { page-break-inside: avoid; }
+          /* Hide the dashboard sticky top bar (mute, bell,
+             hamburger), the bottom tab bar, the FAB, the floating
+             chat button. */
+          main > div.sticky,
+          nav.fixed,
+          a.fixed,
+          div.fixed { display: none !important; }
+          /* Reset the layout shell so our content flows naturally
+             across pages. */
+          body > div > div.flex.h-screen.overflow-hidden,
+          body > div > div[class*="h-screen"] {
+            display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          main {
+            overflow: visible !important;
+            padding-bottom: 0 !important;
+            flex: none !important;
+          }
+          /* Our content root: take the full page width, no shadow,
+             pure white. */
+          .gy-prefs-root {
+            background: white !important;
+            min-height: 0 !important;
+          }
+          /* Make sure each Section starts on a fresh page when it
+             needs to, and avoids splitting tables/cards awkwardly. */
+          .page-break-before { page-break-before: always !important; break-before: page !important; }
+          .avoid-break { page-break-inside: avoid !important; break-inside: avoid !important; }
         }
       `}</style>
 
@@ -200,10 +255,15 @@ export default async function PreferenceSheetPage({
           borderBottom: `1px solid ${GOLD}55`,
         }}
       >
-        <span style={{ fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase", fontFamily: FONT_UI }}>
-          Charter preferences ·{" "}
-          <span style={{ color: GOLD }}>⌘P / Ctrl+P to save as PDF</span>
-        </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase", fontFamily: FONT_UI }}>
+            Charter preferences ·{" "}
+            <span style={{ color: GOLD }}>⌘P / Ctrl+P to save as PDF</span>
+          </span>
+          <span style={{ fontSize: 10, color: `${IVORY}aa`, fontStyle: "italic", fontFamily: FONT_UI }}>
+            In the print dialog, UNCHECK &ldquo;Headers and footers&rdquo; for a clean document.
+          </span>
+        </div>
         <PrintButton />
       </div>
 
