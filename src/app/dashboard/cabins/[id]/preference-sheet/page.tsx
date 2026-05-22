@@ -314,26 +314,37 @@ export default async function PreferenceSheetPage({
             ) : null}
           </SubBlock>
 
-          {/* 2026-05-22 — Local Contact in Greece (BF preference-
-              sheet parity). Renders only when the principal flagged
-              "someone else is on the ground" OR explicitly filled
-              the local-contact fields. When same_as_principal is
-              true / unset and no fields exist, we suppress the
-              SubBlock entirely to avoid an empty card on the
-              captain's printout. */}
+          {/* 2026-05-22 — Local Contact in Greece (3-way routing).
+              George's white-glove broker-in-country offer is one of
+              the charter's defining services — many charterers will
+              tap "George P. Biniaris" as the local contact rather
+              than asking a relative to be on call. The print sheet
+              names whoever is on the hook so the captain knows
+              exactly whom to call. */}
           {(() => {
-            const sameAsPrincipal = get(arrival, "local_contact.same_as_principal");
+            const routing = get<string>(arrival, "local_contact.routing") || "principal";
             const fullName = get<string>(arrival, "local_contact.full_name");
             const relationship = get<string>(arrival, "local_contact.relationship");
             const mobile = get<string>(arrival, "local_contact.mobile");
             const notes = get<string>(arrival, "local_contact.notes");
-            const hasAny =
-              Boolean(fullName) ||
-              Boolean(relationship) ||
-              Boolean(mobile) ||
-              Boolean(notes);
 
-            if (sameAsPrincipal === false || sameAsPrincipal === "false" || hasAny) {
+            if (routing === "broker") {
+              return (
+                <SubBlock label="Local contact in Greece">
+                  <p style={{ margin: 0, fontStyle: "italic", color: "rgba(13,27,42,0.7)", fontSize: 12.5, lineHeight: 1.55 }}>
+                    Captain to coordinate via the broker —{" "}
+                    <strong style={{ fontStyle: "normal", fontWeight: 600 }}>George P. Biniaris</strong>,
+                    {" "}George Yachts Brokerage House.
+                    <br />
+                    <span style={{ color: "rgba(13,27,42,0.55)" }}>
+                      Athens: +30 6970 380 999 · WhatsApp (US): +1 786 798 8798 · george@georgeyachts.com
+                    </span>
+                  </p>
+                </SubBlock>
+              );
+            }
+
+            if (routing === "other") {
               return (
                 <SubBlock label="Local contact in Greece">
                   <Row k="Full name" v={fmtMaybe(fullName)} />
@@ -343,6 +354,8 @@ export default async function PreferenceSheetPage({
                 </SubBlock>
               );
             }
+
+            // principal (or unset → default)
             return (
               <SubBlock label="Local contact in Greece">
                 <p style={{ margin: 0, fontStyle: "italic", color: "rgba(13,27,42,0.6)", fontSize: 12.5 }}>
