@@ -88,18 +88,18 @@ export default async function EditCabinBasicsPage({
   );
 }
 
-// Compact one-liner for the CRM panel — "Airport ✓ · Helipad ✓ ·
-// 3 ATMs · Hospital ✓ · Pharmacy ✓" — so George sees at a glance
-// what got fetched without expanding anything.
+// Compact one-liner for the CRM panel — shows ✓ for found, ✗ for
+// missing for ALL categories so George sees at a glance what's
+// there AND what failed. Critical for diagnosing partial fetches.
 function summariseNearby(nearby: unknown): string | null {
   if (!nearby || typeof nearby !== "object") return null;
   const n = nearby as Record<string, unknown>;
   const parts: string[] = [];
-  if (n.airport) parts.push("Airport ✓");
-  if (n.helipad) parts.push("Helipad ✓");
+  parts.push(n.airport ? "Airport ✓" : "Airport ✗");
+  parts.push(n.helipad ? "Helipad ✓" : "Helipad ✗");
   const atms = Array.isArray(n.atms) ? n.atms.length : 0;
   parts.push(atms > 0 ? `${atms} ATM${atms === 1 ? "" : "s"}` : "ATMs ✗");
-  if (n.hospital) parts.push("Hospital ✓");
-  if (n.pharmacy) parts.push("Pharmacy ✓");
+  parts.push(n.hospital ? "Hospital ✓" : "Hospital ✗");
+  parts.push(n.pharmacy ? "Pharmacy ✓" : "Pharmacy ✗");
   return parts.join(" · ");
 }

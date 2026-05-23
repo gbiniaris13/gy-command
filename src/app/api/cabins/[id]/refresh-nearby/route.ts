@@ -21,9 +21,11 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { refreshBerthNearby } from "@/lib/cabin-admin";
 
 export const runtime = "nodejs";
-// 30s ceiling — Overpass + OSRM + 5 parallel queries fit easily
-// inside this even on a cold-start.
-export const maxDuration = 30;
+// 2026-05-23 — bumped 30→60s after observing silent timeouts on
+// busy areas like central Athens. Per-fetcher timeout is 25s and
+// we run 5 in parallel, but cold-start + OSRM follow-ups can
+// push the total close to 30s. 60s gives generous headroom.
+export const maxDuration = 60;
 
 async function adminEmail(): Promise<string | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
