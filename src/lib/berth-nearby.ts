@@ -58,14 +58,31 @@ export interface BerthNearby {
   errors?: string[];          // human-readable list
 }
 
-// 2026-05-23 — primary + fallback Overpass mirrors. The community
-// runs several for redundancy; if the primary 429s or times out
-// we retry on the mirror once.
+// 2026-05-23 — Overpass mirrors. Multiple options for resilience.
+// Order matters: try the most reliable first. If a mirror returns
+// 429 (rate limit) or 503 (overloaded), we move to the next.
+//
+// The Vercel function runs on shared serverless infrastructure
+// (we don't get a dedicated IP), so other tenants' traffic can
+// affect our quota on the primary mirror. Having multiple mirrors
+// massively reduces the chance ALL of them are exhausted for us.
 const OVERPASS_URLS = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.osm.ch/api/interpreter",
+  "https://lz4.overpass-api.de/api/interpreter",
 ];
 const OSRM_URL = "https://router.project-osrm.org/route/v1/driving";
+
+// CRITICAL: Overpass servers heavily rate-limit requests that don't
+// identify themselves. The community FAQ explicitly says: "Please
+// include a meaningful User-Agent so we can contact you if your
+// app misbehaves." Anonymous (browser-style) requests are treated
+// as suspicious traffic and throttled aggressively. This single
+// header is the biggest factor in whether we get 429s or 200s.
+const USER_AGENT =
+  "GeorgeYachts-Cabin/1.0 (+https://georgeyachts.com; george@georgeyachts.com)";
+
 // 2026-05-23 — bumped from 8s → 25s. Overpass [timeout:15] queries
 // in dense areas like Athens commonly return at 10-14s. 8s caused
 // silent client-side aborts (caught internally → empty results,
@@ -110,30 +127,75 @@ async function fetchWithTimeout(
   }
 }
 
-// Try each Overpass mirror in order; if one returns 429/503/timeout,
-// fall back to the next. Throws the LAST error if all mirrors fail
-// — that way the partial flag in fetchAllNearby captures the
-// failure correctly instead of silently returning null.
+// Resilient Overpass client with five layers of defense:
+//   1. Proper User-Agent (Overpass throttles anonymous traffic)
+//   2. Four mirror endpoints, tried in order
+//   3. Per-mirror retry with exponential backoff on 429/503
+//   4. Honors the `Retry-After` header when the server sets one
+//   5. Cumulative-time budget so we don't burn the 60s serverless
+//      maxDuration in a backoff loop on a hopeless query
+//
+// Throws an aggregate error listing every mirror's last failure
+// reason if all attempts are exhausted — so the partial flag in
+// fetchAllNearby captures the failure cleanly.
 async function overpass(query: string): Promise<OverpassResp> {
-  let lastErr: Error | null = null;
+  const attempts: string[] = [];
+  const startedAt = Date.now();
+  const TOTAL_BUDGET_MS = 50_000; // leave room for OSRM in the 60s maxDuration
+
   for (const url of OVERPASS_URLS) {
-    try {
-      const r = await fetchWithTimeout(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `data=${encodeURIComponent(query)}`,
-      });
-      if (!r.ok) {
-        lastErr = new Error(`overpass ${url} returned ${r.status}`);
-        continue; // try next mirror
+    // 2 attempts per mirror: original + one backoff. Anything beyond
+    // wastes the serverless budget on a clearly-busy mirror.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (Date.now() - startedAt > TOTAL_BUDGET_MS) {
+        throw new Error(
+          `overpass exhausted ${TOTAL_BUDGET_MS}ms budget. Attempts: ${attempts.join("; ")}`,
+        );
       }
-      return (await r.json()) as OverpassResp;
-    } catch (e) {
-      lastErr = e as Error;
-      // try next mirror
+      try {
+        const r = await fetchWithTimeout(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": USER_AGENT,
+            Accept: "application/json",
+          },
+          body: `data=${encodeURIComponent(query)}`,
+        });
+        if (r.ok) {
+          return (await r.json()) as OverpassResp;
+        }
+        // Honor Retry-After if the server tells us how long to wait.
+        const retryAfterRaw = r.headers.get("retry-after");
+        const retryAfterMs =
+          retryAfterRaw && /^\d+$/.test(retryAfterRaw)
+            ? Math.min(Number(retryAfterRaw) * 1000, 10_000)
+            : null;
+        attempts.push(`${urlHost(url)}#${attempt}=${r.status}`);
+        // Retry only on 429 (rate limited) or 5xx (server overload).
+        // Other statuses (400, 401, etc.) are our fault — move on.
+        const retriable = r.status === 429 || r.status >= 500;
+        if (!retriable) break;
+        if (attempt < 2) {
+          await sleep(retryAfterMs ?? 1500 * attempt);
+        }
+      } catch (e) {
+        attempts.push(`${urlHost(url)}#${attempt}=${(e as Error).message}`);
+        if (attempt < 2) await sleep(1500);
+      }
     }
   }
-  throw lastErr ?? new Error("overpass: all mirrors failed");
+  throw new Error(
+    `overpass: all mirrors exhausted. ${attempts.join("; ")}`,
+  );
+}
+
+function urlHost(u: string): string {
+  try {
+    return new URL(u).host;
+  } catch {
+    return u;
+  }
 }
 
 interface OverpassResp {
@@ -169,7 +231,9 @@ async function driveRoute(
     const url =
       `${OSRM_URL}/${fromLng},${fromLat};${toLng},${toLat}` +
       `?overview=false&alternatives=false&steps=false`;
-    const r = await fetchWithTimeout(url);
+    const r = await fetchWithTimeout(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    });
     if (!r.ok) return null;
     const j = (await r.json()) as {
       routes?: { distance: number; duration: number }[];

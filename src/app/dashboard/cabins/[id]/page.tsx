@@ -7,7 +7,6 @@ import {
   getCabin,
   getCabinSections,
   getCabinMembers,
-  refreshBerthNearby,
 } from "@/lib/cabin-admin";
 import CabinDetailActions from "./CabinDetailActions";
 import StatusTransitions from "./StatusTransitions";
@@ -40,25 +39,12 @@ export default async function CabinDetailPage({
     getCabinMembers(id),
   ]);
 
-  // 2026-05-23 — Berth Map Phase 2 backfill on cabin detail load.
-  // Same trigger as EditBasicsPage: if coords exist but no cached
-  // nearby data, fire fetch in background. By the time George
-  // clicks "Edit Cabin Details", the panel summary is already
-  // populated. Zero clicks for the operator.
-  const hasBerthCoords =
-    typeof cabin.berth_lat === "number" &&
-    typeof cabin.berth_lng === "number" &&
-    Number.isFinite(cabin.berth_lat) &&
-    Number.isFinite(cabin.berth_lng);
-  if (hasBerthCoords && !cabin.berth_nearby) {
-    void refreshBerthNearby(
-      id,
-      cabin.berth_lat as number,
-      cabin.berth_lng as number,
-    ).catch((e) =>
-      console.error("[cabin-detail] auto-backfill berth_nearby failed:", e),
-    );
-  }
+  // 2026-05-23 — Berth Map Phase 2: backfill REMOVED from the cabin
+  // detail page (was here in commit f89a029 but caused double-firing
+  // with the edit-basics backfill — each page visit hammered Overpass
+  // and contributed to 429 rate limits). The edit-basics backfill is
+  // sufficient; if George never opens edit-basics, the next
+  // updateCabin() call's save-time hook will trigger it.
 
   return (
     <div style={{ padding: 24, maxWidth: 1180, margin: "0 auto" }}>

@@ -24,20 +24,30 @@ export default async function EditCabinBasicsPage({
   const cabin = await getCabin(id);
   if (!cabin) notFound();
 
-  // 2026-05-23 — Berth Map Phase 2 backfill.
-  // George's directive: "Αυτόματα θέλω να γίνεται, δεν θα τα κάνω
-  // εγώ χειροκίνητα." Most cabins had berth coordinates set BEFORE
-  // Phase 2 deployed, so updateCabin()'s save-time hook hasn't run
-  // for them. Fire here as a one-time background backfill: opens the
-  // Edit Basics page once → background fetch fills berth_nearby
-  // within ~10s → next page reload shows the data. Zero clicks.
+  // 2026-05-23 — Berth Map Phase 2 backfill, with throttle.
+  // George's directive: "Αυτόματα θέλω να γίνεται." Most cabins had
+  // berth coordinates set BEFORE Phase 2 deployed, so updateCabin()'s
+  // save-time hook hasn't run for them. Fire here as a one-time
+  // background backfill.
+  //
+  // CRITICAL THROTTLE: skip if a fetch was attempted in the last 10
+  // minutes. Without this, every refresh of the Edit Basics page
+  // (or every visit if cabin has coords but no cached data) hits
+  // Overpass — quickly exhausting our rate-limit budget on the
+  // shared Vercel IP and earning 429s for everyone.
   const hasBerthCoords =
     typeof cabin.berth_lat === "number" &&
     typeof cabin.berth_lng === "number" &&
     Number.isFinite(cabin.berth_lat) &&
     Number.isFinite(cabin.berth_lng);
   const hasCachedNearby = !!cabin.berth_nearby;
-  if (hasBerthCoords && !hasCachedNearby) {
+  const lastAttemptMs = cabin.berth_nearby_fetched_at
+    ? new Date(cabin.berth_nearby_fetched_at).getTime()
+    : 0;
+  const minutesSinceLastAttempt = (Date.now() - lastAttemptMs) / 60_000;
+  const recentlyAttempted = minutesSinceLastAttempt < 10;
+
+  if (hasBerthCoords && !hasCachedNearby && !recentlyAttempted) {
     // Fire-and-forget. Page renders immediately. If Overpass/OSRM
     // are slow, the panel will show "Not fetched yet" on first
     // load and the data appears on next router.refresh() / reload.
