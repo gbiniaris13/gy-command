@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import BerthPicker from "./BerthPicker";
 
 type FormState = {
   vessel_name: string;
@@ -61,8 +62,53 @@ export default function EditBasicsForm({
   const [geocodeMsg, setGeocodeMsg] = useState<string | null>(null);
 
   // 2026-05-23 — Free geocoding via OpenStreetMap Nominatim.
-  // No key, but they ask for a polite User-Agent and ≤1 req/sec.
-  // We only fire on explicit button press, so quota is irrelevant.
+  // Smart fallback: pier/dock granularity isn't in OSM for most
+  // Greek marinas, so we try a sequence of progressively-simpler
+  // queries. Whichever one returns first wins. The user then
+  // refines the exact pier by CLICKING the map below.
+  async function nominatimSearch(q: string) {
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+        { headers: { "Accept-Language": "en" } },
+      );
+      const arr = await r.json();
+      if (Array.isArray(arr) && arr.length > 0) return arr[0];
+    } catch {
+      /* fall through */
+    }
+    return null;
+  }
+
+  function buildFallbackQueries(label: string): string[] {
+    const trimmed = label.trim();
+    if (!trimmed) return [];
+    const queries: string[] = [trimmed];
+
+    // Strip trailing pier/dock/berth/wharf references — they
+    // confuse Nominatim and aren't queryable anyway.
+    const stripped = trimmed.replace(
+      /[,·\s]+(pier|dock|berth|wharf|quay|jetty)\s*[\dA-Z]*\.?$/i,
+      "",
+    );
+    if (stripped !== trimmed && stripped) queries.push(stripped);
+
+    // Try just the first two comma-separated chunks (e.g.
+    // "Alimos Marina, Athens"). Most marinas in Greece are
+    // resolvable at city level.
+    const chunks = stripped.split(",").map((s) => s.trim()).filter(Boolean);
+    if (chunks.length >= 2) {
+      const firstTwo = `${chunks[0]}, ${chunks[1]}`;
+      if (!queries.includes(firstTwo)) queries.push(firstTwo);
+    }
+    // Finally, just the first chunk + "Greece" as last resort.
+    if (chunks.length >= 1) {
+      const firstAndGreece = `${chunks[0]}, Greece`;
+      if (!queries.includes(firstAndGreece)) queries.push(firstAndGreece);
+    }
+    return queries;
+  }
+
   async function geocodeFromLabel() {
     const q = form.berth_label.trim();
     if (!q) {
@@ -71,33 +117,40 @@ export default function EditBasicsForm({
     }
     setGeocoding(true);
     setGeocodeMsg(null);
-    try {
-      const r = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
-        { headers: { "Accept-Language": "en" } },
+    const queries = buildFallbackQueries(q);
+    let hit: { lat?: string; lon?: string; display_name?: string } | null = null;
+    let used = "";
+    for (const tryQuery of queries) {
+      hit = await nominatimSearch(tryQuery);
+      if (hit) {
+        used = tryQuery;
+        break;
+      }
+    }
+    setGeocoding(false);
+
+    if (!hit) {
+      setGeocodeMsg(
+        "Couldn't find a match. Click on the map below at the exact berth — that sets the pin directly.",
       );
-      const arr = await r.json();
-      if (!Array.isArray(arr) || arr.length === 0) {
-        setGeocodeMsg("Couldn't find that location. Try a more recognisable form (e.g. 'Alimos Marina, Athens').");
-        return;
-      }
-      const hit = arr[0];
-      const lat = Number(hit.lat);
-      const lng = Number(hit.lon);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        setForm((f) => ({
-          ...f,
-          berth_lat: lat.toFixed(6),
-          berth_lng: lng.toFixed(6),
-        }));
-        setGeocodeMsg(`Pinned · ${hit.display_name?.slice(0, 80) || ""}`);
-      } else {
-        setGeocodeMsg("Couldn't parse that location.");
-      }
-    } catch {
-      setGeocodeMsg("Geocoder unreachable — you can paste lat/lng manually.");
-    } finally {
-      setGeocoding(false);
+      return;
+    }
+    const lat = Number(hit.lat);
+    const lng = Number(hit.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      setForm((f) => ({
+        ...f,
+        berth_lat: lat.toFixed(6),
+        berth_lng: lng.toFixed(6),
+      }));
+      const wasFallback = used !== q;
+      setGeocodeMsg(
+        wasFallback
+          ? `Pinned approximate location via "${used}" — drag the pin or click on the map for exact pier.`
+          : `Pinned · ${hit.display_name?.slice(0, 80) || ""}`,
+      );
+    } else {
+      setGeocodeMsg("Couldn't parse that location.");
     }
   }
 
@@ -517,6 +570,18 @@ export default function EditBasicsForm({
                   placeholder="23.7044"
                 />
               </label>
+              {/* 2026-05-23 — Click-to-pin map. Solves the
+                  pier-precision problem Nominatim can't (OSM
+                  doesn't index pier numbers). Click anywhere on
+                  the map, the lat/lng inputs above update. */}
+              <BerthPicker
+                lat={form.berth_lat ? Number(form.berth_lat) : null}
+                lng={form.berth_lng ? Number(form.berth_lng) : null}
+                onChange={(lat, lng) => {
+                  set("berth_lat", lat.toFixed(6));
+                  set("berth_lng", lng.toFixed(6));
+                }}
+              />
             </div>
           </div>
 
