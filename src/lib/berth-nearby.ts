@@ -288,20 +288,32 @@ export async function fetchAllNearby(
 
   // ONE unified Overpass query for all 5 categories. Each element
   // carries enough tag info to identify its category client-side.
+  //
+  // 2026-05-23 — CRITICAL: include `relation` for aerodromes.
+  // Major airports like Athens Eleftherios Venizelos (ATH) are
+  // OSM relations (multi-polygons covering terminals, runways,
+  // parking), NOT nodes or ways. Without relations we miss every
+  // major international airport and end up picking tiny private
+  // aerodromes (Porto Cheli, etc.) that happen to be tagged as
+  // nodes with an iata code.
   const unionQuery = `
     [out:json][timeout:25];
     (
       node["aeroway"="aerodrome"](around:150000, ${lat}, ${lng});
       way["aeroway"="aerodrome"](around:150000, ${lat}, ${lng});
+      relation["aeroway"="aerodrome"](around:150000, ${lat}, ${lng});
       node["aeroway"~"helipad|heliport"](around:40000, ${lat}, ${lng});
       way["aeroway"~"helipad|heliport"](around:40000, ${lat}, ${lng});
+      relation["aeroway"~"helipad|heliport"](around:40000, ${lat}, ${lng});
       node["amenity"="atm"](around:1500, ${lat}, ${lng});
       node["amenity"="bank"]["atm"!="no"](around:1500, ${lat}, ${lng});
       way["amenity"="bank"]["atm"!="no"](around:1500, ${lat}, ${lng});
       node["amenity"="hospital"](around:30000, ${lat}, ${lng});
       way["amenity"="hospital"](around:30000, ${lat}, ${lng});
+      relation["amenity"="hospital"](around:30000, ${lat}, ${lng});
       node["healthcare"="hospital"](around:30000, ${lat}, ${lng});
       way["healthcare"="hospital"](around:30000, ${lat}, ${lng});
+      relation["healthcare"="hospital"](around:30000, ${lat}, ${lng});
       node["amenity"="pharmacy"](around:2000, ${lat}, ${lng});
       way["amenity"="pharmacy"](around:2000, ${lat}, ${lng});
     );
@@ -354,14 +366,39 @@ export async function fetchAllNearby(
     }
   }
 
-  // Airport: prefer ones with IATA codes (always commercial).
+  // Airport: rank by a quality score, then distance.
+  //   commercial-international score:
+  //     +3 if aerodrome:type=international
+  //     +2 if has iata code (commercial proxy)
+  //     +1 if aerodrome:type=regional OR has icao code
+  //     -5 if aerodrome:type=private or name contains "private"
+  //     -3 if aerodrome:type=military
+  // This way Athens Eleftherios Venizelos (international + IATA)
+  // wins over Porto Cheli Private Aerodrome (IATA but private).
+  function airportScore(e: OverpassElement): number {
+    const t = e.tags || {};
+    const name = (t.name || t["name:en"] || "").toLowerCase();
+    let s = 0;
+    if (t["aerodrome:type"] === "international") s += 3;
+    if (t.iata) s += 2;
+    if (t["aerodrome:type"] === "regional") s += 1;
+    if (t.icao) s += 1;
+    if (t["aerodrome:type"] === "private" || name.includes("private")) s -= 5;
+    if (t["aerodrome:type"] === "military") s -= 3;
+    return s;
+  }
   aerodromes.sort((a, b) => {
-    const aIata = a.e.tags?.iata ? 1 : 0;
-    const bIata = b.e.tags?.iata ? 1 : 0;
-    if (aIata !== bIata) return bIata - aIata;
+    const aS = airportScore(a.e);
+    const bS = airportScore(b.e);
+    if (aS !== bS) return bS - aS;
     return a.dKm - b.dKm;
   });
-  const bestAirport = aerodromes[0] || null;
+  // Reject negative-score aerodromes entirely — better no airport
+  // than a tiny private strip the UHNW client can't actually use.
+  const bestAirport =
+    aerodromes[0] && airportScore(aerodromes[0].e) >= 0
+      ? aerodromes[0]
+      : null;
 
   helipads.sort((a, b) => a.dKm - b.dKm);
   const bestHelipad = helipads[0] || null;

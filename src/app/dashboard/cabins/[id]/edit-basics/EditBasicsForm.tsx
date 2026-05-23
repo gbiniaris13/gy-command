@@ -60,6 +60,20 @@ export default function EditBasicsForm({
   );
   const [refreshingNearby, setRefreshingNearby] = useState(false);
 
+  // 2026-05-23 — Sync local `nearby` state when the parent's
+  // `nearbyState` prop changes (which happens after router.refresh()
+  // re-runs page.tsx and re-passes fresh server data). Without this
+  // useEffect, the panel keeps showing the stale ✗ summary even
+  // though the database is freshly populated — useState only honors
+  // the initial value, not subsequent prop updates.
+  useEffect(() => {
+    if (nearbyState) setNearby(nearbyState);
+  }, [
+    nearbyState?.fetched_at,
+    nearbyState?.summary,
+    nearbyState?.error,
+  ]);
+
   async function refreshNearby() {
     setRefreshingNearby(true);
     try {
