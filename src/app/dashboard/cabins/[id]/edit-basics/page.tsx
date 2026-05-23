@@ -47,6 +47,10 @@ export default async function EditCabinBasicsPage({
         hostess_name_internal: cabin.hostess_name_internal ?? "",
         charter_fee_eur: cabin.charter_fee_eur != null ? String(cabin.charter_fee_eur) : "",
         apa_eur: cabin.apa_eur != null ? String(cabin.apa_eur) : "",
+        // 2026-05-23 — Berth Map Phase 1.
+        berth_label: cabin.berth_label ?? "",
+        berth_lat: cabin.berth_lat != null ? String(cabin.berth_lat) : "",
+        berth_lng: cabin.berth_lng != null ? String(cabin.berth_lng) : "",
       }}
     />
   );

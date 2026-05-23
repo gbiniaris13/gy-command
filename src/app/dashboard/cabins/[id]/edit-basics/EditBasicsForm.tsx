@@ -30,6 +30,10 @@ type FormState = {
   hostess_name_internal: string;
   charter_fee_eur: string;
   apa_eur: string;
+  // 2026-05-23 — Berth Map Phase 1.
+  berth_label: string;
+  berth_lat: string;
+  berth_lng: string;
 };
 
 const CRUISING_AREAS = ["Cyclades", "Saronic", "Ionian", "Sporades", "Dodecanese", "Northern Greece", "Mixed", "Other"];
@@ -53,6 +57,49 @@ export default function EditBasicsForm({
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeMsg, setGeocodeMsg] = useState<string | null>(null);
+
+  // 2026-05-23 — Free geocoding via OpenStreetMap Nominatim.
+  // No key, but they ask for a polite User-Agent and ≤1 req/sec.
+  // We only fire on explicit button press, so quota is irrelevant.
+  async function geocodeFromLabel() {
+    const q = form.berth_label.trim();
+    if (!q) {
+      setGeocodeMsg("Type a berth label first (e.g. 'Alimos Marina Pier 6').");
+      return;
+    }
+    setGeocoding(true);
+    setGeocodeMsg(null);
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+        { headers: { "Accept-Language": "en" } },
+      );
+      const arr = await r.json();
+      if (!Array.isArray(arr) || arr.length === 0) {
+        setGeocodeMsg("Couldn't find that location. Try a more recognisable form (e.g. 'Alimos Marina, Athens').");
+        return;
+      }
+      const hit = arr[0];
+      const lat = Number(hit.lat);
+      const lng = Number(hit.lon);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        setForm((f) => ({
+          ...f,
+          berth_lat: lat.toFixed(6),
+          berth_lng: lng.toFixed(6),
+        }));
+        setGeocodeMsg(`Pinned · ${hit.display_name?.slice(0, 80) || ""}`);
+      } else {
+        setGeocodeMsg("Couldn't parse that location.");
+      }
+    } catch {
+      setGeocodeMsg("Geocoder unreachable — you can paste lat/lng manually.");
+    } finally {
+      setGeocoding(false);
+    }
+  }
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -87,6 +134,16 @@ export default function EditBasicsForm({
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   }
+  // Latitude must be in [-90, 90], longitude in [-180, 180]. Bad
+  // input is rejected silently → null → DB column cleared.
+  function latOrNull(v: string): number | null {
+    const n = numOrNull(v);
+    return n != null && n >= -90 && n <= 90 ? n : null;
+  }
+  function lngOrNull(v: string): number | null {
+    const n = numOrNull(v);
+    return n != null && n >= -180 && n <= 180 ? n : null;
+  }
 
   function buildPayload(): Record<string, unknown> {
     return {
@@ -108,6 +165,12 @@ export default function EditBasicsForm({
       hostess_name_internal: strOrNull(form.hostess_name_internal),
       charter_fee_eur: numOrNull(form.charter_fee_eur),
       apa_eur: numOrNull(form.apa_eur),
+      // 2026-05-23 — Berth Map fields. lat/lng must validate as
+      // finite numbers in the realistic earth range; otherwise sent
+      // as null so a bad paste doesn't corrupt the DB.
+      berth_label: strOrNull(form.berth_label),
+      berth_lat: latOrNull(form.berth_lat),
+      berth_lng: lngOrNull(form.berth_lng),
     };
   }
 
@@ -378,6 +441,81 @@ export default function EditBasicsForm({
                 <input type="text" value={form.homeport}
                   onChange={(e) => set("homeport", e.target.value)}
                   placeholder="Piraeus · Alimos · Lavrio …" />
+              </label>
+            </div>
+          </div>
+
+          {/* ────── Berth & map (2026-05-23) ────── */}
+          <div className="section">
+            <h2>Berth &amp; map</h2>
+            <p className="lede">
+              The exact berth shown on the customer&apos;s cabin home.
+              Type the marina + pier, hit &ldquo;Find&rdquo;, and we look
+              up the coordinates from OpenStreetMap (free, no key).
+              Leave everything blank to hide the map block entirely.
+            </p>
+            <div className="grid2">
+              <label style={{ gridColumn: "1 / -1" }}>
+                <span>Berth label</span>
+                <input
+                  type="text"
+                  value={form.berth_label}
+                  onChange={(e) => set("berth_label", e.target.value)}
+                  placeholder="Alimos Marina · Pier 6"
+                />
+              </label>
+              <label style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "#4b5563" }}>
+                  Customer sees this map preview on /cabin home with the
+                  pin at the coordinates below + a quiet legal footnote
+                  about possible port-authority changes.
+                </span>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={geocodeFromLabel}
+                    disabled={geocoding || !form.berth_label.trim()}
+                    style={{
+                      background: "#C9A84C",
+                      color: "#0D1B2A",
+                      border: 0,
+                      padding: "8px 16px",
+                      fontSize: 10.5,
+                      letterSpacing: 2,
+                      textTransform: "uppercase",
+                      cursor: geocoding ? "wait" : "pointer",
+                      fontFamily: "inherit",
+                      opacity: geocoding || !form.berth_label.trim() ? 0.55 : 1,
+                    }}
+                  >
+                    {geocoding ? "Looking up…" : "↗ Find on OpenStreetMap"}
+                  </button>
+                  {geocodeMsg && (
+                    <span style={{ fontSize: 12, color: "#4b5563", fontStyle: "italic" }}>
+                      {geocodeMsg}
+                    </span>
+                  )}
+                </div>
+              </label>
+              <label>
+                <span>Latitude</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={form.berth_lat}
+                  onChange={(e) => set("berth_lat", e.target.value)}
+                  placeholder="37.9215"
+                />
+              </label>
+              <label>
+                <span>Longitude</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={form.berth_lng}
+                  onChange={(e) => set("berth_lng", e.target.value)}
+                  placeholder="23.7044"
+                />
               </label>
             </div>
           </div>

@@ -30,6 +30,8 @@ const ALLOWED_FIELDS = new Set([
   "central_agent_internal", "vessel_owner_internal",
   "charter_fee_eur", "apa_eur",
   "myba_contract_number",
+  // 2026-05-23 — Berth Map Phase 1.
+  "berth_label", "berth_lat", "berth_lng",
 ]);
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
