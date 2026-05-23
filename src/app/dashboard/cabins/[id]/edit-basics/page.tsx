@@ -10,7 +10,7 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCabin } from "@/lib/cabin-admin";
+import { getCabin, refreshBerthNearby } from "@/lib/cabin-admin";
 import EditBasicsForm from "./EditBasicsForm";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,32 @@ export default async function EditCabinBasicsPage({
   const { id } = await params;
   const cabin = await getCabin(id);
   if (!cabin) notFound();
+
+  // 2026-05-23 — Berth Map Phase 2 backfill.
+  // George's directive: "Αυτόματα θέλω να γίνεται, δεν θα τα κάνω
+  // εγώ χειροκίνητα." Most cabins had berth coordinates set BEFORE
+  // Phase 2 deployed, so updateCabin()'s save-time hook hasn't run
+  // for them. Fire here as a one-time background backfill: opens the
+  // Edit Basics page once → background fetch fills berth_nearby
+  // within ~10s → next page reload shows the data. Zero clicks.
+  const hasBerthCoords =
+    typeof cabin.berth_lat === "number" &&
+    typeof cabin.berth_lng === "number" &&
+    Number.isFinite(cabin.berth_lat) &&
+    Number.isFinite(cabin.berth_lng);
+  const hasCachedNearby = !!cabin.berth_nearby;
+  if (hasBerthCoords && !hasCachedNearby) {
+    // Fire-and-forget. Page renders immediately. If Overpass/OSRM
+    // are slow, the panel will show "Not fetched yet" on first
+    // load and the data appears on next router.refresh() / reload.
+    void refreshBerthNearby(
+      id,
+      cabin.berth_lat as number,
+      cabin.berth_lng as number,
+    ).catch((e) =>
+      console.error("[edit-basics] auto-backfill berth_nearby failed:", e),
+    );
+  }
 
   return (
     <EditBasicsForm
