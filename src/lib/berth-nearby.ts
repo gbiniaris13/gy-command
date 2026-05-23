@@ -185,273 +185,23 @@ async function driveRoute(
   }
 }
 
-// --------------------------------------------------------------
-// Individual fetchers — each returns null on any failure.
-// All Overpass queries use a generous radius and we sort + pick
-// the best client-side, so we're never dependent on Overpass'
-// sort behaviour.
-// --------------------------------------------------------------
-
-// Nearest international/regional aerodrome (commercial airport).
-// We deliberately filter for `aerodrome:type=international|regional`
-// — small grass airstrips don't count for a UHNW client.
-async function fetchNearestAirport(
-  lat: number,
-  lng: number,
-): Promise<NearbyAirport | null> {
-  // 2026-05-23 — broadened the query. The previous filter required
-  // `aerodrome:type=international|regional` which is OPTIONAL in OSM
-  // and missing from many entries (incl. some Greek aerodromes).
-  // Now we pull ALL aerodromes + everything with an IATA code, then
-  // CLIENT-side filter out tiny grass strips by requiring iata OR
-  // a name with "international/airport" hints. This is much more
-  // tolerant of OSM tagging inconsistency.
-  const query = `
-    [out:json][timeout:20];
-    (
-      node["aeroway"="aerodrome"](around:150000, ${lat}, ${lng});
-      way["aeroway"="aerodrome"](around:150000, ${lat}, ${lng});
-    );
-    out center tags;
-  `;
-  // No try/catch here — let exceptions propagate to Promise.allSettled
-  // so the partial flag in fetchAllNearby reflects reality.
-  const r = await overpass(query);
-  const candidates = r.elements
-    .map((e) => {
-      const ll = elemLatLng(e);
-      if (!ll) return null;
-      const dKm = haversineKm(lat, lng, ll[0], ll[1]);
-      return { e, ll, dKm };
-    })
-    .filter((x): x is { e: OverpassElement; ll: [number, number]; dKm: number } => x !== null)
-    // Prefer airports with IATA codes (always commercial). Fall back
-    // to any aerodrome that has a name, sorted by distance.
-    .sort((a, b) => {
-      const aIata = a.e.tags?.iata ? 1 : 0;
-      const bIata = b.e.tags?.iata ? 1 : 0;
-      if (aIata !== bIata) return bIata - aIata;
-      return a.dKm - b.dKm;
-    });
-
-  const best = candidates[0];
-  if (!best) return null;
-
-  const tags = best.e.tags || {};
-  const name =
-    tags["name:en"] ||
-    tags["int_name"] ||
-    tags["name"] ||
-    `Airport (${tags.iata || "unnamed"})`;
-
-  const type: NearbyAirport["type"] =
-    tags["aerodrome:type"] === "international" || tags.iata
-      ? "international"
-      : tags["aerodrome:type"] === "regional"
-      ? "regional"
-      : "private";
-
-  const drive = await driveRoute(lat, lng, best.ll[0], best.ll[1]);
-
-  return {
-    name,
-    lat: best.ll[0],
-    lng: best.ll[1],
-    distance_km: round1(best.dKm),
-    drive_minutes: drive ? Math.round(drive.minutes) : null,
-    drive_km: drive ? round1(drive.km) : null,
-    iata: tags.iata ?? null,
-    type,
-  };
-}
-
-async function fetchNearestHelipad(
-  lat: number,
-  lng: number,
-): Promise<NearbyHelipad | null> {
-  const query = `
-    [out:json][timeout:20];
-    (
-      node["aeroway"~"helipad|heliport"](around:40000, ${lat}, ${lng});
-      way["aeroway"~"helipad|heliport"](around:40000, ${lat}, ${lng});
-    );
-    out center tags;
-  `;
-  const r = await overpass(query);
-  const candidates = r.elements
-    .map((e) => {
-      const ll = elemLatLng(e);
-      if (!ll) return null;
-      return { e, ll, dKm: haversineKm(lat, lng, ll[0], ll[1]) };
-    })
-    .filter((x): x is { e: OverpassElement; ll: [number, number]; dKm: number } => x !== null)
-    .sort((a, b) => a.dKm - b.dKm);
-
-  const best = candidates[0];
-  if (!best) return null;
-
-  const tags = best.e.tags || {};
-  const name =
-    tags["name:en"] || tags.name || (tags.aeroway === "heliport" ? "Heliport" : "Helipad");
-
-  const drive = await driveRoute(lat, lng, best.ll[0], best.ll[1]);
-
-  return {
-    name,
-    lat: best.ll[0],
-    lng: best.ll[1],
-    distance_km: round1(best.dKm),
-    drive_minutes: drive ? Math.round(drive.minutes) : null,
-    drive_km: drive ? round1(drive.km) : null,
-  };
-}
-
-async function fetchNearestATMs(
-  lat: number,
-  lng: number,
-): Promise<NearbyATM[]> {
-  // Within 1.5km of the berth (bumped from 1km — some marinas have
-  // the nearest bank slightly outside the marina gate). Pelagic
-  // luxury client isn't walking 2km but the captain or crew can
-  // grab the cash if needed.
-  const query = `
-    [out:json][timeout:20];
-    (
-      node["amenity"="atm"](around:1500, ${lat}, ${lng});
-      node["amenity"="bank"]["atm"!="no"](around:1500, ${lat}, ${lng});
-      way["amenity"="bank"]["atm"!="no"](around:1500, ${lat}, ${lng});
-    );
-    out center tags;
-  `;
-  const r = await overpass(query);
-  const candidates = r.elements
-    .map((e) => {
-      const ll = elemLatLng(e);
-      if (!ll) return null;
-      return { e, ll, dKm: haversineKm(lat, lng, ll[0], ll[1]) };
-    })
-    .filter((x): x is { e: OverpassElement; ll: [number, number]; dKm: number } => x !== null)
-    .sort((a, b) => a.dKm - b.dKm)
-    .slice(0, 3);
-
-  return candidates.map((c) => {
-    const tags = c.e.tags || {};
-    const operator =
-      tags.operator || tags.brand || tags.name || null;
-    const displayName = operator || "ATM";
-    return {
-      name: displayName,
-      lat: c.ll[0],
-      lng: c.ll[1],
-      distance_km: round1(c.dKm),
-      drive_minutes: null, // ATMs are walkable; meters matter, not minutes
-      drive_km: null,
-      operator,
-    };
-  });
-}
-
-async function fetchNearestHospital(
-  lat: number,
-  lng: number,
-): Promise<NearbyPlace | null> {
-  // Within 30km. Prefer hospitals over clinics/doctors.
-  const query = `
-    [out:json][timeout:20];
-    (
-      node["amenity"="hospital"](around:30000, ${lat}, ${lng});
-      way["amenity"="hospital"](around:30000, ${lat}, ${lng});
-      node["healthcare"="hospital"](around:30000, ${lat}, ${lng});
-      way["healthcare"="hospital"](around:30000, ${lat}, ${lng});
-    );
-    out center tags;
-  `;
-  const r = await overpass(query);
-  const candidates = r.elements
-    .map((e) => {
-      const ll = elemLatLng(e);
-      if (!ll) return null;
-      return { e, ll, dKm: haversineKm(lat, lng, ll[0], ll[1]) };
-    })
-    .filter((x): x is { e: OverpassElement; ll: [number, number]; dKm: number } => x !== null)
-    .sort((a, b) => a.dKm - b.dKm);
-
-  const best = candidates[0];
-  if (!best) return null;
-  const tags = best.e.tags || {};
-  const name =
-    tags["name:en"] || tags.name || "Hospital";
-
-  const drive = await driveRoute(lat, lng, best.ll[0], best.ll[1]);
-
-  return {
-    name,
-    lat: best.ll[0],
-    lng: best.ll[1],
-    distance_km: round1(best.dKm),
-    drive_minutes: drive ? Math.round(drive.minutes) : null,
-    drive_km: drive ? round1(drive.km) : null,
-  };
-}
-
-async function fetchNearestPharmacy(
-  lat: number,
-  lng: number,
-): Promise<NearbyPharmacy | null> {
-  // Within 2km. Prefer 24/7 pharmacies if any exist nearby.
-  const query = `
-    [out:json][timeout:20];
-    (
-      node["amenity"="pharmacy"](around:2000, ${lat}, ${lng});
-      way["amenity"="pharmacy"](around:2000, ${lat}, ${lng});
-    );
-    out center tags;
-  `;
-  const r = await overpass(query);
-  const candidates = r.elements
-    .map((e) => {
-      const ll = elemLatLng(e);
-      if (!ll) return null;
-      const tags = e.tags || {};
-      const is24h = (tags["opening_hours"] || "").includes("24/7");
-      return {
-        e,
-        ll,
-        dKm: haversineKm(lat, lng, ll[0], ll[1]),
-        is24h,
-      };
-    })
-    .filter((x): x is { e: OverpassElement; ll: [number, number]; dKm: number; is24h: boolean } => x !== null);
-
-  // Prefer 24/7 if available, otherwise nearest.
-  candidates.sort((a, b) => {
-    if (a.is24h !== b.is24h) return a.is24h ? -1 : 1;
-    return a.dKm - b.dKm;
-  });
-
-  const best = candidates[0];
-  if (!best) return null;
-  const tags = best.e.tags || {};
-  const name = tags["name:en"] || tags.name || "Pharmacy";
-
-  return {
-    name,
-    lat: best.ll[0],
-    lng: best.ll[1],
-    distance_km: round1(best.dKm),
-    drive_minutes: null, // walking distance category
-    drive_km: null,
-    twentyfour_hour: best.is24h,
-  };
-}
-
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
 // --------------------------------------------------------------
-// Orchestrator — runs all fetchers in parallel, returns whatever
-// succeeded. NEVER throws. Caller decides what to do with partial.
+// Orchestrator — ONE Overpass call for all 5 categories.
+//
+// 2026-05-23 — First production test hit 429 from BOTH Overpass
+// mirrors because we fired 5 parallel queries simultaneously and
+// got rate-limited as a perceived abuse pattern. Fix: union-query
+// everything into a SINGLE request, bucket the results client-side.
+// One Overpass call instead of five. Then 0-3 sequential OSRM calls
+// (only for categories that show driving time: airport, helipad,
+// hospital — never for walkable ATMs/pharmacy).
+//
+// Total external calls per refresh: 1 Overpass + ≤3 OSRM = 4.
+// Down from 5 + ≤3 = 8 before, and far gentler on the mirrors.
 // --------------------------------------------------------------
 export async function fetchAllNearby(
   lat: number,
@@ -470,46 +220,218 @@ export async function fetchAllNearby(
     };
   }
 
-  const results = await Promise.allSettled([
-    fetchNearestAirport(lat, lng),
-    fetchNearestHelipad(lat, lng),
-    fetchNearestATMs(lat, lng),
-    fetchNearestHospital(lat, lng),
-    fetchNearestPharmacy(lat, lng),
-  ]);
-
-  const [airportR, helipadR, atmsR, hospitalR, pharmacyR] = results;
   const errors: string[] = [];
 
-  const airport =
-    airportR.status === "fulfilled"
-      ? airportR.value
-      : (errors.push(`airport: ${airportR.reason}`), null);
-  const helipad =
-    helipadR.status === "fulfilled"
-      ? helipadR.value
-      : (errors.push(`helipad: ${helipadR.reason}`), null);
-  const atms =
-    atmsR.status === "fulfilled"
-      ? atmsR.value
-      : (errors.push(`atms: ${atmsR.reason}`), [] as NearbyATM[]);
-  const hospital =
-    hospitalR.status === "fulfilled"
-      ? hospitalR.value
-      : (errors.push(`hospital: ${hospitalR.reason}`), null);
-  const pharmacy =
-    pharmacyR.status === "fulfilled"
-      ? pharmacyR.value
-      : (errors.push(`pharmacy: ${pharmacyR.reason}`), null);
+  // ONE unified Overpass query for all 5 categories. Each element
+  // carries enough tag info to identify its category client-side.
+  const unionQuery = `
+    [out:json][timeout:25];
+    (
+      node["aeroway"="aerodrome"](around:150000, ${lat}, ${lng});
+      way["aeroway"="aerodrome"](around:150000, ${lat}, ${lng});
+      node["aeroway"~"helipad|heliport"](around:40000, ${lat}, ${lng});
+      way["aeroway"~"helipad|heliport"](around:40000, ${lat}, ${lng});
+      node["amenity"="atm"](around:1500, ${lat}, ${lng});
+      node["amenity"="bank"]["atm"!="no"](around:1500, ${lat}, ${lng});
+      way["amenity"="bank"]["atm"!="no"](around:1500, ${lat}, ${lng});
+      node["amenity"="hospital"](around:30000, ${lat}, ${lng});
+      way["amenity"="hospital"](around:30000, ${lat}, ${lng});
+      node["healthcare"="hospital"](around:30000, ${lat}, ${lng});
+      way["healthcare"="hospital"](around:30000, ${lat}, ${lng});
+      node["amenity"="pharmacy"](around:2000, ${lat}, ${lng});
+      way["amenity"="pharmacy"](around:2000, ${lat}, ${lng});
+    );
+    out center tags;
+  `;
+
+  let elements: OverpassElement[] = [];
+  try {
+    const r = await overpass(unionQuery);
+    elements = r.elements;
+  } catch (e) {
+    errors.push(`overpass: ${(e as Error).message}`);
+    return {
+      airport: null,
+      helipad: null,
+      atms: [],
+      hospital: null,
+      pharmacy: null,
+      generated_at: new Date().toISOString(),
+      partial: true,
+      errors,
+    };
+  }
+
+  // Bucket elements by category using their tags. One pass.
+  const aerodromes: { e: OverpassElement; ll: [number, number]; dKm: number }[] = [];
+  const helipads: { e: OverpassElement; ll: [number, number]; dKm: number }[] = [];
+  const atms: { e: OverpassElement; ll: [number, number]; dKm: number }[] = [];
+  const hospitals: { e: OverpassElement; ll: [number, number]; dKm: number }[] = [];
+  const pharmacies: { e: OverpassElement; ll: [number, number]; dKm: number; is24h: boolean }[] = [];
+
+  for (const e of elements) {
+    const ll = elemLatLng(e);
+    if (!ll) continue;
+    const dKm = haversineKm(lat, lng, ll[0], ll[1]);
+    const tags = e.tags || {};
+    if (tags.aeroway === "aerodrome") {
+      aerodromes.push({ e, ll, dKm });
+    } else if (tags.aeroway === "helipad" || tags.aeroway === "heliport") {
+      helipads.push({ e, ll, dKm });
+    } else if (tags.amenity === "atm" || tags.amenity === "bank") {
+      // Distance gate — only within 1.5km (already filtered by query
+      // but defence-in-depth).
+      if (dKm <= 1.6) atms.push({ e, ll, dKm });
+    } else if (tags.amenity === "hospital" || tags.healthcare === "hospital") {
+      hospitals.push({ e, ll, dKm });
+    } else if (tags.amenity === "pharmacy") {
+      const is24h = (tags["opening_hours"] || "").includes("24/7");
+      pharmacies.push({ e, ll, dKm, is24h });
+    }
+  }
+
+  // Airport: prefer ones with IATA codes (always commercial).
+  aerodromes.sort((a, b) => {
+    const aIata = a.e.tags?.iata ? 1 : 0;
+    const bIata = b.e.tags?.iata ? 1 : 0;
+    if (aIata !== bIata) return bIata - aIata;
+    return a.dKm - b.dKm;
+  });
+  const bestAirport = aerodromes[0] || null;
+
+  helipads.sort((a, b) => a.dKm - b.dKm);
+  const bestHelipad = helipads[0] || null;
+
+  atms.sort((a, b) => a.dKm - b.dKm);
+
+  hospitals.sort((a, b) => a.dKm - b.dKm);
+  const bestHospital = hospitals[0] || null;
+
+  // Pharmacy: prefer 24/7 if any, otherwise nearest.
+  pharmacies.sort((a, b) => {
+    if (a.is24h !== b.is24h) return a.is24h ? -1 : 1;
+    return a.dKm - b.dKm;
+  });
+  const bestPharmacy = pharmacies[0] || null;
+
+  // OSRM driving routes for the 3 categories that show drive time.
+  // Done SEQUENTIALLY with small delays so we don't get rate-limited
+  // on the public demo server.
+  let airportDrive: { km: number; minutes: number } | null = null;
+  let helipadDrive: { km: number; minutes: number } | null = null;
+  let hospitalDrive: { km: number; minutes: number } | null = null;
+
+  if (bestAirport) {
+    airportDrive = await driveRoute(lat, lng, bestAirport.ll[0], bestAirport.ll[1]);
+    await sleep(300);
+  }
+  if (bestHelipad) {
+    helipadDrive = await driveRoute(lat, lng, bestHelipad.ll[0], bestHelipad.ll[1]);
+    await sleep(300);
+  }
+  if (bestHospital) {
+    hospitalDrive = await driveRoute(lat, lng, bestHospital.ll[0], bestHospital.ll[1]);
+  }
+
+  // Build the result objects.
+  const airport: NearbyAirport | null = bestAirport
+    ? (() => {
+        const tags = bestAirport.e.tags || {};
+        const type: NearbyAirport["type"] =
+          tags["aerodrome:type"] === "international" || tags.iata
+            ? "international"
+            : tags["aerodrome:type"] === "regional"
+            ? "regional"
+            : "private";
+        return {
+          name:
+            tags["name:en"] ||
+            tags["int_name"] ||
+            tags["name"] ||
+            `Airport (${tags.iata || "unnamed"})`,
+          lat: bestAirport.ll[0],
+          lng: bestAirport.ll[1],
+          distance_km: round1(bestAirport.dKm),
+          drive_minutes: airportDrive ? Math.round(airportDrive.minutes) : null,
+          drive_km: airportDrive ? round1(airportDrive.km) : null,
+          iata: tags.iata ?? null,
+          type,
+        };
+      })()
+    : null;
+
+  const helipad: NearbyHelipad | null = bestHelipad
+    ? (() => {
+        const tags = bestHelipad.e.tags || {};
+        return {
+          name:
+            tags["name:en"] ||
+            tags.name ||
+            (tags.aeroway === "heliport" ? "Heliport" : "Helipad"),
+          lat: bestHelipad.ll[0],
+          lng: bestHelipad.ll[1],
+          distance_km: round1(bestHelipad.dKm),
+          drive_minutes: helipadDrive ? Math.round(helipadDrive.minutes) : null,
+          drive_km: helipadDrive ? round1(helipadDrive.km) : null,
+        };
+      })()
+    : null;
+
+  const atmsOut: NearbyATM[] = atms.slice(0, 3).map((c) => {
+    const tags = c.e.tags || {};
+    const operator = tags.operator || tags.brand || tags.name || null;
+    return {
+      name: operator || "ATM",
+      lat: c.ll[0],
+      lng: c.ll[1],
+      distance_km: round1(c.dKm),
+      drive_minutes: null,
+      drive_km: null,
+      operator,
+    };
+  });
+
+  const hospital: NearbyPlace | null = bestHospital
+    ? {
+        name:
+          (bestHospital.e.tags || {})["name:en"] ||
+          (bestHospital.e.tags || {}).name ||
+          "Hospital",
+        lat: bestHospital.ll[0],
+        lng: bestHospital.ll[1],
+        distance_km: round1(bestHospital.dKm),
+        drive_minutes: hospitalDrive ? Math.round(hospitalDrive.minutes) : null,
+        drive_km: hospitalDrive ? round1(hospitalDrive.km) : null,
+      }
+    : null;
+
+  const pharmacy: NearbyPharmacy | null = bestPharmacy
+    ? {
+        name:
+          (bestPharmacy.e.tags || {})["name:en"] ||
+          (bestPharmacy.e.tags || {}).name ||
+          "Pharmacy",
+        lat: bestPharmacy.ll[0],
+        lng: bestPharmacy.ll[1],
+        distance_km: round1(bestPharmacy.dKm),
+        drive_minutes: null,
+        drive_km: null,
+        twentyfour_hour: bestPharmacy.is24h,
+      }
+    : null;
 
   return {
     airport,
     helipad,
-    atms,
+    atms: atmsOut,
     hospital,
     pharmacy,
     generated_at: new Date().toISOString(),
     partial: errors.length > 0,
     ...(errors.length ? { errors } : {}),
   };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
