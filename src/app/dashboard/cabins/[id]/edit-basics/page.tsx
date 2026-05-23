@@ -52,6 +52,28 @@ export default async function EditCabinBasicsPage({
         berth_lat: cabin.berth_lat != null ? String(cabin.berth_lat) : "",
         berth_lng: cabin.berth_lng != null ? String(cabin.berth_lng) : "",
       }}
+      nearbyState={{
+        // 2026-05-23 — Berth Map Phase 2 status panel.
+        fetched_at: cabin.berth_nearby_fetched_at ?? null,
+        error: cabin.berth_nearby_error ?? null,
+        summary: summariseNearby(cabin.berth_nearby),
+      }}
     />
   );
+}
+
+// Compact one-liner for the CRM panel — "Airport ✓ · Helipad ✓ ·
+// 3 ATMs · Hospital ✓ · Pharmacy ✓" — so George sees at a glance
+// what got fetched without expanding anything.
+function summariseNearby(nearby: unknown): string | null {
+  if (!nearby || typeof nearby !== "object") return null;
+  const n = nearby as Record<string, unknown>;
+  const parts: string[] = [];
+  if (n.airport) parts.push("Airport ✓");
+  if (n.helipad) parts.push("Helipad ✓");
+  const atms = Array.isArray(n.atms) ? n.atms.length : 0;
+  parts.push(atms > 0 ? `${atms} ATM${atms === 1 ? "" : "s"}` : "ATMs ✗");
+  if (n.hospital) parts.push("Hospital ✓");
+  if (n.pharmacy) parts.push("Pharmacy ✓");
+  return parts.join(" · ");
 }

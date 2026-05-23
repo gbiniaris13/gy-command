@@ -194,7 +194,76 @@ export async function updateCabin(id: string, patch: Record<string, unknown>, ac
     );
   }
 
+  // 2026-05-23 — Berth Map Phase 2: when berth coordinates change,
+  // refresh the cached nearby info (airport / helipad / ATMs /
+  // hospital / pharmacy). Fire-and-forget — the cabin save has
+  // already succeeded; this is best-effort background enrichment.
+  // If Overpass / OSRM are down, berth_nearby_error gets recorded
+  // and we log; the cabin row is otherwise intact.
+  if ("berth_lat" in patch || "berth_lng" in patch) {
+    const lat = Number(data?.berth_lat);
+    const lng = Number(data?.berth_lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      void refreshBerthNearby(id, lat, lng).catch((e) =>
+        console.error("[berth-nearby] refresh failed for cabin", id, e)
+      );
+    }
+  }
+
   return data;
+}
+
+// 2026-05-23 — Berth Map Phase 2.
+// Refresh the cached nearby info for a cabin. Called fire-and-forget
+// from updateCabin when berth coordinates change, OR directly by the
+// "Refresh nearby" button in EditBasicsForm.
+//
+// Always writes berth_nearby_fetched_at to mark the attempt. On
+// fetch failure, writes berth_nearby_error and leaves berth_nearby
+// at its previous value (so we don't blank out good data because
+// of a transient Overpass outage).
+export async function refreshBerthNearby(
+  cabinId: string,
+  lat: number,
+  lng: number,
+): Promise<{ ok: boolean; partial: boolean; errors?: string[] }> {
+  const { fetchAllNearby } = await import("./berth-nearby");
+  const db = createServiceClient();
+
+  try {
+    const result = await fetchAllNearby(lat, lng);
+
+    const patch: Record<string, unknown> = {
+      berth_nearby: result,
+      berth_nearby_fetched_at: result.generated_at,
+      berth_nearby_error: result.partial
+        ? `partial: ${(result.errors || []).join("; ")}`
+        : null,
+    };
+    const { error } = await db
+      .from("cabins")
+      .update(patch)
+      .eq("id", cabinId);
+    if (error) throw new Error(error.message);
+
+    return {
+      ok: true,
+      partial: !!result.partial,
+      errors: result.errors,
+    };
+  } catch (e) {
+    const msg = (e as Error).message;
+    // Don't blank berth_nearby — preserve last-good result. Just
+    // record the error and the attempt timestamp.
+    await db
+      .from("cabins")
+      .update({
+        berth_nearby_error: msg,
+        berth_nearby_fetched_at: new Date().toISOString(),
+      })
+      .eq("id", cabinId);
+    return { ok: false, partial: true, errors: [msg] };
+  }
 }
 
 async function triggerAutoAnchors(cabinId: string, actorEmail: string) {

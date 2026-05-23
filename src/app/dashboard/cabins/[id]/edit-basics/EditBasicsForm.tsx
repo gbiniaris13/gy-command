@@ -39,14 +39,60 @@ type FormState = {
 
 const CRUISING_AREAS = ["Cyclades", "Saronic", "Ionian", "Sporades", "Dodecanese", "Northern Greece", "Mixed", "Other"];
 
+interface NearbyState {
+  fetched_at: string | null;
+  error: string | null;
+  summary: string | null;
+}
+
 export default function EditBasicsForm({
   cabinId,
   initial,
+  nearbyState,
 }: {
   cabinId: string;
   initial: FormState;
+  nearbyState?: NearbyState;
 }) {
   const router = useRouter();
+  const [nearby, setNearby] = useState<NearbyState>(
+    nearbyState ?? { fetched_at: null, error: null, summary: null },
+  );
+  const [refreshingNearby, setRefreshingNearby] = useState(false);
+
+  async function refreshNearby() {
+    setRefreshingNearby(true);
+    try {
+      const r = await fetch(`/api/cabins/${cabinId}/refresh-nearby`, {
+        method: "POST",
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setNearby((n) => ({
+          ...n,
+          error: j.error || `HTTP ${r.status}`,
+          fetched_at: new Date().toISOString(),
+        }));
+        return;
+      }
+      // Server-side has already updated the DB. Reload page-level
+      // data so the summary one-liner reflects the new counts.
+      router.refresh();
+      setNearby((n) => ({
+        ...n,
+        error: j.partial ? (j.errors || []).join("; ") : null,
+        fetched_at: new Date().toISOString(),
+      }));
+    } catch (e) {
+      setNearby((n) => ({
+        ...n,
+        error: (e as Error).message,
+        fetched_at: new Date().toISOString(),
+      }));
+    } finally {
+      setRefreshingNearby(false);
+    }
+  }
 
   useEffect(() => {
     document.body.classList.add("cabin-form-mode");
@@ -582,6 +628,109 @@ export default function EditBasicsForm({
                   set("berth_lng", lng.toFixed(6));
                 }}
               />
+              {/* 2026-05-23 — Berth Map Phase 2: nearby info panel.
+                  Auto-refreshes when coords change in updateCabin.
+                  Manual button below for when George wants to force
+                  a re-fetch (e.g. a new ATM opens in the marina). */}
+              <div
+                style={{
+                  gridColumn: "1 / -1",
+                  marginTop: 8,
+                  padding: "14px 16px",
+                  background: "#F7F4EC",
+                  border: "1px solid rgba(13, 27, 42, 0.10)",
+                  borderRadius: 4,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      letterSpacing: 2,
+                      textTransform: "uppercase",
+                      color: "#1f2937",
+                      fontWeight: 600,
+                      marginBottom: 4,
+                    }}
+                  >
+                    Around your berth
+                  </div>
+                  <div style={{ fontSize: 13, color: "#0D1B2A" }}>
+                    {nearby.summary || (
+                      <span style={{ color: "#6b7280", fontStyle: "italic" }}>
+                        Not fetched yet — save berth coords or hit refresh.
+                      </span>
+                    )}
+                  </div>
+                  {nearby.fetched_at && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: "rgba(13, 27, 42, 0.6)",
+                        marginTop: 3,
+                      }}
+                    >
+                      Last refreshed:{" "}
+                      {new Date(nearby.fetched_at).toLocaleString("en-GB", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </div>
+                  )}
+                  {nearby.error && (
+                    <div
+                      style={{
+                        fontSize: 11.5,
+                        color: "#b91c1c",
+                        marginTop: 3,
+                      }}
+                    >
+                      ⚠ {nearby.error}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshNearby}
+                  disabled={
+                    refreshingNearby ||
+                    !form.berth_lat ||
+                    !form.berth_lng
+                  }
+                  style={{
+                    padding: "8px 14px",
+                    background: refreshingNearby ? "#9ca3af" : "#0D1B2A",
+                    color: "#F8F5F0",
+                    border: "1px solid #0D1B2A",
+                    borderRadius: 3,
+                    fontSize: 11,
+                    letterSpacing: 1.6,
+                    textTransform: "uppercase",
+                    cursor:
+                      refreshingNearby ||
+                      !form.berth_lat ||
+                      !form.berth_lng
+                        ? "not-allowed"
+                        : "pointer",
+                    fontWeight: 600,
+                    opacity:
+                      !form.berth_lat || !form.berth_lng ? 0.45 : 1,
+                    whiteSpace: "nowrap",
+                  }}
+                  title={
+                    !form.berth_lat || !form.berth_lng
+                      ? "Set berth coordinates first"
+                      : "Refresh nearby info from OpenStreetMap + OSRM"
+                  }
+                >
+                  {refreshingNearby ? "Refreshing…" : "Refresh nearby"}
+                </button>
+              </div>
             </div>
           </div>
 
