@@ -3,7 +3,7 @@
 // Action bar on the Cabin detail page: concierge toggle, send
 // invite, copy public link, print/PDF, delete cabin.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import SharePreferenceSheetDialog from "./SharePreferenceSheetDialog";
 
@@ -27,6 +27,19 @@ export default function CabinDetailActions({
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
+
+  // Brief 03 / Task 4 — auto-dismiss the action confirmation toast.
+  // Domingo found "✓ Magic link sent to george@georgeyachts.com"
+  // living permanently in the action grid; it should be transient.
+  // Six seconds is enough to read the line, short enough that the
+  // operator doesn't scan a stale message on next visit. The toast
+  // also clears on every fresh mount because `msg` initial state
+  // is null — a refresh or re-render never resurrects it.
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(null), 6000);
+    return () => clearTimeout(t);
+  }, [msg]);
 
   // 2026-05-21 — Open The Cabin as the principal would see it,
   // in a new tab, in read-only mode. The session expires in
@@ -107,13 +120,33 @@ export default function CabinDetailActions({
       >
         {busyKey === "invite" ? "Sending…" : "Send / resend invite ✉"}
       </button>
+      {/* Brief 03 / Task 3 — Concierge mode is now an explicit
+          ON/OFF toggle. Previous "○ CONCIERGE MODE OFF" read twice
+          (operator couldn't tell if it was the current state or the
+          next-state-on-click). The switch dot + the trailing label
+          make state unambiguous: dot left = OFF, dot right = ON;
+          the label tells you which it currently IS, not what
+          clicking will do. Behaviour untouched — clicking still
+          calls POST /api/cabins/:id/concierge with the new state. */}
       <button
         type="button"
-        onClick={() => call("concierge", concierge ? "Concierge mode off" : "Concierge mode on", { on: !concierge })}
+        role="switch"
+        aria-checked={concierge}
+        onClick={() =>
+          call(
+            "concierge",
+            concierge ? "Concierge mode off" : "Concierge mode on",
+            { on: !concierge },
+          )
+        }
         disabled={busyKey === "concierge"}
-        style={concierge ? btnGold : btnGhost}
+        title="When ON, you (the operator) edit the brief on the client's behalf. The cabin shows a gold banner asking the client to confirm before they can write. Use during onboarding and big revisions."
+        style={btnToggle(concierge)}
       >
-        {concierge ? "● Concierge mode ON" : "○ Concierge mode OFF"}
+        <span aria-hidden style={toggleTrack(concierge)}>
+          <span style={toggleDot(concierge)} />
+        </span>
+        <span>Concierge mode: {concierge ? "ON" : "OFF"}</span>
       </button>
       <a
         href={`/dashboard/cabins/${cabinId}/chat`}
@@ -153,34 +186,54 @@ export default function CabinDetailActions({
       >
         Audit log ◷
       </a>
+      {/* Brief 03 / Task 1 — was "Send for review" with no tooltip.
+          The handler hits POST /api/cabins/:id/send-for-review →
+          POST /api/cabin/admin/send-handoff which mints a magic-
+          link OTP and emails the concierge-handoff message to
+          cabin.principal_charterer_email (Resend, via
+          sendConciergeHandoffEmail). Audit line is also written:
+          AUDIT_ACTIONS.CONCIERGE_SENT_FOR_REVIEW.
+          Renamed so the label is honest about the recipient;
+          tooltip spells out the recipient + what they'll see;
+          confirm dialog now includes the exact email address. */}
       <button
         type="button"
         onClick={() => {
-          if (confirm("Send the concierge handoff email to " + principalEmail + "? They will see the banner and the Confirm button.")) {
-            void call("send-for-review", "Handoff email sent");
+          if (
+            confirm(
+              `Send the concierge handoff email to ${principalEmail}?\n\n` +
+                "They will receive a magic-link sign-in and the in-Cabin gold banner asking them to confirm the brief you've prepared on their behalf.",
+            )
+          ) {
+            void call("send-for-review", `Concierge handoff email sent to ${principalEmail}`);
           }
         }}
         disabled={busyKey === "send-for-review"}
         style={btnGhost as React.CSSProperties}
+        title={`Emails the concierge handoff message to ${principalEmail} with a magic sign-in link, and surfaces the "Please confirm" banner inside their Cabin. Use when you've prepared the brief on their behalf in concierge mode.`}
       >
-        {busyKey === "send-for-review" ? "Sending…" : "Send for review"}
+        {busyKey === "send-for-review" ? "Sending…" : "Email handoff to charterer ✉"}
       </button>
+      {/* Brief 03 / Task 2 — printables renamed by AUDIENCE so the
+          operator knows who each PDF is for at a glance. Routes
+          unchanged: /print, /preference-sheet, /crew-list. */}
       <a
         href={`/dashboard/cabins/${cabinId}/print`}
         target="_blank"
         rel="noreferrer"
         style={btnGhost as React.CSSProperties}
+        title="Full internal record — every field, full PII, including encrypted notes. For George's archive only, never share externally."
       >
-        Internal print (full) →
+        Internal record (full PII) →
       </a>
       <a
         href={`/dashboard/cabins/${cabinId}/preference-sheet`}
         target="_blank"
         rel="noreferrer"
         style={btnGhost as React.CSSProperties}
-        title="Charter preferences sheet — open in this browser to review or print"
+        title="Charter preferences sheet for the crew (captain, chef, hostess) and the owner. Open to review or print."
       >
-        Preference sheet →
+        Preferences (crew &amp; owner) →
       </a>
       {/* 2026-05-20 — Friend-test pass 4 (George):
           "Στο GY Command όπως πατάω το preference sheet, να πατάω
@@ -194,9 +247,9 @@ export default function CabinDetailActions({
         target="_blank"
         rel="noreferrer"
         style={btnGhost as React.CSSProperties}
-        title="Crew list for marina paperwork — print or save as PDF. Pulls each guest's self-filled details from The Cabin."
+        title="Crew list formatted for port authorities / marina paperwork. Print or save as PDF. Pulls each guest's self-filled details from The Cabin merged with the manifest."
       >
-        Crew list →
+        Crew list (port authority) →
       </a>
       <button
         type="button"
@@ -570,3 +623,44 @@ const btnDanger: React.CSSProperties = {
   color: "#b91c1c",
   borderColor: "#b91c1c",
 };
+
+// Brief 03 / Task 3 — Concierge ON/OFF toggle visuals.
+// Pill-shaped track + a single dot that slides left↔right with the
+// state. ON uses the same gold as the legacy active state so the
+// pattern still reads as "this cabin is in concierge mode" at a
+// glance; OFF is a quiet ghost so the row doesn't draw the eye.
+function btnToggle(on: boolean): React.CSSProperties {
+  return {
+    ...baseBtn,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 10,
+    background: on ? "rgba(201,168,76,0.12)" : "transparent",
+    color: "#0D1B2A",
+    borderColor: on ? "#C9A84C" : "rgba(13,27,42,0.2)",
+  };
+}
+function toggleTrack(on: boolean): React.CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    width: 30,
+    height: 16,
+    borderRadius: 999,
+    background: on ? "#C9A84C" : "rgba(13,27,42,0.2)",
+    padding: 2,
+    boxSizing: "border-box",
+    transition: "background 160ms ease",
+  };
+}
+function toggleDot(on: boolean): React.CSSProperties {
+  return {
+    width: 12,
+    height: 12,
+    borderRadius: "50%",
+    background: "#ffffff",
+    boxShadow: "0 1px 2px rgba(13,27,42,0.25)",
+    transform: on ? "translateX(14px)" : "translateX(0)",
+    transition: "transform 160ms ease",
+  };
+}

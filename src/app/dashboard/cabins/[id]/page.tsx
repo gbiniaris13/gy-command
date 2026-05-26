@@ -59,7 +59,12 @@ export default async function CabinDetailPage({
         <h1 style={{ margin: "8px 0 0", fontSize: 28, fontWeight: 300 }}>
           {cabin.principal_charterer_name} · <em>{cabin.vessel_name}</em>
         </h1>
-        <div style={{ color: "#6b7280", marginTop: 6 }}>
+        {/* Brief 03 / Task 6 — contrast fix #1: cabin subtitle.
+            Was #6b7280 (Tailwind gray-500) on cream — borderline
+            readable. Bumped to #374151 (gray-700) which holds AA
+            contrast against the cream background while staying
+            visually secondary to the H1 above. */}
+        <div style={{ color: "#374151", marginTop: 6 }}>
           {cabin.charter_period_from} – {cabin.charter_period_to} · {cabin.port_embarkation} → {cabin.port_disembarkation}
         </div>
         {/* 2026-05-22 — Brief submission badge. Renders only when
@@ -162,7 +167,13 @@ export default async function CabinDetailPage({
                     {done ? "●" : "○"}
                   </span>
                   <span>{label}</span>
-                  <span style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic" }}>
+                  {/* Brief 03 / Task 6 — contrast fix #2: Brief
+                      Progress "saved X/Y/Z" timestamps. Was #6b7280
+                      italic — too pale to read at a glance. Bumped
+                      to #374151 (same tone family as the cabin
+                      subtitle), kept italic so it still reads as
+                      a secondary timestamp annotation. */}
+                  <span style={{ fontSize: 11, color: "#374151", fontStyle: "italic" }}>
                     {row?.last_edited_at ? "saved " + new Date(row.last_edited_at).toLocaleString() : "—"}
                   </span>
                 </li>
