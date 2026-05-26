@@ -19,6 +19,7 @@ import {
   getCabinGuestsManifest,
   getCabinMembers,
 } from "@/lib/cabin-admin";
+import { mergeGuestRecords, type MergedGuest } from "@/lib/cabin-guest-merge";
 import PrintButton from "../print/PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -169,6 +170,22 @@ export default async function PreferenceSheetPage({
   const beverages = getSection(sections, "beverages");
   const little = getSection(sections, "little_things");
   const children = getSection(sections, "children");
+
+  // 2026-05-26 — Brief 02 (Task B1): merge cabin_members
+  // (.personal_details) with cabin_guests_manifest into one canonical
+  // per-person list. Member-self data wins (e.g. a guest who self-
+  // filled DOB + passport via /cabin/me beats a stale principal-
+  // seeded manifest blank). Powers BOTH the §02 Manifest cards and
+  // the new §03 chef allergy roll-up below.
+  const mergedGuests = mergeGuestRecords(
+    (members ?? []) as Array<Record<string, unknown>>,
+    (manifest ?? []) as Array<Record<string, unknown>>,
+    {
+      full_name: cabin.principal_charterer_name ?? "",
+      email: cabin.principal_charterer_email ?? "",
+      mobile: cabin.principal_charterer_mobile ?? "",
+    },
+  );
 
   return (
     <div style={{ background: IVORY, minHeight: "100vh" }} className="gy-prefs-root">
@@ -639,16 +656,24 @@ export default async function PreferenceSheetPage({
           >
             Manifest
           </h3>
-          {manifest.length === 0 ? (
+          {/* 2026-05-26 — Brief 02 (Task B1): cards now source from
+              mergeGuestRecords(...) instead of the raw manifest, so
+              a guest who self-filled /cabin/me without ever appearing
+              in cabin_guests_manifest still gets a card with their
+              DOB / passport / allergies (no more blank dashes for
+              new-model guests). The principal's own member row is
+              folded in too. */}
+          {mergedGuests.length === 0 ? (
             <p style={mutedItalic}>
-              The guest list will appear here once the charterer has filled
-              it in. Until then, please coordinate names and arrival details
-              with George directly.
+              The guest list will appear here once members fill in
+              their own crew-list lines (or the charterer seeds the
+              manifest from the CRM). Until then, please coordinate
+              names and arrival details with George directly.
             </p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-              {(manifest as GuestRow[]).map((g, i) => (
-                <GuestCard key={g.id} order={i + 1} g={g} />
+              {mergedGuests.map((g, i) => (
+                <GuestCard key={g.id ?? `m-${i}`} order={i + 1} g={g} />
               ))}
             </div>
           )}
@@ -668,6 +693,19 @@ export default async function PreferenceSheetPage({
             <Row k="Swimming experience" v={fmtMaybe(health.swimming_experience)} />
             <Row k="Swimming notes" v={fmtMaybe(health.swimming_other)} />
           </SubBlock>
+
+          {/* 2026-05-26 — Brief 02 (Task B2): chef-facing per-member
+              allergy roll-up. Source is mergeGuestRecords(...) so
+              each guest's self-filled allergies (from
+              cabin_members.personal_details.allergies_dietary)
+              reaches the chef regardless of what the principal
+              typed into the Health section above. Severity uses
+              the existing life-threatening red styling when
+              flagged on the manifest. Absence-of-allergy is
+              rendered explicitly ("No allergies reported by the
+              party.") because confirmation is itself useful for
+              the chef briefing — never hide the block. */}
+          <ChefAllergyBlock guests={mergedGuests} />
 
           <SubBlock label="Itinerary">
             <Row k="Pace of the week" v={fmtMaybe(itinerary.pace)} />
@@ -1122,7 +1160,224 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
-function GuestCard({ order, g }: { order: number; g: GuestRow }) {
+// 2026-05-26 — Brief 02 (Task B2): chef-facing per-member allergy
+// roll-up. Sits inside §03 Health & Safety on the preference sheet.
+// Renders one line per member who has any allergy/dietary note,
+// red life-threatening styling when severity is flagged, and a
+// calm "No allergies reported by the party." line when nobody
+// has any (absence-as-information for the chef briefing — never
+// hide the block).
+function ChefAllergyBlock({ guests }: { guests: MergedGuest[] }) {
+  // Filter: include any member with non-empty allergies_dietary
+  // (skipping the literal "none" / blank), OR any non-empty
+  // dietary_preferences (e.g. "Vegetarian", "No pork"). Empty
+  // members are silently skipped — count surfaced in caption.
+  const hasAllergyText = (s: string) =>
+    s.trim().length > 0 && s.trim().toLowerCase() !== "none";
+  const withAllergy = guests.filter(
+    (g) =>
+      hasAllergyText(g.allergies_dietary || "") ||
+      (g.dietary && g.dietary.length > 0),
+  );
+
+  return (
+    <div className="avoid-break" style={{ marginTop: 18 }}>
+      <h3
+        style={{
+          fontFamily: FONT_UI,
+          fontSize: 10.5,
+          letterSpacing: 3.5,
+          textTransform: "uppercase",
+          color: GOLD,
+          margin: "0 0 10px",
+          fontWeight: 500,
+        }}
+      >
+        Allergies across the whole party (chef briefing)
+      </h3>
+      {withAllergy.length === 0 ? (
+        <p
+          style={{
+            margin: 0,
+            fontFamily: FONT_EDITORIAL,
+            fontStyle: "italic",
+            fontSize: 13.5,
+            color: MUTED,
+          }}
+        >
+          No allergies reported by the party.
+        </p>
+      ) : (
+        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {withAllergy.map((g, i) => {
+            const isLifeThreatening = g.allergies_severity === "life_threatening";
+            const isStrong = g.allergies_severity === "strong_intolerance";
+            const isMild =
+              g.allergies_severity &&
+              g.allergies_severity !== "life_threatening" &&
+              g.allergies_severity !== "strong_intolerance";
+            return (
+              <li
+                key={g.id ?? `cab-${i}`}
+                className="avoid-break"
+                style={{
+                  margin: "6px 0",
+                  padding: "10px 14px",
+                  background: isLifeThreatening
+                    ? "rgba(185, 28, 28, 0.06)"
+                    : "#ffffff",
+                  border: isLifeThreatening
+                    ? "1px solid rgba(185, 28, 28, 0.35)"
+                    : `1px solid ${RULE}`,
+                  fontFamily: FONT_EDITORIAL,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <strong
+                    style={{
+                      fontFamily: FONT_UI,
+                      fontSize: 10.5,
+                      letterSpacing: 2,
+                      textTransform: "uppercase",
+                      color: isLifeThreatening ? "#b91c1c" : NAVY,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {g.name || "—"}
+                    {g.role === "principal_charterer" ? (
+                      <span
+                        style={{
+                          marginLeft: 6,
+                          color: GOLD,
+                          fontWeight: 600,
+                        }}
+                      >
+                        · Principal
+                      </span>
+                    ) : null}
+                  </strong>
+                  {isLifeThreatening ? (
+                    <span
+                      style={{
+                        fontFamily: FONT_UI,
+                        fontSize: 9.5,
+                        letterSpacing: 1.6,
+                        textTransform: "uppercase",
+                        color: "#b91c1c",
+                        fontWeight: 700,
+                      }}
+                    >
+                      ⚠ Life-threatening
+                    </span>
+                  ) : isStrong ? (
+                    <span
+                      style={{
+                        fontFamily: FONT_UI,
+                        fontSize: 9.5,
+                        letterSpacing: 1.6,
+                        textTransform: "uppercase",
+                        color: GOLD,
+                      }}
+                    >
+                      Strong intolerance
+                    </span>
+                  ) : isMild ? (
+                    <span
+                      style={{
+                        fontFamily: FONT_UI,
+                        fontSize: 9.5,
+                        letterSpacing: 1.6,
+                        textTransform: "uppercase",
+                        color: MUTED,
+                      }}
+                    >
+                      Preference / mild
+                    </span>
+                  ) : null}
+                </div>
+                {hasAllergyText(g.allergies_dietary || "") ? (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      fontSize: 14,
+                      lineHeight: 1.55,
+                      color: NAVY,
+                    }}
+                  >
+                    {g.allergies_dietary}
+                  </div>
+                ) : null}
+                {g.dietary && g.dietary.length > 0 ? (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      color: NAVY,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: FONT_UI,
+                        fontSize: 10,
+                        letterSpacing: 1.6,
+                        textTransform: "uppercase",
+                        color: MUTED,
+                        marginRight: 6,
+                      }}
+                    >
+                      Dietary:
+                    </span>
+                    <em style={{ fontStyle: "italic" }}>{g.dietary.join(" · ")}</em>
+                  </div>
+                ) : null}
+                {g.emergency_note ? (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      color: isLifeThreatening ? "#0D1B2A" : MUTED,
+                      fontStyle: "italic",
+                    }}
+                  >
+                    {g.emergency_note}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p
+        style={{
+          margin: "10px 0 0 0",
+          fontFamily: FONT_EDITORIAL,
+          fontStyle: "italic",
+          fontSize: 12,
+          color: MUTED,
+        }}
+      >
+        Source: each member&apos;s own /cabin/me/private. The principal&apos;s
+        free-text Health row above may add extra context.
+      </p>
+    </div>
+  );
+}
+
+// 2026-05-26 — Brief 02 (Task B1): GuestCard prop type switched
+// from GuestRow (raw manifest shape) to MergedGuest (the helper
+// output that folds in cabin_members.personal_details). The
+// rendered field set is identical; only the field name for the
+// display name changes (full_name → name).
+function GuestCard({ order, g }: { order: number; g: MergedGuest }) {
   return (
     <div
       className="avoid-break"
@@ -1155,7 +1410,7 @@ function GuestCard({ order, g }: { order: number; g: GuestRow }) {
             color: NAVY,
           }}
         >
-          {g.full_name || "—"}
+          {g.name || "—"}
           {g.is_minor ? (
             <em style={{ color: GOLD, marginLeft: 8, fontSize: 13 }}>· minor</em>
           ) : null}

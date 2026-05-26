@@ -28,6 +28,7 @@ import {
   getCabinMembers,
   getCabinGuestsManifest,
 } from "@/lib/cabin-admin";
+import { mergeGuestRecords, type MergedGuest } from "@/lib/cabin-guest-merge";
 import PrintButton from "../print/PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -81,19 +82,15 @@ const ROLE_LABEL: Record<string, string> = {
   guest: "Guest",
 };
 
-interface MergedGuest {
-  name: string;
-  role: string;
-  email: string;
-  mobile: string;
-  gender: string;
-  date_of_birth: string;
-  nationality: string;
-  passport_number: string;
-  passport_expiry: string;
-  source: "member_self" | "manifest" | "principal_seed";
-}
-
+// 2026-05-26 — Brief 02 (Task B1): MergedGuest interface + merge()
+// function extracted to src/lib/cabin-guest-merge.ts as the
+// shared mergeGuestRecords() helper, so preference-sheet/page.tsx
+// and print/page.tsx can use the same shape. The shared helper
+// adds extra fields (cabin_pairing, shoe_size, allergies_dietary,
+// allergies_severity, emergency_note, is_minor) that the
+// preference sheet renders but crew-list ignores — no behavior
+// change for crew-list (port-authority essentials only).
+//
 // 2026-05-22 — George directive: the Crew List PDF carries ONLY
 // port-authority essentials (name, gender, DOB, ID/passport, mobile).
 // Allergies, dietary, swimming, mobility, cabin pairing belong on
@@ -104,87 +101,6 @@ const GENDER_LABEL: Record<string, string> = {
   non_binary: "Non-binary",
   prefer_not_say: "Prefers not to say",
 };
-
-function merge(
-  members: AnyRec[],
-  manifest: AnyRec[],
-  principalSeed: { full_name: string; email: string; mobile: string }
-): MergedGuest[] {
-  const byEmail = new Map<string, MergedGuest>();
-
-  // Seed every member row first — that's the source of truth for
-  // who has access to the cabin.
-  for (const m of members) {
-    const pd = (m.personal_details as AnyRec) || {};
-    const email = String(m.email ?? "").toLowerCase();
-    byEmail.set(email, {
-      name: s(m.display_name) || principalSeed.full_name,
-      role: s(m.role),
-      email,
-      mobile: s(pd.mobile) || s(m.mobile),
-      gender: s(pd.gender),
-      date_of_birth: s(pd.date_of_birth),
-      nationality: s(pd.nationality),
-      passport_number: s(pd.passport_number),
-      passport_expiry: s(pd.passport_expiry),
-      source: "member_self",
-    });
-  }
-
-  // Layer manifest rows on top — but only fill BLANKS. Member-
-  // self data wins for any field the user filled themselves.
-  for (const g of manifest) {
-    const email = String(g.email ?? "").toLowerCase();
-    if (!email) continue;
-    const existing = byEmail.get(email);
-    if (existing) {
-      existing.date_of_birth ||= fmtIsoSafe(g.date_of_birth);
-      existing.nationality ||= s(g.nationality);
-      existing.passport_number ||= s(g.passport_number);
-      existing.passport_expiry ||= fmtIsoSafe(g.passport_expiry);
-      existing.mobile ||= s(g.mobile);
-      existing.gender ||= s(g.gender);
-      existing.name = s(g.full_name) || existing.name;
-    } else {
-      // Manifest-only entry (no portal member yet). Include with
-      // the manifest data we have so paperwork is complete.
-      byEmail.set(email || `manifest-${g.id}`, {
-        name: s(g.full_name) || "—",
-        role: "guest",
-        email,
-        mobile: s(g.mobile),
-        gender: s(g.gender),
-        date_of_birth: fmtIsoSafe(g.date_of_birth),
-        nationality: s(g.nationality),
-        passport_number: s(g.passport_number),
-        passport_expiry: fmtIsoSafe(g.passport_expiry),
-        source: "manifest",
-      });
-    }
-  }
-
-  // Sort: principal_charterer first, then assistants, then guests
-  // alphabetically by name.
-  const out = Array.from(byEmail.values());
-  out.sort((a, b) => {
-    const order: Record<string, number> = {
-      principal_charterer: 0,
-      designated_assistant: 1,
-      guest: 2,
-    };
-    const ao = order[a.role] ?? 99;
-    const bo = order[b.role] ?? 99;
-    if (ao !== bo) return ao - bo;
-    return a.name.localeCompare(b.name);
-  });
-  return out;
-}
-
-function fmtIsoSafe(v: unknown): string {
-  if (!v) return "";
-  const str = String(v);
-  return /^\d{4}-\d{2}-\d{2}/.test(str) ? str.slice(0, 10) : "";
-}
 
 export default async function CabinCrewListPage({
   params,
@@ -199,7 +115,7 @@ export default async function CabinCrewListPage({
     getCabinGuestsManifest(id),
   ]);
 
-  const guests = merge(
+  const guests: MergedGuest[] = mergeGuestRecords(
     members as AnyRec[],
     manifest as AnyRec[],
     {

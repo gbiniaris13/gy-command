@@ -17,6 +17,7 @@ import {
   getCabinMembers,
   getCabinGuestsManifest,
 } from "@/lib/cabin-admin";
+import { mergeGuestRecords } from "@/lib/cabin-guest-merge";
 import PrintButton from "./PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -137,6 +138,20 @@ export default async function PrintCabinPage({
     getCabinMembers(id),
     getCabinGuestsManifest(id),
   ]);
+
+  // 2026-05-26 — Brief 02 (Task B1): merge cabin_members.personal_details
+  // with cabin_guests_manifest. Member-self data wins. The internal
+  // print now surfaces every member even if there's no manifest row
+  // (the new model lets guests live ONLY in personal_details).
+  const mergedGuests = mergeGuestRecords(
+    (members ?? []) as Array<Record<string, unknown>>,
+    (manifest ?? []) as Array<Record<string, unknown>>,
+    {
+      full_name: cabin.principal_charterer_name ?? "",
+      email: cabin.principal_charterer_email ?? "",
+      mobile: cabin.principal_charterer_mobile ?? "",
+    },
+  );
 
   return (
     <div style={{ background: IVORY, minHeight: "100vh" }}>
@@ -283,15 +298,23 @@ export default async function PrintCabinPage({
         </Section>
 
         {/* ============ GUEST MANIFEST ============ */}
-        {manifest.length > 0 && (
+        {/* 2026-05-26 — Brief 02 (Task B1): switched from raw
+            manifest rows to mergeGuestRecords output. Same field
+            set, but now a guest who self-filled /cabin/me without
+            ever appearing in cabin_guests_manifest still gets a
+            SubBlock with their DOB / passport / allergy on the
+            internal print (no more blank dashes for new-model
+            guests). Only the display-name field renames
+            full_name → name. */}
+        {mergedGuests.length > 0 && (
           <Section
             number="02"
             title="Guest manifest"
             italic="passports & paperwork"
             pageBreakBefore
           >
-            {manifest.map((g, i) => (
-              <SubBlock key={g.id} label={`${String(i + 1).padStart(2, "0")} · ${g.full_name || "—"}${i === 0 ? " · Principal" : ""}`}>
+            {mergedGuests.map((g, i) => (
+              <SubBlock key={g.id ?? `m-${i}`} label={`${String(i + 1).padStart(2, "0")} · ${g.name || "—"}${i === 0 ? " · Principal" : ""}`}>
                 <Row k="Date of birth" v={fmt(g.date_of_birth) || "—"} />
                 <Row k="Nationality" v={g.nationality || "—"} />
                 <Row k="Passport №" v={g.passport_number || "—"} />
