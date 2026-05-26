@@ -113,10 +113,28 @@ export function mergeGuestRecords(
   for (const m of members ?? []) {
     const pd = (m.personal_details as AnyRec) || {};
     const email = String(m.email ?? "").toLowerCase();
+    // 2026-05-26 — Name fallback chain (Brief 02 follow-up):
+    //   1. display_name when set                       (every normal case)
+    //   2. principalSeed.full_name — ONLY for the principal row.
+    //      The old code applied this fallback to every member with
+    //      null display_name, which made guests with no display_name
+    //      surface AS THE PRINCIPAL (e.g. EFFIE STAR's konstantinos
+    //      member row appeared as a duplicate "Patricia R. Stevens"
+    //      card in §02 of the preference sheet).
+    //   3. email — the most useful identifier when we have no name.
+    //   4. "—" as a last-resort placeholder so the card never
+    //      renders an empty heading.
+    const role = s(m.role);
+    const isPrincipalRow = role === "principal_charterer";
+    const name =
+      s(m.display_name) ||
+      (isPrincipalRow ? principalSeed.full_name : "") ||
+      s(m.email) ||
+      "—";
     byEmail.set(email, {
       id: m.id ? String(m.id) : null,
-      name: s(m.display_name) || principalSeed.full_name,
-      role: s(m.role),
+      name,
+      role,
       email,
       mobile: s(pd.mobile) || s(m.mobile),
       gender: s(pd.gender),
