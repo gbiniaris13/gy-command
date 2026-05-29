@@ -56,9 +56,20 @@ const TEST_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
   <div class="sub">render gate &#9670; chromium-min OK</div>
 </body></html>`;
 
-export async function GET() {
-  const email = await adminEmail();
-  if (!email) return new Response("unauthorized", { status: 401 });
+export async function GET(req: Request) {
+  // TEMP secret-gated bypass for HEADLESS cloud verification of this
+  // gate (so George never has to log in). The bypass is active ONLY
+  // when CRON_SECRET is set AND ?key matches it exactly; otherwise the
+  // normal admin-session check applies. Removed when this render-test
+  // route is deleted after Step 2.
+  const key = new URL(req.url).searchParams.get("key");
+  const cronSecret = process.env.CRON_SECRET;
+  const keyOk = !!cronSecret && key === cronSecret;
+
+  if (!keyOk) {
+    const email = await adminEmail();
+    if (!email) return new Response("unauthorized", { status: 401 });
+  }
 
   // Default to the public v149 x64 pack so this gate works on a fresh
   // preview with ZERO env setup. CHROMIUM_PACK_URL overrides it (e.g. a
