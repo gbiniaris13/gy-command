@@ -16,6 +16,9 @@ export default function NewHelmRequestPage() {
 
   const [f, setF] = useState({
     client_name: "",
+    client_title: "Mr",
+    client_surname: "",
+    client_is_family: false,
     client_email: "",
     client_whatsapp: "",
     occasion: "",
@@ -75,9 +78,26 @@ export default function NewHelmRequestPage() {
 
       {/* client */}
       <section style={card}>
-        <div style={cardLabel}>Client</div>
+        <div style={cardLabel}>Client — formal addressing (never a bare first name)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr", gap: 12 }}>
+          <label style={{ display: "block" }}>
+            <div style={fieldLabel}>Title</div>
+            <select
+              value={f.client_title}
+              onChange={(e) => set("client_title", e.target.value)}
+              style={{ width: "100%", padding: 9, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", marginTop: 4, background: "#fff" }}
+            >
+              {["Mr", "Mrs", "Ms", "Dr", "Mx"].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+          <Input label="Surname (required to send)" value={f.client_surname} onChange={(v) => set("client_surname", v)} placeholder="Reynolds" />
+          <Input label="First name (optional · internal)" value={f.client_name} onChange={(v) => set("client_name", v)} placeholder="James" />
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", margin: "12px 0" }}>
+          <input type="checkbox" checked={f.client_is_family} onChange={(e) => set("client_is_family", e.target.checked)} />
+          Family booking (address as the {f.client_surname || "[Surname]"} Family)
+        </label>
         <div style={grid2}>
-          <Input label="Name" value={f.client_name} onChange={(v) => set("client_name", v)} placeholder="Mr. Reynolds" />
           <Input label="Email" type="email" value={f.client_email} onChange={(v) => set("client_email", v)} placeholder="name@example.com" />
           <Input label="WhatsApp / phone" value={f.client_whatsapp} onChange={(v) => set("client_whatsapp", v)} placeholder="+1 …" />
           <Input label="Occasion" value={f.occasion} onChange={(v) => set("occasion", v)} placeholder="wedding · birthday · family · corporate" />

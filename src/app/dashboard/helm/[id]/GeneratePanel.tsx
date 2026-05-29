@@ -1,0 +1,306 @@
+"use client";
+
+// The Helm — Generate flow + human pricing-review screen.
+//
+// NON-NEGOTIABLES (George):
+//  1. NOTHING is computed or sent until "Generate" is pressed. Generate is
+//     DISABLED while any STOP flag is unresolved (missing APA / seasonal
+//     rates / divide-by-N ambiguity) or no fee is set.
+//  2. Every number shows its EXACT supplier snippet beside it for a 5-second
+//     eyeball check.
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+type Confidence = "high" | "medium" | "low";
+type Field<T> = { value: T | null; confidence: Confidence; snippet: string };
+type Extraction = {
+  vessel_name: Field<string>;
+  vessel_type: Field<string>;
+  spec_line: Field<string>;
+  pricing: Record<string, Field<number | string>>;
+  seasonal_rates: { label: string; fee: number; snippet: string }[];
+  dates: { from: Field<string>; to: Field<string> };
+  content?: Record<string, unknown>;
+  flags: { code: string; message: string }[];
+  notes?: string;
+};
+
+const STOP_CODES = new Set([
+  "MISSING_APA", "MULTIPLE_SEASONAL_RATES", "DIVIDE_BY_UNCLEAR", "NO_PRICE_FOUND", "AMBIGUOUS",
+]);
+
+const PRICE_FIELDS: { key: string; label: string }[] = [
+  { key: "charter_fee", label: "Charter fee (net)" },
+  { key: "apa_pct", label: "APA %" },
+  { key: "apa_amount", label: "APA amount" },
+  { key: "vat_pct", label: "VAT %" },
+  { key: "vat_amount", label: "VAT amount" },
+];
+
+function ConfBadge({ c }: { c: Confidence }) {
+  const map: Record<Confidence, string> = { high: "#3A6B47", medium: "#B07A2C", low: "#9CA3AF" };
+  return (
+    <span style={{ fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: "#fff", background: map[c], padding: "1px 6px", borderRadius: 2 }}>
+      {c}
+    </span>
+  );
+}
+
+export default function GeneratePanel({
+  requestId, hasSupplier, surname, mode, initialExtraction, pdfPath, emailSubject, emailIntro,
+}: {
+  requestId: string;
+  hasSupplier: boolean;
+  surname: string | null;
+  mode: string | null;
+  initialExtraction: Extraction | null;
+  pdfPath: string | null;
+  emailSubject: string | null;
+  emailIntro: string | null;
+}) {
+  const router = useRouter();
+  const [ex, setEx] = useState<Extraction | null>(initialExtraction);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Editable copies, seeded from the extraction.
+  const seedPrice = (e: Extraction | null) => {
+    const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", currency: "EUR" };
+    if (e) for (const k of Object.keys(o)) {
+      const v = e.pricing?.[k]?.value;
+      if (v !== null && v !== undefined && v !== "") o[k] = String(v);
+    }
+    return o;
+  };
+  const [px, setPx] = useState<Record<string, string>>(seedPrice(initialExtraction));
+  const [vessel, setVessel] = useState({
+    name: initialExtraction?.vessel_name?.value || "",
+    type: initialExtraction?.vessel_type?.value || "",
+    spec_line: initialExtraction?.spec_line?.value || "",
+    period_line: "",
+    price_sub: "",
+  });
+  const [resolved, setResolved] = useState<Set<string>>(new Set());
+
+  const stopFlags = (ex?.flags || []).filter((f) => STOP_CODES.has(f.code));
+  const warnFlags = (ex?.flags || []).filter((f) => !STOP_CODES.has(f.code));
+  const allStopResolved = stopFlags.every((f) => resolved.has(f.code));
+  const hasFee = !!px.charter_fee.trim() || !!px.extras_text.trim();
+  const canGenerate = !!ex && hasFee && allStopResolved && !!surname && mode !== "combined" && busy === null;
+
+  async function runExtract() {
+    setBusy("extract"); setError(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}/extract`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "extract-failed");
+      setEx(j.extraction);
+      setPx(seedPrice(j.extraction));
+      setVessel({
+        name: j.extraction?.vessel_name?.value || "",
+        type: j.extraction?.vessel_type?.value || "",
+        spec_line: j.extraction?.spec_line?.value || "",
+        period_line: "", price_sub: "",
+      });
+      setResolved(new Set());
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+
+  async function runGenerate() {
+    if (!canGenerate) return;
+    setBusy("generate"); setError(null);
+    const num = (s: string) => (s.trim() === "" ? null : Number(s.replace(/[^0-9.\-]/g, "")));
+    try {
+      const r = await fetch(`/api/helm/${requestId}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "single",
+          vessel: {
+            name: vessel.name, type: vessel.type, spec_line: vessel.spec_line,
+            period_line: vessel.period_line || undefined, price_sub: vessel.price_sub || undefined,
+            gallery_slots: 4,
+          },
+          pricing: {
+            currency: px.currency || "EUR",
+            charter_fee: num(px.charter_fee),
+            apa_pct: num(px.apa_pct), apa_amount: num(px.apa_amount),
+            vat_pct: num(px.vat_pct), vat_amount: num(px.vat_amount),
+            extras_text: px.extras_text.trim() || null,
+          },
+          content: ex?.content || {},
+          details: [],
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "generate-failed");
+      router.refresh();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+
+  // ---- already generated: show result ----
+  if (pdfPath) {
+    return (
+      <section style={card}>
+        <div style={cardLabel}>Proposal generated</div>
+        <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>
+          Open proposal PDF ↗
+        </a>
+        {emailSubject && (
+          <div style={{ marginTop: 14 }}>
+            <div style={fieldLabel}>Email subject</div>
+            <div style={{ fontSize: 14, color: "#1f2937", marginTop: 2 }}>{emailSubject}</div>
+          </div>
+        )}
+        {emailIntro && (
+          <div style={{ marginTop: 12 }}>
+            <div style={fieldLabel}>Email body (first-person George · paste into Gmail)</div>
+            <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.55, color: "#1f2937", marginTop: 4, background: "rgba(13,27,42,0.03)", padding: 12 }}>{emailIntro}</pre>
+          </div>
+        )}
+        <button type="button" onClick={runGenerate} disabled={busy !== null} style={{ ...ghostBtn, marginTop: 12 }}>
+          {busy === "generate" ? "Regenerating…" : "Regenerate"}
+        </button>
+        {error && <p style={errStyle}>{error}</p>}
+      </section>
+    );
+  }
+
+  return (
+    <section style={card}>
+      <div style={cardLabel}>Generate proposal</div>
+
+      {!hasSupplier && <p style={{ fontSize: 13, color: "#9CA3AF", fontStyle: "italic" }}>Paste the supplier email on this request first, then extract.</p>}
+
+      {!ex && hasSupplier && (
+        <button type="button" onClick={runExtract} disabled={busy !== null} style={primaryBtn}>
+          {busy === "extract" ? "Extracting…" : "Extract numbers from supplier email"}
+        </button>
+      )}
+
+      {ex && (
+        <>
+          {mode === "combined" && (
+            <div style={warnBox}>Combined multi-yacht auto-generate is the next step. Switch this request to single mode to generate now.</div>
+          )}
+
+          {/* STOP flags — block generate until each is resolved */}
+          {stopFlags.length > 0 && (
+            <div style={stopBox}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>STOP · do not generate until resolved</div>
+              {stopFlags.map((f) => (
+                <label key={f.code} style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 6, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={resolved.has(f.code)}
+                    onChange={(e) => {
+                      const next = new Set(resolved);
+                      if (e.target.checked) next.add(f.code); else next.delete(f.code);
+                      setResolved(next);
+                    }}
+                  />
+                  <span style={{ fontSize: 13 }}><b>{f.code}</b> — {f.message} <i>(tick once you have confirmed the correct number below)</i></span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {warnFlags.length > 0 && (
+            <div style={warnBox}>
+              {warnFlags.map((f) => <div key={f.code} style={{ fontSize: 12.5 }}><b>{f.code}</b> — {f.message}</div>)}
+            </div>
+          )}
+
+          {/* seasonal rates — click to set the charter fee */}
+          {ex.seasonal_rates?.length > 0 && (
+            <div style={{ margin: "12px 0" }}>
+              <div style={fieldLabel}>Seasonal rates found — pick the one for these dates</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                {ex.seasonal_rates.map((s, i) => (
+                  <button key={i} type="button" onClick={() => setPx({ ...px, charter_fee: String(s.fee) })} style={chipBtn}>
+                    {s.label}: € {s.fee.toLocaleString("en-US")}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* pricing — every number editable, with its exact snippet */}
+          <div style={{ marginTop: 12 }}>
+            <div style={fieldLabel}>Pricing — confirm each number against its supplier snippet</div>
+            {PRICE_FIELDS.map(({ key, label }) => {
+              const fld = ex.pricing?.[key];
+              return (
+                <div key={key} style={priceRow}>
+                  <div style={{ width: 130, fontSize: 12.5, color: "#374151" }}>{label}</div>
+                  <input
+                    value={px[key] ?? ""}
+                    onChange={(e) => setPx({ ...px, [key]: e.target.value })}
+                    placeholder="—"
+                    style={priceInput}
+                  />
+                  {fld?.value !== null && fld?.value !== undefined && fld?.confidence ? <ConfBadge c={fld.confidence} /> : <span style={{ width: 52 }} />}
+                  <div style={snippetStyle}>{fld?.snippet ? `“${fld.snippet}”` : <span style={{ color: "#cbd5e1" }}>no snippet</span>}</div>
+                </div>
+              );
+            })}
+            {/* plus-extras (lump price, no APA/VAT breakdown) */}
+            <div style={priceRow}>
+              <div style={{ width: 130, fontSize: 12.5, color: "#374151" }}>Plus-extras text</div>
+              <input value={px.extras_text} onChange={(e) => setPx({ ...px, extras_text: e.target.value })} placeholder="e.g. plus expenses (only if no APA/VAT)" style={{ ...priceInput, width: 280 }} />
+              <span style={{ width: 52 }} />
+              <div style={snippetStyle}>{ex.pricing?.extras_text?.snippet ? `“${ex.pricing.extras_text.snippet}”` : ""}</div>
+            </div>
+          </div>
+
+          {/* vessel facts (editable) */}
+          <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <Labeled label="Vessel name"><input value={vessel.name} onChange={(e) => setVessel({ ...vessel, name: e.target.value })} style={txt} /></Labeled>
+            <Labeled label="Type"><input value={vessel.type} onChange={(e) => setVessel({ ...vessel, type: e.target.value })} placeholder="MOTOR YACHT" style={txt} /></Labeled>
+            <Labeled label="Spec line"><input value={vessel.spec_line} onChange={(e) => setVessel({ ...vessel, spec_line: e.target.value })} style={txt} /></Labeled>
+            <Labeled label="Period line (optional)"><input value={vessel.period_line} onChange={(e) => setVessel({ ...vessel, period_line: e.target.value })} placeholder="auto from dates/area" style={txt} /></Labeled>
+          </div>
+
+          {!surname && <div style={warnBox}>Add a client <b>surname</b> on this request first — proposals are addressed formally (never a bare first name).</div>}
+
+          <button type="button" onClick={runGenerate} disabled={!canGenerate} style={{ ...primaryBtn, marginTop: 16, opacity: canGenerate ? 1 : 0.5, cursor: canGenerate ? "pointer" : "not-allowed" }}>
+            {busy === "generate" ? "Generating proposal…" : "Generate proposal PDF"}
+          </button>
+          {!canGenerate && busy === null && (
+            <div style={{ fontSize: 11.5, color: "#9CA3AF", marginTop: 6 }}>
+              {stopFlags.length > 0 && !allStopResolved ? "Resolve every STOP flag above. " : ""}
+              {!hasFee ? "Set a charter fee (or plus-extras). " : ""}
+              {!surname ? "Add a client surname. " : ""}
+              {mode === "combined" ? "Switch to single mode. " : ""}
+            </div>
+          )}
+          <button type="button" onClick={runExtract} disabled={busy !== null} style={{ ...ghostBtn, marginTop: 10 }}>
+            {busy === "extract" ? "Re-extracting…" : "Re-extract from supplier email"}
+          </button>
+        </>
+      )}
+
+      {error && <p style={errStyle}>{error}</p>}
+    </section>
+  );
+}
+
+function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label style={{ display: "block" }}><div style={fieldLabel}>{label}</div><div style={{ marginTop: 4 }}>{children}</div></label>;
+}
+
+const card: React.CSSProperties = { background: "#fff", border: "1px solid rgba(13,27,42,0.08)", padding: "14px 16px", marginTop: 14 };
+const cardLabel: React.CSSProperties = { fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: "#6b7280", marginBottom: 10 };
+const fieldLabel: React.CSSProperties = { fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: "#9CA3AF" };
+const primaryBtn: React.CSSProperties = { background: "#0D1B2A", color: "#F8F5F0", border: "1px solid #C9A84C", padding: "10px 18px", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", cursor: "pointer" };
+const ghostBtn: React.CSSProperties = { background: "#fff", color: "#0D1B2A", border: "1px solid rgba(13,27,42,0.2)", padding: "8px 14px", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", cursor: "pointer" };
+const chipBtn: React.CSSProperties = { background: "rgba(201,168,76,0.12)", color: "#0D1B2A", border: "1px solid #C9A84C", padding: "6px 12px", fontSize: 12, cursor: "pointer" };
+const priceRow: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, padding: "5px 0" };
+const priceInput: React.CSSProperties = { width: 120, padding: 7, border: "1px solid rgba(13,27,42,0.2)", fontSize: 13, fontFamily: "inherit" };
+const snippetStyle: React.CSSProperties = { flex: 1, fontSize: 12, color: "#6b7280", fontStyle: "italic" };
+const txt: React.CSSProperties = { width: "100%", padding: 8, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit" };
+const stopBox: React.CSSProperties = { background: "rgba(177,74,58,0.08)", border: "1px solid rgba(177,74,58,0.5)", color: "#7f1d1d", padding: "10px 12px", margin: "12px 0", fontSize: 13 };
+const warnBox: React.CSSProperties = { background: "rgba(176,122,44,0.08)", border: "1px solid rgba(176,122,44,0.4)", color: "#7c4a03", padding: "8px 12px", margin: "10px 0", fontSize: 12.5 };
+const pdfLink: React.CSSProperties = { display: "inline-block", background: "#0D1B2A", color: "#F8F5F0", border: "1px solid #C9A84C", padding: "10px 18px", textDecoration: "none", fontSize: 10, letterSpacing: 2, textTransform: "uppercase" };
+const errStyle: React.CSSProperties = { color: "#b91c1c", fontSize: 12, marginTop: 8 };

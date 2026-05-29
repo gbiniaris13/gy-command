@@ -5,6 +5,7 @@ import Link from "next/link";
 import { getRequest, getMessages } from "@/lib/helm-admin";
 import StatusTransitions from "./StatusTransitions";
 import HelmDetailActions from "./HelmDetailActions";
+import GeneratePanel from "./GeneratePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +87,18 @@ export default async function HelmDetailPage({
             }}>{r.supplier_raw}</pre>
           : <p style={{ color: "#9CA3AF", fontStyle: "italic", fontSize: 13 }}>No supplier text pasted.</p>}
       </section>
+
+      {/* generate proposal (extract -> review numbers -> generate PDF) */}
+      <GeneratePanel
+        requestId={r.id}
+        hasSupplier={!!r.supplier_raw}
+        surname={r.client_surname ?? null}
+        mode={r.mode ?? null}
+        initialExtraction={r.extraction ?? null}
+        pdfPath={r.proposal_pdf_path ?? null}
+        emailSubject={r.email_subject ?? null}
+        emailIntro={r.email_intro ?? null}
+      />
 
       {/* pipeline */}
       <StatusTransitions requestId={r.id} current={r.status} />

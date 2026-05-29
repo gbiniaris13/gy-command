@@ -29,7 +29,8 @@ const HELM_STATUSES = new Set([
 
 const ALLOWED_FIELDS = new Set([
   "status",
-  "client_name", "client_email", "client_whatsapp",
+  "client_name", "client_title", "client_surname", "client_is_family",
+  "client_email", "client_whatsapp",
   "brief", "occasion", "party_size",
   "dates_from", "dates_to", "area",
   "supplier_raw",

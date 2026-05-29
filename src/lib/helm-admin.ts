@@ -75,6 +75,9 @@ export async function getMessages(requestId: string): Promise<HelmMessage[]> {
 
 export type CreateHelmInput = {
   client_name?: string;
+  client_title?: string;
+  client_surname?: string;
+  client_is_family?: boolean;
   client_email?: string;
   client_whatsapp?: string;
   brief?: string;
@@ -165,6 +168,47 @@ export async function addNote(requestId: string, body: string) {
     .from("helm_requests")
     .update({ last_activity_at: new Date().toISOString() })
     .eq("id", requestId);
+}
+
+// Step 3 — store the AI extraction (pre-confirm, no math done yet).
+export async function saveExtraction(id: string, extraction: unknown) {
+  const db = createServiceClient();
+  const { error } = await db
+    .from("helm_requests")
+    .update({ extraction, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// Step 3 — store the generated proposal + email draft; advance to 'drafted'.
+export async function saveGenerated(
+  id: string,
+  fields: {
+    proposal_json: unknown;
+    proposal_pdf_path: string;
+    email_subject: string;
+    email_intro: string;
+    mode: "single" | "combined";
+    client_name?: string | null;
+  },
+) {
+  const db = createServiceClient();
+  const { error } = await db
+    .from("helm_requests")
+    .update({
+      proposal_json: fields.proposal_json,
+      proposal_pdf_path: fields.proposal_pdf_path,
+      proposal_generated_at: new Date().toISOString(),
+      email_subject: fields.email_subject,
+      email_intro: fields.email_intro,
+      mode: fields.mode,
+      ...(fields.client_name ? { client_name: fields.client_name } : {}),
+      status: "drafted",
+      last_activity_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 // Hard delete (cascades to helm_messages). The Helm holds no
