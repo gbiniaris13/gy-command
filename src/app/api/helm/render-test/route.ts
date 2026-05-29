@@ -60,13 +60,12 @@ export async function GET() {
   const email = await adminEmail();
   if (!email) return new Response("unauthorized", { status: 401 });
 
-  const packUrl = process.env.CHROMIUM_PACK_URL;
-  if (!packUrl) {
-    return new Response(
-      "CHROMIUM_PACK_URL not set. Point it at the v149.0.0 x64 pack tar.",
-      { status: 500 },
-    );
-  }
+  // Default to the public v149 x64 pack so this gate works on a fresh
+  // preview with ZERO env setup. CHROMIUM_PACK_URL overrides it (e.g. a
+  // Supabase Storage / Vercel Blob mirror) for production hardening.
+  const packUrl =
+    process.env.CHROMIUM_PACK_URL ||
+    "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
 
   // We don't need WebGL/graphics for a static page — saves memory.
   chromium.setGraphicsMode = false;
