@@ -80,7 +80,12 @@ CREATE TABLE IF NOT EXISTS helm_messages (
 CREATE INDEX IF NOT EXISTS helm_messages_request_idx ON helm_messages(request_id);
 
 -- ---- admin listing view (mirrors cabin_listing) ------------
-CREATE OR REPLACE VIEW helm_listing AS
+-- security_invoker = on: the view runs with the QUERYING role's
+-- privileges and honours RLS on the underlying tables. Service-role
+-- (our only caller, via createServiceClient) still bypasses RLS, so
+-- listHelm() works; but an anon/authenticated query is denied by the
+-- helm_requests RLS instead of leaking through the view. (Postgres 15+.)
+CREATE OR REPLACE VIEW helm_listing WITH (security_invoker = on) AS
 SELECT r.id, r.status, r.client_name, r.client_email, r.occasion,
        r.dates_from, r.dates_to, r.area, r.follow_up_at, r.last_activity_at,
        r.proposal_pdf_path, r.mode, r.created_at,
