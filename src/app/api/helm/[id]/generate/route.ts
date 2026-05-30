@@ -91,17 +91,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const p = body.pricing || {};
   const pricing: PricingInput = {
     currency: p.currency || "EUR",
+    mode: p.mode || undefined,
     charter_fee: p.charter_fee ?? null,
     apa_pct: p.apa_pct ?? null,
     apa_amount: p.apa_amount ?? null,
     vat_pct: p.vat_pct ?? null,
     vat_amount: p.vat_amount ?? null,
     extras_text: p.extras_text || null,
+    all_inclusive_total: p.all_inclusive_total ?? null,
     details: Array.isArray(body.details) ? body.details : [],
   };
 
   // SERVER-SIDE STOP GUARD (defense in depth behind the UI's disabled button).
-  if ((pricing.charter_fee === null || pricing.charter_fee === undefined) && !pricing.extras_text) {
+  const pricingMode = pricing.mode
+    || (pricing.all_inclusive_total != null ? "all_inclusive" : pricing.extras_text ? "plus_extras" : "breakdown");
+  if (pricingMode === "all_inclusive") {
+    if (pricing.all_inclusive_total == null || Number(pricing.all_inclusive_total) <= 0) {
+      return NextResponse.json(
+        { error: "Unresolved pricing: confirm an all-inclusive total greater than 0. Nothing was generated." },
+        { status: 400 },
+      );
+    }
+  } else if ((pricing.charter_fee === null || pricing.charter_fee === undefined) && !pricing.extras_text) {
     return NextResponse.json(
       { error: "Unresolved pricing: confirm a charter fee, or mark 'plus extras'. Nothing was generated." },
       { status: 400 },
@@ -160,7 +171,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       salutation: addr.salutation,
       occasion: r.occasion || undefined,
       brief: r.brief || undefined,
-      selection_summary: `${yacht.name}${v.spec_line ? ` - ${v.spec_line}` : ""} - ${pr.headline}${pricing.extras_text ? "" : " plus APA and VAT"}`,
+      selection_summary: `${yacht.name}${v.spec_line ? ` - ${v.spec_line}` : ""} - ${pr.headline}${pr.all_inclusive ? " all-inclusive (APA, VAT and extras included)" : pricing.extras_text ? "" : " plus APA and VAT"}`,
     });
 
     const pdf = await renderProposalPdf(buildProposalHtml(proposal));

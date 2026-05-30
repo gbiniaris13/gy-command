@@ -444,7 +444,17 @@ function renderSingle(d: SingleProposal): string {
   let costBlock = "";
   let apaNote = "";
   let payBlock = "";
-  if (pr.extras_mode) {
+  if (pr.all_inclusive) {
+    costBlock = `<div class="cost-row"><span>All-inclusive</span><span class="amt">${pr.all_in}</span></div>
+        <div class="body" style="margin-top:5mm;font-size:9.5pt;">Everything is included (APA, VAT, and all extras).</div>`;
+    payBlock = noMyba ? "" : `
+        <div style="margin-top:8mm;"><div class="label">Payment Schedule (MYBA)</div>
+        <div class="body pay" style="margin-top:3mm;font-size:9.5pt;line-height:1.7;">
+          <b>Upon signing of the Charter Agreement</b> - 50%: ${pr.deposit}<br>
+          <b>Four weeks prior to embarkation</b> - balance: ${pr.balance}<br>
+          All charges (APA, VAT and extras) are included in the all-inclusive price.
+        </div></div>`;
+  } else if (pr.extras_mode) {
     costBlock = `
         <div class="cost-row"><span>Charter Fee</span><span class="amt">${pr.charter_fee_disp}</span></div>
         <div class="body" style="margin-top:5mm;font-size:9.5pt;">All operating expenses (fuel, food &amp; beverages,
@@ -478,6 +488,15 @@ function renderSingle(d: SingleProposal): string {
     }
   }
 
+  // Per-guest estimate at 4 and 6 guests (when an all-in total exists).
+  const perPerson = pr.per_person_4
+    ? `<div style="margin-top:8mm;"><div class="label">Per Guest (estimate)</div>
+        <div class="body" style="margin-top:3mm;font-size:9.5pt;line-height:1.7;">
+          Based on 4 guests: <b>${pr.per_person_4}</b><br>
+          Based on 6 guests: <b>${pr.per_person_6}</b>
+        </div></div>`
+    : "";
+
   const detSection = detHtml
     ? `<div style='margin-top:8mm;'><div class='label'>Charter Details</div><div style='margin-top:4mm;'>${detHtml}</div></div>`
     : "";
@@ -494,6 +513,7 @@ function renderSingle(d: SingleProposal): string {
   <div style="margin-top:8mm;">${costBlock}</div>
   ${apaNote}
   ${payBlock}
+  ${perPerson}
   <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(y.name)} &#8226; 05</span></div>
 </div></div>`);
 
@@ -596,7 +616,11 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
     .join("");
 
   let cost: string;
-  if (pr.extras_mode) {
+  if (pr.all_inclusive) {
+    cost =
+      `<div class='cost-row'><span>All-inclusive</span><span class='amt'>${pr.all_in}</span></div>` +
+      `<div class='cost-row'><span>Everything included</span><span class='amt'>APA, VAT &amp; extras</span></div>`;
+  } else if (pr.extras_mode) {
     cost =
       `<div class='cost-row'><span>Charter Fee</span><span class='amt'>${pr.charter_fee_disp}</span></div>` +
       `<div class='cost-row'><span>Operating expenses</span><span class='amt'>${e(y.pricing?.extras_text ?? "")}</span></div>`;
@@ -625,6 +649,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   <p class="body" style="font-size:9.5pt;">${e(y.description ?? "")}</p>
   ${insideHtml}
   <div style="margin-top:6mm;">${cost}</div>
+  ${pr.per_person_4 ? `<div class="body" style="font-size:8.5pt;color:var(--slate);margin-top:3mm;">Per guest: ${pr.per_person_4} (4 guests) &#8226; ${pr.per_person_6} (6 guests)</div>` : ""}
   ${linkButtons(y.links)}
   <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(d.period ?? "")} &#8226; ${idx2}</span></div>
 </div></div>`;

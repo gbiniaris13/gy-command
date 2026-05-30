@@ -22,6 +22,7 @@ type Extraction = {
   seasonal_rates: { label: string; fee: number; snippet: string }[];
   dates: { from: Field<string>; to: Field<string> };
   content?: Record<string, unknown>;
+  suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: { code: string; message: string }[];
   notes?: string;
 };
@@ -66,7 +67,7 @@ export default function GeneratePanel({
 
   // Editable copies, seeded from the extraction.
   const seedPrice = (e: Extraction | null) => {
-    const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", currency: "EUR" };
+    const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", all_inclusive_total: "", currency: "EUR" };
     if (e) for (const k of Object.keys(o)) {
       const v = e.pricing?.[k]?.value;
       if (v !== null && v !== undefined && v !== "") o[k] = String(v);
@@ -74,6 +75,7 @@ export default function GeneratePanel({
     return o;
   };
   const [px, setPx] = useState<Record<string, string>>(seedPrice(initialExtraction));
+  const [priceMode, setPriceMode] = useState<"breakdown" | "plus_extras" | "all_inclusive">(initialExtraction?.suggested_mode || "breakdown");
   const [vessel, setVessel] = useState({
     name: initialExtraction?.vessel_name?.value || "",
     type: initialExtraction?.vessel_type?.value || "",
@@ -83,10 +85,10 @@ export default function GeneratePanel({
   });
   const [resolved, setResolved] = useState<Set<string>>(new Set());
 
-  const stopFlags = (ex?.flags || []).filter((f) => STOP_CODES.has(f.code));
+  const stopFlags = (ex?.flags || []).filter((f) => STOP_CODES.has(f.code) && !(priceMode === "all_inclusive" && (f.code === "MISSING_APA" || f.code === "MISSING_VAT")));
   const warnFlags = (ex?.flags || []).filter((f) => !STOP_CODES.has(f.code));
   const allStopResolved = stopFlags.every((f) => resolved.has(f.code));
-  const hasFee = !!px.charter_fee.trim() || !!px.extras_text.trim();
+  const hasFee = priceMode === "all_inclusive" ? Number(px.all_inclusive_total) > 0 : (!!px.charter_fee.trim() || !!px.extras_text.trim());
   const canGenerate = !!ex && hasFee && allStopResolved && !!surname && mode !== "combined" && busy === null;
 
   async function runExtract() {
@@ -97,6 +99,7 @@ export default function GeneratePanel({
       if (!r.ok) throw new Error(j.error || "extract-failed");
       setEx(j.extraction);
       setPx(seedPrice(j.extraction));
+      setPriceMode(j.extraction?.suggested_mode || "breakdown");
       setVessel({
         name: j.extraction?.vessel_name?.value || "",
         type: j.extraction?.vessel_type?.value || "",
@@ -123,11 +126,13 @@ export default function GeneratePanel({
             gallery_slots: 4,
           },
           pricing: {
+            mode: priceMode,
             currency: px.currency || "EUR",
             charter_fee: num(px.charter_fee),
             apa_pct: num(px.apa_pct), apa_amount: num(px.apa_amount),
             vat_pct: num(px.vat_pct), vat_amount: num(px.vat_amount),
             extras_text: px.extras_text.trim() || null,
+            all_inclusive_total: num(px.all_inclusive_total),
           },
           content: ex?.content || {},
           details: [],
@@ -226,32 +231,56 @@ export default function GeneratePanel({
             </div>
           )}
 
-          {/* pricing — every number editable, with its exact snippet */}
+          {/* pricing MODE selector (per yacht) */}
           <div style={{ marginTop: 12 }}>
-            <div style={fieldLabel}>Pricing — confirm each number against its supplier snippet</div>
-            {PRICE_FIELDS.map(({ key, label }) => {
-              const fld = ex.pricing?.[key];
-              return (
-                <div key={key} style={priceRow}>
-                  <div style={{ width: 130, fontSize: 12.5, color: "#374151" }}>{label}</div>
-                  <input
-                    value={px[key] ?? ""}
-                    onChange={(e) => setPx({ ...px, [key]: e.target.value })}
-                    placeholder="—"
-                    style={priceInput}
-                  />
-                  {fld?.value !== null && fld?.value !== undefined && fld?.confidence ? <ConfBadge c={fld.confidence} /> : <span style={{ width: 52 }} />}
-                  <div style={snippetStyle}>{fld?.snippet ? `“${fld.snippet}”` : <span style={{ color: "#cbd5e1" }}>no snippet</span>}</div>
-                </div>
-              );
-            })}
-            {/* plus-extras (lump price, no APA/VAT breakdown) */}
-            <div style={priceRow}>
-              <div style={{ width: 130, fontSize: 12.5, color: "#374151" }}>Plus-extras text</div>
-              <input value={px.extras_text} onChange={(e) => setPx({ ...px, extras_text: e.target.value })} placeholder="e.g. plus expenses (only if no APA/VAT)" style={{ ...priceInput, width: 280 }} />
-              <span style={{ width: 52 }} />
-              <div style={snippetStyle}>{ex.pricing?.extras_text?.snippet ? `“${ex.pricing.extras_text.snippet}”` : ""}</div>
+            <div style={fieldLabel}>Pricing mode</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+              {([["breakdown", "Breakdown (fee + APA% + VAT%)"], ["plus_extras", "Plus extras"], ["all_inclusive", "All-inclusive"]] as const).map(([m, label]) => (
+                <button key={m} type="button" onClick={() => setPriceMode(m)} style={{
+                  ...chipBtn,
+                  background: priceMode === m ? "#0D1B2A" : "rgba(201,168,76,0.12)",
+                  color: priceMode === m ? "#F8F5F0" : "#0D1B2A",
+                }}>{label}</button>
+              ))}
             </div>
+          </div>
+
+          {/* numbers — every value editable beside its exact supplier snippet */}
+          <div style={{ marginTop: 12 }}>
+            <div style={fieldLabel}>Confirm each number against its supplier snippet</div>
+            {priceMode === "all_inclusive" ? (
+              <div style={priceRow}>
+                <div style={{ width: 130, fontSize: 12.5, color: "#374151" }}>All-inclusive total (EUR)</div>
+                <input
+                  value={px.all_inclusive_total ?? ""}
+                  onChange={(e) => setPx({ ...px, all_inclusive_total: e.target.value })}
+                  placeholder="e.g. 200000"
+                  style={priceInput}
+                />
+                {ex.pricing?.all_inclusive_total?.confidence ? <ConfBadge c={ex.pricing.all_inclusive_total.confidence} /> : <span style={{ width: 52 }} />}
+                <div style={snippetStyle}>{ex.pricing?.all_inclusive_total?.snippet ? `“${ex.pricing.all_inclusive_total.snippet}”` : <span style={{ color: "#cbd5e1" }}>no snippet</span>}</div>
+              </div>
+            ) : (
+              <>
+                {PRICE_FIELDS.map(({ key, label }) => {
+                  const fld = ex.pricing?.[key];
+                  return (
+                    <div key={key} style={priceRow}>
+                      <div style={{ width: 130, fontSize: 12.5, color: "#374151" }}>{label}</div>
+                      <input value={px[key] ?? ""} onChange={(e) => setPx({ ...px, [key]: e.target.value })} placeholder="-" style={priceInput} />
+                      {fld?.value !== null && fld?.value !== undefined && fld?.confidence ? <ConfBadge c={fld.confidence} /> : <span style={{ width: 52 }} />}
+                      <div style={snippetStyle}>{fld?.snippet ? `“${fld.snippet}”` : <span style={{ color: "#cbd5e1" }}>no snippet</span>}</div>
+                    </div>
+                  );
+                })}
+                <div style={priceRow}>
+                  <div style={{ width: 130, fontSize: 12.5, color: "#374151" }}>Plus-extras text</div>
+                  <input value={px.extras_text} onChange={(e) => setPx({ ...px, extras_text: e.target.value })} placeholder="e.g. plus expenses (only if no APA/VAT)" style={{ ...priceInput, width: 280 }} />
+                  <span style={{ width: 52 }} />
+                  <div style={snippetStyle}>{ex.pricing?.extras_text?.snippet ? `“${ex.pricing.extras_text.snippet}”` : ""}</div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* vessel facts (editable) */}

@@ -33,6 +33,9 @@ export type ExtractedPricing = {
   extras_text: Field<string>;
   /** Supplier "divide the rate by N" for a short charter. */
   divide_by: Field<number>;
+  /** ONE fully-inclusive figure (APA+VAT+extras inside) when the supplier
+   *  states "all included / fully inclusive / όλα μέσα / all-in". */
+  all_inclusive_total: Field<number>;
 };
 
 export type SeasonalRate = { label: string; fee: number; snippet: string };
@@ -68,6 +71,8 @@ export type Extraction = {
   seasonal_rates: SeasonalRate[];
   dates: { from: Field<string>; to: Field<string> };
   content: ExtractedContent;
+  /** AI's suggested pricing mode; George can override on the review screen. */
+  suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: ExtractionFlag[];
   notes: string;
 };
@@ -84,6 +89,7 @@ PRICING FIELDS:
 - apa_pct AND apa_amount: capture whichever the supplier stated (percentage OR amount, not both unless both are written). If NEITHER appears, add flag MISSING_APA.
 - vat_pct AND vat_amount: whichever stated. If neither, add flag MISSING_VAT.
 - extras_text: set (e.g. "plus extras", "plus expenses") ONLY when the supplier gives a lump price with NO APA/VAT breakdown; also add flag PLUS_EXTRAS_NO_BREAKDOWN.
+- all_inclusive_total: if the supplier states ONE fully-inclusive figure (e.g. "all included", "fully inclusive", "all-in", Greek "όλα μέσα"), capture that single number here and set "suggested_mode":"all_inclusive". In that case do NOT fill charter_fee/apa/vat, and do NOT raise MISSING_APA (there is no separate APA). Otherwise set suggested_mode to "breakdown" (normal fee+APA+VAT) or "plus_extras" (lump + extras).
 - divide_by: if the supplier says to divide the weekly rate by a number for a short charter (e.g. "kindly divide by 6"), capture that N. If the request is clearly short but NO divisor is stated, set value null and add flag DIVIDE_BY_UNCLEAR.
 - currency: the currency code if stated (e.g. "EUR").
 - If no price at all is found, add flag NO_PRICE_FOUND.
@@ -96,7 +102,7 @@ OTHER FIELDS (factual, verbatim where possible, no invention):
 CONFIDENTIALITY: never include the source agency/broker company name, person names, emails, phone numbers, or broker URLs ANYWHERE in your output. Strip them.
 
 OUTPUT: a SINGLE JSON object, no markdown fences, exactly this shape:
-{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"flags":[{"code":"MISSING_APA","message":"..."}],"notes":""}`;
+{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[{"code":"MISSING_APA","message":"..."}],"notes":""}`;
 
 export async function extractSupplier(
   supplierRaw: string,
@@ -131,7 +137,7 @@ export async function extractSupplier(
   // the deterministic compute step get clean values. This is NOT arithmetic
   // — it only parses the single extracted token, never combines numbers.
   const numericFields: (keyof ExtractedPricing)[] = [
-    "charter_fee", "apa_pct", "apa_amount", "vat_pct", "vat_amount", "divide_by",
+    "charter_fee", "apa_pct", "apa_amount", "vat_pct", "vat_amount", "divide_by", "all_inclusive_total",
   ];
   for (const k of numericFields) {
     const f = parsed.pricing[k] as Field<number> | undefined;
