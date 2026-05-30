@@ -114,6 +114,21 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: "The Helm",
+    href: "/dashboard/helm",
+    group: "operate",
+    // Ship's wheel — the request pipeline / the sale. Sits immediately
+    // before The Cabin: The Helm is the before (the sale), The Cabin the
+    // after (the voyage).
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <circle cx="12" cy="12" r="7" />
+        <circle cx="12" cy="12" r="2" />
+        <path strokeLinecap="round" d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M16.95 16.95l2.15 2.15M19.1 4.9l-2.1 2.1M7.05 16.95l-2.15 2.15" />
+      </svg>
+    ),
+  },
+  {
     label: "The Cabin",
     href: "/dashboard/cabins",
     group: "operate",
@@ -123,22 +138,6 @@ const navItems: NavItem[] = [
         <circle cx="12" cy="12" r="9" />
         <circle cx="12" cy="12" r="3" />
         <path strokeLinecap="round" d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6l2.1 2.1M5.6 18.4l2.1-2.1m8.6-8.6l2.1-2.1" />
-      </svg>
-    ),
-  },
-  {
-    label: "The Helm",
-    href: "/dashboard/helm",
-    group: "operate",
-    // Hidden from nav until the render risk-gate (Step 2) passes.
-    // Still reachable by direct URL /dashboard/helm. Set parked:false to reveal.
-    parked: true,
-    // Ship's wheel — the request pipeline / the sale, before the voyage.
-    icon: (
-      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-        <circle cx="12" cy="12" r="7" />
-        <circle cx="12" cy="12" r="2" />
-        <path strokeLinecap="round" d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M16.95 16.95l2.15 2.15M19.1 4.9l-2.1 2.1M7.05 16.95l-2.15 2.15" />
       </svg>
     ),
   },
@@ -737,15 +736,7 @@ export default function DashboardLayout({
 
             {/* Grouped items */}
             {GROUP_ORDER.map((groupKey) => {
-              // Mobile nav keeps its original behaviour (group-only,
-              // unchanged for every item incl. the parked "cockpit").
-              // We only additionally hide The Helm here while it's behind
-              // the render risk-gate (Step 2) — scoped to Helm by href so
-              // nothing else is affected. Remove this clause + flip the
-              // Helm entry's parked:false to reveal it.
-              const items = navItems.filter(
-                (i) => i.group === groupKey && i.href !== "/dashboard/helm",
-              );
+              const items = navItems.filter((i) => i.group === groupKey);
               if (items.length === 0) return null;
               return (
                 <div key={groupKey} className="pt-3">
