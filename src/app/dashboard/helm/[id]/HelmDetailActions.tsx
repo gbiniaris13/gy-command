@@ -56,15 +56,6 @@ export default function HelmDetailActions({ requestId }: { requestId: string }) 
         Actions
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-        <button type="button" disabled title="Arrives in the next build step (Generate)" style={pendingBtn}>
-          Generate proposal · soon
-        </button>
-        <button type="button" disabled title="Arrives in the next build step (Send)" style={pendingBtn}>
-          Send · soon
-        </button>
-      </div>
-
       <label style={{ fontSize: 11, color: "#374151", display: "block", marginBottom: 6 }}>
         Add an internal note
       </label>
@@ -95,8 +86,4 @@ const primaryBtn: React.CSSProperties = {
 const dangerBtn: React.CSSProperties = {
   background: "#fff", color: "#b91c1c", border: "1px solid rgba(185,28,28,0.4)",
   padding: "8px 16px", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", cursor: "pointer",
-};
-const pendingBtn: React.CSSProperties = {
-  background: "#f3f4f6", color: "#9CA3AF", border: "1px dashed rgba(13,27,42,0.12)",
-  padding: "8px 16px", fontSize: 10, letterSpacing: 2, textTransform: "uppercase", cursor: "not-allowed",
 };
