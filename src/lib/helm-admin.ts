@@ -291,6 +291,30 @@ export async function removeVesselPhoto(id: string, url: string) {
   return cur;
 }
 
+// Feature 1 (combined multi-yacht) — per-yacht media, keyed by yacht index:
+//   { "0": { main_url, brochure_url }, "1": {...} }  (combined_media jsonb)
+type CombinedMediaEntry = { main_url?: string | null; brochure_url?: string | null };
+
+export async function setCombinedMedia(id: string, index: number, patch: CombinedMediaEntry) {
+  const db = createServiceClient();
+  const { data } = await db.from("helm_requests").select("combined_media").eq("id", id).maybeSingle();
+  const cur: Record<string, CombinedMediaEntry> =
+    data?.combined_media && typeof data.combined_media === "object" ? data.combined_media : {};
+  const key = String(index);
+  const next = { ...(cur[key] || {}), ...patch };
+  // drop nulled fields so removal actually clears them
+  for (const k of Object.keys(next) as (keyof CombinedMediaEntry)[]) {
+    if (next[k] === null || next[k] === undefined || next[k] === "") delete next[k];
+  }
+  cur[key] = next;
+  const { error } = await db
+    .from("helm_requests")
+    .update({ combined_media: cur, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  return cur;
+}
+
 export async function setBrochureUrl(id: string, url: string | null) {
   const db = createServiceClient();
   const { error } = await db

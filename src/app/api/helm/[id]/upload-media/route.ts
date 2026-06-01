@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { addVesselPhoto, removeVesselPhoto, setBrochureUrl } from "@/lib/helm-admin";
+import { addVesselPhoto, removeVesselPhoto, setBrochureUrl, setCombinedMedia } from "@/lib/helm-admin";
 import { isCloudinaryConfigured, uploadToCloudinary } from "@/lib/helm/cloudinary";
 import { agencyDomainWarning } from "@/lib/helm/media";
 
@@ -40,6 +40,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     try { form = await req.formData(); } catch { return NextResponse.json({ error: "bad form" }, { status: 400 }); }
     const file = form.get("file");
     const kind = String(form.get("kind") || "photo");
+    // Combined multi-yacht: a per-yacht photo/brochure is tagged with its index.
+    const rawIdx = form.get("yacht_index");
+    const yachtIndex = rawIdx !== null && rawIdx !== "" ? Number(rawIdx) : null;
     if (!(file instanceof File)) return NextResponse.json({ error: "no file" }, { status: 400 });
 
     if (!isCloudinaryConfigured()) {
@@ -54,6 +57,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const buf = Buffer.from(await file.arrayBuffer());
       const dataUri = `data:${file.type || "application/octet-stream"};base64,${buf.toString("base64")}`;
       const secureUrl = await uploadToCloudinary(dataUri, { folder: `helm/${id}`, resourceType: "auto" });
+      // Combined per-yacht media → combined_media[index], not the single-yacht arrays.
+      if (yachtIndex !== null && Number.isFinite(yachtIndex)) {
+        const patch = kind === "brochure" ? { brochure_url: secureUrl } : { main_url: secureUrl };
+        const combined_media = await setCombinedMedia(id, yachtIndex, patch);
+        return NextResponse.json({ ok: true, configured: true, kind, yacht_index: yachtIndex, url: secureUrl, combined_media });
+      }
       if (kind === "brochure") {
         await setBrochureUrl(id, secureUrl);
         return NextResponse.json({ ok: true, configured: true, kind: "brochure", url: secureUrl });
@@ -93,6 +102,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       case "remove-brochure": {
         await setBrochureUrl(id, null);
         return NextResponse.json({ ok: true, brochure_url: null });
+      }
+      // ---- combined multi-yacht per-yacht media (by index) ----
+      case "set-combined-link": {
+        const idx = Number(body.index);
+        const field = body.field === "brochure_url" ? "brochure_url" : "main_url";
+        if (!Number.isFinite(idx) || !body.url) return NextResponse.json({ error: "index + url required" }, { status: 400 });
+        const combined_media = await setCombinedMedia(id, idx, { [field]: String(body.url) });
+        const note = field === "brochure_url" ? agencyDomainWarning(String(body.url)) : undefined;
+        return NextResponse.json({ ok: true, combined_media, note });
+      }
+      case "remove-combined": {
+        const idx = Number(body.index);
+        const field = body.field === "brochure_url" ? "brochure_url" : "main_url";
+        if (!Number.isFinite(idx)) return NextResponse.json({ error: "index required" }, { status: 400 });
+        const combined_media = await setCombinedMedia(id, idx, { [field]: null });
+        return NextResponse.json({ ok: true, combined_media });
       }
       default:
         return NextResponse.json({ error: "unknown action" }, { status: 400 });

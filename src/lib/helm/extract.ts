@@ -155,3 +155,80 @@ function toNum(v: unknown): number | null {
   const n = Number(String(v).replace(/[^0-9.\-]/g, ""));
   return Number.isFinite(n) ? n : null;
 }
+
+// =============================================================
+// MULTI-YACHT (combined proposal) — one supplier email may offer several
+// yachts. We extract EACH yacht as its own Extraction (own numbers + verbatim
+// snippets + confidence + suggested_mode + per-yacht STOP flags). Still NO
+// arithmetic; the same absolute rules apply per yacht. George reviews every
+// yacht's numbers on its own card before Generate.
+// =============================================================
+
+const MULTI_SYSTEM = `You extract structured data from a raw yacht central-agency email (or several pasted emails) that offers ONE OR MORE yachts, so a broker (George Yachts) can build a combined client proposal. You are an EXTRACTOR, not a calculator.
+
+ABSOLUTE RULES — breaking these causes a contract dispute:
+1. Extract ONLY values that appear LITERALLY in the email. Never calculate, infer, convert, or fill in a "reasonable" number. If a value is not explicitly written, its "value" is null.
+2. Do NO arithmetic of any kind (no APA from a percentage, no totals, no all-in). Code does that later, deterministically.
+3. For every pricing field return "value" (the number exactly as written, currency symbols / spaces / thousands separators removed; e.g. "EUR 159,000" -> 159000), "confidence" ("high"/"medium"/"low"), and "snippet" (the EXACT verbatim substring it came from; "" if not found).
+
+Treat EACH yacht the supplier offers as a SEPARATE object with its OWN numbers, snippets, confidence, suggested_mode and flags. Per yacht:
+- charter_fee: the NET rate for the period. If a yacht has TWO+ seasonal rates, set its charter_fee.value=null, list them in that yacht's "seasonal_rates" (label+fee+snippet), add flag MULTIPLE_SEASONAL_RATES.
+- apa_pct AND apa_amount: whichever stated; if neither, add MISSING_APA. vat_pct AND vat_amount: whichever stated; if neither, MISSING_VAT.
+- extras_text + flag PLUS_EXTRAS_NO_BREAKDOWN: only for a lump "plus extras / plus expenses" with NO APA/VAT breakdown.
+- all_inclusive_total + "suggested_mode":"all_inclusive": if that yacht states ONE fully-inclusive figure ("all included", "fully inclusive", "all-in", Greek "ola mesa"). Then do NOT fill charter_fee/apa/vat for it and do NOT raise MISSING_APA. Otherwise suggested_mode is "breakdown" or "plus_extras".
+- divide_by (+ DIVIDE_BY_UNCLEAR if short but no divisor), currency, NO_PRICE_FOUND if that yacht has no price.
+- vessel_name, vessel_type, spec_line, dates.from/to, and content (highlights[], accommodation[][], water_toys[], tech_specs[][], crew_line) - FACTUAL, verbatim, NEVER invented; leave empty if not stated.
+
+CONFIDENTIALITY: never include the source agency/broker company name, person names, emails, phone numbers, or broker URLs anywhere. Strip them from every yacht.
+
+OUTPUT: a SINGLE JSON object, no markdown fences, exactly:
+{"yachts":[{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[],"notes":""}]}
+If only one yacht is offered, return an array with one element. NEVER do math.`;
+
+// Numeric/array coercion + defaults for one extracted yacht. Mirrors the
+// single-yacht tail of extractSupplier. Only parses single tokens (no math).
+function coerceYacht(y: Extraction): Extraction {
+  if (!y.pricing) y.pricing = {} as ExtractedPricing;
+  if (!Array.isArray(y.flags)) y.flags = [];
+  if (!Array.isArray(y.seasonal_rates)) y.seasonal_rates = [];
+  if (!y.content || typeof y.content !== "object") {
+    y.content = { highlights: [], accommodation: [], water_toys: [], tech_specs: [], crew_line: "" };
+  }
+  const numericFields: (keyof ExtractedPricing)[] = [
+    "charter_fee", "apa_pct", "apa_amount", "vat_pct", "vat_amount", "divide_by", "all_inclusive_total",
+  ];
+  for (const k of numericFields) {
+    const f = y.pricing[k] as Field<number> | undefined;
+    if (f) f.value = toNum(f.value);
+  }
+  for (const sr of y.seasonal_rates) sr.fee = toNum(sr.fee) ?? sr.fee;
+  return y;
+}
+
+export async function extractSupplierYachts(
+  supplierRaw: string,
+  brief?: string,
+): Promise<Extraction[]> {
+  const userMsg = [
+    brief ? `Broker brief / context: ${brief}` : "",
+    "SUPPLIER EMAIL(S) — extract every yacht from this only:",
+    "```",
+    supplierRaw,
+    "```",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  // Larger token budget than single: a thinking model emitting N yachts of
+  // structured JSON truncates if starved.
+  const raw = await aiChat(MULTI_SYSTEM, userMsg, { maxTokens: 8000, temperature: 0 });
+  let parsed: { yachts?: unknown };
+  try {
+    parsed = parseLooseJson(raw) as { yachts?: unknown };
+  } catch {
+    throw new Error(`Multi-yacht extraction returned non-JSON: ${raw.slice(0, 400)}`);
+  }
+  const arr = Array.isArray(parsed?.yachts) ? parsed.yachts : [];
+  if (!arr.length) throw new Error("Multi-yacht extraction found no yachts in the supplier email.");
+  return arr.map((y) => coerceYacht(y as Extraction));
+}

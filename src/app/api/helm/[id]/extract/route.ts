@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
-import { extractSupplier } from "@/lib/helm/extract";
+import { extractSupplier, extractSupplierYachts } from "@/lib/helm/extract";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -34,6 +34,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   try {
+    // Combined mode → extract EVERY yacht the supplier offered (array, each
+    // with its own numbers + snippets + confidence + STOP flags). Single mode
+    // → one yacht as before. NOTHING is computed here.
+    if (r.mode === "combined") {
+      const yachts = await extractSupplierYachts(r.supplier_raw, r.brief || undefined);
+      const extraction = { yachts };
+      await saveExtraction(id, extraction);
+      return NextResponse.json({ ok: true, extraction });
+    }
     const extraction = await extractSupplier(r.supplier_raw, r.brief || undefined);
     await saveExtraction(id, extraction);
     return NextResponse.json({ ok: true, extraction });
