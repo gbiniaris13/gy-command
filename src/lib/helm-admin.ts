@@ -211,6 +211,45 @@ export async function saveGenerated(
   if (error) throw new Error(error.message);
 }
 
+// Addition B — media (Cloudinary URLs or pasted links) on the request.
+type VesselPhotoRow = { url: string; source: "upload" | "link"; caption?: string };
+
+export async function addVesselPhoto(id: string, photo: VesselPhotoRow) {
+  const db = createServiceClient();
+  const { data } = await db.from("helm_requests").select("vessel_photos").eq("id", id).maybeSingle();
+  const cur: VesselPhotoRow[] = Array.isArray(data?.vessel_photos) ? data!.vessel_photos : [];
+  if (!cur.some((p) => p?.url === photo.url)) cur.push(photo);
+  const { error } = await db
+    .from("helm_requests")
+    .update({ vessel_photos: cur, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  return cur;
+}
+
+export async function removeVesselPhoto(id: string, url: string) {
+  const db = createServiceClient();
+  const { data } = await db.from("helm_requests").select("vessel_photos").eq("id", id).maybeSingle();
+  const cur: VesselPhotoRow[] = (Array.isArray(data?.vessel_photos) ? data!.vessel_photos : []).filter(
+    (p: VesselPhotoRow) => p?.url !== url,
+  );
+  const { error } = await db
+    .from("helm_requests")
+    .update({ vessel_photos: cur, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  return cur;
+}
+
+export async function setBrochureUrl(id: string, url: string | null) {
+  const db = createServiceClient();
+  const { error } = await db
+    .from("helm_requests")
+    .update({ brochure_url: url, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
 // Hard delete (cascades to helm_messages). The Helm holds no
 // post-sale record worth preserving the way a completed Cabin does,
 // and George wants to clear test fixtures cleanly. If a soft-delete

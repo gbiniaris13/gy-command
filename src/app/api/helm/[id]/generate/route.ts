@@ -14,6 +14,8 @@ import { buildSingleProposal, formalAddress } from "@/lib/helm/build";
 import { buildProposalHtml, type SingleYacht } from "@/lib/helm/proposal-template";
 import { renderProposalPdf } from "@/lib/helm/render";
 import { uploadProposalPdf } from "@/lib/helm/storage";
+import { optimizedUrl } from "@/lib/helm/cloudinary";
+import { isAgencyDomain } from "@/lib/helm/media";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -41,7 +43,23 @@ type RequestRow = {
   no_myba?: boolean | null;
   show_ghost_credit?: boolean | null;
   mode?: string | null;
+  vessel_photos?: { url?: string; source?: string }[] | null;
+  brochure_url?: string | null;
 };
+
+// Fetch a (Cloudinary-optimized) image URL and inline it as a base64 data
+// URI so the PDF render is self-contained + reliable (no network at render).
+async function toDataUri(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") || "image/jpeg";
+    const buf = Buffer.from(await res.arrayBuffer());
+    return `data:${ct};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
 
 function buildPeriodLine(r: RequestRow): string {
   const seg: string[] = [];
@@ -143,6 +161,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       occasion: r.occasion || undefined,
     });
 
+    // ---- media: base64-embed web-optimized vessel photos into the PDF; add a
+    // brochure button (agency-domain brochure links are WITHHELD — confidentiality).
+    const photoUrls = (Array.isArray(r.vessel_photos) ? r.vessel_photos : [])
+      .map((p) => p?.url)
+      .filter((u): u is string => !!u);
+    const dataUris = await Promise.all(photoUrls.map((u) => toDataUri(optimizedUrl(u))));
+    const imgs = dataUris.filter((d): d is string => !!d);
+    const mediaImages: Record<string, string | null> = {};
+    const SLOTS = ["cover", "experience", "interior1", "interior2", "exterior", "closing"];
+    imgs.slice(0, 6).forEach((d, i) => { mediaImages[SLOTS[i]] = d; });
+    const galleryImgs = imgs.slice(6);
+    const mediaLinks: Record<string, string> = { ...(v.links || {}) };
+    if (r.brochure_url && !isAgencyDomain(r.brochure_url)) mediaLinks.brochure = r.brochure_url;
+
     const yacht: SingleYacht = {
       name: v.name || "Yacht",
       type: v.type || undefined,
@@ -157,9 +189,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       water_toys: Array.isArray(content.water_toys) ? content.water_toys : [],
       tech_specs: Array.isArray(content.tech_specs) ? content.tech_specs : [],
       pricing,
-      gallery_slots: typeof v.gallery_slots === "number" ? v.gallery_slots : 4,
-      links: v.links && Object.keys(v.links).length ? v.links : undefined,
-      images: {},
+      gallery: galleryImgs.length ? galleryImgs : undefined,
+      gallery_slots: imgs.length === 0 ? 4 : undefined,
+      links: Object.keys(mediaLinks).length ? mediaLinks : undefined,
+      images: mediaImages,
     };
     const proposal = buildSingleProposal(yacht, {
       no_myba: !!r.no_myba,
