@@ -211,6 +211,56 @@ export async function saveGenerated(
   if (error) throw new Error(error.message);
 }
 
+// Feature 2 — send / reply logging.
+export async function logHelmMessage(
+  requestId: string,
+  msg: {
+    direction: "outbound" | "inbound" | null;
+    channel: "email" | "whatsapp" | "note";
+    body: string;
+    gmail_message_id?: string | null;
+  },
+) {
+  const db = createServiceClient();
+  const { error } = await db.from("helm_messages").insert({
+    request_id: requestId,
+    direction: msg.direction,
+    channel: msg.channel,
+    body: msg.body,
+    gmail_message_id: msg.gmail_message_id ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// After a proposal email is sent: store thread refs, advance to Sent, and set
+// the 4-day follow-up. (The actual Gmail send happens in the send route.)
+export async function markRequestSent(
+  id: string,
+  fields: {
+    gmail_thread_id: string;
+    gmail_last_message_id: string;
+    email_subject: string;
+    email_intro: string;
+  },
+) {
+  const db = createServiceClient();
+  const followUp = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
+  const { error } = await db
+    .from("helm_requests")
+    .update({
+      gmail_thread_id: fields.gmail_thread_id,
+      gmail_last_message_id: fields.gmail_last_message_id,
+      email_subject: fields.email_subject,
+      email_intro: fields.email_intro,
+      status: "sent",
+      follow_up_at: followUp,
+      last_activity_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
 // Addition B — media (Cloudinary URLs or pasted links) on the request.
 type VesselPhotoRow = { url: string; source: "upload" | "link"; caption?: string };
 
@@ -236,6 +286,30 @@ export async function removeVesselPhoto(id: string, url: string) {
   const { error } = await db
     .from("helm_requests")
     .update({ vessel_photos: cur, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  return cur;
+}
+
+// Feature 1 (combined multi-yacht) — per-yacht media, keyed by yacht index:
+//   { "0": { main_url, brochure_url }, "1": {...} }  (combined_media jsonb)
+type CombinedMediaEntry = { main_url?: string | null; brochure_url?: string | null };
+
+export async function setCombinedMedia(id: string, index: number, patch: CombinedMediaEntry) {
+  const db = createServiceClient();
+  const { data } = await db.from("helm_requests").select("combined_media").eq("id", id).maybeSingle();
+  const cur: Record<string, CombinedMediaEntry> =
+    data?.combined_media && typeof data.combined_media === "object" ? data.combined_media : {};
+  const key = String(index);
+  const next = { ...(cur[key] || {}), ...patch };
+  // drop nulled fields so removal actually clears them
+  for (const k of Object.keys(next) as (keyof CombinedMediaEntry)[]) {
+    if (next[k] === null || next[k] === undefined || next[k] === "") delete next[k];
+  }
+  cur[key] = next;
+  const { error } = await db
+    .from("helm_requests")
+    .update({ combined_media: cur, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw new Error(error.message);
   return cur;

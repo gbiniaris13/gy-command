@@ -59,6 +59,27 @@ export function fmtEur(n: number | string | null | undefined): string {
   return "€ " + s; // € + narrow no-break space, as in build_proposal.py
 }
 
+// Numeric all-in (NOT formatted) — used to sort a combined shortlist
+// cheapest -> priciest. Same math as computePricing, returns the raw number.
+// null when there is no total (plus_extras, or a missing required figure).
+export function allInNumber(p?: PricingInput | null): number | null {
+  if (!p) return null;
+  const mode = resolveMode(p);
+  if (mode === "all_inclusive") {
+    const t = p.all_inclusive_total;
+    return t === null || t === undefined ? null : Number(t);
+  }
+  if (mode === "plus_extras") return null; // lump price, no total
+  const fee0 = p.charter_fee;
+  if (fee0 === null || fee0 === undefined) return null;
+  const fee = Number(fee0);
+  let apaAmt: number | null = p.apa_amount ?? null;
+  if (apaAmt === null && p.apa_pct !== null && p.apa_pct !== undefined) apaAmt = (fee * Number(p.apa_pct)) / 100;
+  let vatAmt: number | null = p.vat_amount ?? null;
+  if (vatAmt === null && p.vat_pct !== null && p.vat_pct !== undefined) vatAmt = (fee * Number(p.vat_pct)) / 100;
+  return fee + (apaAmt ?? 0) + (vatAmt ?? 0);
+}
+
 // Percent label — "40%" / "6.5%".
 function pct(v: number | null | undefined): string {
   if (v === null || v === undefined) return "";

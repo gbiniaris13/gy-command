@@ -8,17 +8,19 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, saveGenerated } from "@/lib/helm-admin";
-import { computePricing, type PricingInput } from "@/lib/helm/pricing";
-import { composeSingleNarrative, composeEmail } from "@/lib/helm/compose";
-import { buildSingleProposal, formalAddress } from "@/lib/helm/build";
-import { buildProposalHtml, type SingleYacht } from "@/lib/helm/proposal-template";
+import { computePricing, allInNumber, type PricingInput } from "@/lib/helm/pricing";
+import { composeSingleNarrative, composeEmail, composeYachtInsideInfo, composeCombinedIntro } from "@/lib/helm/compose";
+import { buildSingleProposal, buildCombinedProposal, formalAddress } from "@/lib/helm/build";
+import { buildProposalHtml, type SingleYacht, type CombinedYacht } from "@/lib/helm/proposal-template";
 import { renderProposalPdf } from "@/lib/helm/render";
 import { uploadProposalPdf } from "@/lib/helm/storage";
 import { optimizedUrl } from "@/lib/helm/cloudinary";
 import { isAgencyDomain } from "@/lib/helm/media";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// Combined mode composes copy for N yachts + the intro letter before rendering,
+// so allow more headroom than a single proposal.
+export const maxDuration = 120;
 
 async function adminEmail(): Promise<string | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -45,7 +47,40 @@ type RequestRow = {
   mode?: string | null;
   vessel_photos?: { url?: string; source?: string }[] | null;
   brochure_url?: string | null;
+  combined_media?: Record<string, { main_url?: string | null; brochure_url?: string | null }> | null;
 };
+
+// One yacht as posted by the combined review UI (confirmed numbers + facts).
+type CombinedInputYacht = {
+  vessel?: { name?: string; type?: string; spec_line?: string };
+  pricing?: {
+    mode?: PricingInput["mode"];
+    currency?: string;
+    charter_fee?: number | null;
+    apa_pct?: number | null;
+    apa_amount?: number | null;
+    vat_pct?: number | null;
+    vat_amount?: number | null;
+    extras_text?: string | null;
+    all_inclusive_total?: number | null;
+  };
+  content?: {
+    highlights?: string[];
+    accommodation?: [string, string][];
+    water_toys?: string[];
+    tech_specs?: [string, string][];
+    crew_line?: string;
+  };
+};
+
+// Build just the month/year for the combined cover "period" line (area + guests
+// are shown separately on that template).
+function monthYearLine(r: RequestRow): string {
+  if (!r.dates_from) return "";
+  const d = new Date(r.dates_from + "T00:00:00Z");
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).toUpperCase();
+}
 
 // Fetch a (Cloudinary-optimized) image URL and inline it as a base64 data
 // URI so the PDF render is self-contained + reliable (no network at render).
@@ -88,12 +123,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const mode = body.mode || r.mode || "single";
-  if (mode !== "single") {
-    return NextResponse.json(
-      { error: "Combined multi-yacht auto-generate is the next step. Use single mode for now (the combined template is ready)." },
-      { status: 400 },
-    );
-  }
 
   // FORMAL ADDRESSING — never a bare first name. No surname => stop and ask.
   const addr = formalAddress({ title: r.client_title, surname: r.client_surname, isFamily: r.client_is_family });
@@ -102,6 +131,144 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       { error: "Client surname is required for formal addressing. Add a title + surname on the request first." },
       { status: 400 },
     );
+  }
+
+  // ============================================================
+  // COMBINED MULTI-YACHT — one proposal, N yachts, sorted cheapest -> priciest
+  // by deterministic all-in. Each yacht's pricing is computed in code (never
+  // the AI); a per-yacht server guard rejects a missing/<=0 required figure.
+  // ============================================================
+  if (mode === "combined") {
+    const inYachts: CombinedInputYacht[] = Array.isArray(body.yachts) ? body.yachts : [];
+    if (!inYachts.length) {
+      return NextResponse.json({ error: "No yachts to generate. Extract the supplier email first." }, { status: 400 });
+    }
+
+    // SERVER-SIDE STOP GUARD per yacht (defense in depth behind the UI gate).
+    for (let i = 0; i < inYachts.length; i++) {
+      const p = inYachts[i]?.pricing || {};
+      const pm = p.mode || (p.all_inclusive_total != null ? "all_inclusive" : p.extras_text ? "plus_extras" : "breakdown");
+      const label = inYachts[i]?.vessel?.name ? `"${inYachts[i].vessel!.name}"` : `#${i + 1}`;
+      if (pm === "all_inclusive") {
+        if (p.all_inclusive_total == null || Number(p.all_inclusive_total) <= 0) {
+          return NextResponse.json({ error: `Yacht ${label}: confirm an all-inclusive total greater than 0. Nothing was generated.` }, { status: 400 });
+        }
+      } else if ((p.charter_fee === null || p.charter_fee === undefined) && !p.extras_text) {
+        return NextResponse.json({ error: `Yacht ${label}: confirm a charter fee, or mark 'plus extras'. Nothing was generated.` }, { status: 400 });
+      }
+    }
+
+    try {
+      const combinedMedia = (r.combined_media && typeof r.combined_media === "object") ? r.combined_media : {};
+
+      // Build each yacht (compute pricing + compose copy + embed its photo) in
+      // parallel, then sort. allInNumber is the deterministic sort key.
+      const built = await Promise.all(inYachts.map(async (iy, i) => {
+        const v = iy.vessel || {};
+        const content = iy.content || {};
+        const pricing: PricingInput = {
+          currency: iy.pricing?.currency || "EUR",
+          mode: iy.pricing?.mode || undefined,
+          charter_fee: iy.pricing?.charter_fee ?? null,
+          apa_pct: iy.pricing?.apa_pct ?? null,
+          apa_amount: iy.pricing?.apa_amount ?? null,
+          vat_pct: iy.pricing?.vat_pct ?? null,
+          vat_amount: iy.pricing?.vat_amount ?? null,
+          extras_text: iy.pricing?.extras_text || null,
+          all_inclusive_total: iy.pricing?.all_inclusive_total ?? null,
+        };
+
+        const supplierFacts = [
+          v.spec_line ? `Spec: ${v.spec_line}` : "",
+          content.crew_line ? `Crew: ${content.crew_line}` : "",
+          content.highlights?.length ? `Highlights: ${content.highlights.join("; ")}` : "",
+          content.water_toys?.length ? `Water toys: ${content.water_toys.join("; ")}` : "",
+          content.tech_specs?.length ? `Specs: ${content.tech_specs.map((s) => `${s[0]} ${s[1]}`).join("; ")}` : "",
+          content.accommodation?.length ? `Accommodation: ${content.accommodation.map((a) => `${a[0]} (${a[1]})`).join("; ")}` : "",
+        ].filter(Boolean).join("\n") || (v.name ? `${v.name}${v.type ? ` ${v.type}` : ""}` : "the yacht");
+
+        const info = await composeYachtInsideInfo({
+          vessel_name: v.name || "the yacht",
+          vessel_type: v.type,
+          spec_line: v.spec_line,
+          supplier_facts: supplierFacts,
+          brief: r.brief || undefined,
+          occasion: r.occasion || undefined,
+        });
+
+        // per-yacht media (confidentiality: agency-domain brochure links withheld)
+        const media = combinedMedia[String(i)] || {};
+        const mainImg = media.main_url ? await toDataUri(optimizedUrl(media.main_url)) : null;
+        const links: Record<string, string> = {};
+        if (media.brochure_url && !isAgencyDomain(media.brochure_url)) links.brochure = media.brochure_url;
+
+        const specStrip = (Array.isArray(content.tech_specs) ? content.tech_specs : []).slice(0, 3) as [string, string][];
+        const yacht: CombinedYacht = {
+          name: v.name || "Yacht",
+          type: v.type || undefined,
+          spec_line: v.spec_line || undefined,
+          spec_strip: specStrip.length ? specStrip : undefined,
+          description: info.description,
+          inside_info: info.inside_info,
+          pricing,
+          links: Object.keys(links).length ? links : undefined,
+          images: mainImg ? { main: mainImg } : {},
+        };
+        const ain = allInNumber(pricing);
+        const sortKey = ain ?? (pricing.charter_fee != null ? Number(pricing.charter_fee) : Number.POSITIVE_INFINITY);
+        return { yacht, sortKey };
+      }));
+
+      built.sort((a, b) => a.sortKey - b.sortKey);
+      const sorted = built.map((b) => b.yacht);
+      // tier labels at the ends (only when there is a genuine spread)
+      if (sorted.length >= 2) {
+        sorted[0].tier_label = "The Considered Value";
+        sorted[sorted.length - 1].tier_label = "The Statement";
+      }
+
+      // cover image = the cheapest yacht's photo if any has one
+      const images: Record<string, string | null> = {};
+      const withPhoto = sorted.find((y) => y.images?.main);
+      if (withPhoto?.images?.main) images.cover = withPhoto.images.main as string;
+
+      const summary = sorted.map((y) => {
+        const pr = computePricing(y.pricing);
+        return `${y.name}${y.spec_line ? ` - ${y.spec_line}` : ""} - ${pr.headline}${pr.all_inclusive ? " all-inclusive (APA, VAT and extras included)" : pr.extras_mode ? "" : " plus APA and VAT"}`;
+      }).join("\n");
+
+      const [intro, email_draft] = await Promise.all([
+        composeCombinedIntro({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, yacht_summary: summary }),
+        composeEmail({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, selection_summary: summary }),
+      ]);
+
+      const proposal = buildCombinedProposal(
+        {
+          coverName: addr.coverName,
+          period: monthYearLine(r),
+          guests: r.party_size || undefined,
+          area: r.area || undefined,
+          intro_letter: intro,
+          images,
+        },
+        sorted,
+        { no_myba: !!r.no_myba, show_ghost_credit: r.show_ghost_credit !== false },
+      );
+
+      const pdf = await renderProposalPdf(buildProposalHtml(proposal));
+      const path = await uploadProposalPdf(id, pdf);
+      await saveGenerated(id, {
+        proposal_json: proposal,
+        proposal_pdf_path: path,
+        email_subject: email_draft.subject,
+        email_intro: email_draft.body,
+        mode: "combined",
+        client_name: addr.coverName,
+      });
+      return NextResponse.json({ ok: true, proposal_pdf_path: path, email_subject: email_draft.subject, email_intro: email_draft.body, yachts: sorted.length });
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    }
   }
 
   // CONFIRMED pricing (from the review screen). No math is trusted from the

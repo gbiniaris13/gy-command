@@ -6,7 +6,9 @@ import { getRequest, getMessages } from "@/lib/helm-admin";
 import StatusTransitions from "./StatusTransitions";
 import HelmDetailActions from "./HelmDetailActions";
 import GeneratePanel from "./GeneratePanel";
+import CombinedPanel from "./CombinedPanel";
 import HelmMedia from "./HelmMedia";
+import HelmSend from "./HelmSend";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
 
 export const dynamic = "force-dynamic";
@@ -98,17 +100,44 @@ export default async function HelmDetailPage({
         cloudinaryConfigured={isCloudinaryConfigured()}
       />
 
-      {/* generate proposal (extract -> review numbers -> generate PDF) */}
-      <GeneratePanel
-        requestId={r.id}
-        hasSupplier={!!r.supplier_raw}
-        surname={r.client_surname ?? null}
-        mode={r.mode ?? null}
-        initialExtraction={r.extraction ?? null}
-        pdfPath={r.proposal_pdf_path ?? null}
-        emailSubject={r.email_subject ?? null}
-        emailIntro={r.email_intro ?? null}
-      />
+      {/* generate proposal (extract -> review numbers -> generate PDF).
+          Combined mode shows one card per yacht; single mode the classic flow. */}
+      {r.mode === "combined" ? (
+        <CombinedPanel
+          requestId={r.id}
+          surname={r.client_surname ?? null}
+          initialExtraction={r.extraction && r.extraction.yachts ? r.extraction : null}
+          pdfPath={r.proposal_pdf_path ?? null}
+          emailSubject={r.email_subject ?? null}
+          emailIntro={r.email_intro ?? null}
+          initialMedia={(r.combined_media && typeof r.combined_media === "object") ? r.combined_media : {}}
+          cloudinaryConfigured={isCloudinaryConfigured()}
+        />
+      ) : (
+        <GeneratePanel
+          requestId={r.id}
+          hasSupplier={!!r.supplier_raw}
+          surname={r.client_surname ?? null}
+          mode={r.mode ?? null}
+          initialExtraction={r.extraction ?? null}
+          pdfPath={r.proposal_pdf_path ?? null}
+          emailSubject={r.email_subject ?? null}
+          emailIntro={r.email_intro ?? null}
+        />
+      )}
+
+      {/* send proposal + capture replies (after the PDF is generated) */}
+      {r.proposal_pdf_path && (
+        <HelmSend
+          requestId={r.id}
+          clientEmail={r.client_email ?? null}
+          initialSubject={r.email_subject ?? null}
+          initialBody={r.email_intro ?? null}
+          status={r.status}
+          followUpAt={r.follow_up_at ?? null}
+          threadId={r.gmail_thread_id ?? null}
+        />
+      )}
 
       {/* pipeline */}
       <StatusTransitions requestId={r.id} current={r.status} />

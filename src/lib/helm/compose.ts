@@ -81,6 +81,27 @@ The inside_info is where the selling lives - make it distinct and specific. No e
   return { description: deDash(out.description || ""), inside_info: deDash(out.inside_info || "") };
 }
 
+// Combined shortlist: the short "A Note From Your Broker" letter that opens a
+// multi-yacht proposal (first-person George, signed in the PDF automatically).
+export async function composeCombinedIntro(
+  f: { salutation: string; occasion?: string; brief?: string; yacht_summary: string },
+): Promise<string> {
+  const sys = `${VOICE_BASE}
+
+TASK: Write the short "A Note From Your Broker" letter that opens a multi-yacht shortlist proposal PDF. Return JSON: {"intro_letter":"<3 to 4 short paragraphs separated by single newlines>"}.
+- Begin with the EXACT salutation provided. First-person George: what you did (you went back through what is genuinely available and set these few aside for them), one line acknowledging the spread (from the most sensible value to the statement option, only if the shortlist supports it), and a warm close with gentle, real urgency.
+- Do NOT add a sign-off or your name; the PDF signs you as George Biniaris automatically. No em dash. No hype. Output JSON only.`;
+  const user = [
+    `Salutation to use verbatim: ${f.salutation}`,
+    f.occasion ? `Occasion: ${f.occasion}` : "",
+    f.brief ? `Client brief: ${f.brief}` : "",
+    `The shortlist (cheapest first):\n${f.yacht_summary}`,
+  ].filter(Boolean).join("\n");
+  const raw = await aiChat(sys, user, { maxTokens: 3000, temperature: 0.6 });
+  const out = parseLooseJson(raw) as { intro_letter?: string };
+  return deDash(out.intro_letter || "");
+}
+
 export type EmailFacts = {
   salutation: string;          // "Dear Mrs. Reynolds," (formal — never bare first name)
   occasion?: string;

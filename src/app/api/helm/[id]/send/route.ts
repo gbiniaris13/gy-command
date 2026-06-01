@@ -1,0 +1,80 @@
+// POST /api/helm/:id/send — send the proposal email (with the generated PDF
+// attached) via Gmail. Triggered ONLY by George's explicit confirm in the UI;
+// never auto-sends. Threads the message, logs an outbound helm_message,
+// advances the request to Sent, and sets follow_up_at = now + 4 days.
+
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+import { getRequest, markRequestSent, logHelmMessage } from "@/lib/helm-admin";
+import { downloadProposalPdf } from "@/lib/helm/storage";
+import { sendHelmEmail } from "@/lib/helm/gmail-send";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+async function adminEmail(): Promise<string | null> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const jar = await cookies();
+  const supabase = createServerClient(url, key, {
+    cookies: { getAll: () => jar.getAll(), setAll: () => {} },
+  });
+  const { data: { user } } = await supabase.auth.getUser();
+  return user?.email ?? null;
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const email = await adminEmail();
+  if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const r = await getRequest(id);
+  if (!r) return NextResponse.json({ error: "not-found" }, { status: 404 });
+
+  const body = await req.json().catch(() => ({}));
+  const subject = (body?.subject ?? r.email_subject ?? "").trim();
+  const emailBody = (body?.body ?? r.email_intro ?? "").trim();
+  const to = (r.client_email ?? "").trim();
+
+  // Guards (server-side; the UI also disables the button).
+  if (!to) return NextResponse.json({ error: "No client email on this request — add one before sending." }, { status: 400 });
+  if (!r.proposal_pdf_path) return NextResponse.json({ error: "Generate the proposal PDF before sending." }, { status: 400 });
+  if (!emailBody) return NextResponse.json({ error: "The email body is empty — write/approve a draft first." }, { status: 400 });
+
+  try {
+    const pdf = await downloadProposalPdf(r.proposal_pdf_path);
+    const surname = (r.client_surname || r.client_name || "Charter").toString().replace(/[^A-Za-z0-9]+/g, "_");
+    const attachment = {
+      filename: `${surname}_Charter_Proposal.pdf`,
+      mimeType: "application/pdf",
+      base64: Buffer.from(pdf).toString("base64"),
+    };
+
+    const sent = await sendHelmEmail({
+      to,
+      subject: subject || "Your Greek charter",
+      body: emailBody,
+      threadId: r.gmail_thread_id || undefined,
+      inReplyTo: r.gmail_last_message_id || undefined,
+      attachments: [attachment],
+    });
+
+    await markRequestSent(id, {
+      gmail_thread_id: sent.threadId,
+      gmail_last_message_id: sent.messageId,
+      email_subject: subject || "Your Greek charter",
+      email_intro: emailBody,
+    });
+    await logHelmMessage(id, {
+      direction: "outbound",
+      channel: "email",
+      body: emailBody,
+      gmail_message_id: sent.messageId,
+    });
+
+    return NextResponse.json({ ok: true, messageId: sent.messageId, threadId: sent.threadId });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
+}
