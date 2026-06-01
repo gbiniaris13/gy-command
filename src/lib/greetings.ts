@@ -54,13 +54,67 @@ export function unsubscribeUrl(contactId: string): string {
   )}`;
 }
 
+// ─── Tier-aware footer (Filotimo Circle) ─────────────────────────
+// The tier lives in filotimo_circle_members.tier (friend/companion/
+// crewmate), person-scoped by email. The footer names the tier; an
+// unknown/missing tier falls back to a neutral phrase. Never blank,
+// never a wrong tier.
+export function tierPhrase(tier: string | null | undefined): string {
+  const map: Record<string, string> = {
+    friend: "a Friend",
+    companion: "a Companion",
+    crewmate: "a Crewmate",
+  };
+  const who = tier && map[tier] ? map[tier] : null;
+  return who
+    ? `as ${who} of the Filotimo Circle`
+    : "as part of the Filotimo Circle";
+}
+
+// Look up a contact's Filotimo tier by email. Null if they are not a
+// Circle member (footer then uses the neutral fallback).
+export async function getTier(
+  sb: SupabaseClient,
+  email: string | null | undefined,
+): Promise<string | null> {
+  if (!email) return null;
+  const { data } = await sb
+    .from("filotimo_circle_members")
+    .select("tier")
+    .ilike("email", email.trim())
+    .is("deleted_at", null)
+    .maybeSingle();
+  return (data?.tier as string) ?? null;
+}
+
 // Plain-text footer. No dashes used as separators (house rule: no
 // em dash, and we avoid the "--" double-hyphen too).
-export function optOutFooter(contactId: string): string {
+export function optOutFooter(contactId: string, tier?: string | null): string {
   return (
-    `\n\nYou are receiving this occasional note as a friend of George Yachts.` +
+    `\n\nYou are receiving this occasional note ${tierPhrase(tier)}.` +
     `\nIf you would prefer not to, unsubscribe in one click: ${unsubscribeUrl(contactId)}`
   );
+}
+
+// ─── Name sanitization ────────────────────────────────────────────
+// Proper-case a raw first name: "tricia" -> "Tricia", "TRICIA" ->
+// "Tricia", "mary-jane" -> "Mary-Jane", "o'brien" -> "O'Brien".
+// Handles Latin + Greek letters.
+export function properCaseName(raw: string | null | undefined): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  return s
+    .toLocaleLowerCase()
+    .replace(/(^|[\s'’\-])(\p{L})/gu, (_m, sep: string, ch: string) =>
+      sep + ch.toLocaleUpperCase(),
+    );
+}
+
+// First-name for a salutation, with a graceful fallback so a client
+// is NEVER greeted "Dear ," when first_name is blank/null.
+// Empty -> "friend"  =>  "Dear friend,"
+export function greetingName(raw: string | null | undefined): string {
+  return properCaseName(raw) || "friend";
 }
 
 // ─── Frequency cap ────────────────────────────────────────────────

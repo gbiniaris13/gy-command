@@ -4,7 +4,7 @@ import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { getHolidaysToday } from "@/lib/holidays";
 import { observeCron } from "@/lib/cron-observer";
-import { optOutFooter, recentGreeting } from "@/lib/greetings";
+import { optOutFooter, recentGreeting, greetingName, getTier } from "@/lib/greetings";
 
 // ─── Gmail send helper ──────────────────────────────────────────────────────
 
@@ -134,7 +134,7 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
       const holidays = getHolidaysToday(contact.country);
       if (holidays.length === 0) continue;
 
-      const firstName = contact.first_name ?? "Friend";
+      const firstName = greetingName(contact.first_name);
       const name =
         [contact.first_name, contact.last_name].filter(Boolean).join(" ") || "Valued Client";
       const holidayName = holidays[0];
@@ -164,7 +164,8 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
       }
 
       const tpl = getHolidayGreeting(holidayName, firstName);
-      const body = tpl.body + optOutFooter(contact.id);
+      const tier = await getTier(supabase, contact.email);
+      const body = tpl.body + optOutFooter(contact.id, tier);
       const sent = await sendEmail(contact.email, tpl.subject, body);
 
       if (sent) {

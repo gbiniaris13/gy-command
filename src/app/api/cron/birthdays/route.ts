@@ -3,7 +3,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
-import { optOutFooter, recentGreeting, OCCASION_PRIORITY } from "@/lib/greetings";
+import { optOutFooter, recentGreeting, OCCASION_PRIORITY, greetingName, getTier } from "@/lib/greetings";
 
 // ─── Gmail send helper ──────────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
       candidates.sort((a, b) => (OCCASION_PRIORITY[b] ?? 0) - (OCCASION_PRIORITY[a] ?? 0));
       const occasion = candidates[0];
 
-      const firstName = contact.first_name ?? "Friend";
+      const firstName = greetingName(contact.first_name);
       const name =
         [contact.first_name, contact.last_name].filter(Boolean).join(" ") || "Valued Client";
 
@@ -159,7 +159,8 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
       }
 
       const tpl = greetingFor(occasion, firstName);
-      const body = tpl.body + optOutFooter(contact.id);
+      const tier = await getTier(supabase, contact.email);
+      const body = tpl.body + optOutFooter(contact.id, tier);
       const sent = await sendEmail(contact.email, tpl.subject, body);
 
       if (sent) {
