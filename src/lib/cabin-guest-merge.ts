@@ -167,12 +167,55 @@ export function mergeGuestRecords(
     });
   }
 
+  // 2026-05-27 — Brief 06 (#4): secondary match keys so a manifest
+  // row that does NOT share an email with its member still folds in
+  // instead of becoming a duplicate "(CRM manifest)" card. Symptom:
+  // Tricia Stevens (member display_name "Tricia Stevens") appeared
+  // a SECOND time as a 7th crew-list entry "STEVENS, PATRICIA RHODES
+  // (CRM manifest)" — her CRM manifest seed has a different/blank
+  // email from her member row, so the email-keyed merge missed it.
+  //
+  // Both extra keys below are SAFE — they can only ever match the
+  // SAME human, so this can never split or DROP a distinct
+  // passenger (the cardinal rule for port-authority paperwork):
+  //   • passport_number — globally unique per person.
+  //   • the cabin's principal email — only the principal's own
+  //     manifest seed carries cabin.principal_charterer_email, so a
+  //     match means "this manifest row IS the principal".
+  // Name is deliberately NOT used as a key ("STEVENS, PATRICIA
+  // RHODES" vs "Tricia Stevens" wouldn't match anyway, and fuzzy
+  // name-matching risks folding two different people together).
+  const normPass = (v: unknown) => s(v).replace(/\s+/g, "").toUpperCase();
+  const byPassport = new Map<string, string>(); // passport -> map key
+  let principalKey: string | null = null;
+  for (const [key, mg] of byEmail) {
+    const p = normPass(mg.passport_number);
+    if (p) byPassport.set(p, key);
+    if (mg.role === "principal_charterer") principalKey = key;
+  }
+  const principalEmail = String(principalSeed.email ?? "").toLowerCase();
+
   // 2) LAYER manifest rows on top — only filling BLANKS for
   // anything the member also filled themselves. Member-self
   // wins by design.
   for (const g of manifest ?? []) {
     const email = String(g.email ?? "").toLowerCase();
-    const existingKey = email || `manifest-${g.id}`;
+    // Resolve this manifest row to an already-seeded member, in
+    // priority order: (1) exact email, (2) passport, (3) the
+    // principal's own email. Only if none match is it a genuine
+    // standalone (a guest George seeded who hasn't joined yet).
+    let resolvedKey: string | undefined;
+    if (email && byEmail.has(email)) {
+      resolvedKey = email;
+    } else {
+      const mp = normPass(g.passport_number);
+      if (mp && byPassport.has(mp)) {
+        resolvedKey = byPassport.get(mp);
+      } else if (email && principalEmail && email === principalEmail && principalKey) {
+        resolvedKey = principalKey;
+      }
+    }
+    const existingKey = resolvedKey ?? (email || `manifest-${g.id}`);
     const existing = byEmail.get(existingKey);
     if (existing) {
       existing.date_of_birth ||= fmtIsoSafe(g.date_of_birth);

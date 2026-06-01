@@ -334,6 +334,28 @@ export default async function CabinCrewListPage({
            clips to a single page. */
         @media print {
           @page { size: A4; margin: 14mm 12mm 16mm 12mm; }
+          /* 2026-05-27 — Brief 06 (#5): depth-independent shell reset.
+             The rules further down use body > div > div.flex.h-screen
+             direct-child chains, which BROKE when the dashboard layout
+             nesting changed (provider wrappers / The Helm merge). The
+             unmatched h-screen overflow-hidden shell then stayed at
+             100vh + overflow:hidden and clipped the PDF to a single
+             screenful — the crew list cut off at the 3rd person. These
+             class-contains selectors neutralise the shell AND the
+             overflow-y-auto <main> at ANY nesting depth, so the list
+             flows across as many A4 pages as it needs. */
+          [class*="h-screen"] {
+            height: auto !important;
+            max-height: none !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+          [class*="overflow-hidden"] { overflow: visible !important; }
+          [class*="overflow-y-auto"],
+          [class*="overflow-auto"] {
+            overflow: visible !important;
+            max-height: none !important;
+          }
           html, body {
             background: white !important;
             margin: 0 !important;

@@ -160,7 +160,41 @@ export default async function PrintCabinPage({
         h1, h2, h3 { font-weight: 300; }
         @media print {
           @page { size: A4; margin: 16mm 14mm 16mm 14mm; }
-          body { background: white !important; }
+          /* 2026-05-27 — Brief 06 (#5): this Internal-record print
+             view had NO dashboard-shell reset at all, so the
+             flex h-screen overflow-hidden layout shell + the
+             overflow-y-auto <main> clipped the PDF to a single
+             screenful (same failure class as the crew list and
+             preference sheet). Depth-independent class-contains
+             selectors neutralise the shell + scroll container at
+             any nesting depth so the full record paginates. */
+          html, body {
+            background: white !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          [class*="h-screen"] {
+            height: auto !important;
+            max-height: none !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+          [class*="overflow-hidden"] { overflow: visible !important; }
+          [class*="overflow-y-auto"],
+          [class*="overflow-auto"] {
+            overflow: visible !important;
+            max-height: none !important;
+          }
+          aside { display: none !important; }
+          main > div.sticky,
+          nav.fixed,
+          a.fixed,
+          div.fixed { display: none !important; }
+          main { overflow: visible !important; padding-bottom: 0 !important; flex: none !important; }
           .no-print { display: none !important; }
           .page-break-before { page-break-before: always; }
           .avoid-break { page-break-inside: avoid; }

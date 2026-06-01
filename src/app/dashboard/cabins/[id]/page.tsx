@@ -127,6 +127,16 @@ export default async function CabinDetailPage({
         status={cabin.status}
         principalEmail={cabin.principal_charterer_email}
         vesselName={cabin.vessel_name}
+        /* 2026-05-27 — Brief 06 (#3): non-principal members feed the
+           "preview as guest" picker in the action bar. Built from the
+           already-loaded `members` so there's no extra query. */
+        guestMembers={members
+          .filter((m) => m.role !== "principal_charterer")
+          .map((m) => ({
+            id: m.id,
+            name: m.display_name || m.email || "(guest)",
+            role: m.role,
+          }))}
       />
       <StatusTransitions cabinId={id} current={cabin.status} />
 

@@ -27,7 +27,7 @@ async function adminEmail(): Promise<string | null> {
 }
 
 export async function POST(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
@@ -35,6 +35,14 @@ export async function POST(
   if (!me) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+
+  // 2026-05-27 — Brief 06 (#3): optional "preview as guest". The CRM
+  // action bar can pass { as_member_id } to preview the cabin AS a
+  // specific guest instead of the principal. Forwarded verbatim to
+  // the public-site start-preview; omitted → principal (back-compat).
+  const body = await req.json().catch(() => ({}));
+  const asMemberId =
+    body && typeof body === "object" ? (body as Record<string, unknown>).as_member_id : null;
 
   const publicHost = process.env.CABIN_PUBLIC_URL || "https://georgeyachts.com";
   const secret = process.env.CABIN_ADMIN_SECRET;
@@ -51,7 +59,11 @@ export async function POST(
       "x-cabin-admin-secret": secret,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ cabin_id: id, admin_email: me }),
+    body: JSON.stringify({
+      cabin_id: id,
+      admin_email: me,
+      ...(asMemberId ? { as_member_id: asMemberId } : {}),
+    }),
   });
   const json = await r.json().catch(() => ({ error: "upstream-bad-json" }));
   return NextResponse.json(json, { status: r.ok ? 200 : r.status });

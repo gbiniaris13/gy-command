@@ -199,6 +199,26 @@ export default async function PreferenceSheetPage({
            a 1-page screenshot of the top + a CRM toolbar). */
         @media print {
           @page { size: A4; margin: 16mm 14mm 18mm 14mm; }
+          /* 2026-05-27 — Brief 06 (#5): depth-independent shell reset.
+             The body > div > div.flex.h-screen direct-child chains
+             below broke when the dashboard layout nesting changed,
+             so the h-screen overflow-hidden shell stayed and clipped
+             the PDF to one screenful — George got only the first
+             section (Logistics). These class-contains selectors
+             neutralise the shell AND the overflow-y-auto <main> at
+             ANY depth so the full sheet paginates across A4 pages. */
+          [class*="h-screen"] {
+            height: auto !important;
+            max-height: none !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+          [class*="overflow-hidden"] { overflow: visible !important; }
+          [class*="overflow-y-auto"],
+          [class*="overflow-auto"] {
+            overflow: visible !important;
+            max-height: none !important;
+          }
           html, body {
             background: white !important;
             margin: 0 !important;

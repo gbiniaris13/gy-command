@@ -13,12 +13,17 @@ export default function CabinDetailActions({
   status,
   principalEmail,
   vesselName,
+  // 2026-05-27 — Brief 06 (#3): non-principal members for the
+  // "preview as guest" picker. Optional + defaults to [] so the
+  // component is back-compatible if a caller doesn't pass it.
+  guestMembers = [],
 }: {
   cabinId: string;
   conciergeOn: boolean;
   status: string;
   principalEmail: string;
   vesselName: string;
+  guestMembers?: { id: string; name: string; role: string }[];
 }) {
   const router = useRouter();
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -46,12 +51,20 @@ export default function CabinDetailActions({
   // 15 min and all writes are blocked at the edge. Doesn't
   // notify the customer; doesn't consume the principal's real
   // session.
-  async function openPreview() {
+  // 2026-05-27 — Brief 06 (#3): preview AS a specific member. With
+  // no argument → preview as the principal (original behaviour).
+  // With a memberId → preview as that guest, so we can verify the
+  // guest's read-only brief + Crew List view ourselves instead of
+  // trusting "it's built". Read-only session, 15-min TTL, the
+  // customer is never notified either way.
+  async function openPreview(asMemberId?: string) {
     setPreviewBusy(true);
     setMsg(null);
     try {
       const r = await fetch(`/api/cabins/${cabinId}/preview-session`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: asMemberId ? JSON.stringify({ as_member_id: asMemberId }) : undefined,
       });
       const j = await r.json();
       if (!r.ok || !j?.url) {
@@ -104,13 +117,47 @@ export default function CabinDetailActions({
           before and competed with #2; both are now ghost. */}
       <button
         type="button"
-        onClick={openPreview}
+        onClick={() => openPreview()}
         disabled={previewBusy}
         style={btnPreview}
-        title="Opens this cabin in a new tab AS the charterer would see it. Read-only, expires in 15 minutes, the client is never notified."
+        title="Opens this cabin in a new tab AS the principal charterer would see it. Read-only, expires in 15 minutes, the client is never notified."
       >
         {previewBusy ? "Opening…" : "Preview as customer ◉"}
       </button>
+      {/* 2026-05-27 — Brief 06 (#3): preview-as-guest picker. Lets
+          us open the cabin AS any guest to verify their read-only
+          brief + Crew List view. Same read-only 15-min session;
+          customer never notified. Only renders when the cabin
+          actually has non-principal members. */}
+      {guestMembers.length > 0 && (
+        <select
+          aria-label="Preview as a specific guest"
+          defaultValue=""
+          disabled={previewBusy}
+          onChange={(e) => {
+            const memberId = e.target.value;
+            e.currentTarget.selectedIndex = 0; // reset to placeholder
+            if (memberId) void openPreview(memberId);
+          }}
+          style={{
+            ...btnPreview,
+            // teal-outline variant so it reads as part of the
+            // preview step but visually distinct from the solid
+            // "as customer" button.
+            background: "transparent",
+            color: "#0E7C7B",
+            cursor: previewBusy ? "wait" : "pointer",
+          }}
+          title="Open the cabin AS a specific guest — see exactly their read-only brief + Crew List view. Read-only, 15-min, never notified."
+        >
+          <option value="">Preview as guest ▾</option>
+          {guestMembers.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+      )}
       <button
         type="button"
         onClick={() => call("invite", "Magic link sent to " + principalEmail)}
