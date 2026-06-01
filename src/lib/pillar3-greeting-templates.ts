@@ -1,8 +1,8 @@
-// Pillar 3 — greeting templates per holiday/culture.
+// Pillar 3 - greeting templates per holiday/culture.
 //
 // Pure data. The cron picks the right template based on the holiday
 // kind and the contact's inferred culture, fills {first_name}, and
-// hands the result to the Gmail draft API. Auto-drafts only — never
+// hands the result to the Gmail draft API. Auto-drafts only - never
 // sends.
 //
 // Tone rules (per refocus brief & George's broker style):
@@ -12,7 +12,7 @@
 //   - Eid:               respectful, do not assume practice level
 //   - Diwali:            warm, mention "light of the season"
 //   - Hanukkah:          respectful, "warm wishes for the festival"
-//   - Birthday:          short, never use "happy birthday!" alone —
+//   - Birthday:          short, never use "happy birthday!" alone -
 //                        mention the relationship if known
 //   - US/GR Independence Day: light touch, no politics
 
@@ -52,7 +52,7 @@ function fillTemplate(
 /**
  * Skip generating a greeting if the contact has no usable first
  * name. A draft starting with "{first_name}," looks like an unsent
- * mail-merge — embarrassing. Better to just not draft.
+ * mail-merge - embarrassing. Better to just not draft.
  */
 export function shouldSkipForMissingName(firstName: string | null): boolean {
   return !firstName || firstName.trim().length === 0;
@@ -79,7 +79,7 @@ const TEMPLATES: Record<string, Record<Locale, GreetingTemplate>> = {
       subject: "Χρόνια πολλά για τη γιορτή σου, {first_name}!",
       body: `{first_name},
 
-Χρόνια πολλά! Σου εύχομαι από καρδιάς όλα όσα επιθυμείς —
+Χρόνια πολλά! Σου εύχομαι από καρδιάς όλα όσα επιθυμείς -
 υγεία, χαρά, και πολλούς ακόμα ωραίους πλόες σε ήρεμα νερά.
 
 Με εκτίμηση,
@@ -89,7 +89,7 @@ George`,
       subject: "Name day wishes, {first_name}",
       body: `{first_name},
 
-Wishing you a wonderful name day — health, happiness, and many
+Wishing you a wonderful name day - health, happiness, and many
 calm seas ahead.
 
 Warmly,
@@ -208,7 +208,7 @@ George`,
       subject: "Orthodox Easter wishes, {first_name}",
       body: `{first_name},
 
-Wishing you a beautiful Orthodox Easter — peace, joy, and the
+Wishing you a beautiful Orthodox Easter - peace, joy, and the
 warmth of family around you.
 
 Warmly,
@@ -222,7 +222,7 @@ George`,
       subject: "Eid Mubarak, {first_name}",
       body: `{first_name},
 
-Eid Mubarak — wishing you and your family a joyful Eid filled
+Eid Mubarak - wishing you and your family a joyful Eid filled
 with peace, blessings, and time with the people you love.
 
 Warmly,
@@ -232,7 +232,7 @@ George`,
       subject: "Eid Mubarak, {first_name}",
       body: `{first_name},
 
-Eid Mubarak — every joy and blessing to you and your family.
+Eid Mubarak - every joy and blessing to you and your family.
 
 Warmly,
 George`,
@@ -255,7 +255,7 @@ George`,
       subject: "Eid Mubarak, {first_name}",
       body: `{first_name},
 
-Eid al-Adha Mubarak — wishing you a blessed and meaningful
+Eid al-Adha Mubarak - wishing you a blessed and meaningful
 holiday with those closest to you.
 
 George`,
@@ -278,7 +278,7 @@ George`,
       subject: "Happy Diwali, {first_name}",
       body: `{first_name},
 
-Happy Diwali — may the light of the season bring you and your
+Happy Diwali - may the light of the season bring you and your
 family health and joy.
 
 George`,
@@ -291,7 +291,7 @@ George`,
       subject: "Warm Hanukkah wishes, {first_name}",
       body: `{first_name},
 
-Warm wishes to you and your family for a meaningful Hanukkah —
+Warm wishes to you and your family for a meaningful Hanukkah -
 eight nights of light, peace, and time with loved ones.
 
 George`,
@@ -300,7 +300,7 @@ George`,
       subject: "Warm Hanukkah wishes, {first_name}",
       body: `{first_name},
 
-Warm wishes for a meaningful Hanukkah — light, peace, and time
+Warm wishes for a meaningful Hanukkah - light, peace, and time
 with the people who matter most.
 
 George`,
@@ -313,7 +313,7 @@ George`,
       subject: "Happy 4th of July, {first_name}",
       body: `{first_name},
 
-A quick note from Athens to wish you a great Fourth — fireworks,
+A quick note from Athens to wish you a great Fourth - fireworks,
 family, and a long weekend on the water.
 
 Warmly,
@@ -323,7 +323,7 @@ George`,
       subject: "Happy 4th of July, {first_name}",
       body: `{first_name},
 
-A quick note from Athens — wishing you a great Independence Day.
+A quick note from Athens - wishing you a great Independence Day.
 
 George`,
     },
@@ -345,7 +345,7 @@ George`,
       subject: "Greek Independence Day, {first_name}",
       body: `{first_name},
 
-A note from Athens on our Independence Day — thinking of friends
+A note from Athens on our Independence Day - thinking of friends
 of Greece around the world, you among them.
 
 George`,

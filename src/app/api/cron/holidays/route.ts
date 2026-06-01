@@ -4,6 +4,7 @@ import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { getHolidaysToday } from "@/lib/holidays";
 import { observeCron } from "@/lib/cron-observer";
+import { optOutFooter, recentGreeting } from "@/lib/greetings";
 
 // ─── Gmail send helper ──────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ async function sendEmail(
   }
 }
 
-// ─── Holiday greeting templates ─────────────────────────────────────────────
+// ─── Holiday greeting templates (George-approved; no em dash) ─────────────────
 
 function getHolidayGreeting(
   holidayName: string,
@@ -49,46 +50,38 @@ function getHolidayGreeting(
     case "Christmas Eve":
     case "Christmas":
       return {
-        subject: `Merry Christmas, ${firstName}`,
+        subject: "Season's greetings from George Yachts",
         body: `Dear ${firstName},
 
-Wishing you a very Merry Christmas from the George Yachts family. May this season bring you joy, warmth, and time well spent with those you love.
+Wishing you a peaceful and joyful Christmas, surrounded by the people who matter most.
 
-Here is to smooth sailing in the year ahead.
-
-Warm regards,
-George P. Biniaris
-Managing Broker
-George Yachts Brokerage House LLC`,
+Warmly,
+George`,
       };
 
     case "New Year's Eve":
     case "New Year":
       return {
-        subject: `Happy New Year, ${firstName}`,
+        subject: "With our wishes for the year ahead",
         body: `Dear ${firstName},
 
-Happy New Year from all of us at George Yachts! We hope this year brings you extraordinary adventures on and off the water.
+As the year turns, all of us at George Yachts send you our warmest wishes for the year to come. May it bring calm seas and good company.
 
-We look forward to making your next voyage truly unforgettable.
+Whenever the time feels right, Greek waters will be here.
 
-Best wishes,
-George P. Biniaris
-Managing Broker
-George Yachts Brokerage House LLC`,
+Warmly,
+George`,
       };
 
     default:
       return {
-        subject: `Happy ${holidayName}, ${firstName}`,
+        subject: `Warm wishes this ${holidayName}`,
         body: `Dear ${firstName},
 
 Wishing you a wonderful ${holidayName} from the team at George Yachts.
 
-Warm regards,
-George P. Biniaris
-Managing Broker
-George Yachts Brokerage House LLC`,
+Warmly,
+George`,
       };
   }
 }
@@ -104,8 +97,10 @@ interface HolidayContact {
 }
 
 /**
- * Daily cron (08:00 UTC): Holiday greeting emails.
- * Checks contacts by country, sends appropriate holiday greetings.
+ * Daily cron (08:00 UTC): country-based holiday greetings (Christmas +
+ * New Year). Honors greetings_opt_out, a 5-day frequency cap, and
+ * per-holiday same-day dedup. Sends from the apex (george@), via Gmail.
+ * (Religion-specific holidays are handled separately in STEP 3B.)
  */
 async function _observedImpl(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");
@@ -118,28 +113,19 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
   try {
     const supabase = createServiceClient();
 
-    // Get all contacts with country and email
     const { data: contacts } = await supabase
       .from("contacts")
       .select("id, first_name, last_name, email, country")
       .not("email", "is", null)
-      .not("country", "is", null);
+      .not("country", "is", null)
+      .not("greetings_opt_out", "is", true);
 
     if (!contacts || contacts.length === 0) {
-      return NextResponse.json({
-        ok: true,
-        message: "No contacts with country data",
-        emails_sent: 0,
-      });
+      return NextResponse.json({ ok: true, message: "No contacts with country data", emails_sent: 0 });
     }
 
     let emailsSent = 0;
-    const results: {
-      contact: string;
-      holiday: string;
-      sent: boolean;
-      reason?: string;
-    }[] = [];
+    const results: { contact: string; holiday: string; sent: boolean; reason?: string }[] = [];
 
     for (const raw of contacts) {
       const contact = raw as unknown as HolidayContact;
@@ -150,17 +136,21 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
 
       const firstName = contact.first_name ?? "Friend";
       const name =
-        [contact.first_name, contact.last_name].filter(Boolean).join(" ") ||
-        "Valued Client";
-
-      // Use the first matching holiday
+        [contact.first_name, contact.last_name].filter(Boolean).join(" ") || "Valued Client";
       const holidayName = holidays[0];
+      const occasion = /new year/i.test(holidayName) ? "new_year" : "holiday";
 
-      // Check if we already sent a holiday email today
+      // Frequency cap: max one greeting per contact per rolling 5 days.
+      const recent = await recentGreeting(supabase, contact.id, 5);
+      if (recent) {
+        results.push({ contact: name, holiday: holidayName, sent: false, reason: `freq-cap (recent: ${recent.occasion})` });
+        continue;
+      }
+
+      // Per-holiday same-day dedup.
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
-
-      const { data: existingEmails } = await supabase
+      const { data: existing } = await supabase
         .from("activities")
         .select("id")
         .eq("contact_id", contact.id)
@@ -168,53 +158,33 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
         .gte("created_at", todayStart.toISOString())
         .ilike("description", `%${holidayName}%`)
         .limit(1);
-
-      if (existingEmails && existingEmails.length > 0) {
-        results.push({
-          contact: name,
-          holiday: holidayName,
-          sent: false,
-          reason: "Already sent today",
-        });
+      if (existing && existing.length > 0) {
+        results.push({ contact: name, holiday: holidayName, sent: false, reason: "Already sent today" });
         continue;
       }
 
-      const { subject, body } = getHolidayGreeting(holidayName, firstName);
-      const sent = await sendEmail(contact.email, subject, body);
+      const tpl = getHolidayGreeting(holidayName, firstName);
+      const body = tpl.body + optOutFooter(contact.id);
+      const sent = await sendEmail(contact.email, tpl.subject, body);
 
       if (sent) {
-        // Log activity
         await supabase.from("activities").insert({
           contact_id: contact.id,
           type: "email_sent",
-          description: `Holiday email sent (${holidayName}): "${subject}"`,
-          metadata: {
-            subject,
-            holiday: holidayName,
-            generated_by: "cron",
-            occasion: "holiday",
-          },
+          description: `Holiday email sent (${holidayName}): "${tpl.subject}"`,
+          metadata: { subject: tpl.subject, holiday: holidayName, generated_by: "cron", occasion },
         });
-
-        // Update last_activity_at
         await supabase
           .from("contacts")
           .update({ last_activity_at: new Date().toISOString() })
           .eq("id", contact.id);
-
         emailsSent++;
         results.push({ contact: name, holiday: holidayName, sent: true });
       } else {
-        results.push({
-          contact: name,
-          holiday: holidayName,
-          sent: false,
-          reason: "Email send failed",
-        });
+        results.push({ contact: name, holiday: holidayName, sent: false, reason: "Email send failed" });
       }
     }
 
-    // Telegram summary
     if (emailsSent > 0) {
       await sendTelegram(
         `\u{1F384} <b>Holiday Greetings Sent</b>\n${emailsSent} holiday email${
@@ -223,12 +193,7 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      contacts_checked: contacts.length,
-      emails_sent: emailsSent,
-      results,
-    });
+    return NextResponse.json({ ok: true, contacts_checked: contacts.length, emails_sent: emailsSent, results });
   } catch (err) {
     console.error("[Holidays] Error:", err);
     return NextResponse.json(
