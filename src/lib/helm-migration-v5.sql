@@ -19,11 +19,16 @@ EXCEPTION WHEN duplicate_object THEN null; END $$;
 -- 3) expose request_type in the listing view (for the row badge + filter).
 --    CREATE OR REPLACE keeps the existing view; security_invoker stays ON
 --    so RLS on helm_requests is still honoured for non-service callers.
+--    NOTE: request_type is APPENDED at the END of the column list — Postgres
+--    only allows CREATE OR REPLACE VIEW to add columns at the end, not to
+--    insert mid-list (that reads as renaming an existing column). Column order
+--    is irrelevant to the app (listHelm selects * and keys by name).
 CREATE OR REPLACE VIEW helm_listing WITH (security_invoker = on) AS
 SELECT r.id, r.status, r.client_name, r.client_email, r.occasion,
        r.dates_from, r.dates_to, r.area, r.follow_up_at, r.last_activity_at,
-       r.proposal_pdf_path, r.mode, r.request_type, r.created_at,
-       c.first_name, c.last_name, c.email AS contact_email
+       r.proposal_pdf_path, r.mode, r.created_at,
+       c.first_name, c.last_name, c.email AS contact_email,
+       r.request_type
 FROM helm_requests r
 LEFT JOIN contacts c ON c.id = r.contact_id
 ORDER BY r.last_activity_at DESC NULLS LAST;
