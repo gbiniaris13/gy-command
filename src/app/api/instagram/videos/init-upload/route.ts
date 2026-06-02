@@ -1,66 +1,34 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase-server";
+import { igPublicId, signedVideoUpload, IG_VIDEO_FOLDER } from "@/lib/ig-media";
 
 // POST /api/instagram/videos/init-upload
 //
 // Step 1 of 2 for the large-file video upload dance. The direct
 // /api/instagram/videos/upload endpoint hits Vercel's 4.5 MB serverless
 // body limit — fatal for typical reel clips (10-60 MB). This endpoint
-// sidesteps that by returning a pre-signed Supabase Storage URL that
-// the client PUTs the bytes to directly, bypassing Vercel entirely.
+// sidesteps that by returning Cloudinary SIGNED upload params; the
+// client POSTs the bytes straight to Cloudinary, bypassing Vercel.
+//
+// (Media lives in Cloudinary, not Supabase — the org is over Supabase's
+// free Storage quota; migrated 2026-06-02.)
 //
 // Flow:
 //   1. Client POSTs { filename, size } here.
-//   2. We create the ig-videos bucket if missing, generate a unique
-//      storage path, and call supabase.storage.createSignedUploadUrl.
-//   3. Client PUTs the video bytes to the returned signedUrl.
+//   2. We compute a dated public_id and return { uploadUrl, apiKey,
+//      timestamp, signature, publicId }.
+//   3. Client POSTs the video as multipart/form-data to `uploadUrl`
+//      with those signed fields → Cloudinary returns secure_url + public_id.
 //   4. Client POSTs /api/instagram/videos/complete-upload to register
 //      metadata + run Gemini description.
-//
-// The signed URL is valid for 2 hours; plenty for a 100 MB upload
-// over a regular home connection.
 
-const BUCKET = "ig-videos";
-const MAX_BYTES = 100 * 1024 * 1024;
-
-async function ensureBucket(sb: ReturnType<typeof createServiceClient>) {
-  // Create if missing. Supabase returns a "already exists" error we swallow.
-  try {
-    const { error } = await sb.storage.createBucket(BUCKET, {
-      public: true,
-      fileSizeLimit: MAX_BYTES,
-    });
-    if (error && !/already exists/i.test(error.message || "")) {
-      throw error;
-    }
-  } catch (err: any) {
-    if (!/already exists/i.test(err?.message || "")) throw err;
-  }
-
-  // Idempotent: always raise the file-size limit to 100 MB. Supabase's
-  // default is 50 MB, which kills any reel clip over that size with a
-  // 413 "object exceeded maximum allowed size". Updating an existing
-  // bucket's limit is a no-op if it already matches.
-  try {
-    await sb.storage.updateBucket(BUCKET, {
-      public: true,
-      fileSizeLimit: MAX_BYTES,
-    });
-  } catch {
-    // Fail-open — worst case the upload itself returns 413 and the
-    // script reports it per-file. We still attempt the upload.
-  }
-}
+const MAX_BYTES = 100 * 1024 * 1024; // 100 MB — IG Graph API hard cap
 
 export async function POST(req: NextRequest) {
   try {
     const { filename, size } = await req.json();
     if (!filename || typeof filename !== "string") {
-      return NextResponse.json(
-        { error: "Missing filename" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Missing filename" }, { status: 400 });
     }
     if (!/\.(mp4|mov|m4v|webm)$/i.test(filename)) {
       return NextResponse.json(
@@ -78,31 +46,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const sb = createServiceClient();
-    await ensureBucket(sb);
-
-    const today = new Date().toISOString().slice(0, 10);
-    const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const storagePath = `${today}/${Date.now()}-${sanitized}`;
-
-    const { data, error } = await sb.storage
-      .from(BUCKET)
-      .createSignedUploadUrl(storagePath);
-
-    if (error) {
+    const publicId = igPublicId(IG_VIDEO_FOLDER, filename);
+    let signed;
+    try {
+      signed = signedVideoUpload(publicId);
+    } catch (e) {
       return NextResponse.json(
-        { error: "Failed to sign upload URL", detail: error.message },
+        { error: "Cloudinary not configured", detail: e instanceof Error ? e.message : String(e) },
         { status: 500 },
       );
     }
 
-    return NextResponse.json({
-      ok: true,
-      signedUrl: data.signedUrl,
-      storagePath,
-      token: data.token,
-      bucket: BUCKET,
-    });
+    return NextResponse.json({ ok: true, ...signed });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "init-upload failed" },

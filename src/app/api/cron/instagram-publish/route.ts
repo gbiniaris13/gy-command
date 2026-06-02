@@ -9,6 +9,7 @@ export const maxDuration = 300;
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sendTelegram } from "@/lib/telegram";
+import { isLibraryUrl } from "@/lib/ig-media";
 import {
   applyPublishJitter,
   checkRateLimitHealth,
@@ -64,7 +65,8 @@ function captionQualityIssue(caption: string): string | null {
 // be used again. If the library is empty, we leave the placeholder as
 // a graceful fallback and keep publishing as before.
 
-const LIBRARY_HOST = "lquxemsonehfltdzdbhq.supabase.co/storage/v1/object/public/ig-photos";
+// Library media now lives in Cloudinary (gy-ig/) — see isLibraryUrl()
+// in @/lib/ig-media. Migrated off Supabase Storage 2026-06-02.
 
 // Feature #3 — smart hashtag AI rotation. Just before the IG container
 // is created, ask Gemini for 3-5 niche hashtags specific to this post's
@@ -128,7 +130,7 @@ OUTPUT — return ONLY hashtags separated by single spaces. No explanation. No n
 
 async function swapImageFromLibrary(sb, post) {
   // Already points at the library? nothing to do.
-  if (typeof post.image_url === "string" && post.image_url.includes(LIBRARY_HOST)) {
+  if (isLibraryUrl(post.image_url)) {
     return post.image_url;
   }
 

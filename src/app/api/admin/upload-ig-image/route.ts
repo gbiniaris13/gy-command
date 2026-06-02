@@ -1,14 +1,12 @@
 // @ts-nocheck
 //
-// One-shot ADMIN endpoint — upload a single image into the
-// `ig-photos` Supabase bucket so it gets a LIBRARY_HOST public URL
-// the IG publish flow won't swap.
+// One-shot ADMIN endpoint — upload a single image into the Cloudinary
+// IG library (folder gy-ig/ig-photos) so it gets a library URL the IG
+// publish flow won't swap. (Media moved off Supabase Storage 2026-06-02
+// — over free quota.)
 //
 // 2026-05-07 — built so the Forbes-launch redesigned slide could be
-// pushed without a manual drag-drop into the Supabase Storage UI
-// (Chrome MCP's `file_upload` is blocked at the extension layer for
-// arbitrary file inputs, computer-use can't drag onto Chrome at the
-// "read" tier).
+// pushed without a manual drag-drop into the storage UI.
 //
 // Usage:
 //   curl -F "file=@/tmp/slide-v2.png" \
@@ -18,12 +16,10 @@
 // Returns the public URL the IG cron will accept without swap.
 
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase-server";
+import { uploadImageBytes, IG_PHOTO_FOLDER } from "@/lib/ig-media";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const BUCKET = "ig-photos";
 
 export async function POST(req: NextRequest) {
   let form: FormData;
@@ -66,29 +62,29 @@ export async function POST(req: NextRequest) {
         ? "image/jpeg"
         : "application/octet-stream");
 
-  const sb = createServiceClient();
-  const { data, error } = await sb.storage
-    .from(BUCKET)
-    .upload(path, bytes, {
-      contentType,
-      upsert: true, // re-uploading the same path replaces the file
-    });
-
-  if (error) {
+  // public_id mirrors the requested path (minus extension) under the
+  // Cloudinary IG folder; overwrite so re-uploading the same path
+  // replaces the asset (the old upsert:true semantics).
+  const publicId = `${IG_PHOTO_FOLDER}/${path.replace(/\.[^/.]+$/, "")}`;
+  let publicUrl: string;
+  let storagePath: string;
+  try {
+    const up = await uploadImageBytes(bytes, contentType, publicId, { overwrite: true });
+    publicUrl = up.url;
+    storagePath = up.publicId;
+  } catch (e) {
     return NextResponse.json(
-      { error: error.message, path, bytes: bytes.byteLength },
+      { error: e instanceof Error ? e.message : String(e), path, bytes: bytes.byteLength },
       { status: 500 },
     );
   }
 
-  const publicUrl = `https://lquxemsonehfltdzdbhq.supabase.co/storage/v1/object/public/${BUCKET}/${path}`;
   return NextResponse.json({
     ok: true,
     path,
-    bucket: BUCKET,
+    publicId: storagePath,
     bytes: bytes.byteLength,
     contentType,
     publicUrl,
-    storage: data,
   });
 }

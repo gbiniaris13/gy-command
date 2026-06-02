@@ -4,15 +4,17 @@
  *
  * Run: node scripts/sync-ig-videos.js
  *
- * Uses a 2-step signed-URL upload so we bypass Vercel's 4.5 MB
- * serverless body limit (which the direct /api/instagram/videos/upload
- * endpoint inherits). Flow per file:
+ * Uses a 2-step signed upload so we bypass Vercel's 4.5 MB serverless
+ * body limit. Media lives in Cloudinary (not Supabase — over free
+ * quota; migrated 2026-06-02). Flow per file:
  *
  *   1. POST /api/instagram/videos/init-upload { filename, size }
- *      → { signedUrl, storagePath }
- *   2. PUT  <signedUrl> with the file bytes (direct to Supabase,
- *      no ceiling, same bandwidth either way).
- *   3. POST /api/instagram/videos/complete-upload { storagePath, filename, size }
+ *      → { uploadUrl, apiKey, timestamp, signature, publicId }
+ *   2. POST <uploadUrl> multipart {file, api_key, timestamp, public_id,
+ *      signature} straight to Cloudinary (no Vercel ceiling)
+ *      → { secure_url, public_id, ... }
+ *   3. POST /api/instagram/videos/complete-upload
+ *      { publicId, secureUrl, filename, size }
  *      → { video: { id, filename, public_url, ... } }
  *
  * Accepted: .mp4, .mov, .m4v, .webm (max 100 MB — IG Graph API hard cap).
@@ -39,7 +41,7 @@ async function sendTelegram(text) {
 }
 
 async function uploadOne(filename, filepath, sizeBytes) {
-  // Step 1 — get signed URL
+  // Step 1 — get Cloudinary signed upload params
   const initRes = await fetch(`${API_BASE}/api/instagram/videos/init-upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -50,29 +52,40 @@ async function uploadOne(filename, filepath, sizeBytes) {
     throw new Error(`init-upload ${initRes.status}: ${txt.slice(0, 200)}`);
   }
   const initData = await initRes.json();
-  const { signedUrl, storagePath } = initData;
-  if (!signedUrl || !storagePath) {
+  const { uploadUrl, apiKey, timestamp, signature, publicId } = initData;
+  if (!uploadUrl || !apiKey || !signature || !publicId) {
     throw new Error(`init-upload missing fields: ${JSON.stringify(initData).slice(0, 200)}`);
   }
 
-  // Step 2 — PUT bytes directly to Supabase (no Vercel ceiling)
+  // Step 2 — POST bytes straight to Cloudinary (no Vercel ceiling)
   const bytes = readFileSync(filepath);
   const mime = filename.toLowerCase().endsWith(".mov") ? "video/quicktime" : "video/mp4";
-  const putRes = await fetch(signedUrl, {
-    method: "PUT",
-    headers: { "Content-Type": mime },
-    body: bytes,
-  });
-  if (!putRes.ok) {
-    const txt = await putRes.text().catch(() => "");
-    throw new Error(`PUT ${putRes.status}: ${txt.slice(0, 200)}`);
+  const form = new FormData();
+  form.append("file", new Blob([bytes], { type: mime }), filename);
+  form.append("api_key", String(apiKey));
+  form.append("timestamp", String(timestamp));
+  form.append("public_id", publicId);
+  form.append("signature", signature);
+  const upRes = await fetch(uploadUrl, { method: "POST", body: form });
+  if (!upRes.ok) {
+    const txt = await upRes.text().catch(() => "");
+    throw new Error(`cloudinary upload ${upRes.status}: ${txt.slice(0, 200)}`);
+  }
+  const upData = await upRes.json();
+  if (!upData.secure_url) {
+    throw new Error(`cloudinary upload missing secure_url: ${JSON.stringify(upData).slice(0, 200)}`);
   }
 
   // Step 3 — register metadata + Gemini description
   const completeRes = await fetch(`${API_BASE}/api/instagram/videos/complete-upload`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ storagePath, filename, size: sizeBytes }),
+    body: JSON.stringify({
+      publicId: upData.public_id,
+      secureUrl: upData.secure_url,
+      filename,
+      size: sizeBytes,
+    }),
   });
   if (!completeRes.ok) {
     const txt = await completeRes.text().catch(() => "");

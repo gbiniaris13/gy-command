@@ -37,8 +37,6 @@ import { getIgTokenOptional, getIgGraphRoot, getIgMediaUrl } from "@/lib/ig-toke
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const LIBRARY_HOST =
-  "lquxemsonehfltdzdbhq.supabase.co/storage/v1/object/public/ig-photos";
 const STOCK_HOST_PATTERNS =
   /(images\.unsplash\.com|images\.pexels\.com|pixabay\.com|shutterstock\.com|gettyimages\.com|istockphoto\.com)/i;
 

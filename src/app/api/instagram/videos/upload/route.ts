@@ -2,16 +2,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { igPublicId, uploadVideoBytes, IG_VIDEO_FOLDER } from "@/lib/ig-media";
 
 // POST /api/instagram/videos/upload
 //
 // Companion to /api/instagram/photos/upload — mirrors the same flow
-// for reel-sized videos. George drops .mp4 / .mov files into
-// ~/Desktop/ROBERTO IG videos/ and `scripts/sync-ig-videos.js` feeds
-// them through here. Two things happen on upload:
+// for reel-sized videos. NOTE: this direct server-side path only works
+// under Vercel's 4.5 MB body limit; the sync script uses the signed
+// init-upload + complete-upload pair for big clips. Two things happen:
 //
-//   1. The bytes land in Supabase Storage bucket `ig-videos` (created
-//      idempotently on first POST — no manual bucket setup needed).
+//   1. The bytes are uploaded to Cloudinary (folder gy-ig/ig-videos —
+//      over Supabase's free Storage quota; migrated 2026-06-02).
 //   2. A metadata row is written to the `settings` KV table with key
 //      `video_<uuid>` and a JSON value containing filename, public URL,
 //      AI-generated description, tags, and used_in_post_id (starts null
@@ -19,26 +20,10 @@ import { aiChat } from "@/lib/ai";
 //
 // We use `settings` instead of a dedicated `ig_videos` table because
 // there's no DDL path available (no psql / supabase CLI in the runtime).
-// This is the same pattern the story rotation fix uses.
 //
-// The reels publish cron (Phase C) will read these rows with
-// `key LIKE 'video_%'` and parse the JSON.
+// The reels publish cron reads these rows with `key LIKE 'video_%'`.
 
-const BUCKET = "ig-videos";
 const MAX_BYTES = 100 * 1024 * 1024; // 100 MB — IG Graph API hard cap
-
-async function ensureBucket(sb: ReturnType<typeof createServiceClient>) {
-  // Idempotent create. Supabase throws "Bucket already exists" if it's
-  // there; we swallow that specific error.
-  try {
-    const { error } = await sb.storage.createBucket(BUCKET, { public: true });
-    if (error && !/already exists/i.test(error.message || "")) {
-      throw error;
-    }
-  } catch (err: any) {
-    if (!/already exists/i.test(err?.message || "")) throw err;
-  }
-}
 
 async function describeVideoFilename(filename: string): Promise<{
   description: string;
@@ -118,39 +103,24 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await f.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
-    const today = new Date().toISOString().slice(0, 10);
-    const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const storagePath = `${today}/${Date.now()}-${sanitized}`;
-
-    const sb = createServiceClient();
-
-    await ensureBucket(sb);
-
-    const { error: uploadErr } = await sb.storage
-      .from(BUCKET)
-      .upload(storagePath, bytes, {
-        contentType: f.type || "video/mp4",
-        upsert: false,
-      });
-
-    if (uploadErr) {
+    const publicId = igPublicId(IG_VIDEO_FOLDER, filename);
+    let publicUrl: string;
+    let storagePath: string;
+    try {
+      const up = await uploadVideoBytes(bytes, f.type || "video/mp4", publicId);
+      publicUrl = up.url;
+      storagePath = up.publicId;
+    } catch (e) {
       return NextResponse.json(
         {
-          error: "Storage upload failed",
-          detail: uploadErr.message,
+          error: "Cloudinary upload failed",
+          detail: e instanceof Error ? e.message : String(e),
         },
         { status: 502 },
       );
     }
 
-    const { data: publicData } = sb.storage.from(BUCKET).getPublicUrl(storagePath);
-    const publicUrl = publicData?.publicUrl;
-    if (!publicUrl) {
-      return NextResponse.json(
-        { error: "Could not resolve public URL" },
-        { status: 500 },
-      );
-    }
+    const sb = createServiceClient();
 
     const { description, tags } = await describeVideoFilename(filename);
 
@@ -175,8 +145,9 @@ export async function POST(req: NextRequest) {
     });
 
     if (insertErr) {
-      // Storage succeeded but metadata didn't land — best-effort cleanup.
-      await sb.storage.from(BUCKET).remove([storagePath]).catch(() => {});
+      // Cloudinary upload succeeded but metadata didn't land. We leave
+      // the orphan asset (cheap; manual cleanup if ever needed) rather
+      // than risk a destroy call on the hot path.
       return NextResponse.json(
         { error: "Metadata insert failed", detail: insertErr.message },
         { status: 500 },

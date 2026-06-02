@@ -5,17 +5,15 @@ import { aiChat } from "@/lib/ai";
 
 // POST /api/instagram/videos/complete-upload
 //
-// Step 2 of 2. After the client has PUT the video bytes to the
-// pre-signed URL from init-upload, it calls this endpoint with the
-// storagePath + filename to:
-//   1. Resolve the public URL for the uploaded file.
-//   2. Ask Gemini for a description + tags from the filename.
-//   3. Insert a settings row with key `video_<id>` and a JSON value.
+// Step 2 of 2. After the client has POSTed the video bytes straight to
+// Cloudinary (signed params from init-upload), it calls this endpoint
+// with the Cloudinary { publicId, secureUrl } + filename to:
+//   1. Ask Gemini for a description + tags from the filename.
+//   2. Insert a settings row with key `video_<id>` and a JSON value
+//      carrying the Cloudinary public_url the reels cron will read.
 //
 // Small payload — a few hundred bytes — well under the Vercel 4.5 MB
 // serverless body limit, so no upload ceiling concerns here.
-
-const BUCKET = "ig-videos";
 
 async function describeVideoFilename(filename: string): Promise<{
   description: string;
@@ -58,39 +56,20 @@ function generateId(): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { storagePath, filename, size } = await req.json();
-    if (!storagePath || !filename) {
+    const body = await req.json();
+    // New (Cloudinary) contract: { publicId, secureUrl, filename, size }.
+    const filename = body.filename;
+    const publicUrl = body.secureUrl ?? body.public_url;
+    const storagePath = body.publicId ?? body.public_id ?? null;
+    if (!filename || !publicUrl) {
       return NextResponse.json(
-        { error: "Missing storagePath or filename" },
+        { error: "Missing filename or secureUrl" },
         { status: 400 },
       );
     }
+    const size = body.size;
 
     const sb = createServiceClient();
-
-    // Confirm the object actually exists in storage before we register
-    // metadata. Catches the edge where the client never actually PUT
-    // the bytes.
-    const { data: headData, error: headErr } = await sb.storage
-      .from(BUCKET)
-      .list(storagePath.split("/").slice(0, -1).join("/"), {
-        search: storagePath.split("/").pop(),
-      });
-    if (headErr || !headData || headData.length === 0) {
-      return NextResponse.json(
-        { error: "Upload not found in storage — did PUT succeed?" },
-        { status: 400 },
-      );
-    }
-
-    const { data: publicData } = sb.storage.from(BUCKET).getPublicUrl(storagePath);
-    const publicUrl = publicData?.publicUrl;
-    if (!publicUrl) {
-      return NextResponse.json(
-        { error: "Could not resolve public URL" },
-        { status: 500 },
-      );
-    }
 
     const { description, tags } = await describeVideoFilename(filename);
     const id = generateId();

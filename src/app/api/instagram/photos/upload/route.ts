@@ -2,12 +2,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { igPublicId, uploadImageBytes, IG_PHOTO_FOLDER } from "@/lib/ig-media";
 
 // POST /api/instagram/photos/upload
 //
 // Multipart/form-data upload for the ROBERTO IG photo library. George
 // drops photos into the dashboard upload zone; this endpoint:
-//   1. Uploads the file bytes to the Supabase Storage `ig-photos` bucket
+//   1. Uploads the file bytes to Cloudinary (folder gy-ig/ig-photos —
+//      the org is over Supabase's free Storage quota; migrated 2026-06-02)
 //   2. Runs a Gemini description pass on the filename + any caller-
 //      provided hint so the matcher has a text description to embed
 //   3. Inserts a row in public.ig_photos with the public URL + metadata
@@ -18,8 +20,6 @@ import { aiChat } from "@/lib/ai";
 // works off the filename which George names deliberately. If the
 // filename is useless ("IMG_4831.jpg"), the picker falls back to tag-
 // based and random selection.
-
-const BUCKET = "ig-photos";
 
 async function describeFilename(filename: string, hint?: string): Promise<{
   description: string;
@@ -74,44 +74,33 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await (file as File).arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
-    // Unique storage path so two uploads with the same filename don't
-    // overwrite each other. Prefix with date so manual browsing in the
-    // Supabase Storage UI stays sane.
-    const today = new Date().toISOString().slice(0, 10);
-    const sanitized = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const storagePath = `${today}/${Date.now()}-${sanitized}`;
+    // Upload to Cloudinary under a dated public_id so two uploads with
+    // the same filename don't collide. `storage_path` keeps the
+    // Cloudinary public_id; `public_url` keeps the delivery URL the IG
+    // publish flow hands to the Graph API.
+    const publicId = igPublicId(IG_PHOTO_FOLDER, filename);
 
-    const sb = createServiceClient();
-
-    const { error: uploadErr } = await sb.storage
-      .from(BUCKET)
-      .upload(storagePath, bytes, {
-        contentType: (file as File).type || "image/jpeg",
-        upsert: false,
-      });
-
-    if (uploadErr) {
+    let publicUrl: string;
+    let storagePath: string;
+    try {
+      const up = await uploadImageBytes(
+        bytes,
+        (file as File).type || "image/jpeg",
+        publicId,
+      );
+      publicUrl = up.url;
+      storagePath = up.publicId;
+    } catch (e) {
       return NextResponse.json(
         {
-          error: "Storage upload failed",
-          detail: uploadErr.message,
-          hint:
-            "Make sure the `ig-photos` bucket exists in Supabase Storage and is marked public.",
+          error: "Cloudinary upload failed",
+          detail: e instanceof Error ? e.message : String(e),
         },
         { status: 502 }
       );
     }
 
-    const { data: publicData } = sb.storage
-      .from(BUCKET)
-      .getPublicUrl(storagePath);
-    const publicUrl = publicData?.publicUrl;
-    if (!publicUrl) {
-      return NextResponse.json(
-        { error: "Could not resolve public URL" },
-        { status: 500 }
-      );
-    }
+    const sb = createServiceClient();
 
     const { description, tags } = await describeFilename(filename, hint);
 
