@@ -112,20 +112,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     const recipients = rawTo.split(/[,;\s]+/).map((s) => s.trim()).filter((s) => /.+@.+\..+/.test(s));
     if (!recipients.length) return NextResponse.json({ error: "No valid central agency email address found." }, { status: 400 });
-    const to = recipients.join(", ");
 
     // Defense in depth: never let the client's own identity leak to the supplier.
     emailBody = scrubClient(emailBody, r);
 
     try {
-      const sent = await sendHelmEmail({ to, subject, body: emailBody });
+      // CRITICAL: send ONE SEPARATE email per agency, each addressed only to
+      // that recipient. Central agencies are competing suppliers and must NEVER
+      // see one another (no shared To, no CC, no BCC batching).
+      const messageIds: string[] = [];
+      for (const rcpt of recipients) {
+        const sent = await sendHelmEmail({ to: rcpt, subject, body: emailBody });
+        messageIds.push(sent.messageId);
+      }
       await logHelmMessage(id, {
         direction: "outbound",
         channel: "email",
-        body: `[Central agency inquiry -> ${to}]\n\n${emailBody}`,
-        gmail_message_id: sent.messageId,
+        body: `[Central agency inquiry -> ${recipients.join(", ")} - sent individually, one separate email each]\n\n${emailBody}`,
+        gmail_message_id: messageIds[0] ?? null,
       });
-      return NextResponse.json({ ok: true, messageId: sent.messageId, to });
+      return NextResponse.json({ ok: true, sent: recipients.length, to: recipients });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }
