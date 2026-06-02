@@ -41,7 +41,7 @@ export default function HelmAgencyInquiry({
 
   async function send() {
     if (!hasAgency) return;
-    const ok = confirm(`Send this inquiry to the central agency (${agencyEmail})? It goes from your George Yachts inbox.`);
+    const ok = confirm(`Send this inquiry to the central agency? Each address gets its OWN separate email - no recipient ever sees the others. Sent from your George Yachts inbox.`);
     if (!ok) return;
     setBusy("send"); setErr(null); setMsg(null);
     try {
@@ -51,7 +51,8 @@ export default function HelmAgencyInquiry({
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "send-failed");
-      setMsg(`Sent to ${j.to}. Logged on this request.`);
+      const n = j.sent ?? 1;
+      setMsg(`Sent ${n} separate email${n === 1 ? "" : "s"} (one per agency, no one sees the others). Logged.`);
       router.refresh();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
@@ -97,7 +98,7 @@ export default function HelmAgencyInquiry({
       {msg && <p style={{ color: "#3A6B47", fontSize: 12.5, marginTop: 10 }}>{msg}</p>}
       {err && <p style={{ color: "#b91c1c", fontSize: 12.5, marginTop: 10 }}>{err}</p>}
       <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 10, fontStyle: "italic" }}>
-        Goes to the supplier from your inbox, never to the client. Nothing sends without the button. No attachment.
+        Goes to the supplier from your inbox, never to the client. Multiple addresses each get a SEPARATE email (no one sees the others). Your Gmail signature is added automatically. Nothing sends without the button. No attachment.
       </p>
     </section>
   );
