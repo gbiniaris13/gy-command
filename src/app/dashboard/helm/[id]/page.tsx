@@ -9,6 +9,7 @@ import GeneratePanel from "./GeneratePanel";
 import CombinedPanel from "./CombinedPanel";
 import HelmMedia from "./HelmMedia";
 import HelmSend from "./HelmSend";
+import HelmAgencyInquiry from "./HelmAgencyInquiry";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
 
 export const dynamic = "force-dynamic";
@@ -48,9 +49,14 @@ export default async function HelmDetailPage({
 
   return (
     <div style={{ padding: 24, maxWidth: 920, margin: "0 auto" }}>
-      <Link href="/dashboard/helm" style={{ color: "#0D1B2A", fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase" }}>
-        ← All requests
-      </Link>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Link href="/dashboard/helm" style={{ color: "#0D1B2A", fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase" }}>
+          ← All requests
+        </Link>
+        <Link href={`/dashboard/helm/${r.id}/edit`} style={{ color: "#0D1B2A", fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", border: "1px solid rgba(13,27,42,0.2)", padding: "6px 14px", textDecoration: "none" }}>
+          Edit request
+        </Link>
+      </div>
 
       <header style={{ marginTop: 14, marginBottom: 6 }}>
         <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#C9A84C", fontWeight: 500 }}>
@@ -96,6 +102,9 @@ export default async function HelmDetailPage({
             }}>{r.supplier_raw}</pre>
           : <p style={{ color: "#9CA3AF", fontStyle: "italic", fontSize: 13 }}>No supplier text pasted.</p>}
       </section>
+
+      {/* email the central agency (supplier) — broker-to-supplier inquiry */}
+      <HelmAgencyInquiry requestId={r.id} agencyEmail={r.central_agency_email ?? null} />
 
       {/* media — vessel photos + brochure (Cloudinary) */}
       <HelmMedia

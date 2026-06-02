@@ -27,6 +27,8 @@ const HELM_STATUSES = new Set([
   "new", "drafted", "sent", "in_conversation", "negotiating", "won", "lost",
 ]);
 
+const REQUEST_TYPES = new Set(["direct_client", "travel_agent"]);
+
 const ALLOWED_FIELDS = new Set([
   "status",
   "client_name", "client_title", "client_surname", "client_is_family",
@@ -35,6 +37,7 @@ const ALLOWED_FIELDS = new Set([
   "dates_from", "dates_to", "area",
   "supplier_raw",
   "mode", "no_myba", "show_ghost_credit",
+  "request_type", "central_agency_email",
   "won_reason", "lost_reason",
   "follow_up_at",
 ]);
@@ -61,6 +64,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   if (body.status && !HELM_STATUSES.has(body.status)) {
     return NextResponse.json({ error: `invalid status: ${body.status}` }, { status: 400 });
+  }
+  if (body.request_type && !REQUEST_TYPES.has(body.request_type)) {
+    return NextResponse.json({ error: `invalid request_type: ${body.request_type}` }, { status: 400 });
   }
 
   const patch: Record<string, unknown> = {};

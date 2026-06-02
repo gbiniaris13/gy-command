@@ -160,3 +160,39 @@ Structure: warm one-line open referencing the conversation/brief; one short para
   const out = parseLooseJson(raw) as { subject?: string; body?: string };
   return { subject: deDash(out.subject || "Your Greek charter"), body: deDash(out.body || "") };
 }
+
+// Broker-to-supplier INQUIRY (George Yachts -> the central agency). This is NOT
+// a client document and NOT white-label: full George Yachts identity, George
+// signs personally. The END CLIENT stays anonymous to the supplier (referred to
+// only as clientRef, e.g. "my client") - never the client's name or contact.
+// The internal brief is deliberately NOT passed in (it may carry client identity).
+export async function composeAgencyInquiry(f: {
+  clientRef: string;            // anonymized, e.g. "my client"
+  yachts: string;               // yacht name(s) + spec, one per line
+  dates?: string;
+  area?: string;
+  party_size?: string;
+  occasion?: string;
+}): Promise<{ subject: string; body: string }> {
+  const sys = `${VOICE_GUARDRAILS}
+
+THE HELM - CENTRAL AGENCY INQUIRY (a private broker-to-supplier email FROM George Yachts TO a central agency; this is NOT a client document and NOT white-label):
+- Write in the FIRST PERSON as George, the broker ("I", "my"). Sign "Warmly,\\nGeorge". Normal George Yachts identity is expected here.
+- Be professional and direct with a fellow industry supplier.
+- KEEP THE END CLIENT ANONYMOUS: refer to the client ONLY as "${f.clientRef}". NEVER include the client's first name, full name, email, phone or any identifying personal detail.
+- NEVER an em dash. Use a hyphen.
+
+TASK: Write a concise, professional charter inquiry. Return JSON: {"subject":"<short, specific>","body":"<plain text with line breaks>"}.
+Cover naturally: express genuine client interest in the yacht(s) for the dates; ask to confirm current availability; ask whether they can place or hold an option; and request any missing details needed to firm up a proposal (current rate, APA, VAT, what is included, gratuity guidance, the preferred contact for booking). Reference the yacht(s), dates, area, party size and occasion as given. Courteous and specific, no filler. No em dash. Output JSON only.`;
+  const user = [
+    `Refer to the client only as: ${f.clientRef}`,
+    `Yacht(s) of interest:\n${f.yachts}`,
+    f.dates ? `Dates: ${f.dates}` : "",
+    f.area ? `Area: ${f.area}` : "",
+    f.party_size ? `Party size: ${f.party_size}` : "",
+    f.occasion ? `Occasion: ${f.occasion}` : "",
+  ].filter(Boolean).join("\n");
+  const raw = await aiChat(sys, user, { maxTokens: 3000, temperature: 0.6 });
+  const out = parseLooseJson(raw) as { subject?: string; body?: string };
+  return { subject: deDash(out.subject || "Charter availability inquiry"), body: deDash(out.body || "") };
+}
