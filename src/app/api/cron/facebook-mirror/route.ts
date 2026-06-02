@@ -141,6 +141,16 @@ async function _impl(req?: Request) {
 }
 
 async function _observedImpl(req?: Request) {
+  // Dormant until a Facebook Page token is configured. The FB Graph
+  // host only authenticates a Page / System-User token
+  // (FB_PAGE_ACCESS_TOKEN). The IG_ACCESS_TOKEN fallback is an
+  // Instagram-Login token (IGAA…) that graph.facebook.com rejects with
+  // code 190 — so without the Page token every candidate fails and
+  // spams Telegram. Skip cleanly instead; auto-activates the moment
+  // FB_PAGE_ACCESS_TOKEN is set in Vercel env (no code change needed).
+  if (!(process.env.FB_PAGE_ACCESS_TOKEN || "").trim()) {
+    return NextResponse.json({ skipped: "fb_no_page_token" });
+  }
   try {
     return await _impl(req);
   } catch (e: any) {
