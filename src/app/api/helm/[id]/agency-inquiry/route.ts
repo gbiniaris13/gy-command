@@ -35,10 +35,25 @@ type Req = {
   occasion?: string | null;
   budget?: string | null;
   special_requests?: string | null;
+  brief?: string | null;
   central_agency_email?: string | null;
   client_email?: string | null;
   client_whatsapp?: string | null;
+  client_name?: string | null;
+  client_surname?: string | null;
 };
+
+// Defense in depth: strip the client's own identity (name, surname, email,
+// phone) from any supplier-bound text. The composer is already instructed never
+// to include them; this guarantees it even if a name was written in the brief.
+function scrubClient(body: string, r: Req): string {
+  let out = body;
+  for (const tok of [r.client_email, r.client_whatsapp, r.client_name, r.client_surname]) {
+    const t = (tok ?? "").toString().trim();
+    if (t.length >= 3) out = out.split(t).join("my client");
+  }
+  return out;
+}
 
 function fmtDate(iso?: string | null): string {
   if (!iso) return "";
@@ -77,8 +92,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         dates: buildDates(r) || undefined,
         occasion: r.occasion || undefined,
         special_requests: r.special_requests || undefined,
+        details: r.brief || undefined,
       });
-      return NextResponse.json({ ok: true, subject: draft.subject, body: draft.body });
+      return NextResponse.json({ ok: true, subject: draft.subject, body: scrubClient(draft.body, r) });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }
@@ -98,11 +114,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!recipients.length) return NextResponse.json({ error: "No valid central agency email address found." }, { status: 400 });
     const to = recipients.join(", ");
 
-    // Defense in depth: never let the client's own contact details leak to the supplier.
-    for (const token of [r.client_email, r.client_whatsapp]) {
-      const t = (token ?? "").toString().trim();
-      if (t) emailBody = emailBody.split(t).join("my client");
-    }
+    // Defense in depth: never let the client's own identity leak to the supplier.
+    emailBody = scrubClient(emailBody, r);
 
     try {
       const sent = await sendHelmEmail({ to, subject, body: emailBody });
