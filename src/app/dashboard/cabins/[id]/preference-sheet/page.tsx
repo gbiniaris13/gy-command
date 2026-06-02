@@ -1090,6 +1090,32 @@ export default async function PreferenceSheetPage({
         >
           George Yachts Brokerage House LLC · Filotimo · Φιλότιμο · georgeyachts.com
         </footer>
+
+        {/* 2026-06-02 — GHOST_ credit (gold, clickable -> agency). The
+            back-office URL at the page foot is Chrome's own "Headers and
+            footers" print stamp, not page content; turn that OFF in the
+            print dialog so only this mark remains. */}
+        <div
+          style={{
+            marginTop: 14,
+            textAlign: "center",
+            fontFamily: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
+            fontSize: 9.5,
+            letterSpacing: "0.12em",
+            lineHeight: 1.6,
+          }}
+        >
+          <a
+            href="https://ghostwebdesign.dev"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: GOLD, textDecoration: "none" }}
+          >
+            Designed &amp; built by{" "}
+            <strong style={{ color: "#B8902F", letterSpacing: "0.22em" }}>GHOST_</strong>
+            {" "}— premium digital agency for the discerning few ↗
+          </a>
+        </div>
       </article>
     </div>
   );

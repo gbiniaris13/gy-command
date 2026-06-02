@@ -343,6 +343,34 @@ export default async function CabinCrewListPage({
         other use requires our prior written consent.
       </div>
 
+      {/* 2026-06-02 — GHOST_ credit (gold, clickable -> agency). The
+          back-office URL George saw at the page foot is Chrome's own
+          "Headers and footers" print stamp, NOT page content; turning that
+          option OFF in the print dialog leaves only this mark. */}
+      <div
+        style={{
+          marginTop: 26,
+          paddingTop: 14,
+          borderTop: `1px solid ${RULE}`,
+          textAlign: "center",
+          fontFamily: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
+          fontSize: 9.5,
+          letterSpacing: "0.12em",
+          lineHeight: 1.6,
+        }}
+      >
+        <a
+          href="https://ghostwebdesign.dev"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: GOLD, textDecoration: "none" }}
+        >
+          Designed &amp; built by{" "}
+          <strong style={{ color: "#B8902F", letterSpacing: "0.22em" }}>GHOST_</strong>
+          {" "}— premium digital agency for the discerning few ↗
+        </a>
+      </div>
+
       <style>{`
         /* 2026-05-22 — Full print-mode reset for the Crew List PDF.
            Without these overrides, the dashboard layout's flex
