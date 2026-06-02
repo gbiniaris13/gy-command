@@ -160,3 +160,39 @@ Structure: warm one-line open referencing the conversation/brief; one short para
   const out = parseLooseJson(raw) as { subject?: string; body?: string };
   return { subject: deDash(out.subject || "Your Greek charter"), body: deDash(out.body || "") };
 }
+
+// Broker-to-supplier AVAILABILITY INQUIRY (George Yachts -> the central agency).
+// NOT a client document and NOT white-label: full George Yachts identity, George
+// signs personally. ABSOLUTE: the end client is NEVER named to the supplier (the
+// agency learns the client's identity only AFTER the client signs the contract).
+// Same format for direct-client and travel-agent requests. Presented as a clean
+// request spec the supplier can match, asking what they have available. The
+// internal brief is NOT passed in (it may carry client identity); only the
+// supplier-safe structured fields + special_requests are used.
+export async function composeAgencyInquiry(f: {
+  area?: string;             // area / embarkation-disembarkation, e.g. "Mykonos to Mykonos"
+  party_size?: string;       // guests (and children), e.g. "6 guests + 2 children"
+  budget?: string;           // e.g. "EUR 50,000"
+  dates?: string;
+  occasion?: string;
+  special_requests?: string;
+}): Promise<{ subject: string; body: string }> {
+  const sys = `${VOICE_GUARDRAILS}
+
+THE HELM - CENTRAL AGENCY AVAILABILITY INQUIRY (a private broker-to-supplier email FROM George Yachts TO a central agency; NOT a client document, NOT white-label):
+- First person as George ("I", "my"). Open with "Dear team," then one short courteous line (for example "I hope you are well."). Sign off "Warmly,\\nGeorge" - normal George Yachts identity is expected.
+- ABSOLUTE RULE: NEVER reveal the end client. No client name, no surname, no "the X Family", no contact detail of any kind. The agency learns the client's identity ONLY after a signed contract. Refer to it impersonally ("I have a request", "my client").
+- Present it as a clean charter request the supplier can match: area or embarkation-disembarkation, number of guests (and children), dates, budget, occasion, and any special requests. Then ask them to let you know what they have available and to confirm options or holds.
+- Concise and professional. NEVER an em dash. Output JSON {"subject":"<short, specific>","body":"<plain text with line breaks>"} only.`;
+  const user = [
+    f.area ? `Area / embarkation-disembarkation: ${f.area}` : "",
+    f.party_size ? `Guests: ${f.party_size}` : "",
+    f.dates ? `Dates: ${f.dates}` : "",
+    f.budget ? `Budget: ${f.budget}` : "",
+    f.occasion ? `Occasion: ${f.occasion}` : "",
+    f.special_requests ? `Special requests: ${f.special_requests}` : "",
+  ].filter(Boolean).join("\n") || "A charter request - details to follow.";
+  const raw = await aiChat(sys, user, { maxTokens: 3000, temperature: 0.6 });
+  const out = parseLooseJson(raw) as { subject?: string; body?: string };
+  return { subject: deDash(out.subject || "Charter availability inquiry"), body: deDash(out.body || "") };
+}

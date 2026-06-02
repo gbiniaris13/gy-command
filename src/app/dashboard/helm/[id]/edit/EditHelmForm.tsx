@@ -1,84 +1,81 @@
 "use client";
 
-// The Helm — new request intake. Manual only: George pastes the
-// client brief and the raw central-agency email. On submit we create
-// the request (status 'new') and link/create the contact by email.
-// Generating the proposal + email comes from the detail page later.
+// The Helm — edit an existing request. Pre-filled from the request; saves via
+// PATCH /api/helm/:id (auth-gated, allow-listed fields). Does NOT touch the
+// extraction / review / generated proposal state - editing these fields just
+// updates the request record. Mirrors the New-request form fields, plus the
+// central agency email. Separate component from New (New is left unchanged).
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-export default function NewHelmRequestPage() {
+export type EditInitial = {
+  request_type: "direct_client" | "travel_agent";
+  client_name: string;
+  client_title: string;
+  client_surname: string;
+  client_is_family: boolean;
+  client_email: string;
+  client_whatsapp: string;
+  central_agency_email: string;
+  occasion: string;
+  party_size: string;
+  dates_from: string;
+  dates_to: string;
+  area: string;
+  budget: string;
+  special_requests: string;
+  brief: string;
+  supplier_raw: string;
+  mode: "single" | "combined";
+  no_myba: boolean;
+  show_ghost_credit: boolean;
+};
+
+export default function EditHelmForm({ requestId, initial }: { requestId: string; initial: EditInitial }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [f, setF] = useState<EditInitial>(initial);
 
-  const [f, setF] = useState({
-    request_type: "direct_client" as "direct_client" | "travel_agent",
-    client_name: "",
-    client_title: "Mr",
-    client_surname: "",
-    client_is_family: false,
-    client_email: "",
-    client_whatsapp: "",
-    occasion: "",
-    party_size: "",
-    dates_from: "",
-    dates_to: "",
-    area: "",
-    budget: "",
-    special_requests: "",
-    brief: "",
-    supplier_raw: "",
-    mode: "single" as "single" | "combined",
-    no_myba: false,
-    show_ghost_credit: true,
-  });
-
-  function set<K extends keyof typeof f>(k: K, v: (typeof f)[K]) {
+  function set<K extends keyof EditInitial>(k: K, v: EditInitial[K]) {
     setF((prev) => ({ ...prev, [k]: v }));
   }
-
   const agent = f.request_type === "travel_agent";
 
-  async function submit() {
-    if (!f.client_name && !f.client_email && !f.supplier_raw.trim()) {
-      setError("Add at least a client name, an email, or the supplier text.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
+  async function save() {
+    setBusy(true); setError(null);
     try {
       const payload = {
-        ...f,
-        dates_from: f.dates_from || null,
-        dates_to: f.dates_to || null,
+        request_type: f.request_type,
+        client_name: f.client_name, client_title: f.client_title, client_surname: f.client_surname,
+        client_is_family: f.client_is_family, client_email: f.client_email, client_whatsapp: f.client_whatsapp,
+        central_agency_email: f.central_agency_email,
+        occasion: f.occasion, party_size: f.party_size, area: f.area,
+        budget: f.budget, special_requests: f.special_requests,
+        dates_from: f.dates_from || null, dates_to: f.dates_to || null,
+        brief: f.brief, supplier_raw: f.supplier_raw,
+        mode: f.mode, no_myba: f.no_myba, show_ghost_credit: f.show_ghost_credit,
       };
-      const r = await fetch("/api/helm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const r = await fetch(`/api/helm/${requestId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "create-failed");
-      router.push(`/dashboard/helm/${j.id}`);
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(false);
-    }
+      if (!r.ok) throw new Error(j.error || "save-failed");
+      router.push(`/dashboard/helm/${requestId}`);
+      router.refresh();
+    } catch (e) { setError((e as Error).message); setBusy(false); }
   }
 
   return (
     <div style={{ padding: 24, maxWidth: 880, margin: "0 auto" }}>
-      <Link href="/dashboard/helm" style={{ color: "#0D1B2A", fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase" }}>
-        ← All requests
+      <Link href={`/dashboard/helm/${requestId}`} style={{ color: "#0D1B2A", fontSize: 12, letterSpacing: 1.5, textTransform: "uppercase" }}>
+        ← Back to request
       </Link>
       <header style={{ marginTop: 14, marginBottom: 18 }}>
-        <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#C9A84C", fontWeight: 500 }}>
-          The Helm · New request
-        </div>
-        <h1 style={{ margin: "6px 0 0 0", fontSize: 26, fontWeight: 300 }}>Add a charter request</h1>
+        <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#C9A84C", fontWeight: 500 }}>The Helm · Edit request</div>
+        <h1 style={{ margin: "6px 0 0 0", fontSize: 26, fontWeight: 300 }}>Edit charter request</h1>
       </header>
 
       {/* request type */}
@@ -112,11 +109,8 @@ export default function NewHelmRequestPage() {
         <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr", gap: 12 }}>
           <label style={{ display: "block" }}>
             <div style={fieldLabel}>Title</div>
-            <select
-              value={f.client_title}
-              onChange={(e) => set("client_title", e.target.value)}
-              style={{ width: "100%", padding: 9, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", marginTop: 4, background: "#fff" }}
-            >
+            <select value={f.client_title} onChange={(e) => set("client_title", e.target.value)}
+              style={{ width: "100%", padding: 9, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", marginTop: 4, background: "#fff" }}>
               {["Mr", "Mrs", "Ms", "Dr", "Mx"].map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
@@ -141,40 +135,31 @@ export default function NewHelmRequestPage() {
         </div>
       </section>
 
+      {/* central agency */}
+      <section style={card}>
+        <div style={cardLabel}>Central agency (supplier) — for broker-to-supplier inquiries, never shown to the client</div>
+        <Input label="Central agency email(s) — comma-separate multiple" type="text" value={f.central_agency_email} onChange={(v) => set("central_agency_email", v)} placeholder="bookings@agency.com, ops@agency.com" />
+      </section>
+
       {/* brief */}
       <section style={card}>
         <div style={cardLabel}>The brief — what the client wants + your notes (internal, never sent to the supplier)</div>
-        <textarea
-          value={f.brief}
-          onChange={(e) => set("brief", e.target.value)}
-          rows={4}
-          placeholder="Bachelor group, wants a power cat with a good deck and sound system, non-sailors, flexible on the exact week…"
-          style={textarea}
-        />
+        <textarea value={f.brief} onChange={(e) => set("brief", e.target.value)} rows={4} style={textarea} />
       </section>
 
       {/* special requests — supplier-safe */}
       <section style={card}>
         <div style={cardLabel}>Special requests — included in the central-agency inquiry (no names)</div>
-        <textarea
-          value={f.special_requests}
-          onChange={(e) => set("special_requests", e.target.value)}
-          rows={3}
-          placeholder="toys, dietary, accessibility, preferred style of yacht…"
-          style={textarea}
-        />
+        <textarea value={f.special_requests} onChange={(e) => set("special_requests", e.target.value)} rows={3} placeholder="toys, dietary, accessibility, preferred style of yacht…" style={textarea} />
       </section>
 
       {/* supplier */}
       <section style={card}>
         <div style={cardLabel}>Supplier email(s) — paste raw; stays internal, never shown to the client</div>
-        <textarea
-          value={f.supplier_raw}
-          onChange={(e) => set("supplier_raw", e.target.value)}
-          rows={8}
-          placeholder="Paste the central-agency email(s) here, including rates, APA %, VAT %, brochure/video links…"
-          style={textarea}
-        />
+        <textarea value={f.supplier_raw} onChange={(e) => set("supplier_raw", e.target.value)} rows={8} style={textarea} />
+        <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 6, fontStyle: "italic" }}>
+          Changing this does not re-run extraction automatically. Re-extract from the request page after saving if the numbers changed.
+        </p>
       </section>
 
       {/* proposal options */}
@@ -206,58 +191,33 @@ export default function NewHelmRequestPage() {
       {error && <p style={{ color: "#b91c1c", fontSize: 13, marginTop: 12 }}>{error}</p>}
 
       <div style={{ marginTop: 18, display: "flex", gap: 12 }}>
-        <button type="button" onClick={submit} disabled={busy} style={{
+        <button type="button" onClick={save} disabled={busy} style={{
           background: "#0D1B2A", color: "#F8F5F0", border: "1px solid #C9A84C",
-          padding: "12px 24px", fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase",
-          cursor: busy ? "default" : "pointer",
-        }}>
-          {busy ? "Creating…" : "Create request"}
-        </button>
-        <Link href="/dashboard/helm" style={{
+          padding: "12px 24px", fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase", cursor: busy ? "default" : "pointer",
+        }}>{busy ? "Saving…" : "Save changes"}</button>
+        <Link href={`/dashboard/helm/${requestId}`} style={{
           padding: "12px 24px", fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase",
           color: "#6b7280", textDecoration: "none", border: "1px solid rgba(13,27,42,0.12)",
-        }}>
-          Cancel
-        </Link>
+        }}>Cancel</Link>
       </div>
     </div>
   );
 }
 
-function Input({
-  label, value, onChange, placeholder, type = "text",
-}: {
+function Input({ label, value, onChange, placeholder, type = "text" }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
 }) {
   return (
     <label style={{ display: "block" }}>
       <div style={fieldLabel}>{label}</div>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={{ width: "100%", padding: 9, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", marginTop: 4 }}
-      />
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+        style={{ width: "100%", padding: 9, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", marginTop: 4 }} />
     </label>
   );
 }
 
-const card: React.CSSProperties = {
-  background: "#fff", border: "1px solid rgba(13,27,42,0.08)",
-  padding: "14px 16px", marginTop: 14,
-};
-const cardLabel: React.CSSProperties = {
-  fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase",
-  color: "#6b7280", marginBottom: 12,
-};
-const fieldLabel: React.CSSProperties = {
-  fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: "#9CA3AF",
-};
-const grid2: React.CSSProperties = {
-  display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12,
-};
-const textarea: React.CSSProperties = {
-  width: "100%", padding: 10, border: "1px solid rgba(13,27,42,0.15)",
-  fontSize: 13, fontFamily: "inherit", resize: "vertical",
-};
+const card: React.CSSProperties = { background: "#fff", border: "1px solid rgba(13,27,42,0.08)", padding: "14px 16px", marginTop: 14 };
+const cardLabel: React.CSSProperties = { fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: "#6b7280", marginBottom: 12 };
+const fieldLabel: React.CSSProperties = { fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: "#9CA3AF" };
+const grid2: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 };
+const textarea: React.CSSProperties = { width: "100%", padding: 10, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", resize: "vertical" };
