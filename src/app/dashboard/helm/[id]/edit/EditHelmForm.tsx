@@ -24,6 +24,8 @@ export type EditInitial = {
   dates_from: string;
   dates_to: string;
   area: string;
+  budget: string;
+  special_requests: string;
   brief: string;
   supplier_raw: string;
   mode: "single" | "combined";
@@ -51,6 +53,7 @@ export default function EditHelmForm({ requestId, initial }: { requestId: string
         client_is_family: f.client_is_family, client_email: f.client_email, client_whatsapp: f.client_whatsapp,
         central_agency_email: f.central_agency_email,
         occasion: f.occasion, party_size: f.party_size, area: f.area,
+        budget: f.budget, special_requests: f.special_requests,
         dates_from: f.dates_from || null, dates_to: f.dates_to || null,
         brief: f.brief, supplier_raw: f.supplier_raw,
         mode: f.mode, no_myba: f.no_myba, show_ghost_credit: f.show_ghost_credit,
@@ -124,8 +127,9 @@ export default function EditHelmForm({ requestId, initial }: { requestId: string
           <Input label={agent ? "Agent email" : "Email"} type="email" value={f.client_email} onChange={(v) => set("client_email", v)} placeholder="name@example.com" />
           <Input label={agent ? "Agent WhatsApp / phone" : "WhatsApp / phone"} value={f.client_whatsapp} onChange={(v) => set("client_whatsapp", v)} placeholder="+1 …" />
           <Input label="Occasion" value={f.occasion} onChange={(v) => set("occasion", v)} placeholder="wedding · birthday · family · corporate" />
-          <Input label="Party size" value={f.party_size} onChange={(v) => set("party_size", v)} placeholder="up to 10 guests" />
-          <Input label="Area" value={f.area} onChange={(v) => set("area", v)} placeholder="Cyclades · Greek waters" />
+          <Input label="Party size" value={f.party_size} onChange={(v) => set("party_size", v)} placeholder="e.g. 6 guests + 2 children" />
+          <Input label="Area / embarkation-disembarkation" value={f.area} onChange={(v) => set("area", v)} placeholder="e.g. Mykonos to Mykonos" />
+          <Input label="Budget" value={f.budget} onChange={(v) => set("budget", v)} placeholder="e.g. EUR 50,000" />
           <Input label="Dates from" type="date" value={f.dates_from} onChange={(v) => set("dates_from", v)} />
           <Input label="Dates to" type="date" value={f.dates_to} onChange={(v) => set("dates_to", v)} />
         </div>
@@ -139,8 +143,14 @@ export default function EditHelmForm({ requestId, initial }: { requestId: string
 
       {/* brief */}
       <section style={card}>
-        <div style={cardLabel}>The brief — what the client wants + your notes</div>
+        <div style={cardLabel}>The brief — what the client wants + your notes (internal, never sent to the supplier)</div>
         <textarea value={f.brief} onChange={(e) => set("brief", e.target.value)} rows={4} style={textarea} />
+      </section>
+
+      {/* special requests — supplier-safe */}
+      <section style={card}>
+        <div style={cardLabel}>Special requests — included in the central-agency inquiry (no names)</div>
+        <textarea value={f.special_requests} onChange={(e) => set("special_requests", e.target.value)} rows={3} placeholder="toys, dietary, accessibility, preferred style of yacht…" style={textarea} />
       </section>
 
       {/* supplier */}

@@ -35,6 +35,7 @@ const ALLOWED_FIELDS = new Set([
   "client_email", "client_whatsapp",
   "brief", "occasion", "party_size",
   "dates_from", "dates_to", "area",
+  "budget", "special_requests",
   "supplier_raw",
   "mode", "no_myba", "show_ghost_credit",
   "request_type", "central_agency_email",

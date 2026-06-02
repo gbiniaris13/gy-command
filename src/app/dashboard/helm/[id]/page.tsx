@@ -80,6 +80,7 @@ export default async function HelmDetailPage({
           <Field k="Occasion" v={r.occasion} />
           <Field k="Party size" v={r.party_size} />
           <Field k="Area" v={r.area} />
+          <Field k="Budget" v={r.budget} />
           <Field k="From" v={fmtDate(r.dates_from)} />
           <Field k="To" v={fmtDate(r.dates_to)} />
           <Field k="Mode" v={r.mode} />
@@ -88,6 +89,12 @@ export default async function HelmDetailPage({
           <p style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#1f2937", marginTop: 4 }}>
             {r.brief}
           </p>
+        )}
+        {r.special_requests && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: "#9CA3AF" }}>Special requests</div>
+            <p style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#1f2937", marginTop: 2 }}>{r.special_requests}</p>
+          </div>
         )}
       </section>
 

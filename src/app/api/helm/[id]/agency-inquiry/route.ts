@@ -28,13 +28,13 @@ async function adminEmail(): Promise<string | null> {
 }
 
 type Req = {
-  proposal_json?: unknown;
-  extraction?: unknown;
   dates_from?: string | null;
   dates_to?: string | null;
   area?: string | null;
   party_size?: string | null;
   occasion?: string | null;
+  budget?: string | null;
+  special_requests?: string | null;
   central_agency_email?: string | null;
   client_email?: string | null;
   client_whatsapp?: string | null;
@@ -56,36 +56,6 @@ function buildDates(r: Req): string {
   return "";
 }
 
-// Derive the yacht list from the generated proposal first, then the extraction,
-// else a neutral fallback. One yacht per line: "NAME - spec".
-function buildYachtList(r: Req): string {
-  const line = (name?: unknown, spec?: unknown) =>
-    [typeof name === "string" ? name : "", typeof spec === "string" ? spec : ""].filter(Boolean).join(" - ");
-
-  const pj = r.proposal_json as { mode?: string; yacht?: { name?: string; spec_line?: string }; yachts?: { name?: string; spec_line?: string }[] } | null;
-  if (pj && typeof pj === "object") {
-    if (pj.mode === "combined" && Array.isArray(pj.yachts)) {
-      const names = pj.yachts.map((y) => line(y?.name, y?.spec_line)).filter(Boolean);
-      if (names.length) return names.join("\n");
-    } else if (pj.yacht?.name) {
-      const l = line(pj.yacht.name, pj.yacht.spec_line);
-      if (l) return l;
-    }
-  }
-
-  const ex = r.extraction as { yachts?: { vessel_name?: { value?: string }; spec_line?: { value?: string } }[]; vessel_name?: { value?: string }; spec_line?: { value?: string } } | null;
-  if (ex && typeof ex === "object") {
-    if (Array.isArray(ex.yachts)) {
-      const names = ex.yachts.map((y) => line(y?.vessel_name?.value, y?.spec_line?.value)).filter(Boolean);
-      if (names.length) return names.join("\n");
-    } else if (ex.vessel_name?.value) {
-      const l = line(ex.vessel_name.value, ex.spec_line?.value);
-      if (l) return l;
-    }
-  }
-  return "the yacht(s) we discussed";
-}
-
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const email = await adminEmail();
@@ -101,12 +71,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (action === "generate") {
     try {
       const draft = await composeAgencyInquiry({
-        clientRef: "my client",          // end client kept anonymous to the supplier
-        yachts: buildYachtList(r),
-        dates: buildDates(r) || undefined,
         area: r.area || undefined,
         party_size: r.party_size || undefined,
+        budget: r.budget || undefined,
+        dates: buildDates(r) || undefined,
         occasion: r.occasion || undefined,
+        special_requests: r.special_requests || undefined,
       });
       return NextResponse.json({ ok: true, subject: draft.subject, body: draft.body });
     } catch (e) {

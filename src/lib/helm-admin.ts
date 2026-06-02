@@ -87,6 +87,8 @@ export type CreateHelmInput = {
   dates_from?: string | null;
   dates_to?: string | null;
   area?: string;
+  budget?: string;
+  special_requests?: string;
   supplier_raw?: string;
   mode?: "single" | "combined" | null;
   request_type?: "direct_client" | "travel_agent" | null;

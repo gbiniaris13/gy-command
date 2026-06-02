@@ -34,6 +34,8 @@ export default async function EditHelmPage({ params }: { params: Promise<{ id: s
     dates_from: r.dates_from ?? "",
     dates_to: r.dates_to ?? "",
     area: r.area ?? "",
+    budget: r.budget ?? "",
+    special_requests: r.special_requests ?? "",
     brief: r.brief ?? "",
     supplier_raw: r.supplier_raw ?? "",
     mode: r.mode === "combined" ? "combined" : "single",
