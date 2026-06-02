@@ -283,8 +283,16 @@ export default async function PreferenceSheetPage({
           }
           /* Make sure each Section starts on a fresh page when it
              needs to, and avoids splitting tables/cards awkwardly. */
-          .page-break-before { page-break-before: always !important; break-before: page !important; }
+          /* 2026-06-02 — sections now FLOW (no forced page break) to kill
+             the half-empty pages. Sub-blocks still resist mid-element
+             splits, and a heading never sits orphaned at the foot of a
+             page (it stays with the content that follows it). */
           .avoid-break { page-break-inside: avoid !important; break-inside: avoid !important; }
+          .pref-section > header,
+          h2, h3 {
+            break-after: avoid !important;
+            page-break-after: avoid !important;
+          }
         }
       `}</style>
 
@@ -713,40 +721,14 @@ export default async function PreferenceSheetPage({
             </div>
           )}
 
-          <h3
-            style={{
-              fontFamily: FONT_UI,
-              fontSize: 10.5,
-              letterSpacing: 3.5,
-              textTransform: "uppercase",
-              color: GOLD,
-              margin: "26px 0 14px",
-              fontWeight: 500,
-            }}
-          >
-            Manifest
-          </h3>
-          {/* 2026-05-26 — Brief 02 (Task B1): cards now source from
-              mergeGuestRecords(...) instead of the raw manifest, so
-              a guest who self-filled /cabin/me without ever appearing
-              in cabin_guests_manifest still gets a card with their
-              DOB / passport / allergies (no more blank dashes for
-              new-model guests). The principal's own member row is
-              folded in too. */}
-          {mergedGuests.length === 0 ? (
-            <p style={mutedItalic}>
-              The guest list will appear here once members fill in
-              their own crew-list lines (or the charterer seeds the
-              manifest from the CRM). Until then, please coordinate
-              names and arrival details with George directly.
-            </p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-              {mergedGuests.map((g, i) => (
-                <GuestCard key={g.id ?? `m-${i}`} order={i + 1} g={g} />
-              ))}
-            </div>
-          )}
+          {/* 2026-06-02 — Passenger MANIFEST (DOB / passport / nationality /
+              expiry) REMOVED from the Preference Sheet. It duplicated the
+              Crew List (port-authority paperwork) — which George sends
+              separately — and put passport data in a document meant for
+              chef / crew / owner service preferences. The chef-facing
+              allergy roll-up in §03 still carries the only guest-personal
+              data the kitchen needs; passports live solely in the Crew List
+              PDF. (mergedGuests is still consumed by that allergy roll-up.) */}
         </Section>
 
         {/* ============ 03 — HEALTH & ITINERARY ============ */}
@@ -1136,20 +1118,23 @@ function Section({
   title,
   italic,
   children,
-  pageBreakBefore,
 }: {
   number: string;
   title: string;
   italic?: string;
   children: React.ReactNode;
+  // 2026-06-02 — pageBreakBefore is intentionally ignored now. Forcing a
+  // fresh page per section left half-empty pages; sections flow naturally
+  // and only sub-blocks (.avoid-break) resist splitting mid-element. Kept
+  // in the type so existing <Section pageBreakBefore> calls still compile.
   pageBreakBefore?: boolean;
 }) {
   return (
     <section
-      className={pageBreakBefore ? "page-break-before avoid-break" : "avoid-break"}
+      className="pref-section"
       style={{
-        marginTop: 32,
-        paddingBottom: 28,
+        marginTop: 30,
+        paddingBottom: 24,
         borderBottom: `1px solid ${RULE}`,
       }}
     >
