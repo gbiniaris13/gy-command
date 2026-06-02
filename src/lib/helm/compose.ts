@@ -176,13 +176,15 @@ export async function composeAgencyInquiry(f: {
   dates?: string;
   occasion?: string;
   special_requests?: string;
+  details?: string;          // free-text brief/notes; requirements are used, names/contacts are NOT
 }): Promise<{ subject: string; body: string }> {
   const sys = `${VOICE_GUARDRAILS}
 
 THE HELM - CENTRAL AGENCY AVAILABILITY INQUIRY (a private broker-to-supplier email FROM George Yachts TO a central agency; NOT a client document, NOT white-label):
 - First person as George ("I", "my"). Open with "Dear team," then one short courteous line (for example "I hope you are well."). Sign off "Warmly,\\nGeorge" - normal George Yachts identity is expected.
 - ABSOLUTE RULE: NEVER reveal the end client. No client name, no surname, no "the X Family", no contact detail of any kind. The agency learns the client's identity ONLY after a signed contract. Refer to it impersonally ("I have a request", "my client").
-- Present it as a clean charter request the supplier can match: area or embarkation-disembarkation, number of guests (and children), dates, budget, occasion, and any special requests. Then ask them to let you know what they have available and to confirm options or holds.
+- Present it as a clean charter request the supplier can match. INCLUDE every relevant detail you are given: area AND embarkation / disembarkation ports if stated, number of guests (and how many are children), dates, budget (state the figure or range given), occasion, and any special requests. Then ask them to let you know what they have available and to confirm options or holds.
+- You may also be given free-text request notes. Use ONLY the charter requirements from them (budget, embarkation-disembarkation, guests and children, preferences, special requests). NEVER copy any person's name, company, villa name, or contact detail from the notes.
 - Concise and professional. NEVER an em dash. Output JSON {"subject":"<short, specific>","body":"<plain text with line breaks>"} only.`;
   const user = [
     f.area ? `Area / embarkation-disembarkation: ${f.area}` : "",
@@ -191,6 +193,7 @@ THE HELM - CENTRAL AGENCY AVAILABILITY INQUIRY (a private broker-to-supplier ema
     f.budget ? `Budget: ${f.budget}` : "",
     f.occasion ? `Occasion: ${f.occasion}` : "",
     f.special_requests ? `Special requests: ${f.special_requests}` : "",
+    f.details ? `Request notes (use the charter requirements ONLY - budget, embark/disembark, guests, children, preferences; NEVER include any name, villa name or contact):\n${f.details}` : "",
   ].filter(Boolean).join("\n") || "A charter request - details to follow.";
   const raw = await aiChat(sys, user, { maxTokens: 3000, temperature: 0.6 });
   const out = parseLooseJson(raw) as { subject?: string; body?: string };
