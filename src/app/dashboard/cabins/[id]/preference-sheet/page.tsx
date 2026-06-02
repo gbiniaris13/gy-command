@@ -207,12 +207,21 @@ export default async function PreferenceSheetPage({
              section (Logistics). These class-contains selectors
              neutralise the shell AND the overflow-y-auto <main> at
              ANY depth so the full sheet paginates across A4 pages. */
+          /* 2026-06-02 — collapse the flex shell to block + full width
+             (real DOM: body > div.flex.h-screen > main.flex-1; the
+             body>div>div display:block rule below never matched, so main
+             kept its ~1680px desktop width in print and risked clipping
+             the right edge). */
           [class*="h-screen"] {
+            display: block !important;
             height: auto !important;
             max-height: none !important;
             min-height: 0 !important;
             overflow: visible !important;
+            width: 100% !important;
+            max-width: 100% !important;
           }
+          body { display: block !important; }
           [class*="overflow-hidden"] { overflow: visible !important; }
           [class*="overflow-y-auto"],
           [class*="overflow-auto"] {
@@ -259,9 +268,12 @@ export default async function PreferenceSheetPage({
             overflow: visible !important;
           }
           main {
+            display: block !important;
             overflow: visible !important;
             padding-bottom: 0 !important;
-            flex: none !important;
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
           }
           /* Our content root: take the full page width, no shadow,
              pure white. */

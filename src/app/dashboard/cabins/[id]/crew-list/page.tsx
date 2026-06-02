@@ -361,12 +361,24 @@ export default async function CabinCrewListPage({
              class-contains selectors neutralise the shell AND the
              overflow-y-auto <main> at ANY nesting depth, so the list
              flows across as many A4 pages as it needs. */
+          /* 2026-06-02 — also COLLAPSE the flex shell to block + full
+             width. The real DOM is body > div.flex.h-screen > main.flex-1,
+             so the body>div>div display:block rule below never matched and
+             <main> kept its ~1680px desktop flex width in print — the A4
+             page then clipped the right ~half, dropping every crew-list
+             VALUE (gender / DOB / passport / mobile) and the confidentiality
+             box off the right edge. Forcing the shell to block + 100% width
+             lets <main> shrink to the page so the value column fits. */
           [class*="h-screen"] {
+            display: block !important;
             height: auto !important;
             max-height: none !important;
             min-height: 0 !important;
             overflow: visible !important;
+            width: 100% !important;
+            max-width: 100% !important;
           }
+          body { display: block !important; }
           [class*="overflow-hidden"] { overflow: visible !important; }
           [class*="overflow-y-auto"],
           [class*="overflow-auto"] {
@@ -395,10 +407,12 @@ export default async function CabinCrewListPage({
             overflow: visible !important;
           }
           main {
+            display: block !important;
             overflow: visible !important;
             padding-bottom: 0 !important;
-            flex: none !important;
-            max-width: none !important;
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
           }
         }
       `}</style>
