@@ -15,6 +15,7 @@ export default function NewHelmRequestPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [f, setF] = useState({
+    request_type: "direct_client" as "direct_client" | "travel_agent",
     client_name: "",
     client_title: "Mr",
     client_surname: "",
@@ -36,6 +37,8 @@ export default function NewHelmRequestPage() {
   function set<K extends keyof typeof f>(k: K, v: (typeof f)[K]) {
     setF((prev) => ({ ...prev, [k]: v }));
   }
+
+  const agent = f.request_type === "travel_agent";
 
   async function submit() {
     if (!f.client_name && !f.client_email && !f.supplier_raw.trim()) {
@@ -76,9 +79,34 @@ export default function NewHelmRequestPage() {
         <h1 style={{ margin: "6px 0 0 0", fontSize: 26, fontWeight: 300 }}>Add a charter request</h1>
       </header>
 
-      {/* client */}
+      {/* request type */}
       <section style={card}>
-        <div style={cardLabel}>Client — formal addressing (never a bare first name)</div>
+        <div style={cardLabel}>Request type</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {([
+            ["direct_client", "Direct Client", "The client receives the full George Yachts proposal."],
+            ["travel_agent", "Travel Agent", "White-label PDF (no George Yachts identity). The contact below is the agent."],
+          ] as const).map(([key, label, hint]) => (
+            <label key={key} style={{
+              flex: "1 1 260px", display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer",
+              border: `1px solid ${f.request_type === key ? "#0D1B2A" : "rgba(13,27,42,0.15)"}`,
+              background: f.request_type === key ? "rgba(13,27,42,0.03)" : "#fff", padding: "10px 12px",
+            }}>
+              <input type="radio" name="request_type" checked={f.request_type === key}
+                onChange={() => { set("request_type", key); if (key === "travel_agent") set("client_is_family", false); }}
+                style={{ marginTop: 3 }} />
+              <span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: "#6b7280", marginTop: 2 }}>{hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      {/* client / agent */}
+      <section style={card}>
+        <div style={cardLabel}>{agent ? "Travel agent — the agent's details (the proposal PDF is white-labeled)" : "Client — formal addressing (never a bare first name)"}</div>
         <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr", gap: 12 }}>
           <label style={{ display: "block" }}>
             <div style={fieldLabel}>Title</div>
@@ -90,16 +118,18 @@ export default function NewHelmRequestPage() {
               {["Mr", "Mrs", "Ms", "Dr", "Mx"].map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </label>
-          <Input label="Surname (required to send)" value={f.client_surname} onChange={(v) => set("client_surname", v)} placeholder="Reynolds" />
-          <Input label="First name (optional · internal)" value={f.client_name} onChange={(v) => set("client_name", v)} placeholder="James" />
+          <Input label={agent ? "Agent surname (required to send)" : "Surname (required to send)"} value={f.client_surname} onChange={(v) => set("client_surname", v)} placeholder="Reynolds" />
+          <Input label={agent ? "Agent first name (optional)" : "First name (optional · internal)"} value={f.client_name} onChange={(v) => set("client_name", v)} placeholder="James" />
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", margin: "12px 0" }}>
-          <input type="checkbox" checked={f.client_is_family} onChange={(e) => set("client_is_family", e.target.checked)} />
-          Family booking (address as the {f.client_surname || "[Surname]"} Family)
-        </label>
+        {!agent && (
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", margin: "12px 0" }}>
+            <input type="checkbox" checked={f.client_is_family} onChange={(e) => set("client_is_family", e.target.checked)} />
+            Family booking (address as the {f.client_surname || "[Surname]"} Family)
+          </label>
+        )}
         <div style={grid2}>
-          <Input label="Email" type="email" value={f.client_email} onChange={(v) => set("client_email", v)} placeholder="name@example.com" />
-          <Input label="WhatsApp / phone" value={f.client_whatsapp} onChange={(v) => set("client_whatsapp", v)} placeholder="+1 …" />
+          <Input label={agent ? "Agent email" : "Email"} type="email" value={f.client_email} onChange={(v) => set("client_email", v)} placeholder="name@example.com" />
+          <Input label={agent ? "Agent WhatsApp / phone" : "WhatsApp / phone"} value={f.client_whatsapp} onChange={(v) => set("client_whatsapp", v)} placeholder="+1 …" />
           <Input label="Occasion" value={f.occasion} onChange={(v) => set("occasion", v)} placeholder="wedding · birthday · family · corporate" />
           <Input label="Party size" value={f.party_size} onChange={(v) => set("party_size", v)} placeholder="up to 10 guests" />
           <Input label="Area" value={f.area} onChange={(v) => set("area", v)} placeholder="Cyclades · Greek waters" />

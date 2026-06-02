@@ -20,6 +20,21 @@ THE HELM OVERRIDE (proposals + emails are George speaking personally):
 - Connect the client's stated need to a CONCRETE, supplier-true feature. Never promise a feature, toy, or detail the supplier data did not state.
 - Address the client formally (title + surname, e.g. "Mrs. Reynolds", or "the Reynolds Family"). Never a bare first name.`;
 
+// WHITE-LABEL voice (travel-agent proposals). The PDF is presented to the
+// client by an intermediary, so it must carry NO George / George Yachts
+// identity and no first-person "I". Same persuasive quality, fully impersonal.
+// Used ONLY for the PDF copy of travel_agent proposals; the agent email stays
+// George-voice (direct B2B correspondence).
+const VOICE_ANON = `${VOICE_GUARDRAILS}
+
+WHITE-LABEL OVERRIDE (this proposal is presented to the client by an intermediary, so it MUST be fully anonymous):
+- Do NOT use the first person singular ("I", "my"). Write impersonally, or use "we" sparingly. Never sign off, never add a name.
+- NEVER mention George, George Yachts, Biniaris, any broker / person / company name, website, email, or phone number. No personal identity of any kind.
+- NEVER an em dash. Use a hyphen.
+- NEVER name the source agency/broker, never include broker links.
+- Connect the client's stated need to a CONCRETE, supplier-true feature. Never promise a feature, toy, or detail the supplier data did not state.
+- Keep the refined, persuasive tone, but impersonal throughout. No bare first names.`;
+
 // Hard guarantee on the sacred "never an em dash" rule — strip em/en
 // dashes to a hyphen on every AI output, regardless of what the model did.
 const deDash = (s: string): string => s.replace(/[—–]/g, "-");
@@ -34,15 +49,19 @@ export type NarrativeFacts = {
 };
 
 // Single-yacht: page-2 experience narrative (2-3 short paras, last is the
-// personal selling close) + a short title.
+// selling close) + a short title. `anonymous` => white-label voice (no George,
+// no first person) for travel-agent proposals.
 export async function composeSingleNarrative(
-  f: NarrativeFacts,
+  f: NarrativeFacts & { anonymous?: boolean },
 ): Promise<{ experience_title: string; experience_paras: string[] }> {
-  const sys = `${VOICE_BASE}
+  const closeLine = f.anonymous
+    ? "Final paragraph: a refined selling close that creates genuine desire, written impersonally (no 'I'); gentle, real urgency if the facts support it."
+    : "Final paragraph: the personal selling close (you have looked at this with them in mind; gentle, real urgency if the facts support it).";
+  const sys = `${f.anonymous ? VOICE_ANON : VOICE_BASE}
 
 TASK: Write the "experience" narrative for a single-yacht charter proposal PDF.
 Return JSON: {"experience_title": "<3-5 word title>", "experience_paras": ["para1","para2","para3"]}.
-- 2 to 3 short paragraphs. Paragraphs 1-2: what she is and what life aboard feels like, drawn ONLY from the supplier facts, luxury-fied but true. Final paragraph: the personal selling close (you have looked at this with them in mind; gentle, real urgency if the facts support it).
+- 2 to 3 short paragraphs. Paragraphs 1-2: what she is and what life aboard feels like, drawn ONLY from the supplier facts, luxury-fied but true. ${closeLine}
 - Vary sentence length. No travel-brochure cliche. No AI tells. No em dash. Output JSON only.`;
   const user = [
     `Vessel: ${f.vessel_name}${f.vessel_type ? ` (${f.vessel_type})` : ""}`,
@@ -59,14 +78,18 @@ Return JSON: {"experience_title": "<3-5 word title>", "experience_paras": ["para
   };
 }
 
-// Combined per-yacht: one short supplier-true description + George's
-// first-person "inside info" (why this one, for whom, the reason to pick it).
+// Combined per-yacht: one short supplier-true description + an "inside info"
+// note (why this one, for whom, the reason to pick it). `anonymous` => white-
+// label voice (no George, no first person) for travel-agent proposals.
 export async function composeYachtInsideInfo(
-  f: NarrativeFacts & { tier_hint?: string },
+  f: NarrativeFacts & { tier_hint?: string; anonymous?: boolean },
 ): Promise<{ description: string; inside_info: string }> {
-  const sys = `${VOICE_BASE}
+  const insideSpec = f.anonymous
+    ? `"inside_info":"<2-4 sentences, IMPERSONAL (no 'I', no names): why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"`
+    : `"inside_info":"<2-4 sentences, first-person George: why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"`;
+  const sys = `${f.anonymous ? VOICE_ANON : VOICE_BASE}
 
-TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<one short supplier-true paragraph>","inside_info":"<2-4 sentences, first-person George: why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"}.
+TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<one short supplier-true paragraph>",${insideSpec}}.
 The inside_info is where the selling lives - make it distinct and specific. No em dash. Output JSON only.`;
   const user = [
     `Yacht: ${f.vessel_name}${f.vessel_type ? ` (${f.vessel_type})` : ""}`,
@@ -81,18 +104,27 @@ The inside_info is where the selling lives - make it distinct and specific. No e
   return { description: deDash(out.description || ""), inside_info: deDash(out.inside_info || "") };
 }
 
-// Combined shortlist: the short "A Note From Your Broker" letter that opens a
-// multi-yacht proposal (first-person George, signed in the PDF automatically).
+// Combined shortlist: the short note that opens a multi-yacht proposal.
+// Direct-client => "A Note From Your Broker", first-person George, opens with
+// the formal salutation, signed in the PDF automatically. `anonymous` =>
+// white-label: impersonal, no salutation (the agent's end-client is unknown),
+// no George, no sign-off.
 export async function composeCombinedIntro(
-  f: { salutation: string; occasion?: string; brief?: string; yacht_summary: string },
+  f: { salutation: string; occasion?: string; brief?: string; yacht_summary: string; anonymous?: boolean },
 ): Promise<string> {
-  const sys = `${VOICE_BASE}
+  const sys = f.anonymous
+    ? `${VOICE_ANON}
+
+TASK: Write the short note that opens a multi-yacht shortlist proposal PDF. Return JSON: {"intro_letter":"<3 to 4 short paragraphs separated by single newlines>"}.
+- Do NOT open with a salutation or any name (the reader is unknown). Open impersonally. Describe how this selection was assembled (a genuine availability review, narrowed to these few), acknowledge the spread (from the most sensible value to the statement option, only if the shortlist supports it), and close with gentle, real urgency.
+- No first person "I", no sign-off, no name, no broker identity. No em dash. No hype. Output JSON only.`
+    : `${VOICE_BASE}
 
 TASK: Write the short "A Note From Your Broker" letter that opens a multi-yacht shortlist proposal PDF. Return JSON: {"intro_letter":"<3 to 4 short paragraphs separated by single newlines>"}.
 - Begin with the EXACT salutation provided. First-person George: what you did (you went back through what is genuinely available and set these few aside for them), one line acknowledging the spread (from the most sensible value to the statement option, only if the shortlist supports it), and a warm close with gentle, real urgency.
 - Do NOT add a sign-off or your name; the PDF signs you as George Biniaris automatically. No em dash. No hype. Output JSON only.`;
   const user = [
-    `Salutation to use verbatim: ${f.salutation}`,
+    f.anonymous ? "" : `Salutation to use verbatim: ${f.salutation}`,
     f.occasion ? `Occasion: ${f.occasion}` : "",
     f.brief ? `Client brief: ${f.brief}` : "",
     `The shortlist (cheapest first):\n${f.yacht_summary}`,

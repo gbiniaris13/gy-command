@@ -56,6 +56,11 @@ export default async function HelmDetailPage({
         <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#C9A84C", fontWeight: 500 }}>
           The Helm · Request
         </div>
+        {r.request_type === "travel_agent" && (
+          <div style={{ display: "inline-block", marginTop: 8, padding: "3px 10px", background: "#6D28D9", color: "#fff", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase" }}>
+            Travel Agent · white-label PDF
+          </div>
+        )}
         <h1 style={{ margin: "6px 0 0 0", fontSize: 26, fontWeight: 300 }}>{name}</h1>
         <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
           {r.client_email}{r.client_whatsapp ? ` · ${r.client_whatsapp}` : ""}

@@ -45,8 +45,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     const pdf = await downloadProposalPdf(r.proposal_pdf_path);
     const surname = (r.client_surname || r.client_name || "Charter").toString().replace(/[^A-Za-z0-9]+/g, "_");
+    // Travel-agent: neutral filename (the agent forwards the PDF to their client).
+    const isAgent = r.request_type === "travel_agent";
     const attachment = {
-      filename: `${surname}_Charter_Proposal.pdf`,
+      filename: isAgent ? "Charter_Proposal.pdf" : `${surname}_Charter_Proposal.pdf`,
       mimeType: "application/pdf",
       base64: Buffer.from(pdf).toString("base64"),
     };

@@ -42,6 +42,8 @@ export type SingleProposal = {
   mode: "single";
   no_myba?: boolean;
   show_ghost_credit?: boolean;
+  /** Travel-agent white-label: neutral footer, no George identity/colophon. */
+  white_label?: boolean;
   yacht: SingleYacht;
 };
 
@@ -62,6 +64,8 @@ export type CombinedProposal = {
   mode: "combined";
   no_myba?: boolean;
   show_ghost_credit?: boolean;
+  /** Travel-agent white-label: neutral footer, no George identity/colophon. */
+  white_label?: boolean;
   client_name?: string;
   period?: string;
   guests?: string;
@@ -121,7 +125,7 @@ function linkButtons(links?: Record<string, string> | null, center = false): str
   return `<div class='${cls}'>${btns.join("")}</div>`;
 }
 
-function galleryPage(y: SingleYacht): string {
+function galleryPage(y: SingleYacht, wl = false): string {
   const imgs = y.gallery;
   const slots = y.gallery_slots;
   if (!imgs && !slots) return "";
@@ -140,7 +144,7 @@ function galleryPage(y: SingleYacht): string {
   <div class="sec-title">Gallery</div>
   <hr class="hair" style="margin:5mm 0 4mm;">
   <div class="gallery">${cells.join("")}</div>
-  <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(y.name)} &#8226; Gallery</span></div>
+  <div class="pfoot"><span>${confLabel(wl)}</span><span>${e(y.name)} &#8226; Gallery</span></div>
 </div></div>`;
 }
 
@@ -167,6 +171,32 @@ function companyBlock(showGhost = true): string {
       All rates and availability subject to change until confirmed in writing. Prices in EUR, estimates only.</div>
     ${ghost}
   </div>`;
+}
+
+// Travel-agent white-label footer: brand-free, no George Yachts identity, no
+// address / phone / email / website / colophon. Keeps a generic confidentiality
+// line and the same CSS classes so the styling matches the rest of the document.
+function neutralFooter(): string {
+  return `
+  <div style="margin-top:12mm;border-top:1px solid var(--hair);padding-top:6mm;text-align:center;">
+    <div class="label dim" style="font-size:6.5pt;letter-spacing:.18em;line-height:1.8;">
+      Confidential charter proposal &#8226; prepared for the named recipient<br>
+      All rates and availability are subject to change until confirmed in writing &#8226; Prices in EUR, estimates only<br>
+      Charter agreement per MYBA standard terms &amp; conditions
+    </div>
+  </div>`;
+}
+
+// Footer chooser. Direct-client => the unchanged companyBlock (George Yachts +
+// optional Ghost colophon). Travel-agent white-label => the neutral footer.
+function footerBlock(d: { white_label?: boolean; show_ghost_credit?: boolean }): string {
+  return d.white_label ? neutralFooter() : companyBlock(d.show_ghost_credit ?? true);
+}
+
+// Inner-page footer-line label. Direct-client keeps the EXACT existing string;
+// white-label drops the George Yachts name to stay anonymous.
+function confLabel(wl?: boolean): string {
+  return wl ? "Confidential" : "George Yachts &#8226; Confidential";
 }
 
 // CSS copied VERBATIM from base_css() in build_proposal.py (after the
@@ -362,7 +392,7 @@ function renderSingle(d: SingleProposal): string {
   </div>
   ${hl}
   ${linkButtons(y.links)}
-  <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(y.name)} &#8226; 02</span></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(y.name)} &#8226; 02</span></div>
 </div></div>`);
 
   // ---- P3 INTERIOR & LIFESTYLE ----
@@ -394,12 +424,12 @@ function renderSingle(d: SingleProposal): string {
   </div>
   ${accHtml}
   ${crewHtml}
-  <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(y.name)} &#8226; 03</span></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(y.name)} &#8226; 03</span></div>
 </div></div>`);
   }
 
   // ---- GALLERY (optional) ----
-  const gp = galleryPage(y);
+  const gp = galleryPage(y, d.white_label);
   if (gp) pages.push(gp);
 
   // ---- P4 EXTERIOR & WATER TOYS ----
@@ -431,7 +461,7 @@ function renderSingle(d: SingleProposal): string {
   ${imgOrPlaceholder(imgs.exterior, "Exterior - aerial / cruising", "ph", "62mm")}
   <div style="margin-top:9mm;">${toysHtml}</div>
   ${specsHtml}
-  <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(y.name)} &#8226; 04</span></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(y.name)} &#8226; 04</span></div>
 </div></div>`);
   }
 
@@ -514,7 +544,7 @@ function renderSingle(d: SingleProposal): string {
   ${apaNote}
   ${payBlock}
   ${perPerson}
-  <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(y.name)} &#8226; 05</span></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(y.name)} &#8226; 05</span></div>
 </div></div>`);
 
   // ---- P6 CLOSING ----
@@ -531,7 +561,7 @@ function renderSingle(d: SingleProposal): string {
     <h2 class="corm" style="font-size:30pt;font-weight:500;color:var(--ivory);margin:2mm 0 5mm;">
       Your Mediterranean Journey Awaits</h2>
     <div class="body" style="font-size:9.5pt;color:var(--ivory-dim);">${e(y.spec_line ?? "")}</div>
-    ${companyBlock(d.show_ghost_credit ?? true)}
+    ${footerBlock(d)}
   </div>
 </div>`);
 
@@ -576,11 +606,11 @@ function renderCombined(d: CombinedProposal): string {
   <div class="sec-title">A Note From Your Broker</div>
   <hr class="hair" style="margin:5mm 0 8mm;">
   <div class="body">${introParas}</div>
-  <div style="margin-top:10mm;">
+  ${d.white_label ? "" : `<div style="margin-top:10mm;">
     <div class="corm gold-metal" style="font-size:15pt;color:var(--gold);">George Biniaris</div>
     <div class="label" style="margin-top:1mm;font-size:7.5pt;">Managing Broker &#8226; George Yachts Brokerage House LLC</div>
-  </div>
-  <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(d.period ?? "")}</span></div>
+  </div>`}
+  <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(d.period ?? "")}</span></div>
 </div></div>`);
   }
 
@@ -589,7 +619,7 @@ function renderCombined(d: CombinedProposal): string {
 
   // ---- key information / closing ----
   pages.push(keyInfoPage(d));
-  return wrapPages(pages, "Curated Selection" + (client ? ` - ${client}` : ""));
+  return wrapPages(pages, d.white_label ? "Charter Proposal" : "Curated Selection" + (client ? ` - ${client}` : ""));
 }
 
 function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal): string {
@@ -602,7 +632,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   if (inside) {
     insideHtml = `<div style="margin-top:6mm;background:var(--navy-soft);border-left:2px solid var(--gold);
             padding:5mm 6mm;border-radius:2px;">
-            <div class="label" style="font-size:7.5pt;">George's Inside Info</div>
+            <div class="label" style="font-size:7.5pt;">${d.white_label ? "Inside Info" : "George's Inside Info"}</div>
             <p class="corm" style="font-style:italic;font-size:12.5pt;line-height:1.6;color:var(--ivory);margin-top:2mm;">${e(inside)}</p></div>`;
   }
 
@@ -651,7 +681,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   <div style="margin-top:6mm;">${cost}</div>
   ${pr.per_person_4 ? `<div class="body" style="font-size:8.5pt;color:var(--slate);margin-top:3mm;">Per guest: ${pr.per_person_4} (4 guests) &#8226; ${pr.per_person_6} (6 guests)</div>` : ""}
   ${linkButtons(y.links)}
-  <div class="pfoot"><span>George Yachts &#8226; Confidential</span><span>${e(d.period ?? "")} &#8226; ${idx2}</span></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(d.period ?? "")} &#8226; ${idx2}</span></div>
 </div></div>`;
 }
 
@@ -679,7 +709,7 @@ function keyInfoPage(d: CombinedProposal): string {
     <p class="body" style="font-size:9pt;margin-top:2mm;">Every option here has been selected by hand. We are with you from
     first enquiry to disembarkation - on the ground in Greece, and a message away at any hour.</p></div>
   </div>
-  <div style="margin-top:auto;">${companyBlock(d.show_ghost_credit ?? true)}</div>
+  <div style="margin-top:auto;">${footerBlock(d)}</div>
 </div></div>`;
 }
 
