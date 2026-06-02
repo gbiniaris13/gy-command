@@ -25,6 +25,7 @@ export type HelmListItem = {
   last_activity_at: string | null;
   proposal_pdf_path: string | null;
   mode: string | null;
+  request_type: string | null;
   created_at: string;
   first_name: string | null;
   last_name: string | null;
@@ -88,6 +89,7 @@ export type CreateHelmInput = {
   area?: string;
   supplier_raw?: string;
   mode?: "single" | "combined" | null;
+  request_type?: "direct_client" | "travel_agent" | null;
   no_myba?: boolean;
   show_ghost_credit?: boolean;
   actorEmail: string;

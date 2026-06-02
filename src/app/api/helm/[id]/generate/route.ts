@@ -16,6 +16,7 @@ import { renderProposalPdf } from "@/lib/helm/render";
 import { uploadProposalPdf } from "@/lib/helm/storage";
 import { optimizedUrl } from "@/lib/helm/cloudinary";
 import { isAgencyDomain } from "@/lib/helm/media";
+import { assertWhiteLabelClean } from "@/lib/helm/whitelabel";
 
 export const runtime = "nodejs";
 // Combined mode composes copy for N yachts + the intro letter before rendering,
@@ -45,6 +46,7 @@ type RequestRow = {
   no_myba?: boolean | null;
   show_ghost_credit?: boolean | null;
   mode?: string | null;
+  request_type?: string | null;
   vessel_photos?: { url?: string; source?: string }[] | null;
   brochure_url?: string | null;
   combined_media?: Record<string, { main_url?: string | null; brochure_url?: string | null }> | null;
@@ -124,6 +126,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const mode = body.mode || r.mode || "single";
 
+  // Travel-agent white-label: the attached PDF must carry NO George Yachts
+  // identity (anonymous PDF copy + neutral footer + a hard deny-list guard
+  // before finalizing). The agent email itself stays George-voice (B2B).
+  const whiteLabel = r.request_type === "travel_agent";
+
   // FORMAL ADDRESSING — never a bare first name. No surname => stop and ask.
   const addr = formalAddress({ title: r.client_title, surname: r.client_surname, isFamily: r.client_is_family });
   if (!addr.salutation) {
@@ -194,6 +201,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           supplier_facts: supplierFacts,
           brief: r.brief || undefined,
           occasion: r.occasion || undefined,
+          anonymous: whiteLabel,
         });
 
         // per-yacht media (confidentiality: agency-domain brochure links withheld)
@@ -238,13 +246,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }).join("\n");
 
       const [intro, email_draft] = await Promise.all([
-        composeCombinedIntro({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, yacht_summary: summary }),
+        // PDF intro is anonymous for white-label; the email stays George-voice.
+        composeCombinedIntro({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, yacht_summary: summary, anonymous: whiteLabel }),
         composeEmail({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, selection_summary: summary }),
       ]);
 
       const proposal = buildCombinedProposal(
         {
-          coverName: addr.coverName,
+          // White-label cover carries no client/agent name (the agent presents it).
+          coverName: whiteLabel ? null : addr.coverName,
           period: monthYearLine(r),
           guests: r.party_size || undefined,
           area: r.area || undefined,
@@ -252,10 +262,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           images,
         },
         sorted,
-        { no_myba: !!r.no_myba, show_ghost_credit: r.show_ghost_credit !== false },
+        { no_myba: !!r.no_myba, show_ghost_credit: r.show_ghost_credit !== false, white_label: whiteLabel },
       );
 
-      const pdf = await renderProposalPdf(buildProposalHtml(proposal));
+      const html = buildProposalHtml(proposal);
+      // HARD WHITE-LABEL GUARD — abort if any George Yachts token survives.
+      if (whiteLabel) assertWhiteLabelClean({ html, title: "Charter Proposal", filename: "Charter_Proposal.pdf" });
+      const pdf = await renderProposalPdf(html);
       const path = await uploadProposalPdf(id, pdf);
       await saveGenerated(id, {
         proposal_json: proposal,
@@ -326,6 +339,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       supplier_facts: supplierFacts,
       brief: r.brief || undefined,
       occasion: r.occasion || undefined,
+      anonymous: whiteLabel,
     });
 
     // ---- media: base64-embed web-optimized vessel photos into the PDF; add a
@@ -364,6 +378,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const proposal = buildSingleProposal(yacht, {
       no_myba: !!r.no_myba,
       show_ghost_credit: r.show_ghost_credit !== false,
+      white_label: whiteLabel,
     });
 
     const pr = computePricing(pricing);
@@ -374,7 +389,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       selection_summary: `${yacht.name}${v.spec_line ? ` - ${v.spec_line}` : ""} - ${pr.headline}${pr.all_inclusive ? " all-inclusive (APA, VAT and extras included)" : pricing.extras_text ? "" : " plus APA and VAT"}`,
     });
 
-    const pdf = await renderProposalPdf(buildProposalHtml(proposal));
+    const html = buildProposalHtml(proposal);
+    // HARD WHITE-LABEL GUARD — abort if any George Yachts token survives.
+    if (whiteLabel) assertWhiteLabelClean({ html, title: yacht.name, filename: "Charter_Proposal.pdf" });
+    const pdf = await renderProposalPdf(html);
     const path = await uploadProposalPdf(id, pdf);
 
     await saveGenerated(id, {

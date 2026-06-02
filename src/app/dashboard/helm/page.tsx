@@ -53,10 +53,39 @@ function followUpDue(r: HelmListItem): boolean {
   return new Date(r.follow_up_at).getTime() <= Date.now();
 }
 
-export default async function HelmListPage() {
+function reqType(r: HelmListItem): "direct_client" | "travel_agent" {
+  return r.request_type === "travel_agent" ? "travel_agent" : "direct_client";
+}
+
+function typeBadge(t: "direct_client" | "travel_agent") {
+  const agent = t === "travel_agent";
+  return (
+    <span style={{
+      display: "inline-block", padding: "2px 8px",
+      background: agent ? "#6D28D9" : "#0D7C66", color: "#fff",
+      fontSize: 10, letterSpacing: 1.2, textTransform: "uppercase", whiteSpace: "nowrap",
+    }}>{agent ? "Travel Agent" : "Direct Client"}</span>
+  );
+}
+
+export default async function HelmListPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ type?: string }>;
+}) {
+  const sp = await searchParams;
+  const filter: "all" | "direct_client" | "travel_agent" =
+    sp?.type === "travel_agent" || sp?.type === "direct_client" ? sp.type : "all";
+
   const requests = await listHelm();
+  const shown = filter === "all" ? requests : requests.filter((r) => reqType(r) === filter);
 
   const dueCount = requests.filter(followUpDue).length;
+  const counts = {
+    all: requests.length,
+    direct_client: requests.filter((r) => reqType(r) === "direct_client").length,
+    travel_agent: requests.filter((r) => reqType(r) === "travel_agent").length,
+  };
 
   return (
     <div style={{ padding: 24, maxWidth: 1280, margin: "0 auto" }}>
@@ -84,11 +113,27 @@ export default async function HelmListPage() {
         </Link>
       </header>
 
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        {(["all", "direct_client", "travel_agent"] as const).map((key) => {
+          const label = key === "all" ? "All" : key === "travel_agent" ? "Travel Agent" : "Direct Client";
+          const active = filter === key;
+          const href = key === "all" ? "/dashboard/helm" : `/dashboard/helm?type=${key}`;
+          return (
+            <Link key={key} href={href} style={{
+              padding: "6px 14px", fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase",
+              textDecoration: "none", border: `1px solid ${active ? "#0D1B2A" : "rgba(13,27,42,0.15)"}`,
+              background: active ? "#0D1B2A" : "#fff", color: active ? "#F8F5F0" : "#6b7280",
+            }}>{label} ({counts[key]})</Link>
+          );
+        })}
+      </div>
+
       <div style={{ background: "#fff", border: "1px solid rgba(13,27,42,0.08)" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ background: "rgba(13,27,42,0.04)", textAlign: "left" }}>
               <th style={th}>Client</th>
+              <th style={th}>Type</th>
               <th style={th}>Occasion</th>
               <th style={th}>Dates</th>
               <th style={th}>Area</th>
@@ -98,12 +143,12 @@ export default async function HelmListPage() {
             </tr>
           </thead>
           <tbody>
-            {requests.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
-                No requests yet. Add the first one →
+            {shown.length === 0 && (
+              <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
+                {filter === "all" ? "No requests yet. Add the first one →" : "No requests of this type."}
               </td></tr>
             )}
-            {requests.map((r) => {
+            {shown.map((r) => {
               const due = followUpDue(r);
               const name = r.client_name
                 || [r.first_name, r.last_name].filter(Boolean).join(" ")
@@ -116,6 +161,7 @@ export default async function HelmListPage() {
                     <strong>{name}</strong>
                     <div style={{ fontSize: 12, color: "#6b7280" }}>{r.client_email || r.contact_email || ""}</div>
                   </td>
+                  <td style={td}>{typeBadge(reqType(r))}</td>
                   <td style={td}>{r.occasion || <span style={{ color: "#cbd5e1" }}>—</span>}</td>
                   <td style={td}>
                     {r.dates_from || r.dates_to

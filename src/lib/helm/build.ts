@@ -32,12 +32,13 @@ export function formalAddress(opts: {
 
 export function buildSingleProposal(
   yacht: SingleYacht,
-  opts?: { no_myba?: boolean; show_ghost_credit?: boolean },
+  opts?: { no_myba?: boolean; show_ghost_credit?: boolean; white_label?: boolean },
 ): SingleProposal {
   return {
     mode: "single",
     no_myba: opts?.no_myba ?? false,
     show_ghost_credit: opts?.show_ghost_credit ?? true,
+    white_label: opts?.white_label ?? false,
     yacht,
   };
 }
@@ -52,13 +53,14 @@ export function buildCombinedProposal(
     images?: Record<string, string | null>;
   },
   yachts: CombinedYacht[],
-  opts?: { no_myba?: boolean; show_ghost_credit?: boolean },
+  opts?: { no_myba?: boolean; show_ghost_credit?: boolean; white_label?: boolean },
 ): CombinedProposal {
   // Caller MUST sort yachts cheapest -> most expensive before calling.
   return {
     mode: "combined",
     no_myba: opts?.no_myba ?? false,
     show_ghost_credit: opts?.show_ghost_credit ?? true,
+    white_label: opts?.white_label ?? false,
     client_name: meta.coverName ?? undefined,
     period: meta.period,
     guests: meta.guests,
