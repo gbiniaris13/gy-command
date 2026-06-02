@@ -385,9 +385,47 @@ export default async function PreferenceSheetPage({
             our charterer aboard {cabin.vessel_name} give them the most
             thoughtful week possible. Shared with the operating team, the
             captain and crew, the chef and hostess, and the yacht&apos;s owner
-            so every preference lands where it can do the most good. Please
-            handle as you would any guest information of your own.
+            so every preference lands where it can do the most good.
           </p>
+
+          {/* 2026-06-02 — Data-ownership / confidentiality notice. Replaces
+              the old "handle as you would any guest information of your own"
+              line, which implied the recipient could treat the data as their
+              own. George's clients + their personal/special-category data
+              belong to George Yachts; shared for this charter only. */}
+          <div
+            style={{
+              marginTop: 22,
+              padding: "14px 16px",
+              border: `1px solid ${GOLD}`,
+              borderLeft: `3px solid ${GOLD}`,
+              fontFamily: FONT_UI,
+              fontSize: 10.5,
+              lineHeight: 1.7,
+              color: "rgba(248,245,240,0.92)",
+              maxWidth: 620,
+            }}
+          >
+            <span style={{ fontWeight: 700, letterSpacing: 0.5 }}>
+              CONFIDENTIAL — CLIENT INFORMATION.
+            </span>{" "}
+            This preference sheet contains personal and special-category data
+            (including dietary, allergy and health details) belonging to the
+            guests, who are clients of George Yachts Brokerage House LLC. It is
+            shared with you in confidence and solely to plan and deliver this
+            charter ({cabin.vessel_name}
+            {cabin.charter_period_from && cabin.charter_period_to
+              ? ` · ${fmtDate(cabin.charter_period_from)} – ${fmtDate(cabin.charter_period_to)}`
+              : ""}) — provisioning, crew and chef briefing, and onboard
+            service — and may be used for that purpose only. It may not be
+            copied, added to any database, retained beyond what this charter
+            requires, shared with anyone who does not need it for this charter,
+            or used to contact, solicit or market to the guests. The guests
+            are, and remain, clients of George Yachts; the client relationship
+            and their contact details are the confidential and proprietary
+            information of George Yachts Brokerage House LLC. Any other use
+            requires our prior written consent.
+          </div>
         </header>
 
         {/* ============ 01 — LOGISTICS ============ */}
