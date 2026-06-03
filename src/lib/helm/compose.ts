@@ -139,30 +139,34 @@ export type EmailFacts = {
   occasion?: string;
   brief?: string;
   selection_summary: string;   // one yacht (name + price) or the shortlist, cheapest first
-  /** Travel-agent white-label: a generic, anonymous email the advisor forwards
-   *  to their own client as their own (no George, no "your client"). */
-  anonymous?: boolean;
+  /** Travel-agent cover note: George writes TO the agent (B2B, first person as
+   *  George). Tells the agent the attached proposal PDF is white-label - they can
+   *  review it and forward it to their own client exactly as is, with no reference
+   *  to us - and that their commission terms are in the attached partnership
+   *  program. The white-label artifact is the PDF; this email is agent-facing. */
+  agent?: boolean;
 };
 
 // The email body (does the selling; George pastes/sends it, PDF attached).
 export async function composeEmail(
   f: EmailFacts,
 ): Promise<{ subject: string; body: string }> {
-  const sys = f.anonymous
-    ? `${VOICE_ANON}
+  const sys = f.agent
+    ? `${VOICE_BASE}
 
-TASK: Write a WHITE-LABEL, client-facing email that an intermediary (a travel advisor) will FORWARD to their own client AS THEIR OWN. Return JSON: {"subject":"<short, warm, specific>","body":"<plain text with line breaks>"}.
-- Open with a warm GENERIC salutation such as "Dear Guests," - NO specific name, and NEVER "your client".
-- One short opening line about a curated selection for a relaxed Greek charter; then one or two lines per yacht tying a real feature to a family charter WITH the price (cheapest to most expensive); a warm close with gentle urgency and an easy next step.
-- Sign off NEUTRALLY (e.g. "Kind regards,") with NO personal name and NO company - the forwarder adds their own.
-- NEVER mention George, George Yachts, Biniaris, any broker / person / company / website / email / phone, and NEVER say "your client" or hint the email is forwarded. Fully impersonal so it reads as the sender's own. No em dash, no hype, no exclamation marks. Output JSON only.`
+TASK: Write the cover email George sends to a TRAVEL ADVISOR / AGENT (B2B, first person as George). A white-label proposal PDF (no George Yachts branding anywhere) and a partnership program PDF are attached. Return JSON: {"subject":"<short, specific>","body":"<plain text with line breaks>"}.
+- Begin the body with the EXACT salutation provided. This addresses the AGENT, NOT the end client.
+- FIRST short paragraph, at the very top before anything else: tell the agent plainly that the attached proposal is fully white-labeled; that they are welcome to review it; that it is prepared so they can forward it to their own client EXACTLY AS IS, with no reference to us appearing anywhere; and that their commission terms are set out in the attached partnership program. This MUST come first so the agent grasps it immediately without reading the rest.
+- THEN one or two short lines summarising the shortlist (yacht name + price, cheapest to most expensive) for the agent's own reference.
+- Close warmly and sign "Warmly,\\nGeorge".
+- This email is for the agent only and is NOT the client-facing document, so naming George / George Yachts here is correct and expected. No em dash, no hype, no exclamation marks. Output JSON only.`
     : `${VOICE_BASE}
 
 TASK: Write the email that accompanies the proposal PDF. Return JSON: {"subject":"<short, warm, specific>","body":"<the email body as plain text with line breaks>"}.
 Structure: warm one-line open referencing the conversation/brief; one short paragraph on what you did; one or two lines per yacht tying a real feature to their need WITH the price (cheapest to most expensive); a close with gentle urgency + an easy next step; sign "Warmly,\\nGeorge".
 - Begin the body with the EXACT salutation provided. First person. No em dash. No hype, no exclamation marks. Output JSON only.`;
   const user = [
-    f.anonymous ? `Open with a warm GENERIC salutation (e.g. "Dear Guests,") - no name.` : `Salutation to use verbatim: ${f.salutation}`,
+    `Salutation to use verbatim: ${f.salutation}`,
     f.occasion ? `Occasion: ${f.occasion}` : "",
     f.brief ? `Charter context (use ONLY the requirements - guests, children, area, style; NEVER a person's name): ${f.brief}` : "",
     `Selection (cheapest first):\n${f.selection_summary}`,

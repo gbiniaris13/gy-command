@@ -267,13 +267,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }).join("\n");
 
       const [intro, email_draft] = await Promise.all([
-        // White-label: the PDF intro AND the accompanying email are anonymous /
-        // forwardable (the advisor sends the email to their client as their own).
+        // White-label: the PDF intro is anonymous (the agent forwards the PDF to
+        // their client). The accompanying EMAIL, however, is an agent-facing cover
+        // note (George -> agent): it tells the agent the PDF is white-label to
+        // forward as their own and that commission terms are in the partnership
+        // PDF. So the email is NOT anonymous and is NOT white-label guarded.
         composeCombinedIntro({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, yacht_summary: summary, anonymous: whiteLabel }),
-        composeEmail({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, selection_summary: summary, anonymous: whiteLabel }),
+        composeEmail({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, selection_summary: summary, agent: whiteLabel }),
       ]);
-      // White-label guard on the email too (it gets forwarded to the client).
-      if (whiteLabel) assertWhiteLabelClean({ html: `${email_draft.subject}\n${email_draft.body}` });
 
       const proposal = buildCombinedProposal(
         {
@@ -417,10 +418,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       occasion: r.occasion || undefined,
       brief: r.brief || undefined,
       selection_summary: `${yacht.name}${v.spec_line ? ` - ${v.spec_line}` : ""} - ${pr.headline}${pr.all_inclusive ? " all-inclusive (APA, VAT and extras included)" : pricing.extras_text ? "" : " plus APA and VAT"}`,
-      anonymous: whiteLabel,
+      agent: whiteLabel,
     });
-    // White-label guard on the email too (the advisor forwards it to their client).
-    if (whiteLabel) assertWhiteLabelClean({ html: `${email_draft.subject}\n${email_draft.body}` });
+    // NOTE: no white-label guard on the email - it is an agent-facing cover note
+    // (George -> agent) and naming George Yachts here is intended. The white-label
+    // guard stays on the PDF below (that is what the agent forwards to the client).
 
     const html = buildProposalHtml(proposal);
     // HARD WHITE-LABEL GUARD — abort if any George Yachts token survives.
