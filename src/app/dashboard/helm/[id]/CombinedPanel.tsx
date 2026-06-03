@@ -232,24 +232,22 @@ export default function CombinedPanel({
   }
 
   // ---- already generated ----
-  if (pdfPath) {
-    return (
-      <section style={card}>
-        <div style={cardLabel}>Combined proposal generated · {yachtCount} yachts</div>
-        <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>Open proposal PDF ↗</a>
-        {emailSubject && (<div style={{ marginTop: 14 }}><div style={fieldLabel}>Email subject</div><div style={{ fontSize: 14, color: "#1f2937", marginTop: 2 }}>{emailSubject}</div></div>)}
-        {emailIntro && (<div style={{ marginTop: 12 }}><div style={fieldLabel}>Email body (first-person George)</div><pre style={emailPre}>{emailIntro}</pre></div>)}
-        <button type="button" onClick={runGenerate} disabled={busy !== null || !canGenerate} style={{ ...ghostBtn, marginTop: 12 }}>
-          {busy === "generate" ? "Regenerating…" : "Regenerate"}
-        </button>
-        {error && <p style={errStyle}>{error}</p>}
-      </section>
-    );
-  }
-
   return (
     <section style={card}>
       <div style={cardLabel}>Generate combined proposal · multi-yacht</div>
+
+      {/* Already generated: show the current PDF + email for a final check, but
+          KEEP the editable cards below so the broker can revise and regenerate. */}
+      {pdfPath && (
+        <div style={generatedBanner}>
+          <div style={{ fontSize: 12.5, color: "#1f2937", marginBottom: 8 }}>
+            <b>Proposal generated.</b> Open it for a final check, edit any yacht below, then press <b>Generate</b> at the bottom to update it.
+          </div>
+          <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>Open current PDF ↗</a>
+          {emailSubject && (<div style={{ marginTop: 12 }}><div style={fieldLabel}>Email subject</div><div style={{ fontSize: 14, color: "#1f2937", marginTop: 2 }}>{emailSubject}</div></div>)}
+          {emailIntro && (<div style={{ marginTop: 10 }}><div style={fieldLabel}>Email body</div><pre style={emailPre}>{emailIntro}</pre></div>)}
+        </div>
+      )}
 
       {!ex && (
         <button type="button" onClick={runExtract} disabled={busy !== null} style={primaryBtn}>
@@ -419,7 +417,7 @@ export default function CombinedPanel({
           })}
 
           <button type="button" onClick={runGenerate} disabled={!canGenerate} style={{ ...primaryBtn, marginTop: 8, opacity: canGenerate ? 1 : 0.5, cursor: canGenerate ? "pointer" : "not-allowed" }}>
-            {busy === "generate" ? "Generating combined proposal…" : `Generate combined proposal (${yachtCount} yachts)`}
+            {busy === "generate" ? "Generating…" : pdfPath ? `Regenerate proposal (${yachtCount} yachts)` : `Generate combined proposal (${yachtCount} yachts)`}
           </button>
           {!canGenerate && busy === null && (
             <div style={{ fontSize: 11.5, color: "#9CA3AF", marginTop: 6 }}>
@@ -470,5 +468,6 @@ const txt: React.CSSProperties = { width: "100%", padding: 7, border: "1px solid
 const stopBox: React.CSSProperties = { background: "rgba(177,74,58,0.08)", border: "1px solid rgba(177,74,58,0.5)", color: "#7f1d1d", padding: "8px 10px", margin: "10px 0", fontSize: 13 };
 const warnBox: React.CSSProperties = { background: "rgba(176,122,44,0.08)", border: "1px solid rgba(176,122,44,0.4)", color: "#7c4a03", padding: "8px 12px", margin: "10px 0", fontSize: 12.5 };
 const pdfLink: React.CSSProperties = { display: "inline-block", background: "#0D1B2A", color: "#F8F5F0", border: "1px solid #C9A84C", padding: "10px 18px", textDecoration: "none", fontSize: 10, letterSpacing: 2, textTransform: "uppercase" };
+const generatedBanner: React.CSSProperties = { background: "rgba(58,107,71,0.07)", border: "1px solid rgba(58,107,71,0.35)", padding: "12px 14px", margin: "10px 0 14px", borderRadius: 2 };
 const emailPre: React.CSSProperties = { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.55, color: "#1f2937", marginTop: 4, background: "rgba(13,27,42,0.03)", padding: 12 };
 const errStyle: React.CSSProperties = { color: "#b91c1c", fontSize: 12, marginTop: 8 };
