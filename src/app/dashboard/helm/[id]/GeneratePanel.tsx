@@ -188,37 +188,22 @@ export default function GeneratePanel({
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
 
-  // ---- already generated: show result ----
-  if (pdfPath) {
-    return (
-      <section style={card}>
-        <div style={cardLabel}>Proposal generated</div>
-        <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>
-          Open proposal PDF ↗
-        </a>
-        {emailSubject && (
-          <div style={{ marginTop: 14 }}>
-            <div style={fieldLabel}>Email subject</div>
-            <div style={{ fontSize: 14, color: "#1f2937", marginTop: 2 }}>{emailSubject}</div>
-          </div>
-        )}
-        {emailIntro && (
-          <div style={{ marginTop: 12 }}>
-            <div style={fieldLabel}>Email body (first-person George · paste into Gmail)</div>
-            <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.55, color: "#1f2937", marginTop: 4, background: "rgba(13,27,42,0.03)", padding: 12 }}>{emailIntro}</pre>
-          </div>
-        )}
-        <button type="button" onClick={runGenerate} disabled={busy !== null} style={{ ...ghostBtn, marginTop: 12 }}>
-          {busy === "generate" ? "Regenerating…" : "Regenerate"}
-        </button>
-        {error && <p style={errStyle}>{error}</p>}
-      </section>
-    );
-  }
-
   return (
     <section style={card}>
       <div style={cardLabel}>Generate proposal</div>
+
+      {/* Already generated: show the current PDF + email for a final check, but
+          KEEP the editable review below so the broker can revise and regenerate. */}
+      {pdfPath && (
+        <div style={generatedBanner}>
+          <div style={{ fontSize: 12.5, color: "#1f2937", marginBottom: 8 }}>
+            <b>Proposal generated.</b> Open it for a final check, edit below, then press <b>Generate</b> at the bottom to update it.
+          </div>
+          <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>Open current PDF ↗</a>
+          {emailSubject && (<div style={{ marginTop: 12 }}><div style={fieldLabel}>Email subject</div><div style={{ fontSize: 14, color: "#1f2937", marginTop: 2 }}>{emailSubject}</div></div>)}
+          {emailIntro && (<div style={{ marginTop: 10 }}><div style={fieldLabel}>Email body</div><pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.55, color: "#1f2937", marginTop: 4, background: "rgba(13,27,42,0.03)", padding: 12 }}>{emailIntro}</pre></div>)}
+        </div>
+      )}
 
       {!hasSupplier && <p style={{ fontSize: 13, color: "#9CA3AF", fontStyle: "italic" }}>Paste the supplier email on this request first, then extract.</p>}
 
@@ -357,7 +342,7 @@ export default function GeneratePanel({
           {!surname && <div style={warnBox}>Add a client <b>surname</b> on this request first — proposals are addressed formally (never a bare first name).</div>}
 
           <button type="button" onClick={runGenerate} disabled={!canGenerate} style={{ ...primaryBtn, marginTop: 16, opacity: canGenerate ? 1 : 0.5, cursor: canGenerate ? "pointer" : "not-allowed" }}>
-            {busy === "generate" ? "Generating proposal…" : "Generate proposal PDF"}
+            {busy === "generate" ? "Generating…" : pdfPath ? "Regenerate proposal PDF" : "Generate proposal PDF"}
           </button>
           {!canGenerate && busy === null && (
             <div style={{ fontSize: 11.5, color: "#9CA3AF", marginTop: 6 }}>
@@ -399,4 +384,5 @@ const txt: React.CSSProperties = { width: "100%", padding: 8, border: "1px solid
 const stopBox: React.CSSProperties = { background: "rgba(177,74,58,0.08)", border: "1px solid rgba(177,74,58,0.5)", color: "#7f1d1d", padding: "10px 12px", margin: "12px 0", fontSize: 13 };
 const warnBox: React.CSSProperties = { background: "rgba(176,122,44,0.08)", border: "1px solid rgba(176,122,44,0.4)", color: "#7c4a03", padding: "8px 12px", margin: "10px 0", fontSize: 12.5 };
 const pdfLink: React.CSSProperties = { display: "inline-block", background: "#0D1B2A", color: "#F8F5F0", border: "1px solid #C9A84C", padding: "10px 18px", textDecoration: "none", fontSize: 10, letterSpacing: 2, textTransform: "uppercase" };
+const generatedBanner: React.CSSProperties = { background: "rgba(58,107,71,0.07)", border: "1px solid rgba(58,107,71,0.35)", padding: "12px 14px", margin: "10px 0 14px", borderRadius: 2 };
 const errStyle: React.CSSProperties = { color: "#b91c1c", fontSize: 12, marginTop: 8 };
