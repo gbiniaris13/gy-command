@@ -9,6 +9,7 @@ import { createServerClient } from "@supabase/ssr";
 import { getRequest, markRequestSent, logHelmMessage } from "@/lib/helm-admin";
 import { downloadProposalPdf } from "@/lib/helm/storage";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
+import { PARTNERSHIP_PDF_BASE64, PARTNERSHIP_PDF_FILENAME } from "@/lib/helm/partnership-pdf.generated";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -53,13 +54,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       base64: Buffer.from(pdf).toString("base64"),
     };
 
+    // Travel agents ALWAYS receive the partnership / commission program PDF in the
+    // same email (so they know their commission and we are covered). NEVER attached
+    // for direct clients.
+    const attachments = [attachment];
+    if (isAgent) {
+      attachments.push({
+        filename: PARTNERSHIP_PDF_FILENAME,
+        mimeType: "application/pdf",
+        base64: PARTNERSHIP_PDF_BASE64,
+      });
+    }
+
     const sent = await sendHelmEmail({
       to,
       subject: subject || "Your Greek charter",
       body: emailBody,
       threadId: r.gmail_thread_id || undefined,
       inReplyTo: r.gmail_last_message_id || undefined,
-      attachments: [attachment],
+      attachments,
     });
 
     await markRequestSent(id, {
