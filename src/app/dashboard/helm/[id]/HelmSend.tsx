@@ -4,7 +4,7 @@
 // draft here and presses Send; nothing is ever auto-sent. "Check replies"
 // pulls the Gmail thread on demand (the daily cron does it automatically too).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function HelmSend({
@@ -21,6 +21,13 @@ export default function HelmSend({
   const router = useRouter();
   const [subject, setSubject] = useState(initialSubject || "");
   const [body, setBody] = useState(initialBody || "");
+  // Adopt the freshly generated email whenever a Regenerate writes new text to
+  // the request (router.refresh() updates these props). This removes the trap
+  // where the Send box kept stale text after a regenerate. Manual edits are
+  // preserved while the stored draft is unchanged (the effect only fires when
+  // the DB value itself changes, i.e. after a new generate).
+  useEffect(() => { setSubject(initialSubject || ""); }, [initialSubject]);
+  useEffect(() => { setBody(initialBody || ""); }, [initialBody]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
