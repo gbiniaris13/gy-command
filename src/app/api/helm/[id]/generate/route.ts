@@ -66,6 +66,7 @@ type CombinedInputYacht = {
     all_inclusive_total?: number | null;
     discount_pct?: number | null;
     relocation_fee?: number | null;
+    relocation_note?: string | null;
     all_in_override?: number | null;
   };
   content?: {
@@ -199,6 +200,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           all_inclusive_total: iy.pricing?.all_inclusive_total ?? null,
           discount_pct: iy.pricing?.discount_pct ?? null,
           relocation_fee: iy.pricing?.relocation_fee ?? null,
+          relocation_note: iy.pricing?.relocation_note ?? null,
           all_in_override: iy.pricing?.all_in_override ?? null,
         };
 
@@ -318,6 +320,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     all_inclusive_total: p.all_inclusive_total ?? null,
     discount_pct: p.discount_pct ?? null,
     relocation_fee: p.relocation_fee ?? null,
+    relocation_note: p.relocation_note ?? null,
     all_in_override: p.all_in_override ?? null,
     details: Array.isArray(body.details) ? body.details : [],
   };

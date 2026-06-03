@@ -24,7 +24,7 @@ export default function PricingExtras({
       <div style={lbl}>Owner discount · relocation · rounding (optional)</div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
         <Field label="Owner discount %" value={discount} placeholder="e.g. 5" onChange={(v) => onChange("discount_pct", v)} />
-        <Field label="Relocation fee €" value={relocation} placeholder="e.g. 3360" onChange={(v) => onChange("relocation_fee", v)} />
+        <Field label="Relocation fee" value={relocation} placeholder="e.g. 3360 or TBA" onChange={(v) => onChange("relocation_fee", v)} />
         <Field label="Round total € (optional)" value={override} placeholder="blank = exact" onChange={(v) => onChange("all_in_override", v)} />
       </div>
 

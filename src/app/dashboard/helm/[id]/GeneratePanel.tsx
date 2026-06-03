@@ -66,7 +66,8 @@ function pricingOf(px: Record<string, string>, mode: "breakdown" | "plus_extras"
     extras_text: px.extras_text.trim() || null,
     all_inclusive_total: num(px.all_inclusive_total),
     discount_pct: num(px.discount_pct),
-    relocation_fee: num(px.relocation_fee),
+    relocation_fee: /[0-9]/.test(px.relocation_fee || "") ? num(px.relocation_fee) : null,
+    relocation_note: ((px.relocation_fee || "").trim() && !/[0-9]/.test(px.relocation_fee || "")) ? (px.relocation_fee || "").trim() : null,
     all_in_override: num(px.all_in_override),
   };
 }

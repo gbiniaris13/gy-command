@@ -31,6 +31,8 @@ export type PricingInput = {
   discount_pct?: number | null;
   /** Flat relocation / delivery fee added to the total (broker enters the final amount). */
   relocation_fee?: number | null;
+  /** Relocation as free text (e.g. "TBA") - shown verbatim, NOT added to the total. */
+  relocation_note?: string | null;
   /** Broker's final rounded all-in total; overrides the computed total when set (> 0). */
   all_in_override?: number | null;
   details?: [string, string][];
@@ -224,10 +226,14 @@ export function computePricing(p?: PricingInput | null): ComputedPricing {
     out.rows.push([label, fmtEur(vatAmt)]);
   }
 
-  // Flat relocation / delivery fee (broker enters the final amount).
+  // Relocation / delivery fee: a number adds to the total; free text (e.g. "TBA",
+  // "to be announced") shows verbatim as the Relocation value WITHOUT affecting
+  // the total.
   const reloc = (p.relocation_fee !== null && p.relocation_fee !== undefined && Number(p.relocation_fee) > 0)
     ? Number(p.relocation_fee) : null;
+  const relocNote = (typeof p.relocation_note === "string" && p.relocation_note.trim()) ? p.relocation_note.trim() : null;
   if (reloc !== null) out.rows.push(["Relocation", fmtEur(reloc)]);
+  else if (relocNote) out.rows.push(["Relocation", relocNote]);
 
   const computedAllIn = netFee + (apaAmt ?? 0) + (vatAmt ?? 0) + (reloc ?? 0);
   const override = (p.all_in_override !== null && p.all_in_override !== undefined && Number(p.all_in_override) > 0)
