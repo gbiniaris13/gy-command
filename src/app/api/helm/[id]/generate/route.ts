@@ -15,7 +15,6 @@ import { buildProposalHtml, type SingleYacht, type CombinedYacht } from "@/lib/h
 import { renderProposalPdf } from "@/lib/helm/render";
 import { uploadProposalPdf } from "@/lib/helm/storage";
 import { optimizedUrl } from "@/lib/helm/cloudinary";
-import { isAgencyDomain } from "@/lib/helm/media";
 import { assertWhiteLabelClean } from "@/lib/helm/whitelabel";
 
 export const runtime = "nodejs";
@@ -208,7 +207,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         const media = combinedMedia[String(i)] || {};
         const mainImg = media.main_url ? await toDataUri(optimizedUrl(media.main_url)) : null;
         const links: Record<string, string> = {};
-        if (media.brochure_url && !isAgencyDomain(media.brochure_url)) links.brochure = media.brochure_url;
+        // Operator-vetted: include the brochure link as provided (George confirms white-label).
+        if (media.brochure_url) links.brochure = media.brochure_url;
 
         const specStrip = (Array.isArray(content.tech_specs) ? content.tech_specs : []).slice(0, 3) as [string, string][];
         const yacht: CombinedYacht = {
@@ -354,7 +354,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     imgs.slice(0, 6).forEach((d, i) => { mediaImages[SLOTS[i]] = d; });
     const galleryImgs = imgs.slice(6);
     const mediaLinks: Record<string, string> = { ...(v.links || {}) };
-    if (r.brochure_url && !isAgencyDomain(r.brochure_url)) mediaLinks.brochure = r.brochure_url;
+    // Operator-vetted: include the brochure link as provided (George confirms white-label).
+    if (r.brochure_url) mediaLinks.brochure = r.brochure_url;
 
     const yacht: SingleYacht = {
       name: v.name || "Yacht",

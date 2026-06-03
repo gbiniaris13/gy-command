@@ -338,7 +338,7 @@ export default function CombinedPanel({
                     </div>
                   )}
                   <div style={{ marginTop: 8 }}>
-                    <div style={fieldLabel}>Brochure link (optional · agency-domain links are withheld from the client PDF)</div>
+                    <div style={fieldLabel}>Brochure link (optional · make sure it is white-label, no agency branding)</div>
                     {m.brochure_url ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
                         <span style={{ fontSize: 12, color: "#374151", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.brochure_url}</span>
