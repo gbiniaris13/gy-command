@@ -71,8 +71,10 @@ function pricingOf(px: Record<string, string>, mode: "breakdown" | "plus_extras"
   };
 }
 
+type SingleVessel = { name: string; type: string; spec_line: string; period_line: string; price_sub: string; embarkation: string; disembarkation: string; date_from: string; date_to: string };
+
 export default function GeneratePanel({
-  requestId, hasSupplier, surname, mode, initialExtraction, pdfPath, emailSubject, emailIntro,
+  requestId, hasSupplier, surname, mode, initialExtraction, pdfPath, emailSubject, emailIntro, initialDraft,
 }: {
   requestId: string;
   hasSupplier: boolean;
@@ -82,6 +84,7 @@ export default function GeneratePanel({
   pdfPath: string | null;
   emailSubject: string | null;
   emailIntro: string | null;
+  initialDraft: { mode?: string; px?: Record<string, string>; priceMode?: "breakdown" | "plus_extras" | "all_inclusive"; resolved?: string[]; vessel?: SingleVessel } | null;
 }) {
   const router = useRouter();
   const [ex, setEx] = useState<Extraction | null>(initialExtraction);
@@ -97,9 +100,11 @@ export default function GeneratePanel({
     }
     return o;
   };
-  const [px, setPx] = useState<Record<string, string>>(seedPrice(initialExtraction));
-  const [priceMode, setPriceMode] = useState<"breakdown" | "plus_extras" | "all_inclusive">(initialExtraction?.suggested_mode || "breakdown");
-  const [vessel, setVessel] = useState({
+  // Restore a saved single-yacht review draft on load (else seed from extraction).
+  const draft = (initialDraft && initialDraft.mode === "single") ? initialDraft : null;
+  const [px, setPx] = useState<Record<string, string>>(draft?.px ?? seedPrice(initialExtraction));
+  const [priceMode, setPriceMode] = useState<"breakdown" | "plus_extras" | "all_inclusive">(draft?.priceMode ?? initialExtraction?.suggested_mode ?? "breakdown");
+  const [vessel, setVessel] = useState<SingleVessel>(draft?.vessel ?? {
     name: initialExtraction?.vessel_name?.value || "",
     type: initialExtraction?.vessel_type?.value || "",
     spec_line: initialExtraction?.spec_line?.value || "",
@@ -110,7 +115,21 @@ export default function GeneratePanel({
     date_from: initialExtraction?.dates?.from?.value || "",
     date_to: initialExtraction?.dates?.to?.value || "",
   });
-  const [resolved, setResolved] = useState<Set<string>>(new Set());
+  const [resolved, setResolved] = useState<Set<string>>(new Set(draft?.resolved ?? []));
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  async function saveDraft() {
+    setBusy("savedraft"); setError(null); setSavedMsg(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_draft: { mode: "single", px, priceMode, resolved: [...resolved], vessel } }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "save-failed");
+      setSavedMsg("Draft saved — safe to refresh or come back later.");
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
 
   const stopFlags = (ex?.flags || []).filter((f) => STOP_CODES.has(f.code) && !(priceMode === "all_inclusive" && (f.code === "MISSING_APA" || f.code === "MISSING_VAT")));
   const warnFlags = (ex?.flags || []).filter((f) => !STOP_CODES.has(f.code));
@@ -347,12 +366,16 @@ export default function GeneratePanel({
               {mode === "combined" ? "Switch to single mode. " : ""}
             </div>
           )}
+          <button type="button" onClick={saveDraft} disabled={busy !== null} style={{ ...ghostBtn, marginTop: 10, marginRight: 8 }}>
+            {busy === "savedraft" ? "Saving…" : "Save draft"}
+          </button>
           <button type="button" onClick={runExtract} disabled={busy !== null} style={{ ...ghostBtn, marginTop: 10 }}>
             {busy === "extract" ? "Re-extracting…" : "Re-extract from supplier email"}
           </button>
         </>
       )}
 
+      {savedMsg && <p style={{ color: "#3A6B47", fontSize: 12.5, marginTop: 8 }}>{savedMsg}</p>}
       {error && <p style={errStyle}>{error}</p>}
     </section>
   );

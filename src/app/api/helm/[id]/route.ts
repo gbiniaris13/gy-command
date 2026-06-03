@@ -41,6 +41,7 @@ const ALLOWED_FIELDS = new Set([
   "request_type", "central_agency_email",
   "won_reason", "lost_reason",
   "follow_up_at",
+  "review_draft",
 ]);
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {

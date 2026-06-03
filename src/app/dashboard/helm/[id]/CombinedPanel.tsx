@@ -93,7 +93,7 @@ function pricingOf(px: Record<string, string>, mode: PriceMode): PricingInput {
 }
 
 export default function CombinedPanel({
-  requestId, surname, initialExtraction, pdfPath, emailSubject, emailIntro, initialMedia, cloudinaryConfigured,
+  requestId, surname, initialExtraction, pdfPath, emailSubject, emailIntro, initialMedia, cloudinaryConfigured, initialDraft,
 }: {
   requestId: string;
   surname: string | null;
@@ -103,13 +103,37 @@ export default function CombinedPanel({
   emailIntro: string | null;
   initialMedia: Record<string, MediaEntry>;
   cloudinaryConfigured: boolean;
+  initialDraft: { mode?: string; yachts?: YState[] } | null;
 }) {
   const router = useRouter();
   const [ex, setEx] = useState<CombinedExtraction | null>(initialExtraction);
-  const [ys, setYs] = useState<YState[]>(seedStates(initialExtraction));
+  // Restore a saved review draft when it matches the current extraction
+  // (same yacht count); otherwise seed fresh from the extraction.
+  const [ys, setYs] = useState<YState[]>(() => {
+    const d = initialDraft;
+    if (d && d.mode === "combined" && Array.isArray(d.yachts) && d.yachts.length > 0
+        && d.yachts.length === (initialExtraction?.yachts?.length || 0)) {
+      return d.yachts as YState[];
+    }
+    return seedStates(initialExtraction);
+  });
   const [media, setMedia] = useState<Record<string, MediaEntry>>(initialMedia || {});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  async function saveDraft() {
+    setBusy("savedraft"); setError(null); setSavedMsg(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys } }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "save-failed");
+      setSavedMsg("Draft saved — safe to refresh or come back later.");
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
 
   const patchY = (i: number, patch: Partial<YState>) => setYs((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
 
@@ -402,12 +426,16 @@ export default function CombinedPanel({
               {!allReady ? "Every yacht must be ready (fee set + all STOP flags resolved). " : ""}
             </div>
           )}
+          <button type="button" onClick={saveDraft} disabled={busy !== null} style={{ ...ghostBtn, marginTop: 10, marginRight: 8 }}>
+            {busy === "savedraft" ? "Saving…" : "Save draft"}
+          </button>
           <button type="button" onClick={runExtract} disabled={busy !== null} style={{ ...ghostBtn, marginTop: 10 }}>
             {busy === "extract" ? "Re-extracting…" : "Re-extract all yachts"}
           </button>
         </>
       )}
 
+      {savedMsg && <p style={{ color: "#3A6B47", fontSize: 12.5, marginTop: 8 }}>{savedMsg}</p>}
       {error && <p style={errStyle}>{error}</p>}
     </section>
   );
