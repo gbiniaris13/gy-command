@@ -39,6 +39,14 @@ WHITE-LABEL OVERRIDE (this proposal is presented to the client by an intermediar
 // dashes to a hyphen on every AI output, regardless of what the model did.
 const deDash = (s: string): string => s.replace(/[—–]/g, "-");
 
+// The charter dates appear deterministically in the proposal (voyage line +
+// footer), so narrative prose must NOT restate them. Critically, supplier text
+// often contains OTHER date windows (a discount period, a seasonal boundary);
+// the model used to lift those and present them as the guest's charter dates
+// (e.g. "your dates of July 1 to 7" when the charter was 23 June - 1 July).
+const NO_DATES =
+  `- NEVER write any specific calendar date or date range in the prose (no "July 1 to 7", no "23 June to 1 July", no "your dates of ..."). The charter dates are shown elsewhere in the document. If the supplier facts mention a date window (a discount period or seasonal boundary), do NOT repeat it and NEVER present it as the guest's charter dates.`;
+
 export type NarrativeFacts = {
   vessel_name: string;
   vessel_type?: string;
@@ -62,7 +70,9 @@ export async function composeSingleNarrative(
 TASK: Write the "experience" narrative for a single-yacht charter proposal PDF.
 Return JSON: {"experience_title": "<3-5 word title>", "experience_paras": ["para1","para2","para3"]}.
 - 2 to 3 short paragraphs. Paragraphs 1-2: what she is and what life aboard feels like, drawn ONLY from the supplier facts, luxury-fied but true. ${closeLine}
-- Vary sentence length. No travel-brochure cliche. No AI tells. No em dash. Output JSON only.`;
+- Vary sentence length. No travel-brochure cliche. No AI tells. No em dash.
+${NO_DATES}
+Output JSON only.`;
   const user = [
     `Vessel: ${f.vessel_name}${f.vessel_type ? ` (${f.vessel_type})` : ""}`,
     f.spec_line ? `Spec: ${f.spec_line}` : "",
@@ -90,7 +100,9 @@ export async function composeYachtInsideInfo(
   const sys = `${f.anonymous ? VOICE_ANON : VOICE_BASE}
 
 TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<one short supplier-true paragraph>",${insideSpec}}.
-The inside_info is where the selling lives - make it distinct and specific. No em dash. Output JSON only.`;
+The inside_info is where the selling lives - make it distinct and specific. No em dash.
+${NO_DATES}
+Output JSON only.`;
   const user = [
     `Yacht: ${f.vessel_name}${f.vessel_type ? ` (${f.vessel_type})` : ""}`,
     f.spec_line ? `Spec: ${f.spec_line}` : "",
@@ -117,12 +129,16 @@ export async function composeCombinedIntro(
 
 TASK: Write the short note that opens a multi-yacht shortlist proposal PDF. Return JSON: {"intro_letter":"<3 to 4 short paragraphs separated by single newlines>"}.
 - Do NOT open with a salutation or any name (the reader is unknown). Open impersonally. Describe how this selection was assembled (a genuine availability review, narrowed to these few), acknowledge the spread (from the most sensible value to the statement option, only if the shortlist supports it), and close with gentle, real urgency.
-- No first person "I", no sign-off, no name, no broker identity. No em dash. No hype. Output JSON only.`
+- No first person "I", no sign-off, no name, no broker identity. No em dash. No hype.
+${NO_DATES}
+Output JSON only.`
     : `${VOICE_BASE}
 
 TASK: Write the short "A Note From Your Broker" letter that opens a multi-yacht shortlist proposal PDF. Return JSON: {"intro_letter":"<3 to 4 short paragraphs separated by single newlines>"}.
 - Begin with the EXACT salutation provided. First-person George: what you did (you went back through what is genuinely available and set these few aside for them), one line acknowledging the spread (from the most sensible value to the statement option, only if the shortlist supports it), and a warm close with gentle, real urgency.
-- Do NOT add a sign-off or your name; the PDF signs you as George Biniaris automatically. No em dash. No hype. Output JSON only.`;
+- Do NOT add a sign-off or your name; the PDF signs you as George Biniaris automatically. No em dash. No hype.
+${NO_DATES}
+Output JSON only.`;
   const user = [
     f.anonymous ? "" : `Salutation to use verbatim: ${f.salutation}`,
     f.occasion ? `Occasion: ${f.occasion}` : "",
