@@ -24,6 +24,8 @@ type Extraction = {
   pricing: Record<string, Field<number | string>>;
   seasonal_rates: { label: string; fee: number; snippet: string }[];
   dates: { from: Field<string>; to: Field<string> };
+  embarkation?: Field<string>;
+  disembarkation?: Field<string>;
   content?: Record<string, unknown>;
   suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: { code: string; message: string }[];
@@ -103,6 +105,10 @@ export default function GeneratePanel({
     spec_line: initialExtraction?.spec_line?.value || "",
     period_line: "",
     price_sub: "",
+    embarkation: initialExtraction?.embarkation?.value || "",
+    disembarkation: initialExtraction?.disembarkation?.value || "",
+    date_from: initialExtraction?.dates?.from?.value || "",
+    date_to: initialExtraction?.dates?.to?.value || "",
   });
   const [resolved, setResolved] = useState<Set<string>>(new Set());
 
@@ -126,6 +132,10 @@ export default function GeneratePanel({
         type: j.extraction?.vessel_type?.value || "",
         spec_line: j.extraction?.spec_line?.value || "",
         period_line: "", price_sub: "",
+        embarkation: j.extraction?.embarkation?.value || "",
+        disembarkation: j.extraction?.disembarkation?.value || "",
+        date_from: j.extraction?.dates?.from?.value || "",
+        date_to: j.extraction?.dates?.to?.value || "",
       });
       setResolved(new Set());
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
@@ -143,6 +153,8 @@ export default function GeneratePanel({
           vessel: {
             name: vessel.name, type: vessel.type, spec_line: vessel.spec_line,
             period_line: vessel.period_line || undefined, price_sub: vessel.price_sub || undefined,
+            embarkation: vessel.embarkation || undefined, disembarkation: vessel.disembarkation || undefined,
+            date_from: vessel.date_from || undefined, date_to: vessel.date_to || undefined,
             gallery_slots: 4,
           },
           pricing: pricingOf(px, priceMode),
@@ -316,6 +328,10 @@ export default function GeneratePanel({
             <Labeled label="Type"><input value={vessel.type} onChange={(e) => setVessel({ ...vessel, type: e.target.value })} placeholder="MOTOR YACHT" style={txt} /></Labeled>
             <Labeled label="Spec line"><input value={vessel.spec_line} onChange={(e) => setVessel({ ...vessel, spec_line: e.target.value })} style={txt} /></Labeled>
             <Labeled label="Period line (optional)"><input value={vessel.period_line} onChange={(e) => setVessel({ ...vessel, period_line: e.target.value })} placeholder="auto from dates/area" style={txt} /></Labeled>
+            <Labeled label="Embarkation"><input value={vessel.embarkation} onChange={(e) => setVessel({ ...vessel, embarkation: e.target.value })} placeholder="e.g. Athens" style={txt} /></Labeled>
+            <Labeled label="Disembarkation"><input value={vessel.disembarkation} onChange={(e) => setVessel({ ...vessel, disembarkation: e.target.value })} placeholder="e.g. Mykonos" style={txt} /></Labeled>
+            <Labeled label="Dates from"><input value={vessel.date_from} onChange={(e) => setVessel({ ...vessel, date_from: e.target.value })} placeholder="25 June" style={txt} /></Labeled>
+            <Labeled label="Dates to"><input value={vessel.date_to} onChange={(e) => setVessel({ ...vessel, date_to: e.target.value })} placeholder="3 July" style={txt} /></Labeled>
           </div>
 
           {!surname && <div style={warnBox}>Add a client <b>surname</b> on this request first — proposals are addressed formally (never a bare first name).</div>}

@@ -70,6 +70,8 @@ export type Extraction = {
   pricing: ExtractedPricing;
   seasonal_rates: SeasonalRate[];
   dates: { from: Field<string>; to: Field<string> };
+  embarkation: Field<string>;
+  disembarkation: Field<string>;
   content: ExtractedContent;
   /** AI's suggested pricing mode; George can override on the review screen. */
   suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
@@ -97,12 +99,13 @@ PRICING FIELDS:
 OTHER FIELDS (factual, verbatim where possible, no invention):
 - vessel_name, vessel_type (e.g. "MOTOR YACHT", "SAILING CATAMARAN"), spec_line (short dot-separated: length/builder/year/refit).
 - dates.from / dates.to: the charter window if stated (YYYY-MM-DD if derivable verbatim, else the literal text).
+- embarkation / disembarkation: the embark and disembark ports if stated. "Athens to Mykonos" -> embarkation "Athens", disembarkation "Mykonos"; "Mykonos to Mykonos" -> both "Mykonos". If only a home port is given with no route, leave both null.
 - content (FACTUAL, verbatim, NEVER invented; leave empty if not stated): highlights[] (selling points the supplier listed), accommodation[] (cabin -> description pairs), water_toys[] (toys/tenders listed), tech_specs[] (label -> value pairs: builder/length/beam/guests/cabins/crew/speed...), crew_line (one sentence about the crew if stated). If the supplier did not state something, leave it out - never fill it in.
 
 CONFIDENTIALITY: never include the source agency/broker company name, person names, emails, phone numbers, or broker URLs ANYWHERE in your output. Strip them.
 
 OUTPUT: a SINGLE JSON object, no markdown fences, exactly this shape:
-{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[{"code":"MISSING_APA","message":"..."}],"notes":""}`;
+{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"embarkation":{"value":null,"confidence":"low","snippet":""},"disembarkation":{"value":null,"confidence":"low","snippet":""},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[{"code":"MISSING_APA","message":"..."}],"notes":""}`;
 
 export async function extractSupplier(
   supplierRaw: string,
@@ -203,12 +206,12 @@ Treat EACH yacht the supplier offers as a SEPARATE object with its OWN numbers, 
 - extras_text + flag PLUS_EXTRAS_NO_BREAKDOWN: only for a lump "plus extras / plus expenses" with NO APA/VAT breakdown.
 - all_inclusive_total + "suggested_mode":"all_inclusive": if that yacht states ONE fully-inclusive figure ("all included", "fully inclusive", "all-in", Greek "ola mesa"). Then do NOT fill charter_fee/apa/vat for it and do NOT raise MISSING_APA. Otherwise suggested_mode is "breakdown" or "plus_extras".
 - divide_by (+ DIVIDE_BY_UNCLEAR if short but no divisor), currency, NO_PRICE_FOUND if that yacht has no price.
-- vessel_name, vessel_type, spec_line, dates.from/to, and content (highlights[], accommodation[][], water_toys[], tech_specs[][], crew_line) - FACTUAL, verbatim, NEVER invented; leave empty if not stated.
+- vessel_name, vessel_type, spec_line, dates.from/to, embarkation/disembarkation ports ("Athens to Mykonos" -> embarkation "Athens", disembarkation "Mykonos"; "Mykonos to Mykonos" -> both "Mykonos"; if no route stated, leave null), and content (highlights[], accommodation[][], water_toys[], tech_specs[][], crew_line) - FACTUAL, verbatim, NEVER invented; leave empty if not stated.
 
 CONFIDENTIALITY: never include the source agency/broker company name, person names, emails, phone numbers, or broker URLs anywhere. Strip them from every yacht.
 
 OUTPUT: a SINGLE JSON object, no markdown fences, exactly:
-{"yachts":[{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[],"notes":""}]}
+{"yachts":[{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"embarkation":{"value":null,"confidence":"low","snippet":""},"disembarkation":{"value":null,"confidence":"low","snippet":""},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[],"notes":""}]}
 If only one yacht is offered, return an array with one element. NEVER do math.`;
 
 // Numeric/array coercion + defaults for one extracted yacht. Mirrors the

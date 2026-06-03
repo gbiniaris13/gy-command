@@ -21,6 +21,9 @@ type YachtExtraction = {
   spec_line: Field<string>;
   pricing: Record<string, Field<number | string>>;
   seasonal_rates: { label: string; fee: number; snippet: string }[];
+  dates?: { from?: Field<string>; to?: Field<string> };
+  embarkation?: Field<string>;
+  disembarkation?: Field<string>;
   content?: Record<string, unknown>;
   suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: { code: string; message: string }[];
@@ -33,7 +36,7 @@ type YState = {
   px: Record<string, string>;
   priceMode: PriceMode;
   resolved: string[];
-  vessel: { name: string; type: string; spec_line: string };
+  vessel: { name: string; type: string; spec_line: string; embarkation: string; disembarkation: string; date_from: string; date_to: string };
 };
 
 const STOP_CODES = new Set(["MISSING_APA", "MULTIPLE_SEASONAL_RATES", "DIVIDE_BY_UNCLEAR", "NO_PRICE_FOUND", "AMBIGUOUS"]);
@@ -63,7 +66,11 @@ function seedStates(ex: CombinedExtraction | null): YState[] {
     px: seedPx(y),
     priceMode: y.suggested_mode || "breakdown",
     resolved: [],
-    vessel: { name: y.vessel_name?.value || "", type: y.vessel_type?.value || "", spec_line: y.spec_line?.value || "" },
+    vessel: {
+      name: y.vessel_name?.value || "", type: y.vessel_type?.value || "", spec_line: y.spec_line?.value || "",
+      embarkation: y.embarkation?.value || "", disembarkation: y.disembarkation?.value || "",
+      date_from: y.dates?.from?.value || "", date_to: y.dates?.to?.value || "",
+    },
   }));
 }
 
@@ -145,7 +152,7 @@ export default function CombinedPanel({
         yachts: ex.yachts.map((y, i) => {
           const s = ys[i];
           return {
-            vessel: { name: s.vessel.name, type: s.vessel.type, spec_line: s.vessel.spec_line },
+            vessel: { name: s.vessel.name, type: s.vessel.type, spec_line: s.vessel.spec_line, embarkation: s.vessel.embarkation, disembarkation: s.vessel.disembarkation, date_from: s.vessel.date_from, date_to: s.vessel.date_to },
             pricing: pricingOf(s.px, s.priceMode),
             content: y.content || {},
           };
@@ -254,6 +261,12 @@ export default function CombinedPanel({
                   <Labeled label="Name"><input value={s.vessel.name} onChange={(e) => patchY(i, { vessel: { ...s.vessel, name: e.target.value } })} style={txt} /></Labeled>
                   <Labeled label="Type"><input value={s.vessel.type} onChange={(e) => patchY(i, { vessel: { ...s.vessel, type: e.target.value } })} placeholder="MOTOR YACHT" style={txt} /></Labeled>
                   <Labeled label="Spec line"><input value={s.vessel.spec_line} onChange={(e) => patchY(i, { vessel: { ...s.vessel, spec_line: e.target.value } })} style={txt} /></Labeled>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+                  <Labeled label="Embarkation"><input value={s.vessel.embarkation} onChange={(e) => patchY(i, { vessel: { ...s.vessel, embarkation: e.target.value } })} placeholder="e.g. Athens" style={txt} /></Labeled>
+                  <Labeled label="Disembarkation"><input value={s.vessel.disembarkation} onChange={(e) => patchY(i, { vessel: { ...s.vessel, disembarkation: e.target.value } })} placeholder="e.g. Mykonos" style={txt} /></Labeled>
+                  <Labeled label="Dates from"><input value={s.vessel.date_from} onChange={(e) => patchY(i, { vessel: { ...s.vessel, date_from: e.target.value } })} placeholder="25 June" style={txt} /></Labeled>
+                  <Labeled label="Dates to"><input value={s.vessel.date_to} onChange={(e) => patchY(i, { vessel: { ...s.vessel, date_to: e.target.value } })} placeholder="3 July" style={txt} /></Labeled>
                 </div>
 
                 {/* STOP flags */}

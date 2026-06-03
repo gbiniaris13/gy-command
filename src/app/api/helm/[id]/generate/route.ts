@@ -53,7 +53,7 @@ type RequestRow = {
 
 // One yacht as posted by the combined review UI (confirmed numbers + facts).
 type CombinedInputYacht = {
-  vessel?: { name?: string; type?: string; spec_line?: string };
+  vessel?: { name?: string; type?: string; spec_line?: string; embarkation?: string; disembarkation?: string; date_from?: string; date_to?: string };
   pricing?: {
     mode?: PricingInput["mode"];
     currency?: string;
@@ -76,6 +76,18 @@ type CombinedInputYacht = {
     crew_line?: string;
   };
 };
+
+// Assemble the per-yacht voyage line for the proposal: embark/disembark ports +
+// charter dates, e.g. "Athens -> Mykonos · 25 June - 3 July". undefined when
+// nothing is set (so the line is omitted and existing proposals are unchanged).
+function voyageLine(embark?: string, disembark?: string, from?: string, to?: string): string | undefined {
+  const em = (embark || "").trim(), di = (disembark || "").trim();
+  const fr = (from || "").trim(), t2 = (to || "").trim();
+  const parts: string[] = [];
+  if (em || di) parts.push(`${em || "?"} → ${di || "?"}`);
+  if (fr || t2) parts.push([fr, t2].filter(Boolean).join(" - "));
+  return parts.length ? parts.join(" · ") : undefined;
+}
 
 // Build just the month/year for the combined cover "period" line (area + guests
 // are shown separately on that template).
@@ -221,6 +233,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           name: v.name || "Yacht",
           type: v.type || undefined,
           spec_line: v.spec_line || undefined,
+          voyage_line: voyageLine(v.embarkation, v.disembarkation, v.date_from, v.date_to),
           spec_strip: specStrip.length ? specStrip : undefined,
           description: info.description,
           inside_info: info.inside_info,
@@ -371,6 +384,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       type: v.type || undefined,
       spec_line: v.spec_line || undefined,
       period_line: v.period_line || buildPeriodLine(r),
+      voyage_line: voyageLine(v.embarkation, v.disembarkation, v.date_from, v.date_to),
       price_sub: v.price_sub || undefined,
       experience_title: narr.experience_title,
       experience_paras: narr.experience_paras,

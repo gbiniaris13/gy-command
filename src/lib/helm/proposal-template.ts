@@ -23,6 +23,8 @@ export type SingleYacht = {
   type?: string;
   spec_line?: string;
   period_line?: string;
+  /** "Athens -> Mykonos · 25 June - 3 July" line (embark/disembark + dates). */
+  voyage_line?: string;
   price_sub?: string;
   experience_title?: string;
   experience_paras?: string[];
@@ -52,6 +54,8 @@ export type CombinedYacht = {
   type?: string;
   tier_label?: string;
   spec_line?: string;
+  /** "Athens -> Mykonos · 25 June - 3 July" line (embark/disembark + dates). */
+  voyage_line?: string;
   spec_strip?: [string, string][];
   description?: string;
   inside_info?: string;
@@ -538,7 +542,7 @@ function renderSingle(d: SingleProposal): string {
   <hr class="hair" style="margin:5mm 0 8mm;">
   <div style="text-align:center;margin-bottom:6mm;">
     <div class="price-hero">${pr.headline}</div>
-    <div class="label dim" style="margin-top:3mm;letter-spacing:.16em;">${e(y.period_line ?? "")}</div>
+    <div class="label dim" style="margin-top:3mm;letter-spacing:.16em;">${e(y.period_line ?? "")}</div>${y.voyage_line ? `\n    <div class="label dim" style="margin-top:2mm;letter-spacing:.12em;font-size:7pt;color:var(--gold-soft);">${e(y.voyage_line)}</div>` : ""}
   </div>
   ${detSection}
   <div style="margin-top:8mm;">${costBlock}</div>
@@ -674,7 +678,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
       <h2 class="cinzel gold-metal" style="font-size:21pt;letter-spacing:.08em;color:var(--gold);font-weight:700;margin-top:1mm;">${e(y.name)}</h2></div>
     <div class="corm" style="font-size:30pt;color:rgba(201,168,76,.25);font-weight:600;">${idx2}</div>
   </div>
-  <div class="body" style="font-size:8.5pt;letter-spacing:.06em;color:var(--slate);margin-top:1mm;">${e(y.spec_line ?? "")}</div>
+  <div class="body" style="font-size:8.5pt;letter-spacing:.06em;color:var(--slate);margin-top:1mm;">${e(y.spec_line ?? "")}</div>${y.voyage_line ? `\n  <div class="body" style="font-size:8.5pt;letter-spacing:.04em;color:var(--gold-soft);margin-top:1mm;">${e(y.voyage_line)}</div>` : ""}
   ${imgOrPlaceholder(imgs.main, "Yacht image", "ph", "52mm")}
   <div style="display:flex;justify-content:space-around;margin:6mm 0;">${stripHtml}</div>
   <p class="body" style="font-size:9.5pt;">${e(y.description ?? "")}</p>
