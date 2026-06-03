@@ -1,8 +1,9 @@
 // src/lib/helm/media.ts
 // Media helpers for The Helm. Confidentiality: a pasted link on a known
-// central-agency / brokerage domain would leak the source, so we warn
-// George AND keep such a brochure link OFF the client proposal until he
-// swaps in a clean (George-hosted / white-label) copy.
+// central-agency / brokerage domain MIGHT leak the source, so we warn George
+// to confirm the brochure itself is genuinely white-label (no agency name or
+// branding) before it ships. The operator vets and decides; the link is
+// included on the proposal as provided (no silent stripping).
 
 export type VesselPhoto = { url: string; source: "upload" | "link"; caption?: string };
 
@@ -25,7 +26,7 @@ export function agencyDomainWarning(url?: string | null): string | null {
   }
   const hit = AGENCY_DOMAINS.some((d) => host.includes(d));
   return hit
-    ? `This link is on "${host}", which looks like a central-agency / brokerage domain. It will NOT be shown on the client proposal (confidentiality). Swap in a georgeyachts.com or clean white-label copy.`
+    ? `Heads up: this link is on "${host}", which looks like a central-agency / brokerage domain. It WILL be included on the proposal - make sure the brochure itself is white-label (no agency name or branding) before you send.`
     : null;
 }
 
