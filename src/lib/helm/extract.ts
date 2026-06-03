@@ -144,7 +144,7 @@ export async function extractSupplier(
     if (f) f.value = toNum(f.value);
   }
   for (const sr of parsed.seasonal_rates) sr.fee = toNum(sr.fee) ?? sr.fee;
-  return parsed;
+  return ensureSeasonalFlag(parsed);
 }
 
 // Parse a single numeric token (strip currency/commas/spaces). Returns null
@@ -154,6 +154,32 @@ function toNum(v: unknown): number | null {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   const n = Number(String(v).replace(/[^0-9.\-]/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+// Deterministic safety net: when 2+ seasonal rates were captured but no single
+// charter fee was chosen, GUARANTEE the MULTIPLE_SEASONAL_RATES STOP flag. The
+// model reliably extracts the seasonal rates into seasonal_rates[] but often
+// forgets the flag, so the review card would show the rate chips without the
+// STOP prompt telling the human to pick the rate for the dates. This is code,
+// not AI - it always fires. (No math: it only adds a flag.)
+function ensureSeasonalFlag(x: Extraction): Extraction {
+  // Drop malformed flags (missing/empty code) the model sometimes emits, so the
+  // review screen never shows a blank warning chip.
+  if (Array.isArray(x.flags)) {
+    x.flags = x.flags.filter((f) => f && typeof f.code === "string" && f.code.trim().length > 0);
+  }
+  const fee = x.pricing?.charter_fee?.value;
+  const rates = Array.isArray(x.seasonal_rates) ? x.seasonal_rates : [];
+  if (rates.length >= 2 && (fee === null || fee === undefined)) {
+    if (!Array.isArray(x.flags)) x.flags = [];
+    if (!x.flags.some((f) => f.code === "MULTIPLE_SEASONAL_RATES")) {
+      x.flags.push({
+        code: "MULTIPLE_SEASONAL_RATES",
+        message: "Multiple seasonal rates were quoted. Pick the rate that matches the charter dates before generating.",
+      });
+    }
+  }
+  return x;
 }
 
 // =============================================================
@@ -202,7 +228,7 @@ function coerceYacht(y: Extraction): Extraction {
     if (f) f.value = toNum(f.value);
   }
   for (const sr of y.seasonal_rates) sr.fee = toNum(sr.fee) ?? sr.fee;
-  return y;
+  return ensureSeasonalFlag(y);
 }
 
 export async function extractSupplierYachts(
