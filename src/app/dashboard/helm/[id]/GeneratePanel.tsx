@@ -12,6 +12,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import SeasonProration from "./SeasonProration";
+import PricingExtras from "./PricingExtras";
+import type { PricingInput } from "@/lib/helm/pricing";
 
 type Confidence = "high" | "medium" | "low";
 type Field<T> = { value: T | null; confidence: Confidence; snippet: string };
@@ -49,6 +51,24 @@ function ConfBadge({ c }: { c: Confidence }) {
   );
 }
 
+// Single source of truth for the PricingInput — used by the live preview and
+// the generate payload, so they are always identical.
+function pricingOf(px: Record<string, string>, mode: "breakdown" | "plus_extras" | "all_inclusive"): PricingInput {
+  const num = (x: string) => (x.trim() === "" ? null : Number(x.replace(/[^0-9.\-]/g, "")));
+  return {
+    mode,
+    currency: px.currency || "EUR",
+    charter_fee: num(px.charter_fee),
+    apa_pct: num(px.apa_pct), apa_amount: num(px.apa_amount),
+    vat_pct: num(px.vat_pct), vat_amount: num(px.vat_amount),
+    extras_text: px.extras_text.trim() || null,
+    all_inclusive_total: num(px.all_inclusive_total),
+    discount_pct: num(px.discount_pct),
+    relocation_fee: num(px.relocation_fee),
+    all_in_override: num(px.all_in_override),
+  };
+}
+
 export default function GeneratePanel({
   requestId, hasSupplier, surname, mode, initialExtraction, pdfPath, emailSubject, emailIntro,
 }: {
@@ -68,7 +88,7 @@ export default function GeneratePanel({
 
   // Editable copies, seeded from the extraction.
   const seedPrice = (e: Extraction | null) => {
-    const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", all_inclusive_total: "", currency: "EUR" };
+    const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", all_inclusive_total: "", discount_pct: "", relocation_fee: "", all_in_override: "", currency: "EUR" };
     if (e) for (const k of Object.keys(o)) {
       const v = e.pricing?.[k]?.value;
       if (v !== null && v !== undefined && v !== "") o[k] = String(v);
@@ -114,7 +134,6 @@ export default function GeneratePanel({
   async function runGenerate() {
     if (!canGenerate) return;
     setBusy("generate"); setError(null);
-    const num = (s: string) => (s.trim() === "" ? null : Number(s.replace(/[^0-9.\-]/g, "")));
     try {
       const r = await fetch(`/api/helm/${requestId}/generate`, {
         method: "POST",
@@ -126,15 +145,7 @@ export default function GeneratePanel({
             period_line: vessel.period_line || undefined, price_sub: vessel.price_sub || undefined,
             gallery_slots: 4,
           },
-          pricing: {
-            mode: priceMode,
-            currency: px.currency || "EUR",
-            charter_fee: num(px.charter_fee),
-            apa_pct: num(px.apa_pct), apa_amount: num(px.apa_amount),
-            vat_pct: num(px.vat_pct), vat_amount: num(px.vat_amount),
-            extras_text: px.extras_text.trim() || null,
-            all_inclusive_total: num(px.all_inclusive_total),
-          },
+          pricing: pricingOf(px, priceMode),
           content: ex?.content || {},
           details: [],
         }),
@@ -287,6 +298,17 @@ export default function GeneratePanel({
               </>
             )}
           </div>
+
+          {/* owner discount / relocation / rounding + live preview (breakdown only) */}
+          {priceMode === "breakdown" && (
+            <PricingExtras
+              pricing={pricingOf(px, priceMode)}
+              discount={px.discount_pct}
+              relocation={px.relocation_fee}
+              override={px.all_in_override}
+              onChange={(k, v) => setPx({ ...px, [k]: v })}
+            />
+          )}
 
           {/* vessel facts (editable) */}
           <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>

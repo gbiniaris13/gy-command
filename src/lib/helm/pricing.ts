@@ -27,6 +27,12 @@ export type PricingInput = {
   extras_text?: string | null;
   /** Set ONLY for the "all-inclusive" case (one figure, APA+VAT+extras inside). */
   all_inclusive_total?: number | null;
+  /** Owner discount applied to the NET charter fee, BEFORE APA/VAT (e.g. 5 = -5%). */
+  discount_pct?: number | null;
+  /** Flat relocation / delivery fee added to the total (broker enters the final amount). */
+  relocation_fee?: number | null;
+  /** Broker's final rounded all-in total; overrides the computed total when set (> 0). */
+  all_in_override?: number | null;
   details?: [string, string][];
 };
 
@@ -34,6 +40,8 @@ export type ComputedPricing = {
   mode: PricingMode;
   extras_mode: boolean; // back-compat: true when mode === "plus_extras"
   all_inclusive: boolean; // true when mode === "all_inclusive"
+  /** Bold owner-discount note shown above the cost rows (null when no discount). */
+  discount_note: string | null;
   rows: [string, string][];
   all_in: string | null;
   charter_fee_disp: string;
@@ -99,12 +107,20 @@ export function allInNumber(p?: PricingInput | null): number | null {
   if (mode === "plus_extras") return null; // lump price, no total
   const fee0 = p.charter_fee;
   if (fee0 === null || fee0 === undefined) return null;
-  const fee = Number(fee0);
+  const grossFee = Number(fee0);
+  const disc = (p.discount_pct !== null && p.discount_pct !== undefined && Number(p.discount_pct) > 0)
+    ? Number(p.discount_pct) : null;
+  const netFee = disc !== null ? grossFee * (1 - disc / 100) : grossFee;
   let apaAmt: number | null = p.apa_amount ?? null;
-  if (apaAmt === null && p.apa_pct !== null && p.apa_pct !== undefined) apaAmt = (fee * Number(p.apa_pct)) / 100;
+  if (apaAmt === null && p.apa_pct !== null && p.apa_pct !== undefined) apaAmt = (netFee * Number(p.apa_pct)) / 100;
   let vatAmt: number | null = p.vat_amount ?? null;
-  if (vatAmt === null && p.vat_pct !== null && p.vat_pct !== undefined) vatAmt = (fee * Number(p.vat_pct)) / 100;
-  return fee + (apaAmt ?? 0) + (vatAmt ?? 0);
+  if (vatAmt === null && p.vat_pct !== null && p.vat_pct !== undefined) vatAmt = (netFee * Number(p.vat_pct)) / 100;
+  const reloc = (p.relocation_fee !== null && p.relocation_fee !== undefined && Number(p.relocation_fee) > 0)
+    ? Number(p.relocation_fee) : 0;
+  const computed = netFee + (apaAmt ?? 0) + (vatAmt ?? 0) + reloc;
+  const override = (p.all_in_override !== null && p.all_in_override !== undefined && Number(p.all_in_override) > 0)
+    ? Number(p.all_in_override) : null;
+  return override ?? computed;
 }
 
 // Percent label — "40%" / "6.5%".
@@ -126,6 +142,7 @@ export function computePricing(p?: PricingInput | null): ComputedPricing {
     mode: "breakdown",
     extras_mode: false,
     all_inclusive: false,
+    discount_note: null,
     rows: [],
     all_in: null,
     charter_fee_disp: "",
@@ -170,16 +187,30 @@ export function computePricing(p?: PricingInput | null): ComputedPricing {
     return out;
   }
 
-  // ---- BREAKDOWN: fee + APA + VAT (unchanged) + per-person on all-in.
+  // ---- BREAKDOWN: net fee (+ optional owner discount) + APA + VAT (+ optional
+  // relocation). APA/VAT are computed on the DISCOUNTED net. The broker may
+  // override any figure (apa_amount / vat_amount / all_in_override) for the
+  // small "to look nice" rounding. With NO discount / relocation / override this
+  // is byte-for-byte the previous behaviour. Same engine for direct-client and
+  // travel-agent — request type never touches the numbers.
   const fee0 = p.charter_fee;
   if (fee0 === null || fee0 === undefined) return out;
-  const fee = Number(fee0);
-  out.charter_fee_disp = fmtEur(fee);
-  out.headline = fmtEur(fee);
+  const grossFee = Number(fee0);
+  out.charter_fee_disp = fmtEur(grossFee);
+  out.headline = fmtEur(grossFee);
+
+  // Owner discount on the NET charter fee, before APA/VAT.
+  const disc = (p.discount_pct !== null && p.discount_pct !== undefined && Number(p.discount_pct) > 0)
+    ? Number(p.discount_pct) : null;
+  const netFee = disc !== null ? grossFee * (1 - disc / 100) : grossFee;
+  if (disc !== null) {
+    out.discount_note = `The Owner is pleased to offer a ${pct(disc)} discount.`;
+    out.rows.push([`Net charter fee after ${pct(disc)} discount`, fmtEur(netFee)]);
+  }
 
   let apaAmt: number | null = p.apa_amount ?? null;
   const apaPct = p.apa_pct ?? null;
-  if (apaAmt === null && apaPct !== null) apaAmt = (fee * Number(apaPct)) / 100;
+  if (apaAmt === null && apaPct !== null) apaAmt = (netFee * Number(apaPct)) / 100;
   if (apaAmt !== null) {
     const label = apaPct !== null ? `APA (${pct(apaPct)})` : "APA";
     out.rows.push([label, fmtEur(apaAmt)]);
@@ -187,16 +218,24 @@ export function computePricing(p?: PricingInput | null): ComputedPricing {
 
   let vatAmt: number | null = p.vat_amount ?? null;
   const vatPct = p.vat_pct ?? null;
-  if (vatAmt === null && vatPct !== null) vatAmt = (fee * Number(vatPct)) / 100;
+  if (vatAmt === null && vatPct !== null) vatAmt = (netFee * Number(vatPct)) / 100;
   if (vatAmt !== null) {
     const label = vatPct !== null ? `VAT (${pct(vatPct)})` : "VAT";
     out.rows.push([label, fmtEur(vatAmt)]);
   }
 
-  const allIn = fee + (apaAmt ?? 0) + (vatAmt ?? 0);
+  // Flat relocation / delivery fee (broker enters the final amount).
+  const reloc = (p.relocation_fee !== null && p.relocation_fee !== undefined && Number(p.relocation_fee) > 0)
+    ? Number(p.relocation_fee) : null;
+  if (reloc !== null) out.rows.push(["Relocation", fmtEur(reloc)]);
+
+  const computedAllIn = netFee + (apaAmt ?? 0) + (vatAmt ?? 0) + (reloc ?? 0);
+  const override = (p.all_in_override !== null && p.all_in_override !== undefined && Number(p.all_in_override) > 0)
+    ? Number(p.all_in_override) : null;
+  const allIn = override ?? computedAllIn;
   out.all_in = fmtEur(allIn);
-  out.deposit = fmtEur(fee * 0.5);
-  out.balance = fmtEur(fee * 0.5 + (apaAmt ?? 0) + (vatAmt ?? 0));
+  out.deposit = fmtEur(netFee * 0.5);
+  out.balance = fmtEur(allIn - netFee * 0.5);
   out.per_person_4 = fmtEur(allIn / 4);
   out.per_person_6 = fmtEur(allIn / 6);
   return out;

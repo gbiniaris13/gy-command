@@ -498,6 +498,7 @@ function renderSingle(d: SingleProposal): string {
       : "";
     costBlock =
       `<div class='cost-row'><span>Charter Fee</span><span class='amt'>${pr.charter_fee_disp}</span></div>` +
+      (pr.discount_note ? `<div class="body" style="font-size:9.5pt;font-weight:600;color:var(--gold-soft);margin:2mm 0;">${e(pr.discount_note)}</div>` : "") +
       crows +
       total;
     apaNote = `
@@ -661,7 +662,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
     const total = pr.all_in
       ? `<div class='cost-total'><span class='lab'>Estimated All-In</span><span class='amt'>${pr.all_in}</span></div>`
       : "";
-    cost = `<div class='cost-row'><span>Charter Fee</span><span class='amt'>${pr.charter_fee_disp}</span></div>${crows}${total}`;
+    cost = `<div class='cost-row'><span>Charter Fee</span><span class='amt'>${pr.charter_fee_disp}</span></div>${pr.discount_note ? `<div class="body" style="font-size:8.5pt;font-weight:600;color:var(--gold-soft);margin:1.5mm 0;">${e(pr.discount_note)}</div>` : ""}${crows}${total}`;
   }
 
   const idx2 = String(idx).padStart(2, "0");

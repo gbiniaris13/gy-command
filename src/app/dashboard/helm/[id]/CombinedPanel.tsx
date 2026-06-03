@@ -10,6 +10,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import SeasonProration from "./SeasonProration";
+import PricingExtras from "./PricingExtras";
+import type { PricingInput } from "@/lib/helm/pricing";
 
 type Confidence = "high" | "medium" | "low";
 type Field<T> = { value: T | null; confidence: Confidence; snippet: string };
@@ -49,7 +51,7 @@ function ConfBadge({ c }: { c: Confidence }) {
 }
 
 function seedPx(y?: YachtExtraction): Record<string, string> {
-  const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", all_inclusive_total: "", currency: "EUR" };
+  const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", all_inclusive_total: "", discount_pct: "", relocation_fee: "", all_in_override: "", currency: "EUR" };
   if (y) for (const k of Object.keys(o)) {
     const v = y.pricing?.[k]?.value;
     if (v !== null && v !== undefined && v !== "") o[k] = String(v);
@@ -63,6 +65,24 @@ function seedStates(ex: CombinedExtraction | null): YState[] {
     resolved: [],
     vessel: { name: y.vessel_name?.value || "", type: y.vessel_type?.value || "", spec_line: y.spec_line?.value || "" },
   }));
+}
+
+// Single source of truth for a yacht's PricingInput — used by BOTH the live
+// preview and the generate payload, so they are always identical.
+function pricingOf(px: Record<string, string>, mode: PriceMode): PricingInput {
+  const num = (x: string) => (x.trim() === "" ? null : Number(x.replace(/[^0-9.\-]/g, "")));
+  return {
+    mode,
+    currency: px.currency || "EUR",
+    charter_fee: num(px.charter_fee),
+    apa_pct: num(px.apa_pct), apa_amount: num(px.apa_amount),
+    vat_pct: num(px.vat_pct), vat_amount: num(px.vat_amount),
+    extras_text: px.extras_text.trim() || null,
+    all_inclusive_total: num(px.all_inclusive_total),
+    discount_pct: num(px.discount_pct),
+    relocation_fee: num(px.relocation_fee),
+    all_in_override: num(px.all_in_override),
+  };
 }
 
 export default function CombinedPanel({
@@ -84,7 +104,6 @@ export default function CombinedPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const num = (s: string) => (s.trim() === "" ? null : Number(s.replace(/[^0-9.\-]/g, "")));
   const patchY = (i: number, patch: Partial<YState>) => setYs((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
 
   function stopFlagsFor(i: number): { code: string; message: string }[] {
@@ -127,15 +146,7 @@ export default function CombinedPanel({
           const s = ys[i];
           return {
             vessel: { name: s.vessel.name, type: s.vessel.type, spec_line: s.vessel.spec_line },
-            pricing: {
-              mode: s.priceMode,
-              currency: s.px.currency || "EUR",
-              charter_fee: num(s.px.charter_fee),
-              apa_pct: num(s.px.apa_pct), apa_amount: num(s.px.apa_amount),
-              vat_pct: num(s.px.vat_pct), vat_amount: num(s.px.vat_amount),
-              extras_text: s.px.extras_text.trim() || null,
-              all_inclusive_total: num(s.px.all_inclusive_total),
-            },
+            pricing: pricingOf(s.px, s.priceMode),
             content: y.content || {},
           };
         }),
@@ -321,6 +332,17 @@ export default function CombinedPanel({
                     </>
                   )}
                 </div>
+
+                {/* owner discount / relocation / rounding + live preview (breakdown only) */}
+                {s.priceMode === "breakdown" && (
+                  <PricingExtras
+                    pricing={pricingOf(s.px, s.priceMode)}
+                    discount={s.px.discount_pct}
+                    relocation={s.px.relocation_fee}
+                    override={s.px.all_in_override}
+                    onChange={(k, v) => patchY(i, { px: { ...s.px, [k]: v } })}
+                  />
+                )}
 
                 {/* per-yacht media */}
                 <div style={{ marginTop: 10, borderTop: "1px solid rgba(13,27,42,0.07)", paddingTop: 8 }}>
