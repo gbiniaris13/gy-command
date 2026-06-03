@@ -11,6 +11,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import SeasonProration from "./SeasonProration";
 
 type Confidence = "high" | "medium" | "low";
 type Field<T> = { value: T | null; confidence: Confidence; snippet: string };
@@ -217,10 +218,10 @@ export default function GeneratePanel({
             </div>
           )}
 
-          {/* seasonal rates — click to set the charter fee */}
+          {/* seasonal rates — click to set the charter fee, or split by day across seasons */}
           {ex.seasonal_rates?.length > 0 && (
             <div style={{ margin: "12px 0" }}>
-              <div style={fieldLabel}>Seasonal rates found — pick the one for these dates</div>
+              <div style={fieldLabel}>Seasonal rates found — pick the one for these dates, or split by day if it spans seasons</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                 {ex.seasonal_rates.map((s, i) => (
                   <button key={i} type="button" onClick={() => setPx({ ...px, charter_fee: String(s.fee) })} style={chipBtn}>
@@ -228,6 +229,10 @@ export default function GeneratePanel({
                   </button>
                 ))}
               </div>
+              <SeasonProration
+                rates={ex.seasonal_rates}
+                onApply={(total) => setPx({ ...px, charter_fee: String(total) })}
+              />
             </div>
           )}
 

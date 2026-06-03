@@ -59,6 +59,33 @@ export function fmtEur(n: number | string | null | undefined): string {
   return "€ " + s; // € + narrow no-break space, as in build_proposal.py
 }
 
+// =============================================================
+// SPLIT-SEASON PRORATION (broker method) — when a charter spans two seasons,
+// each season's WEEKLY rate becomes a DAILY rate (weekly / 7, rounded to a
+// clean figure) and the fee is the sum over the charter days in each season.
+// Example: June 19,000/wk -> 2,700/day x 5 + July 21,000/wk -> 3,000/day x 2
+// = 19,500. Used only when the supplier quotes seasonal rates AND the dates
+// straddle a season boundary; a single fixed rate skips this entirely.
+// =============================================================
+
+// Suggested daily rate from a weekly rate: weekly / 7 rounded to the nearest
+// 100 (the clean figure a broker uses, e.g. 19,000/7 = 2,714 -> 2,700). The
+// review screen lets the broker adjust it.
+export function suggestDailyRate(weekly: number | string): number {
+  const w = Number(weekly);
+  if (!Number.isFinite(w) || w <= 0) return 0;
+  return Math.round(w / 7 / 100) * 100;
+}
+
+// Sum of (daily rate x days) across the season segments. Pure arithmetic; the
+// broker supplies the per-season daily rate + day count on the review screen.
+export function prorateSeasonsTotal(segments: { daily: number | string; days: number | string }[]): number {
+  return (segments || []).reduce((sum, s) => {
+    const d = Number(s?.daily), n = Number(s?.days);
+    return sum + (Number.isFinite(d) ? d : 0) * (Number.isFinite(n) ? n : 0);
+  }, 0);
+}
+
 // Numeric all-in (NOT formatted) — used to sort a combined shortlist
 // cheapest -> priciest. Same math as computePricing, returns the raw number.
 // null when there is no total (plus_extras, or a missing required figure).

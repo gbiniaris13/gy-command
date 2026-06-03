@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import SeasonProration from "./SeasonProration";
 
 type Confidence = "high" | "medium" | "low";
 type Field<T> = { value: T | null; confidence: Confidence; snippet: string };
@@ -261,10 +262,10 @@ export default function CombinedPanel({
                 )}
                 {warns.length > 0 && <div style={warnBox}>{warns.map((f) => <div key={f.code} style={{ fontSize: 12 }}><b>{f.code}</b> — {f.message}</div>)}</div>}
 
-                {/* seasonal rates */}
+                {/* seasonal rates: pick one (whole charter in one season), or split by day across seasons */}
                 {y.seasonal_rates?.length > 0 && (
                   <div style={{ margin: "8px 0" }}>
-                    <div style={fieldLabel}>Seasonal rates — pick the one for these dates</div>
+                    <div style={fieldLabel}>Seasonal rates — pick the one for these dates, or split by day if it spans seasons</div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                       {y.seasonal_rates.map((sr, k) => (
                         <button key={k} type="button" onClick={() => patchY(i, { px: { ...s.px, charter_fee: String(sr.fee) } })} style={chipBtn}>
@@ -272,6 +273,10 @@ export default function CombinedPanel({
                         </button>
                       ))}
                     </div>
+                    <SeasonProration
+                      rates={y.seasonal_rates}
+                      onApply={(total) => patchY(i, { px: { ...s.px, charter_fee: String(total) } })}
+                    />
                   </div>
                 )}
 
