@@ -219,14 +219,21 @@ export async function extractSupplierYachts(
     .filter(Boolean)
     .join("\n");
 
-  // Larger token budget than single: a thinking model emitting N yachts of
-  // structured JSON truncates if starved.
-  const raw = await aiChat(MULTI_SYSTEM, userMsg, { maxTokens: 8000, temperature: 0 });
+  // Generous token budget: a thinking model emitting N yachts of structured
+  // JSON (each with pricing + content arrays) truncates if starved. 8000 was
+  // not enough for 2+ yachts with long spec/content; 24000 leaves headroom
+  // (you only pay for tokens actually generated).
+  const raw = await aiChat(MULTI_SYSTEM, userMsg, { maxTokens: 24000, temperature: 0 });
   let parsed: { yachts?: unknown };
   try {
     parsed = parseLooseJson(raw) as { yachts?: unknown };
   } catch {
-    throw new Error(`Multi-yacht extraction returned non-JSON: ${raw.slice(0, 400)}`);
+    const looksCut = !raw.trimEnd().endsWith("}");
+    throw new Error(
+      looksCut
+        ? "Multi-yacht extraction was cut off before the JSON finished (supplier text too long for one pass). Press Extract again; if it repeats, split the two offers and extract them one at a time."
+        : `Multi-yacht extraction returned non-JSON. Start: ${raw.slice(0, 200)} | End: ${raw.slice(-200)}`,
+    );
   }
   const arr = Array.isArray(parsed?.yachts) ? parsed.yachts : [];
   if (!arr.length) throw new Error("Multi-yacht extraction found no yachts in the supplier email.");
