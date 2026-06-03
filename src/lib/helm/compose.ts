@@ -39,6 +39,21 @@ WHITE-LABEL OVERRIDE (this proposal is presented to the client by an intermediar
 // dashes to a hyphen on every AI output, regardless of what the model did.
 const deDash = (s: string): string => s.replace(/[—–]/g, "-");
 
+// Bound a narrative to N sentences / M chars so a combined yacht card always
+// fits one page (full hero image + pricing + brochure) without overflow. Cuts
+// on a sentence boundary; falls back to a clean char cut. Premium = concise.
+const firstSentences = (s: string, maxSentences: number, maxChars: number): string => {
+  const t = (s || "").replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  const parts = t.match(/[^.!?]+[.!?]+/g);
+  let out = parts && parts.length ? parts.slice(0, maxSentences).map((p) => p.trim()).join(" ") : t;
+  if (out.length > maxChars) {
+    out = out.slice(0, maxChars).replace(/\s+\S*$/, "").replace(/[,;:]\s*$/, "");
+    if (!/[.!?]$/.test(out)) out += ".";
+  }
+  return out.replace(/\s+/g, " ").trim();
+};
+
 // The charter dates appear deterministically in the proposal (voyage line +
 // footer), so narrative prose must NOT restate them. Critically, supplier text
 // often contains OTHER date windows (a discount period, a seasonal boundary);
@@ -95,12 +110,12 @@ export async function composeYachtInsideInfo(
   f: NarrativeFacts & { tier_hint?: string; anonymous?: boolean },
 ): Promise<{ description: string; inside_info: string }> {
   const insideSpec = f.anonymous
-    ? `"inside_info":"<2-4 sentences, IMPERSONAL (no 'I', no names): why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"`
-    : `"inside_info":"<2-4 sentences, first-person George: why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"`;
+    ? `"inside_info":"<EXACTLY 2 to 3 short sentences, IMPERSONAL (no 'I', no names): why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"`
+    : `"inside_info":"<EXACTLY 2 to 3 short sentences, first-person George: why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"`;
   const sys = `${f.anonymous ? VOICE_ANON : VOICE_BASE}
 
-TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<one short supplier-true paragraph>",${insideSpec}}.
-The inside_info is where the selling lives - make it distinct and specific. No em dash.
+TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<ONE short supplier-true sentence, max ~25 words>",${insideSpec}}.
+This card must fit one page with a large photo, so be CONCISE: the description is ONE sentence; the inside_info is 2 to 3 short sentences where the selling lives - distinct and specific, not a feature dump. No em dash.
 ${NO_DATES}
 Output JSON only.`;
   const user = [
@@ -113,7 +128,12 @@ Output JSON only.`;
   ].filter(Boolean).join("\n");
   const raw = await aiChat(sys, user, { maxTokens: 3000, temperature: 0.6 });
   const out = parseLooseJson(raw) as { description?: string; inside_info?: string };
-  return { description: deDash(out.description || ""), inside_info: deDash(out.inside_info || "") };
+  // Hard length cap (safety net) so the card always fits one page even if the
+  // model runs long: description ~1 sentence, inside_info ~3 short sentences.
+  return {
+    description: deDash(firstSentences(out.description || "", 2, 180)),
+    inside_info: deDash(firstSentences(out.inside_info || "", 3, 340)),
+  };
 }
 
 // Combined shortlist: the short note that opens a multi-yacht proposal.

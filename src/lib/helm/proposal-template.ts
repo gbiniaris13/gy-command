@@ -303,11 +303,7 @@ body{font-family:'Montserrat',sans-serif;color:var(--ivory);background:var(--nav
 .bleed-tint{position:absolute;inset:0;background:rgba(10,20,33,.50);}
 
 /* discover-more link buttons (George-hosted URLs only) */
-.linkrow{display:flex;gap:5mm;flex-wrap:wrap;margin-top:7mm;}
-/* flex-column page: lets .linkrow.foot sit at the bottom of the content box,
-   clear of the absolute .pfoot footer (no overlap regardless of card height) */
-.pad-col{display:flex;flex-direction:column;}
-.linkrow.foot{margin-top:auto;margin-bottom:7mm;}
+.linkrow{display:flex;gap:5mm;flex-wrap:wrap;margin-top:5mm;}
 .btnlink{font-family:'Cinzel',serif;letter-spacing:.18em;text-transform:uppercase;
       font-size:7.5pt;color:var(--gold);text-decoration:none;
       border:1px solid var(--hair);padding:3mm 6mm;border-radius:2px;}
@@ -393,7 +389,7 @@ function renderSingle(d: SingleProposal): string {
                  <ul class="hl">${items}</ul></div>`;
   }
   pages.push(`
-<div class="page"><div class="pad pad-col">
+<div class="page"><div class="pad">
   ${imgOrPlaceholder(imgs.experience, "Lifestyle image - deck / sunset / dining", "ph", "78mm")}
   <div style="margin-top:9mm;">
     <div class="sec-title">${e(y.experience_title ?? "The Experience")}</div>
@@ -401,7 +397,7 @@ function renderSingle(d: SingleProposal): string {
     <div class="body">${expParas}</div>
   </div>
   ${hl}
-  ${linkButtons(y.links, false, true)}
+  ${linkButtons(y.links)}
   <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(y.name)} &#8226; 02</span></div>
 </div></div>`);
 
@@ -677,7 +673,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
 
   const idx2 = String(idx).padStart(2, "0");
   return `
-<div class="page"><div class="pad pad-col">
+<div class="page"><div class="pad">
   ${tierHtml}
   <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:2mm;">
     <div><div class="label dim" style="font-size:7pt;">${e(y.type ?? "")}</div>
@@ -685,13 +681,13 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
     <div class="corm" style="font-size:30pt;color:rgba(201,168,76,.25);font-weight:600;">${idx2}</div>
   </div>
   <div class="body" style="font-size:8.5pt;letter-spacing:.06em;color:var(--slate);margin-top:1mm;">${e(y.spec_line ?? "")}</div>${y.voyage_line ? `\n  <div class="body" style="font-size:8.5pt;letter-spacing:.04em;color:var(--gold-soft);margin-top:1mm;">${e(y.voyage_line)}</div>` : ""}
-  ${imgOrPlaceholder(imgs.main, "Yacht image", "ph", "52mm")}
-  <div style="display:flex;justify-content:space-around;margin:6mm 0;">${stripHtml}</div>
+  ${imgOrPlaceholder(imgs.main, "Yacht image", "ph", "46mm")}
+  <div style="display:flex;justify-content:space-around;margin:4mm 0;">${stripHtml}</div>
   <p class="body" style="font-size:9.5pt;">${e(y.description ?? "")}</p>
   ${insideHtml}
   <div style="margin-top:6mm;">${cost}</div>
   ${pr.per_person_4 ? `<div class="body" style="font-size:8.5pt;color:var(--slate);margin-top:3mm;">Per guest: ${pr.per_person_4} (4 guests) &#8226; ${pr.per_person_6} (6 guests)</div>` : ""}
-  ${linkButtons(y.links, false, true)}
+  ${linkButtons(y.links)}
   <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(d.period ?? "")} &#8226; ${idx2}</span></div>
 </div></div>`;
 }
