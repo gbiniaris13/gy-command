@@ -146,6 +146,7 @@ export default async function HelmDetailPage({
           emailIntro={r.email_intro ?? null}
           initialMedia={(r.combined_media && typeof r.combined_media === "object") ? r.combined_media : {}}
           cloudinaryConfigured={isCloudinaryConfigured()}
+          initialDraft={r.review_draft ?? null}
         />
       ) : (
         <GeneratePanel
@@ -157,6 +158,7 @@ export default async function HelmDetailPage({
           pdfPath={r.proposal_pdf_path ?? null}
           emailSubject={r.email_subject ?? null}
           emailIntro={r.email_intro ?? null}
+          initialDraft={r.review_draft ?? null}
         />
       )}
 

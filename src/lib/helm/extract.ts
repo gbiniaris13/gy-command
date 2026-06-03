@@ -90,6 +90,7 @@ PRICING FIELDS:
 - charter_fee: the NET charter rate for the stated period (usually weekly). If the email gives TWO OR MORE seasonal rates (e.g. June vs July/August), set charter_fee.value = null, list each in "seasonal_rates" (label + fee + snippet), and add flag MULTIPLE_SEASONAL_RATES — let the human pick.
 - apa_pct AND apa_amount: capture whichever the supplier stated (percentage OR amount, not both unless both are written). If NEITHER appears, add flag MISSING_APA.
 - vat_pct AND vat_amount: whichever stated. If neither, add flag MISSING_VAT.
+- RANGES: if APA or VAT is quoted as a RANGE (e.g. "estimated at 35-40%", "20% to 40%", "35-40% APA", "APA varies from 20% to 40%"), DO capture it - use the HIGHER end as the percentage, set that field's confidence to "low", and put the full range text in its snippet so the broker confirms. Never leave it null just because it is a range.
 - extras_text: set (e.g. "plus extras", "plus expenses") ONLY when the supplier gives a lump price with NO APA/VAT breakdown; also add flag PLUS_EXTRAS_NO_BREAKDOWN.
 - all_inclusive_total: if the supplier states ONE fully-inclusive figure (e.g. "all included", "fully inclusive", "all-in", Greek "όλα μέσα"), capture that single number here and set "suggested_mode":"all_inclusive". In that case do NOT fill charter_fee/apa/vat, and do NOT raise MISSING_APA (there is no separate APA). Otherwise set suggested_mode to "breakdown" (normal fee+APA+VAT) or "plus_extras" (lump + extras).
 - divide_by: if the supplier says to divide the weekly rate by a number for a short charter (e.g. "kindly divide by 6"), capture that N. If the request is clearly short but NO divisor is stated, set value null and add flag DIVIDE_BY_UNCLEAR.
@@ -202,7 +203,7 @@ ABSOLUTE RULES — breaking these causes a contract dispute:
 
 Treat EACH yacht the supplier offers as a SEPARATE object with its OWN numbers, snippets, confidence, suggested_mode and flags. Per yacht:
 - charter_fee: the NET rate for the period. If a yacht has TWO+ seasonal rates, set its charter_fee.value=null, list them in that yacht's "seasonal_rates" (label+fee+snippet), add flag MULTIPLE_SEASONAL_RATES.
-- apa_pct AND apa_amount: whichever stated; if neither, add MISSING_APA. vat_pct AND vat_amount: whichever stated; if neither, MISSING_VAT.
+- apa_pct AND apa_amount: whichever stated; if neither, add MISSING_APA. vat_pct AND vat_amount: whichever stated; if neither, MISSING_VAT. If APA or VAT is given as a RANGE (e.g. "35-40%", "20% to 40%"), capture the HIGHER end with confidence "low" and the range text in the snippet - never leave null just because it is a range.
 - extras_text + flag PLUS_EXTRAS_NO_BREAKDOWN: only for a lump "plus extras / plus expenses" with NO APA/VAT breakdown.
 - all_inclusive_total + "suggested_mode":"all_inclusive": if that yacht states ONE fully-inclusive figure ("all included", "fully inclusive", "all-in", Greek "ola mesa"). Then do NOT fill charter_fee/apa/vat for it and do NOT raise MISSING_APA. Otherwise suggested_mode is "breakdown" or "plus_extras".
 - divide_by (+ DIVIDE_BY_UNCLEAR if short but no divisor), currency, NO_PRICE_FOUND if that yacht has no price.
