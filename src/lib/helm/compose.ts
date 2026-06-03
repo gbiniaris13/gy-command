@@ -139,21 +139,32 @@ export type EmailFacts = {
   occasion?: string;
   brief?: string;
   selection_summary: string;   // one yacht (name + price) or the shortlist, cheapest first
+  /** Travel-agent white-label: a generic, anonymous email the advisor forwards
+   *  to their own client as their own (no George, no "your client"). */
+  anonymous?: boolean;
 };
 
 // The email body (does the selling; George pastes/sends it, PDF attached).
 export async function composeEmail(
   f: EmailFacts,
 ): Promise<{ subject: string; body: string }> {
-  const sys = `${VOICE_BASE}
+  const sys = f.anonymous
+    ? `${VOICE_ANON}
+
+TASK: Write a WHITE-LABEL, client-facing email that an intermediary (a travel advisor) will FORWARD to their own client AS THEIR OWN. Return JSON: {"subject":"<short, warm, specific>","body":"<plain text with line breaks>"}.
+- Open with a warm GENERIC salutation such as "Dear Guests," - NO specific name, and NEVER "your client".
+- One short opening line about a curated selection for a relaxed Greek charter; then one or two lines per yacht tying a real feature to a family charter WITH the price (cheapest to most expensive); a warm close with gentle urgency and an easy next step.
+- Sign off NEUTRALLY (e.g. "Kind regards,") with NO personal name and NO company - the forwarder adds their own.
+- NEVER mention George, George Yachts, Biniaris, any broker / person / company / website / email / phone, and NEVER say "your client" or hint the email is forwarded. Fully impersonal so it reads as the sender's own. No em dash, no hype, no exclamation marks. Output JSON only.`
+    : `${VOICE_BASE}
 
 TASK: Write the email that accompanies the proposal PDF. Return JSON: {"subject":"<short, warm, specific>","body":"<the email body as plain text with line breaks>"}.
 Structure: warm one-line open referencing the conversation/brief; one short paragraph on what you did; one or two lines per yacht tying a real feature to their need WITH the price (cheapest to most expensive); a close with gentle urgency + an easy next step; sign "Warmly,\\nGeorge".
 - Begin the body with the EXACT salutation provided. First person. No em dash. No hype, no exclamation marks. Output JSON only.`;
   const user = [
-    `Salutation to use verbatim: ${f.salutation}`,
+    f.anonymous ? `Open with a warm GENERIC salutation (e.g. "Dear Guests,") - no name.` : `Salutation to use verbatim: ${f.salutation}`,
     f.occasion ? `Occasion: ${f.occasion}` : "",
-    f.brief ? `Client brief: ${f.brief}` : "",
+    f.brief ? `Charter context (use ONLY the requirements - guests, children, area, style; NEVER a person's name): ${f.brief}` : "",
     `Selection (cheapest first):\n${f.selection_summary}`,
   ].filter(Boolean).join("\n");
   const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.6 });
