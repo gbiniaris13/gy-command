@@ -113,13 +113,26 @@ export default async function HelmDetailPage({
       {/* email the central agency (supplier) — broker-to-supplier inquiry */}
       <HelmAgencyInquiry requestId={r.id} agencyEmail={r.central_agency_email ?? null} />
 
-      {/* media — vessel photos + brochure (Cloudinary) */}
-      <HelmMedia
-        requestId={r.id}
-        initialPhotos={Array.isArray(r.vessel_photos) ? r.vessel_photos : []}
-        initialBrochureUrl={r.brochure_url ?? null}
-        cloudinaryConfigured={isCloudinaryConfigured()}
-      />
+      {/* media — single mode: one vessel's photos + brochure here.
+          Combined mode: media is PER YACHT, on each yacht's card in the
+          generate panel (after Extract), so this single-yacht box is hidden. */}
+      {r.mode === "combined" ? (
+        <section style={card}>
+          <div style={cardLabel}>Media · per yacht</div>
+          <p style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6 }}>
+            This is a combined (multi-yacht) proposal, so each yacht has its own photo and brochure.
+            Click <b>Extract all yachts</b> below — a card appears for each yacht, and you add that yacht&apos;s
+            photo and brochure link directly on its card.
+          </p>
+        </section>
+      ) : (
+        <HelmMedia
+          requestId={r.id}
+          initialPhotos={Array.isArray(r.vessel_photos) ? r.vessel_photos : []}
+          initialBrochureUrl={r.brochure_url ?? null}
+          cloudinaryConfigured={isCloudinaryConfigured()}
+        />
+      )}
 
       {/* generate proposal (extract -> review numbers -> generate PDF).
           Combined mode shows one card per yacht; single mode the classic flow. */}
