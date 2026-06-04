@@ -41,7 +41,7 @@ export default function HelmAgencyInquiry({
 
   async function send() {
     if (!hasAgency) return;
-    const ok = confirm(`Send this inquiry to the central agency? Each address gets its OWN separate email - no recipient ever sees the others. Sent from your George Yachts inbox.`);
+    const ok = confirm(`Send a SEPARATE inquiry email to EACH of these addresses?\n\n${agencyEmail}\n\nNo recipient sees the others (no shared To, no Cc, no Bcc). Sent from your George Yachts inbox.`);
     if (!ok) return;
     setBusy("send"); setErr(null); setMsg(null);
     try {
