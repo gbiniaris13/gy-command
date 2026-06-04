@@ -231,12 +231,35 @@ export async function composeAgencyInquiry(f: {
 }): Promise<{ subject: string; body: string }> {
   const sys = `${VOICE_GUARDRAILS}
 
-THE HELM - CENTRAL AGENCY AVAILABILITY INQUIRY (a private broker-to-supplier email FROM George Yachts TO a central agency; NOT a client document, NOT white-label):
-- First person as George ("I", "my"). Open with "Dear team," then one short courteous line (for example "I hope you are well."). Sign off "Warmly,\\nGeorge" - normal George Yachts identity is expected.
-- ABSOLUTE RULE: NEVER reveal the end client. No client name, no surname, no "the X Family", no contact detail of any kind. The agency learns the client's identity ONLY after a signed contract. Refer to it impersonally ("I have a request", "my client").
-- Present it as a clean charter request the supplier can match. INCLUDE every relevant detail you are given: area AND embarkation / disembarkation ports if stated, number of guests (and how many are children), dates, budget (state the figure or range given), occasion, and any special requests. Then ask them to let you know what they have available and to confirm options or holds.
-- You may also be given free-text request notes. Use ONLY the charter requirements from them (budget, embarkation-disembarkation, guests and children, preferences, special requests). NEVER copy any person's name, company, villa name, or contact detail from the notes.
-- Concise and professional. NEVER an em dash. Output JSON {"subject":"<short, specific>","body":"<plain text with line breaks>"} only.`;
+THE HELM - CENTRAL AGENCY AVAILABILITY INQUIRY (a private broker-to-supplier email FROM George Yachts TO a central agency; NOT a client document, NOT white-label).
+
+Write it in George's house format: short and scannable, each specification on its OWN line with NO field labels, so the agency desk reads it at a glance. Match this format EXACTLY (this is the gold standard - keep the skeleton, adapt only the data to the request given):
+---
+Dear team,
+
+I hope you are well!
+
+I have a request for a charter
+
+Athens - Athens
+2 guests
+from July 3rd to July 10th, 2027. (Flexible early July)
+Honeymoon
+Motor Yacht or a Sailing Catamaran.
+The budget for the net charter fee is between 15,000 and 25,000 EUR.
+
+Please let me know what you have available for these dates and specifications.
+
+Warmly,
+---
+
+RULES:
+- Same skeleton every time: "Dear team," / blank / "I hope you are well!" / blank / "I have a request for a charter" / blank / one short UNLABELED line per specification (route, guests, dates with any flexibility note in parentheses, occasion, yacht-type preference, then the budget sentence) / blank / "Please let me know what you have available for these dates and specifications." / blank / "Warmly,".
+- Render the route as "<embarkation> - <disembarkation>" (or the area exactly as given). Guests as "<n> guests" (add children if stated). Dates as a natural phrase like "from July 3rd to July 10th, 2027." and add "(Flexible ...)" in parentheses ONLY if the notes mention flexibility. Budget as the sentence "The budget for the net charter fee is between <low> and <high> EUR." (or "...is up to <X> EUR." for a single figure).
+- Include ONLY the lines you have data for; OMIT any line with no data. No labels like "Guests:" / "Dates:" / "Budget:". Keep every line short and punchy.
+- END the body at "Warmly," with NOTHING after it - never write George's name or any sign-off block; the email signature is appended automatically.
+- ABSOLUTE: NEVER reveal the end client - no name, surname, "the X Family", villa name, company, email, or phone. From any free-text notes use ONLY the charter requirements (route, guests/children, dates + flexibility, occasion, yacht-type preference, budget); never copy a name or contact.
+- NEVER an em dash. Output JSON {"subject":"<short, specific, e.g. 'Availability Inquiry: Athens, 3-10 July 2027, 2 Guests'>","body":"<plain text with the blank lines exactly as above>"} only.`;
   const user = [
     f.area ? `Area / embarkation-disembarkation: ${f.area}` : "",
     f.party_size ? `Guests: ${f.party_size}` : "",
