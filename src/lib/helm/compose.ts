@@ -194,12 +194,12 @@ TASK: Write the cover email George sends to a TRAVEL ADVISOR / AGENT (B2B, first
 - Begin the body with the EXACT salutation provided. This addresses the AGENT, NOT the end client.
 - FIRST short paragraph, at the very top before anything else: tell the agent plainly that the attached proposal is fully white-labeled; that they are welcome to review it; that it is prepared so they can forward it to their own client EXACTLY AS IS, with no reference to us appearing anywhere; and that their commission terms are set out in the attached partnership program. This MUST come first so the agent grasps it immediately without reading the rest.
 - THEN one or two short lines summarising the shortlist (yacht name + price, cheapest to most expensive) for the agent's own reference.
-- Close warmly and sign "Warmly,\\nGeorge".
+- Close warmly and END the body at "Warmly," with NOTHING after it — never write George's name or any sign-off block; the email signature is appended automatically.
 - This email is for the agent only and is NOT the client-facing document, so naming George / George Yachts here is correct and expected. No em dash, no hype, no exclamation marks. Output JSON only.`
     : `${VOICE_BASE}
 
 TASK: Write the email that accompanies the proposal PDF. Return JSON: {"subject":"<short, warm, specific>","body":"<the email body as plain text with line breaks>"}.
-Structure: warm one-line open referencing the conversation/brief; one short paragraph on what you did; one or two lines per yacht tying a real feature to their need WITH the price (cheapest to most expensive); a close with gentle urgency + an easy next step; sign "Warmly,\\nGeorge".
+Structure: warm one-line open referencing the conversation/brief; one short paragraph on what you did; one or two lines per yacht tying a real feature to their need WITH the price (cheapest to most expensive); a close with gentle urgency + an easy next step; END at "Warmly," with NOTHING after it (no name or sign-off block — the email signature is appended automatically).
 - Begin the body with the EXACT salutation provided. First person. No em dash. No hype, no exclamation marks. Output JSON only.`;
   const user = [
     `Salutation to use verbatim: ${f.salutation}`,
@@ -209,7 +209,11 @@ Structure: warm one-line open referencing the conversation/brief; one short para
   ].filter(Boolean).join("\n");
   const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.6 });
   const out = parseLooseJson(raw) as { subject?: string; body?: string };
-  return { subject: deDash(out.subject || "Your Greek charter"), body: deDash(out.body || "") };
+  // The Gmail signature is appended at send time, so the body must end at
+  // "Warmly," with no name after it — the model sometimes adds "George", which
+  // then doubles up with the signature. Drop anything after the final "Warmly,".
+  const body = deDash(out.body || "").replace(/(Warmly,)[\s\S]*$/i, "$1").trimEnd();
+  return { subject: deDash(out.subject || "Your Greek charter"), body };
 }
 
 // Broker-to-supplier AVAILABILITY INQUIRY (George Yachts -> the central agency).
