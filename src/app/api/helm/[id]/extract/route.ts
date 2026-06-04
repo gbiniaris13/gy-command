@@ -9,7 +9,7 @@ import { getRequest, saveExtraction } from "@/lib/helm-admin";
 import { extractSupplier, extractSupplierYachts } from "@/lib/helm/extract";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 async function adminEmail(): Promise<string | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
