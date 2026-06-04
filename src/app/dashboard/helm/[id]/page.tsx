@@ -11,6 +11,7 @@ import HelmMedia from "./HelmMedia";
 import HelmSend from "./HelmSend";
 import HelmAgencyInquiry from "./HelmAgencyInquiry";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
+import { resolveAgencyRecipients } from "@/lib/helm/recipients";
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +112,7 @@ export default async function HelmDetailPage({
       </section>
 
       {/* email the central agency (supplier) — broker-to-supplier inquiry */}
-      <HelmAgencyInquiry requestId={r.id} agencyEmail={r.central_agency_email ?? null} />
+      <HelmAgencyInquiry requestId={r.id} agencyEmail={resolveAgencyRecipients(r.central_agency_email, r.supplier_raw, r.client_email).join(", ") || null} />
 
       {/* media — single mode: one vessel's photos + brochure here.
           Combined mode: media is PER YACHT, on each yacht's card in the

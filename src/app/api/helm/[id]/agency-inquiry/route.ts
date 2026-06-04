@@ -12,6 +12,7 @@ import { createServerClient } from "@supabase/ssr";
 import { getRequest, logHelmMessage } from "@/lib/helm-admin";
 import { composeAgencyInquiry } from "@/lib/helm/compose";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
+import { resolveAgencyRecipients } from "@/lib/helm/recipients";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -37,6 +38,7 @@ type Req = {
   special_requests?: string | null;
   brief?: string | null;
   central_agency_email?: string | null;
+  supplier_raw?: string | null;
   client_email?: string | null;
   client_whatsapp?: string | null;
   client_name?: string | null;
@@ -104,14 +106,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (action === "send") {
     const subject = (body?.subject ?? "").toString().trim();
     let emailBody = (body?.body ?? "").toString().trim();
-    const rawTo = (r.central_agency_email ?? "").toString().trim();
 
-    if (!rawTo) return NextResponse.json({ error: "No central agency email on this request. Add it via Edit first." }, { status: 400 });
+    // Recipients: the dedicated central_agency_email field wins; otherwise the
+    // emails pasted in the Supplier source box. Client's email is always excluded.
+    const recipients = resolveAgencyRecipients(r.central_agency_email, r.supplier_raw, r.client_email);
+    if (!recipients.length) return NextResponse.json({ error: "No central agency email found. Add the agency email(s) in the Supplier source box above, or via Edit." }, { status: 400 });
     if (!subject) return NextResponse.json({ error: "Add a subject before sending." }, { status: 400 });
     if (!emailBody) return NextResponse.json({ error: "The inquiry body is empty - generate or write a draft first." }, { status: 400 });
-
-    const recipients = rawTo.split(/[,;\s]+/).map((s) => s.trim()).filter((s) => /.+@.+\..+/.test(s));
-    if (!recipients.length) return NextResponse.json({ error: "No valid central agency email address found." }, { status: 400 });
 
     // Defense in depth: never let the client's own identity leak to the supplier.
     emailBody = scrubClient(emailBody, r);
