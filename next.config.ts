@@ -2,8 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   env: {
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || "https://lquxemsonehfltdzdbhq.supabase.co",
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_165zpH2bBgEXwy8ZQYL2sg_zUpEyrrn",
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ojpcmnnqohxlfsudvxcz.supabase.co",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable__yNJKcssEsLPHv0Xuh-f7A_HW447VM0",
   },
   // The Helm proposal renderer: keep the headless-Chromium packages
   // out of the webpack/Turbopack bundle so they're required at runtime

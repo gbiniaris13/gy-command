@@ -275,7 +275,7 @@ async function _observedImpl() {
       // Phase 27g (Forbes-launch day, 2026-05-06) — Boss flagged that
       // legitimate IG-library photos he'd uploaded with Unsplash
       // photographer-attribution filenames (e.g.
-      // `lquxemsonehfltdzdbhq.supabase.co/.../laura-adai-...-unsplash.jpg`)
+      // `ojpcmnnqohxlfsudvxcz.supabase.co/.../laura-adai-...-unsplash.jpg`)
       // were being blocked because the substring "unsplash" appears
       // anywhere in the URL. Tightened the guard: stock-photo tells are
       // only flagged when they appear in the HOST portion of the URL

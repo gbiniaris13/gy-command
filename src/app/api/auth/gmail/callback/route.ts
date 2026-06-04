@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     const tokens = await res.json();
 
     // Store tokens in Supabase settings table via service role
-    const sbUrl = "https://lquxemsonehfltdzdbhq.supabase.co";
+    const sbUrl = "https://ojpcmnnqohxlfsudvxcz.supabase.co";
     const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
     // Try to upsert — if table doesn't exist, create it first

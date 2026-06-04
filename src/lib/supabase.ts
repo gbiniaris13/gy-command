@@ -1,8 +1,8 @@
 import { createBrowserClient, createServerClient } from "@supabase/ssr";
 import type { cookies } from "next/headers";
 
-const SUPABASE_URL = "https://lquxemsonehfltdzdbhq.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_165zpH2bBgEXwy8ZQYL2sg_zUpEyrrn";
+const SUPABASE_URL = "https://ojpcmnnqohxlfsudvxcz.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable__yNJKcssEsLPHv0Xuh-f7A_HW447VM0";
 
 export function createBrowserSupabaseClient() {
   return createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY);
