@@ -1,10 +1,9 @@
 "use client";
 
-// Pipeline pills for a charter request. A sale is non-linear, so
-// (unlike The Cabin's strict +/-1 flow) we allow a permissive but
-// guarded set of transitions defined in TRANSITIONS. Every change
-// asks for confirmation and names both states. Moving to Lost/Won
-// prompts for a reason.
+// Pipeline pills for a charter request. A sale is non-linear, so George can move
+// a request to ANY stage at will (e.g. New -> Lost when a lead calls to cancel).
+// Every change asks for confirmation and names both states; moving to Lost/Won
+// prompts for an optional reason. The chosen stage is saved and persists.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -19,17 +18,6 @@ const FLOW = [
   { key: "lost",            label: "Lost" },
 ];
 
-// Where you can go FROM each status.
-const TRANSITIONS: Record<string, string[]> = {
-  new:             ["drafted", "lost"],
-  drafted:         ["sent", "new", "lost"],
-  sent:            ["in_conversation", "negotiating", "won", "lost"],
-  in_conversation: ["negotiating", "won", "lost"],
-  negotiating:     ["in_conversation", "won", "lost"],
-  won:             [],
-  lost:            ["new"],
-};
-
 export default function StatusTransitions({
   requestId,
   current,
@@ -41,7 +29,8 @@ export default function StatusTransitions({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const allowed = new Set(TRANSITIONS[current] ?? []);
+  // A sale is non-linear: every OTHER stage is reachable, so George can set any.
+  const allowed = new Set(FLOW.filter((s) => s.key !== current).map((s) => s.key));
 
   async function setStatus(next: string) {
     const from = (current || "—").replace(/_/g, " ").toUpperCase();
@@ -87,7 +76,7 @@ export default function StatusTransitions({
         Pipeline
       </div>
       <div style={{ fontSize: 11, color: "#4b5563", fontStyle: "italic", marginBottom: 10 }}>
-        Current stage is the gold badge. Stages with a dashed navy outline are the moves available from here — clicking one asks you to confirm.
+        Current stage is the gold badge. Click any other stage to move there (you will be asked to confirm). The change is saved and stays.
       </div>
       <ol style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", gap: 8, flexWrap: "wrap" }}>
         {FLOW.map((s) => {
