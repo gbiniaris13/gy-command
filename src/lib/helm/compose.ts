@@ -277,3 +277,143 @@ RULES:
   const out = parseLooseJson(raw) as { subject?: string; body?: string };
   return { subject: deDash(out.subject || "Charter availability inquiry"), body: deDash(out.body || "") };
 }
+
+// Follow-up to a proposal already sent (a reply in the same email thread). Short
+// and HUMAN - never a template, never a recap, never broker-speak. The voice
+// adapts to the recipient: `agent` => B2B to a travel advisor (may say "your
+// client"); otherwise warm and personal to the client directly. `followupNumber`
+// escalates the tone gently (1 = light touch, 2 = soft urgency, later = final
+// low-key check-in). Ends at "Warmly," with NO name (signature is appended).
+export async function composeFollowUp(f: {
+  salutation: string;
+  agent?: boolean;
+  followupNumber: number;
+  occasion?: string;
+  brief?: string;
+  original_email?: string;   // what was already sent — so the model does NOT repeat it
+}): Promise<{ body: string }> {
+  const n = f.followupNumber;
+  const isAgent = !!f.agent;
+  // Tone is branch-aware. Agents are partners we write to like friends; their 2nd
+  // note is deliberately tiny and must NOT repeat the "hold a yacht" line.
+  let tone: string;
+  if (isAgent) {
+    tone = n <= 1
+      ? "FIRST follow-up to the agent: friendly and light. Reference the options you sent and offer to answer anything or to place a gentle hold on a yacht for their client. Easy, zero pressure."
+      : "SECOND (or later) follow-up to the agent: keep it TINY - about two sentences, done. Not pushy at all, and do NOT repeat the 'hold a yacht' offer from the first note. Just a casual line that you are reaching out again, that you will be releasing the held options shortly, and that you are here if anything changes or they want you to re-check availability for their client.";
+  } else {
+    tone = n <= 1
+      ? "FIRST follow-up to the client: a warm, light touch. Do NOT ask whether the proposal arrived or was received (the client is told separately). Add ONE human, specific touch and an open, easy invitation to ask anything."
+      : n === 2
+        ? "SECOND follow-up to the client: warm, with a little gentle, real urgency (the best yachts for these dates get booked ahead) and one easy next step such as offering a quick call."
+        : "LATER follow-up to the client: warm, brief, low-key - a final soft check-in that leaves the door open without pestering.";
+  }
+  const who = isAgent
+    ? `You are writing to a TRAVEL ADVISOR / AGENT you work with regularly - a partner, almost a friend. FRIENDLY, casual, first-name, collegial. You may refer to "your client" / "your clients". NEVER use "Dear", "Mr.", "Mrs." or "Dr." - the salutation provided is already friendly (e.g. "Hey Dimitar,"). Do NOT assume the day or time of week (no "I hope your week...", no "happy Friday") - it may be sent on any day.`
+    : `You are writing to the CLIENT directly (first person as George). Warm, personal, refined. Never pushy, never salesy.`;
+  const sys = `${VOICE_BASE}
+
+TASK: Write a SHORT follow-up email to a charter proposal that was ALREADY sent (this is a reply in the same email thread). ${who}
+${tone}
+- It must read like a real person dashed it off in the moment - NOT a template, NOT a recap of the proposal, NOT broker-speak. Do NOT relist the yachts or repeat what the first email said. Reference the proposal lightly ("the options I sent", "the shortlist").
+- Begin with the EXACT salutation provided. END the body at "Warmly," with NOTHING after it - never write George's name; the signature is appended automatically.
+- No em dash. No hype, no exclamation spam, and NEVER the cliches "just circling back" / "touching base" / "following up". Output JSON {"body":"<plain text with line breaks>"} only.`;
+  const user = [
+    `Salutation to use verbatim: ${f.salutation}`,
+    f.occasion ? `Occasion: ${f.occasion}` : "",
+    f.brief ? `Charter context (requirements ONLY - never a person's name): ${f.brief}` : "",
+    f.original_email ? `The email you already sent (do NOT repeat its content - this is only so you avoid repeating yourself):\n${f.original_email}` : "",
+    `Follow-up number: ${n}`,
+  ].filter(Boolean).join("\n");
+  // gemini is a thinking model and spends tokens before the JSON, so keep ample
+  // headroom even though the follow-up body itself is short (1500 truncated it).
+  const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.7 });
+  const out = parseLooseJson(raw) as { body?: string };
+  return { body: deDash(out.body || "") };
+}
+
+// Reply to a client's / agent's incoming message (a real back-and-forth in the
+// thread). Reads what THEY wrote and answers it directly - human, specific, never
+// generic. Voice adapts: `agent` => friendly first-name partner; else warm to the
+// client. Ends at "Warmly," (signature appended).
+export async function composeReply(f: {
+  salutation: string;
+  agent?: boolean;
+  client_reply: string;
+  brief?: string;
+  original_email?: string;
+}): Promise<{ body: string }> {
+  const who = f.agent
+    ? `You are writing to a TRAVEL ADVISOR / AGENT you work with - a partner, almost a friend. Friendly, casual, first-name. You may refer to "your client" / "your clients". NEVER "Dear"/"Mr."/"Mrs."/"Dr." - the salutation is already friendly.`
+    : `You are writing to the CLIENT directly (first person as George). Warm, personal, refined.`;
+  const sys = `${VOICE_BASE}
+
+TASK: They REPLIED to your charter proposal - their message is below. Write the reply that ANSWERS it. ${who}
+- Address what they actually said: answer their questions, acknowledge their points, and move things forward with a clear, easy next step. Reference specifics from their message - NEVER a generic non-answer.
+- If they asked something you cannot know (an exact figure, a hold, a date), say you will check and come back, rather than inventing it. Never state a price or fact that was not given.
+- Begin with the EXACT salutation provided. END the body at "Warmly," with NOTHING after it - never write George's name; the signature is appended automatically.
+- Sound like a real person, not a template. No em dash. Output JSON {"body":"<plain text with line breaks>"} only.`;
+  const user = [
+    `Salutation to use verbatim: ${f.salutation}`,
+    f.brief ? `Charter context (requirements ONLY - never a person's name): ${f.brief}` : "",
+    f.original_email ? `The proposal email you originally sent (context):\n${f.original_email}` : "",
+    `THEIR reply (answer THIS):\n${f.client_reply}`,
+  ].filter(Boolean).join("\n");
+  const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.6 });
+  const out = parseLooseJson(raw) as { body?: string };
+  return { body: deDash(out.body || "") };
+}
+
+// A short WhatsApp nudge to drop after emailing a proposal (George WhatsApps the
+// client/agent to say "check your inbox"). 1-2 casual sentences, first-name, no
+// signature, no greeting-by-day. Returns plain text for a wa.me link / copy.
+export async function composeWhatsApp(f: {
+  firstName: string;
+  agent?: boolean;
+  occasion?: string;
+}): Promise<{ text: string }> {
+  const sys = `${VOICE_GUARDRAILS}
+
+TASK: Write a SHORT WhatsApp message from George (George Yachts) to ${f.agent ? "a travel-agent partner he works with" : "a client"}, sent right after emailing them a charter proposal. Just letting them know to look in their inbox and that you are around for anything.
+- 1 to 2 short sentences. Casual and warm, first-name, the way a real person texts. Open with "Hi <name>" or "Hey <name>". NO sign-off, NO signature, NO "Dear", NO day-of-week greeting.
+- No em dash. No links. Output JSON {"text":"<the message>"} only.`;
+  const user = [
+    `Name: ${f.firstName}`,
+    f.occasion ? `Occasion: ${f.occasion}` : "",
+  ].filter(Boolean).join("\n");
+  const raw = await aiChat(sys, user, { maxTokens: 1200, temperature: 0.7 });
+  const out = parseLooseJson(raw) as { text?: string };
+  return { text: deDash(out.text || "") };
+}
+
+// When a charter is WON: drafts the two next-step emails - (1) the MYBA contract
+// request to the central agency (George Yachts identity; names the chosen yacht +
+// dates; offers to provide the charterer's details rather than naming the client
+// up front), and (2) a short confirmation to the client / agent.
+export async function composeBookingNextSteps(f: {
+  chosen_yacht: string;
+  dates?: string;
+  agent?: boolean;
+  confirm_salutation: string;
+}): Promise<{ agency_request: string; confirmation: string }> {
+  const confirmWho = f.agent
+    ? `a TRAVEL AGENT (friendly, first-name; congratulate them on closing it with their client)`
+    : `the CLIENT directly (warm, personal, genuinely pleased for them)`;
+  const sys = `${VOICE_BASE}
+
+TASK: A charter has just been agreed (WON). Draft the TWO next-step emails. Return JSON {"agency_request":"<...>","confirmation":"<...>"}.
+
+agency_request — FROM George Yachts TO the central agency (the supplier). Full George Yachts identity, first person as George. Open with "Dear team," (NEVER a bracketed placeholder name). Say you would like to proceed and book ${f.chosen_yacht}${f.dates ? ` for ${f.dates}` : ""}, ask them to prepare the MYBA charter agreement, and offer to provide the charterer's details to complete it. Do NOT invent the client's name - keep it impersonal ("my client", "the charterer"). End at "Warmly,".
+
+confirmation — FROM George TO ${confirmWho}. Begin with the EXACT salutation provided. Warmly confirm ${f.chosen_yacht}${f.dates ? ` for ${f.dates}` : ""} and say the next step is the charter agreement, which you will send through shortly. Keep it short. End at "Warmly,".
+
+Both: end at "Warmly," with NOTHING after it (signature appended; never write George's name). No em dash. No hype. Output JSON only.`;
+  const user = [
+    `Chosen yacht: ${f.chosen_yacht}`,
+    f.dates ? `Dates: ${f.dates}` : "",
+    `Confirmation salutation to use verbatim: ${f.confirm_salutation}`,
+  ].filter(Boolean).join("\n");
+  const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.6 });
+  const out = parseLooseJson(raw) as { agency_request?: string; confirmation?: string };
+  return { agency_request: deDash(out.agency_request || ""), confirmation: deDash(out.confirmation || "") };
+}

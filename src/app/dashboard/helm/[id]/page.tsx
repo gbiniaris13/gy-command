@@ -9,6 +9,10 @@ import GeneratePanel from "./GeneratePanel";
 import CombinedPanel from "./CombinedPanel";
 import HelmMedia from "./HelmMedia";
 import HelmSend from "./HelmSend";
+import HelmFollowUp from "./HelmFollowUp";
+import HelmWhatsApp from "./HelmWhatsApp";
+import HelmReply from "./HelmReply";
+import HelmBooking from "./HelmBooking";
 import HelmAgencyInquiry from "./HelmAgencyInquiry";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
@@ -175,6 +179,36 @@ export default async function HelmDetailPage({
           threadId={r.gmail_thread_id ?? null}
         />
       )}
+
+      {/* after the proposal is sent: WhatsApp nudge, reply, follow up (in-thread, never auto) */}
+      {r.gmail_thread_id && (() => {
+        const sentFollowups = messages.filter((m) => m.direction === "outbound" && (m.body ?? "").startsWith("[Follow-up")).length;
+        const hasInbound = messages.some((m) => m.direction === "inbound" && (m.body ?? "").trim());
+        return (
+          <>
+            <HelmWhatsApp requestId={r.id} clientWhatsapp={r.client_whatsapp ?? null} />
+            {hasInbound && (
+              <HelmReply
+                requestId={r.id}
+                clientEmail={r.client_email ?? null}
+                isAgent={r.request_type === "travel_agent"}
+                hasInbound={hasInbound}
+              />
+            )}
+            <HelmFollowUp
+              requestId={r.id}
+              clientEmail={r.client_email ?? null}
+              isAgent={r.request_type === "travel_agent"}
+              nextNumber={sentFollowups + 1}
+              sentCount={sentFollowups}
+              followUpAt={r.follow_up_at ?? null}
+            />
+          </>
+        );
+      })()}
+
+      {/* won: booking next steps (MYBA contract request + confirmation drafts) */}
+      {r.status === "won" && <HelmBooking requestId={r.id} />}
 
       {/* pipeline */}
       <StatusTransitions requestId={r.id} current={r.status} />
