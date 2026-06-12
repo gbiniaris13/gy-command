@@ -36,18 +36,35 @@ export function isCloudinaryConfigured(): boolean {
 }
 
 /** Upload a data-URI (or remote URL) to Cloudinary. Throws
- *  "CLOUDINARY_NOT_CONFIGURED" if no creds — callers handle gracefully. */
+ *  "CLOUDINARY_NOT_CONFIGURED" if no creds — callers handle gracefully.
+ *  publicId: set explicitly for raw files (PDFs) — a raw delivery URL only
+ *  carries the right content-type when the extension is part of the public_id. */
 export async function uploadToCloudinary(
   dataUriOrUrl: string,
-  opts: { folder: string; resourceType?: "image" | "auto" | "raw" },
+  opts: { folder: string; resourceType?: "image" | "auto" | "raw"; publicId?: string },
 ): Promise<string> {
   if (!isCloudinaryConfigured()) throw new Error("CLOUDINARY_NOT_CONFIGURED");
   const res = await cloudinary.uploader.upload(dataUriOrUrl, {
     folder: opts.folder,
     resource_type: opts.resourceType ?? "auto",
+    ...(opts.publicId ? { public_id: opts.publicId } : {}),
     overwrite: false,
   });
   return res.secure_url;
+}
+
+/** Filename -> URL-safe slug: lowercase, accents stripped, hyphens only.
+ *  "Lagoon 50 Brochure.PDF" -> "lagoon-50-brochure". */
+export function slugifyFilename(name: string): string {
+  const slug = name
+    .replace(/\.[a-z0-9]+$/i, "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return slug || "brochure";
 }
 
 /** Web-optimized delivery URL for embedding into the proposal PDF

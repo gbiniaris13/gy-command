@@ -253,6 +253,22 @@ export default function CombinedPanel({
       if (j.combined_media) setMedia(j.combined_media);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
+  // Upload a brochure PDF for one yacht — same endpoint as photos (kind:
+  // brochure); the route stores it as raw .pdf on Cloudinary and saves the
+  // public URL into this yacht's combined_media slot.
+  async function uploadBrochure(i: number, file: File) {
+    setBusy(`media-${i}`); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file); fd.append("kind", "brochure"); fd.append("yacht_index", String(i));
+      const r = await fetch(`/api/helm/${requestId}/upload-media`, { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "upload-failed");
+      if (j.configured === false) { setError(j.message || "Cloudinary not connected. Paste a brochure link instead."); return; }
+      if (j.combined_media) setMedia(j.combined_media);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+
   async function setLink(i: number, field: "main_url" | "brochure_url", url: string) {
     if (!url.trim()) return;
     setBusy(`media-${i}`); setError(null);
@@ -462,14 +478,22 @@ export default function CombinedPanel({
                     </div>
                   )}
                   <div style={{ marginTop: 8 }}>
-                    <div style={fieldLabel}>Brochure link (optional · make sure it is white-label, no agency branding)</div>
+                    <div style={fieldLabel}>Brochure (optional · make sure it is white-label, no agency branding)</div>
                     {m.brochure_url ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
-                        <span style={{ fontSize: 12, color: "#374151", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.brochure_url}</span>
+                        <a href={m.brochure_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#374151", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.brochure_url}</a>
                         <button type="button" onClick={() => removeMedia(i, "brochure_url")} disabled={busy !== null} style={ghostBtn}>Remove</button>
                       </div>
                     ) : (
-                      <div style={{ marginTop: 6 }}><LinkAdder placeholder="paste brochure URL" disabled={busy !== null} onAdd={(u) => setLink(i, "brochure_url", u)} /></div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                        {cloudinaryConfigured && (
+                          <label style={{ ...chipBtn, cursor: "pointer" }}>
+                            {busy === `media-${i}` ? "Uploading…" : "Upload PDF"}
+                            <input type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadBrochure(i, f); e.target.value = ""; }} />
+                          </label>
+                        )}
+                        <LinkAdder placeholder="…or paste brochure URL" disabled={busy !== null} onAdd={(u) => setLink(i, "brochure_url", u)} />
+                      </div>
                     )}
                   </div>
                 </div>
