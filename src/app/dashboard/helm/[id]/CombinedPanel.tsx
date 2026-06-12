@@ -37,6 +37,9 @@ type YState = {
   priceMode: PriceMode;
   resolved: string[];
   vessel: { name: string; type: string; spec_line: string; embarkation: string; disembarkation: string; date_from: string; date_to: string };
+  /** Excluded from the proposal (e.g. the yacht got booked meanwhile). The card
+   *  stays — nothing is deleted — it is simply left out of the generated PDF. */
+  excluded?: boolean;
 };
 
 const STOP_CODES = new Set(["MISSING_APA", "MULTIPLE_SEASONAL_RATES", "DIVIDE_BY_UNCLEAR", "NO_PRICE_FOUND", "AMBIGUOUS"]);
@@ -122,6 +125,37 @@ export default function CombinedPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [moreText, setMoreText] = useState("");
+
+  // A second supplier replied later with more yachts: extract ONLY their email
+  // and APPEND the yachts. Existing cards (indexes, prices, photos, brochures)
+  // are never touched — new yachts take the next indexes. Same proposal, one PDF.
+  async function addMoreYachts() {
+    if (!moreText.trim()) return;
+    setBusy("extract-more"); setError(null); setSavedMsg(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}/extract-more`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: moreText }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "extract-more-failed");
+      const merged: CombinedExtraction = j.extraction?.yachts ? j.extraction : { yachts: [] };
+      const addedCount: number = j.added || 0;
+      const addedOnly = merged.yachts.slice(merged.yachts.length - addedCount);
+      const nextYs = [...ys, ...seedStates({ yachts: addedOnly })];
+      setEx(merged);
+      setYs(nextYs);
+      setMoreText("");
+      // Auto-save the draft so a refresh restores ALL yachts (draft restore
+      // requires the yacht count to match the stored extraction).
+      await fetch(`/api/helm/${requestId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs } }),
+      });
+      setSavedMsg(`Added ${addedCount} yacht${addedCount === 1 ? "" : "s"} from the new supplier. Your earlier yachts are untouched — review the new cards, then ${pdfPath ? "Regenerate" : "Generate"}.`);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
 
   async function saveDraft() {
     setBusy("savedraft"); setError(null); setSavedMsg(null);
@@ -153,10 +187,20 @@ export default function CombinedPanel({
   }
 
   const yachtCount = ex?.yachts?.length || 0;
-  const allReady = yachtCount > 0 && ys.every((_, i) => yachtReady(i));
+  // Excluded yachts neither appear in the PDF nor block Generate (their fee /
+  // STOP flags can stay unresolved — the point is to drop a yacht that got taken).
+  const includedCount = ys.filter((s) => !s.excluded).length;
+  const allReady = includedCount > 0 && ys.every((s, i) => s.excluded || yachtReady(i));
   const canGenerate = !!ex && allReady && !!surname && busy === null;
 
   async function runExtract() {
+    // A full re-extract reseeds every card from scratch (confirmed prices,
+    // resolved flags, edits are replaced). Warn when work already exists —
+    // adding a later supplier should use "Add yachts from another supplier".
+    if (ex && (ex.yachts?.length || 0) > 0) {
+      const ok = confirm("Re-extract ALL yachts from scratch? This resets every card (prices, resolved flags, edits). To add a new supplier's yachts WITHOUT losing your work, use 'Add yachts from another supplier' below instead.");
+      if (!ok) return;
+    }
     setBusy("extract"); setError(null);
     try {
       const r = await fetch(`/api/helm/${requestId}/extract`, { method: "POST" });
@@ -174,14 +218,18 @@ export default function CombinedPanel({
     try {
       const payload = {
         mode: "combined",
-        yachts: ex.yachts.map((y, i) => {
-          const s = ys[i];
-          return {
+        // Excluded yachts are left out of the PDF. media_index = the ORIGINAL
+        // card index, so each remaining yacht keeps ITS OWN photos/brochure
+        // server-side even when an earlier card is excluded.
+        yachts: ex.yachts
+          .map((y, i) => ({ y, s: ys[i], i }))
+          .filter(({ s }) => s && !s.excluded)
+          .map(({ y, s, i }) => ({
+            media_index: i,
             vessel: { name: s.vessel.name, type: s.vessel.type, spec_line: s.vessel.spec_line, embarkation: s.vessel.embarkation, disembarkation: s.vessel.disembarkation, date_from: s.vessel.date_from, date_to: s.vessel.date_to },
             pricing: pricingOf(s.px, s.priceMode),
             content: y.content || {},
-          };
-        }),
+          })),
       };
       const r = await fetch(`/api/helm/${requestId}/generate`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -271,12 +319,25 @@ export default function CombinedPanel({
             const ready = yachtReady(i);
             const m = media[String(i)] || {};
             return (
-              <div key={i} style={{ ...yachtBox, borderColor: ready ? "rgba(58,107,71,0.5)" : "rgba(13,27,42,0.12)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#0D1B2A", fontWeight: 600 }}>
+              <div key={i} style={{ ...yachtBox, borderColor: s.excluded ? "rgba(13,27,42,0.1)" : ready ? "rgba(58,107,71,0.5)" : "rgba(13,27,42,0.12)", opacity: s.excluded ? 0.55 : 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#0D1B2A", fontWeight: 600, textDecoration: s.excluded ? "line-through" : "none" }}>
                     Yacht {i + 1}: {s.vessel.name || y.vessel_name?.value || "(unnamed)"}
                   </div>
-                  <span style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: ready ? "#3A6B47" : "#B07A2C" }}>{ready ? "ready ✓" : "needs review"}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: s.excluded ? "#9CA3AF" : ready ? "#3A6B47" : "#B07A2C" }}>
+                      {s.excluded ? "excluded from proposal" : ready ? "ready ✓" : "needs review"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => patchY(i, { excluded: !s.excluded })}
+                      disabled={busy !== null}
+                      title={s.excluded ? "Bring this yacht back into the proposal" : "Leave this yacht out of the proposal (e.g. it got booked) — nothing is deleted"}
+                      style={{ ...ghostBtn, padding: "5px 10px", fontSize: 9 }}
+                    >
+                      {s.excluded ? "Include again" : "Exclude"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* vessel facts */}
@@ -416,13 +477,35 @@ export default function CombinedPanel({
             );
           })}
 
+          <div style={{ border: "1px dashed rgba(13,27,42,0.25)", padding: "12px 14px", margin: "14px 0 6px", borderRadius: 2 }}>
+            <div style={fieldLabel}>Add yachts from another supplier</div>
+            <div style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 8px" }}>
+              A second supplier replied? Paste their email here — only their yachts are extracted and added as new cards. Everything you have already set on the yachts above stays exactly as it is. Same proposal, one PDF.
+            </div>
+            <textarea
+              value={moreText}
+              onChange={(e) => setMoreText(e.target.value)}
+              rows={5}
+              placeholder="Paste the new supplier's email…"
+              style={{ width: "100%", padding: 10, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", resize: "vertical", lineHeight: 1.5 }}
+            />
+            <button type="button" onClick={addMoreYachts} disabled={busy !== null || !moreText.trim()} style={{ ...ghostBtn, marginTop: 8 }}>
+              {busy === "extract-more" ? "Extracting new yachts…" : "Extract & add these yachts"}
+            </button>
+          </div>
+
           <button type="button" onClick={runGenerate} disabled={!canGenerate} style={{ ...primaryBtn, marginTop: 8, opacity: canGenerate ? 1 : 0.5, cursor: canGenerate ? "pointer" : "not-allowed" }}>
-            {busy === "generate" ? "Generating…" : pdfPath ? `Regenerate proposal (${yachtCount} yachts)` : `Generate combined proposal (${yachtCount} yachts)`}
+            {busy === "generate" ? "Generating…" : pdfPath ? `Regenerate proposal (${includedCount} yacht${includedCount === 1 ? "" : "s"})` : `Generate combined proposal (${includedCount} yacht${includedCount === 1 ? "" : "s"})`}
           </button>
+          {includedCount < yachtCount && (
+            <div style={{ fontSize: 11.5, color: "#9CA3AF", marginTop: 6 }}>
+              {yachtCount - includedCount} excluded yacht{yachtCount - includedCount === 1 ? "" : "s"} will be left out of the PDF (nothing is deleted — press Include again to bring one back).
+            </div>
+          )}
           {!canGenerate && busy === null && (
             <div style={{ fontSize: 11.5, color: "#9CA3AF", marginTop: 6 }}>
               {!surname ? "Add a client surname. " : ""}
-              {!allReady ? "Every yacht must be ready (fee set + all STOP flags resolved). " : ""}
+              {includedCount === 0 ? "Every yacht is excluded — include at least one. " : !allReady ? "Every included yacht must be ready (fee set + all STOP flags resolved). " : ""}
             </div>
           )}
           <button type="button" onClick={saveDraft} disabled={busy !== null} style={{ ...ghostBtn, marginTop: 10, marginRight: 8 }}>

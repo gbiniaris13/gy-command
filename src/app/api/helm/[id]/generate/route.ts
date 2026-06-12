@@ -53,6 +53,10 @@ type RequestRow = {
 
 // One yacht as posted by the combined review UI (confirmed numbers + facts).
 type CombinedInputYacht = {
+  /** Original card index in the review panel — keys this yacht's photos/brochure
+   *  in combined_media. Needed because excluded yachts are filtered out client-
+   *  side, which would otherwise shift positions and mismatch the media. */
+  media_index?: number;
   vessel?: { name?: string; type?: string; spec_line?: string; embarkation?: string; disembarkation?: string; date_from?: string; date_to?: string };
   pricing?: {
     mode?: PricingInput["mode"];
@@ -223,8 +227,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           anonymous: whiteLabel,
         });
 
-        // per-yacht media (confidentiality: agency-domain brochure links withheld)
-        const media = combinedMedia[String(i)] || {};
+        // per-yacht media, keyed by the ORIGINAL card index (media_index) so an
+        // excluded yacht earlier in the list never shifts another yacht's photos.
+        const media = combinedMedia[String(iy.media_index ?? i)] || {};
         const mainImg = media.main_url ? await toDataUri(optimizedUrl(media.main_url)) : null;
         const links: Record<string, string> = {};
         // Operator-vetted: include the brochure link as provided (George confirms white-label).
