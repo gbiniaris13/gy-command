@@ -9,10 +9,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { getRequest, logHelmMessage } from "@/lib/helm-admin";
+import { getRequest, getMessages, logHelmMessage } from "@/lib/helm-admin";
 import { composeAgencyInquiry } from "@/lib/helm/compose";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
+import { agencyAlreadySent, splitNewVsSent } from "@/lib/helm/agency";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -114,6 +115,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!subject) return NextResponse.json({ error: "Add a subject before sending." }, { status: 400 });
     if (!emailBody) return NextResponse.json({ error: "The inquiry body is empty - generate or write a draft first." }, { status: 400 });
 
+    // NEVER re-email an agency that already received this inquiry. We re-read the
+    // log fresh here (source of truth) and send ONLY to agencies not yet
+    // contacted — unless the operator explicitly chose "resend to everyone".
+    const resendAll = body?.resend_all === true;
+    const alreadySent = agencyAlreadySent(await getMessages(id));
+    const { fresh, skipped } = splitNewVsSent(recipients, alreadySent);
+    const targets = resendAll ? recipients : fresh;
+
+    if (!targets.length) {
+      return NextResponse.json({ ok: true, sent: 0, skipped: skipped.length, to: [], message: "Every agency in the list has already received this inquiry. Nothing was re-sent." });
+    }
+
     // Defense in depth: never let the client's own identity leak to the supplier.
     emailBody = scrubClient(emailBody, r);
 
@@ -122,17 +135,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // that recipient. Central agencies are competing suppliers and must NEVER
       // see one another (no shared To, no CC, no BCC batching).
       const messageIds: string[] = [];
-      for (const rcpt of recipients) {
+      for (const rcpt of targets) {
         const sent = await sendHelmEmail({ to: rcpt, subject, body: emailBody });
         messageIds.push(sent.messageId);
       }
       await logHelmMessage(id, {
         direction: "outbound",
         channel: "email",
-        body: `[Central agency inquiry -> ${recipients.join(", ")} - sent individually, one separate email each]\n\n${emailBody}`,
+        body: `[Central agency inquiry -> ${targets.join(", ")} - sent individually, one separate email each]\n\n${emailBody}`,
         gmail_message_id: messageIds[0] ?? null,
       });
-      return NextResponse.json({ ok: true, sent: recipients.length, to: recipients });
+      return NextResponse.json({ ok: true, sent: targets.length, to: targets, skipped: resendAll ? 0 : skipped.length, skippedTo: resendAll ? [] : skipped });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }
