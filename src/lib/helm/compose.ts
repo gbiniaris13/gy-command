@@ -126,7 +126,7 @@ Output JSON only.`;
     f.occasion ? `Occasion: ${f.occasion}` : "",
     `Supplier facts (only features you may reference):\n${f.supplier_facts}`,
   ].filter(Boolean).join("\n");
-  const raw = await aiChat(sys, user, { maxTokens: 3000, temperature: 0.6 });
+  const raw = await aiChat(sys, user, { maxTokens: 6000, temperature: 0.6 });
   const out = parseLooseJson(raw) as { description?: string; inside_info?: string };
   // Hard length cap (safety net) so the card always fits one page even if the
   // model runs long: description ~1 sentence, inside_info ~3 short sentences.
@@ -165,7 +165,7 @@ Output JSON only.`;
     f.brief ? `Client brief: ${f.brief}` : "",
     `The shortlist (cheapest first):\n${f.yacht_summary}`,
   ].filter(Boolean).join("\n");
-  const raw = await aiChat(sys, user, { maxTokens: 3000, temperature: 0.6 });
+  const raw = await aiChat(sys, user, { maxTokens: 6000, temperature: 0.6 });
   const out = parseLooseJson(raw) as { intro_letter?: string };
   return deDash(out.intro_letter || "");
 }
@@ -273,7 +273,7 @@ RULES:
     f.special_requests ? `Special requests: ${f.special_requests}` : "",
     f.details ? `Request notes (use the charter requirements ONLY - budget, embark/disembark, guests, children, preferences; NEVER include any name, villa name or contact):\n${f.details}` : "",
   ].filter(Boolean).join("\n") || "A charter request - details to follow.";
-  const raw = await aiChat(sys, user, { maxTokens: 3000, temperature: 0.6 });
+  const raw = await aiChat(sys, user, { maxTokens: 6000, temperature: 0.6 });
   const out = parseLooseJson(raw) as { subject?: string; body?: string };
   return { subject: deDash(out.subject || "Charter availability inquiry"), body: deDash(out.body || "") };
 }
@@ -381,7 +381,7 @@ TASK: Write a SHORT WhatsApp message from George (George Yachts) to ${f.agent ? 
     `Name: ${f.firstName}`,
     f.occasion ? `Occasion: ${f.occasion}` : "",
   ].filter(Boolean).join("\n");
-  const raw = await aiChat(sys, user, { maxTokens: 1200, temperature: 0.7 });
+  const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.7 });
   const out = parseLooseJson(raw) as { text?: string };
   return { text: deDash(out.text || "") };
 }
