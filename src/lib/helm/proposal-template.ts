@@ -79,6 +79,16 @@ export type SingleProposal = {
   yacht: SingleYacht;
 };
 
+/** PER-YACHT bareboat extras — OPTIONAL + additive. These belong to ONE yacht
+ *  (not the proposal) and render compactly INSIDE that yacht's money box (never
+ *  on the last page). A yacht with none of these renders exactly as before, so
+ *  the weekly/crewed flow is byte-identical when they are unset. Each yacht
+ *  carries its OWN values (Vernicos-style bareboat: "Payable at base",
+ *  "Security deposit", complimentary on-board items). NOTE: commission /
+ *  "price to agency" is INTERNAL and is NEVER part of this shape — only the
+ *  client-facing charter fee (post-discount) ever reaches the template. */
+export type PayableAtBase = { label: string; amount?: string };
+
 export type CombinedYacht = {
   name: string;
   type?: string;
@@ -92,6 +102,10 @@ export type CombinedYacht = {
   pricing?: PricingInput;
   links?: Record<string, string>;
   images?: Images;
+  /** PER-YACHT, money-box only (absent => nothing renders, weekly unchanged). */
+  payable_at_base?: PayableAtBase[];   // e.g. [{label:"Charter Pack — …", amount:"EUR 250"}]
+  security_deposit?: string;           // e.g. "EUR 3,000 refundable (card at base)"
+  free_onboard?: string[];             // e.g. ["1 SUP","Welcome Pack","Espresso maker"]
 };
 
 export type CombinedProposal = {
@@ -744,10 +758,28 @@ body{font-family:'Montserrat',sans-serif;color:var(--ivory);background:var(--nav
   );
 }
 
-function wrapPages(pages: string[], title = ""): string {
+// PER-YACHT EXTRAS (bareboat) CSS — appended to the document <style> ONLY when
+// the proposal actually carries per-yacht extras, so a proposal without them
+// (every weekly, and every stored proposal) renders byte-for-byte as before.
+// Compact block inside the money box, under the pricing rows and BEFORE
+// per-guest. Tight font + line-height so a yacht with several items still
+// clears the .pfoot footer on one A4 page; the on-board line wraps within the
+// panel padding.
+const EXTRAS_CSS = `
+.deal-extras{margin-top:2.4mm;padding-top:2.2mm;border-top:1px solid rgba(201,168,76,.14);}
+.deal-extras .ex-lab{font-family:'Cinzel',serif;letter-spacing:.22em;text-transform:uppercase;
+      font-size:6pt;color:var(--gold);margin-top:1.6mm;}
+.deal-extras .ex-lab:first-child{margin-top:0;}
+.deal-extras .ex-row{display:flex;justify-content:space-between;align-items:baseline;gap:4mm;
+      font-size:8.5pt;font-weight:300;color:var(--ivory-dim);line-height:1.3;margin-top:.8mm;}
+.deal-extras .ex-row .ex-amt{font-family:'Montserrat',sans-serif;font-weight:400;color:var(--ivory);
+      white-space:nowrap;font-variant-numeric:tabular-nums;}
+.deal-extras .ex-line{font-size:8.5pt;font-weight:300;color:var(--ivory-dim);line-height:1.35;margin-top:.8mm;}`;
+
+function wrapPages(pages: string[], title = "", extraCss = ""): string {
   return (
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${e(title)}</title>\n` +
-    `<style>${baseCss()}</style></head><body>${pages.join("")}</body></html>`
+    `<style>${baseCss()}${extraCss}</style></head><body>${pages.join("")}</body></html>`
   );
 }
 
@@ -947,6 +979,56 @@ function combinedExtraRows(ctype: CharterType, t?: Terms | null): string {
   }
   // custom
   return `<div class="deal-row muted"><span>For the agreed period</span><span class="d-amt">Inclusions per operator</span></div>`;
+}
+
+// True when a yacht carries ANY structured per-yacht bareboat extra (so we render
+// the real per-yacht block instead of the generic opt-in placeholder note).
+function hasYachtExtras(y: CombinedYacht): boolean {
+  const pab = Array.isArray(y.payable_at_base)
+    ? y.payable_at_base.filter((p) => p && typeof p.label === "string" && p.label.trim()).length
+    : 0;
+  const dep = (y.security_deposit ?? "").toString().trim();
+  const fob = Array.isArray(y.free_onboard)
+    ? y.free_onboard.map((s) => (s ?? "").toString().trim()).filter(Boolean).length
+    : 0;
+  return pab > 0 || !!dep || fob > 0;
+}
+
+// COMBINED — PER-YACHT extras block, rendered COMPACTLY inside this yacht's money
+// box (under the pricing rows, before per-guest). Each yacht carries its OWN
+// payable-at-base / security-deposit / complimentary-on-board values. Only the
+// groups with content render; an entirely empty yacht returns "" (weekly + every
+// stored proposal unchanged). NO commission / price-to-agency is ever shown.
+function yachtExtrasBlock(y: CombinedYacht): string {
+  const pab = (Array.isArray(y.payable_at_base) ? y.payable_at_base : [])
+    .filter((p) => p && typeof p.label === "string" && p.label.trim());
+  const dep = (y.security_deposit ?? "").toString().trim();
+  const fob = (Array.isArray(y.free_onboard) ? y.free_onboard : [])
+    .map((s) => (s ?? "").toString().trim())
+    .filter(Boolean);
+  if (!pab.length && !dep && !fob.length) return "";
+
+  const parts: string[] = [];
+  if (pab.length) {
+    parts.push(`<div class="ex-lab">Payable at Base</div>`);
+    for (const p of pab) {
+      const amt = (p.amount ?? "").toString().trim();
+      parts.push(
+        `<div class="ex-row"><span>${e(p.label.trim())}</span>` +
+        (amt ? `<span class="ex-amt">${e(amt)}</span>` : "") +
+        `</div>`,
+      );
+    }
+  }
+  if (dep) {
+    parts.push(`<div class="ex-lab">Security Deposit</div>`);
+    parts.push(`<div class="ex-line">${e(dep)}</div>`);
+  }
+  if (fob.length) {
+    parts.push(`<div class="ex-lab">On Board</div>`);
+    parts.push(`<div class="ex-line">${fob.map((s) => e(s)).join(" &middot; ")}</div>`);
+  }
+  return `<div class="deal-extras">${parts.join("")}</div>`;
 }
 
 // ----------------------------------------------------------------- SINGLE
@@ -1281,7 +1363,14 @@ function renderCombined(d: CombinedProposal): string {
 
   // ---- key information / closing ----
   pages.push(keyInfoPage(d));
-  return wrapPages(pages, d.white_label ? "Charter Proposal" : "Curated Selection" + (client ? ` - ${client}` : ""));
+  // Append the per-yacht extras CSS ONLY when at least one yacht carries extras,
+  // so a proposal without them is byte-identical to the pre-feature render.
+  const anyExtras = yachts.some((y) => hasYachtExtras(y));
+  return wrapPages(
+    pages,
+    d.white_label ? "Charter Proposal" : "Curated Selection" + (client ? ` - ${client}` : ""),
+    anyExtras ? EXTRAS_CSS : "",
+  );
 }
 
 // Large framed hero photo for a content page. Near full content width, gold
@@ -1327,18 +1416,34 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   // --- charter type (default weekly = unchanged render) ---
   const ctype = charterType(d);
 
+  // --- structured per-yacht bareboat extras (this yacht's OWN payable-at-base /
+  // security deposit / complimentary on-board). When present they DRIVE the
+  // money-box extras and REPLACE the generic opt-in placeholder note. ---
+  const yExtras = yachtExtrasBlock(y);
+  const yHasExtras = hasYachtExtras(y);
+
   // --- pricing rows for the deal panel ---
   let dealRows: string;
   let dealTotal = "";
   if (ctype !== "weekly") {
     // BAREBOAT / DAILY / CUSTOM — Charter fee is the headline figure (label
     // "Charter fee", NOT "all-in"; bareboat fee already includes VAT). NO
-    // APA / VAT-extra rows, NO all-in total. Compact type-appropriate notes
-    // (paid-locally extras, fuel-on-return, refundable deposit) where relevant.
+    // APA / VAT-extra rows, NO all-in total. When a discount applies, the
+    // CLIENT figure is the POST-discount net (the client NEVER sees the gross
+    // list as the price); the list is shown only as a quiet struck "was" note,
+    // and the discount line confirms the saving. Commission / price-to-agency
+    // is INTERNAL and never reaches this template at all. When this yacht has
+    // its OWN structured extras (payable-at-base / deposit / on-board) they
+    // render as a dedicated block below and REPLACE the generic placeholder.
+    const feeFigure = pr.net_after_discount || pr.charter_fee_disp || pr.headline;
+    const wasNote = pr.net_after_discount && pr.charter_fee_disp
+      ? `<div class="deal-row muted"><span>List rate</span><span class="d-amt" style="text-decoration:line-through;opacity:.7;">${pr.charter_fee_disp}</span></div>`
+      : "";
     dealRows =
-      `<div class="deal-row"><span>Charter fee</span><span class="d-amt">${pr.charter_fee_disp || pr.headline}</span></div>` +
+      `<div class="deal-row"><span>Charter fee</span><span class="d-amt">${feeFigure}</span></div>` +
+      wasNote +
       (pr.discount_note ? `<div class="deal-row muted"><span>${e(pr.discount_note)}</span><span class="d-amt"></span></div>` : "") +
-      combinedExtraRows(ctype, d.terms);
+      (yHasExtras ? "" : combinedExtraRows(ctype, d.terms));
     dealTotal = "";
   } else if (pr.all_inclusive) {
     dealRows =
@@ -1418,14 +1523,14 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   ${specClean ? `<div class="body" style="font-size:9.5pt;letter-spacing:.04em;color:var(--ivory-dim);margin-top:1.6mm;line-height:1.5;">${e(specClean)}</div>` : ""}
   ${stripHtml}
 
-  <div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", "88mm")}</div>
+  <div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", yHasExtras ? "80mm" : "88mm")}</div>
 
   ${desc ? `<p class="body" style="font-size:10.5pt;line-height:1.6;margin-top:4mm;">${e(desc)}</p>` : ""}
   ${insideHtml}
 
   <div class="deal">
     ${dealHead}
-    <div class="deal-rows">${dealRows}${dealTotal}</div>
+    <div class="deal-rows">${dealRows}${dealTotal}</div>${yExtras}
     ${perGuest}
     ${brochureLink(y.links)}
   </div>

@@ -26,11 +26,18 @@ async function readJsonSafe(r: Response): Promise<any> {
 
 type Confidence = "high" | "medium" | "low";
 type Field<T> = { value: T | null; confidence: Confidence; snippet: string };
+// PER-YACHT bareboat extras as returned by the extractor (money-box only).
+type YachtExtras = {
+  payable_at_base?: { label?: string; amount?: string }[];
+  security_deposit?: string;
+  free_onboard?: string[];
+};
 type YachtExtraction = {
   vessel_name: Field<string>;
   vessel_type: Field<string>;
   spec_line: Field<string>;
   pricing: Record<string, Field<number | string>>;
+  extras?: YachtExtras;
   seasonal_rates: { label: string; fee: number; snippet: string }[];
   dates?: { from?: Field<string>; to?: Field<string> };
   embarkation?: Field<string>;
@@ -39,7 +46,47 @@ type YachtExtraction = {
   suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: { code: string; message: string }[];
 };
-type CombinedExtraction = { yachts: YachtExtraction[] };
+type CombinedExtraction = {
+  yachts: YachtExtraction[];
+  suggested_charter_type?: CharterType;
+  suggested_terms?: Record<string, unknown>;
+};
+
+// Editor state for ONE yacht's per-yacht bareboat extras (money-box only).
+// payable_at_base = label+amount rows the owner can add/remove; security_deposit
+// = single line; free_onboard = one item per line (textarea).
+type ExtrasState = {
+  payable_at_base: { label: string; amount: string }[];
+  security_deposit: string;
+  free_onboard: string;
+};
+const EMPTY_EXTRAS: ExtrasState = { payable_at_base: [], security_deposit: "", free_onboard: "" };
+
+// Seed the per-yacht extras editor state from the extraction's extras block.
+function extrasStateFrom(x?: YachtExtras): ExtrasState {
+  const pab = (Array.isArray(x?.payable_at_base) ? x!.payable_at_base : [])
+    .map((p) => ({ label: (p?.label ?? "").toString(), amount: (p?.amount ?? "").toString() }))
+    .filter((p) => p.label.trim() || p.amount.trim());
+  return {
+    payable_at_base: pab,
+    security_deposit: (x?.security_deposit ?? "").toString(),
+    free_onboard: (Array.isArray(x?.free_onboard) ? x!.free_onboard : []).map((s) => String(s ?? "")).join("\n"),
+  };
+}
+// Build the per-yacht extras payload for the generate body (drop empties).
+function extrasPayload(s: ExtrasState): { payable_at_base?: { label: string; amount?: string }[]; security_deposit?: string; free_onboard?: string[] } {
+  const out: { payable_at_base?: { label: string; amount?: string }[]; security_deposit?: string; free_onboard?: string[] } = {};
+  const pab = s.payable_at_base
+    .map((p) => ({ label: p.label.trim(), amount: p.amount.trim() }))
+    .filter((p) => p.label)
+    .map((p) => (p.amount ? { label: p.label, amount: p.amount } : { label: p.label }));
+  if (pab.length) out.payable_at_base = pab;
+  const dep = s.security_deposit.trim();
+  if (dep) out.security_deposit = dep;
+  const fob = s.free_onboard.split("\n").map((x) => x.trim()).filter(Boolean);
+  if (fob.length) out.free_onboard = fob;
+  return out;
+}
 type MediaEntry = { main_url?: string; brochure_url?: string };
 type PriceMode = "breakdown" | "plus_extras" | "all_inclusive";
 
@@ -48,6 +95,9 @@ type YState = {
   priceMode: PriceMode;
   resolved: string[];
   vessel: { name: string; type: string; spec_line: string; embarkation: string; disembarkation: string; date_from: string; date_to: string };
+  /** PER-YACHT bareboat extras (money-box only). Seeded from extraction.extras;
+   *  editable; sent in the generate body; persisted in the review draft. */
+  extras?: ExtrasState;
   /** Excluded from the proposal (e.g. the yacht got booked meanwhile). The card
    *  stays — nothing is deleted — it is simply left out of the generated PDF. */
   excluded?: boolean;
@@ -114,6 +164,7 @@ function seedStates(ex: CombinedExtraction | null): YState[] {
       embarkation: y.embarkation?.value || "", disembarkation: y.disembarkation?.value || "",
       date_from: y.dates?.from?.value || "", date_to: y.dates?.to?.value || "",
     },
+    extras: extrasStateFrom(y.extras),
   }));
 }
 
@@ -154,15 +205,25 @@ export default function CombinedPanel({
   const router = useRouter();
   const [ex, setEx] = useState<CombinedExtraction | null>(initialExtraction);
   const [whiteLabel, setWhiteLabel] = useState(initialWhiteLabel);
-  // Charter type + crew note are proposal-level (one per combined PDF), seeded
-  // from the persisted extraction (default weekly). Sent in the generate body.
+  // Charter type + crew note are proposal-level (one per combined PDF). Charter
+  // type is seeded from the OWNER's persisted choice if present, else from the
+  // AI's auto-detected suggestion (suggested_charter_type), else weekly — the
+  // owner confirms / changes it in the selector. Sent in the generate body.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [charterType, setCharterType] = useState<CharterType>(((initialExtraction as any)?.charter_type as CharterType) ?? "weekly");
+  const [charterType, setCharterType] = useState<CharterType>(
+    ((initialExtraction as any)?.charter_type as CharterType)
+    ?? (initialExtraction?.suggested_charter_type as CharterType)
+    ?? "weekly",
+  );
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [crewNote, setCrewNote] = useState<string>(((initialExtraction as any)?.crew_note as string) ?? "");
-  // OWNER-SELECTABLE last-page terms editor state, seeded from extraction.terms.
+  // OWNER-SELECTABLE last-page terms editor state. Seeded from the OWNER's
+  // persisted terms if present, else PRE-FILLED from the AI's suggested_terms
+  // (the owner edits / clears — never auto-final).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [terms, setTerms] = useState<TermsState>(() => termsStateFromObject((initialExtraction as any)?.terms));
+  const [terms, setTerms] = useState<TermsState>(() =>
+    termsStateFromObject((initialExtraction as any)?.terms ?? initialExtraction?.suggested_terms),
+  );
   // Restore a saved review draft when it matches the current extraction
   // (same yacht count); otherwise seed fresh from the extraction.
   const [ys, setYs] = useState<YState[]>(() => {
@@ -265,6 +326,10 @@ export default function CombinedPanel({
       const next: CombinedExtraction = j.extraction?.yachts ? j.extraction : { yachts: [] };
       setEx(next);
       setYs(seedStates(next));
+      // Pre-select the auto-detected charter type + pre-fill the suggested terms
+      // (owner confirms / edits / clears). Only applies what the AI returned.
+      if (next.suggested_charter_type) setCharterType(next.suggested_charter_type);
+      if (next.suggested_terms) setTerms(termsStateFromObject(next.suggested_terms));
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
 
@@ -289,6 +354,9 @@ export default function CombinedPanel({
             vessel: { name: s.vessel.name, type: s.vessel.type, spec_line: s.vessel.spec_line, embarkation: s.vessel.embarkation, disembarkation: s.vessel.disembarkation, date_from: s.vessel.date_from, date_to: s.vessel.date_to },
             pricing: pricingOf(s.px, s.priceMode),
             content: y.content || {},
+            // PER-YACHT bareboat extras (money-box only). Empty => the route
+            // sends nothing and the template renders nothing for this yacht.
+            ...extrasPayload(s.extras ?? EMPTY_EXTRAS),
           })),
       };
       const r = await fetch(`/api/helm/${requestId}/generate`, {
@@ -659,6 +727,16 @@ export default function CombinedPanel({
                     )}
                   </div>
                 </div>
+
+                {/* PER-YACHT bareboat extras — this yacht's OWN money-box extras
+                    (payable at base, security deposit, complimentary on board).
+                    Most relevant for bareboat; shown for every non-weekly type. */}
+                {charterType !== "weekly" && (
+                  <YachtExtrasEditor
+                    value={s.extras ?? EMPTY_EXTRAS}
+                    onChange={(next) => patchY(i, { extras: next })}
+                  />
+                )}
               </div>
             );
           })}
@@ -722,6 +800,72 @@ function LinkAdder({ placeholder, disabled, onAdd }: { placeholder: string; disa
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return <label style={{ display: "block" }}><div style={fieldLabel}>{label}</div><div style={{ marginTop: 4 }}>{children}</div></label>;
 }
+
+// PER-YACHT bareboat extras editor (money-box only). Collapsed by default,
+// unobtrusive. Payable-at-base = add/remove label+amount rows; security deposit
+// = one line; complimentary on board = one item per line. These render compactly
+// INSIDE this yacht's money box (never the last page) and carry NO commission.
+function YachtExtrasEditor({ value, onChange }: { value: ExtrasState; onChange: (next: ExtrasState) => void }) {
+  const [open, setOpen] = useState(false);
+  const has = value.payable_at_base.some((p) => p.label.trim() || p.amount.trim())
+    || !!value.security_deposit.trim()
+    || !!value.free_onboard.trim();
+  const setPab = (idx: number, patch: Partial<{ label: string; amount: string }>) =>
+    onChange({ ...value, payable_at_base: value.payable_at_base.map((p, k) => (k === idx ? { ...p, ...patch } : p)) });
+  const addPab = () => onChange({ ...value, payable_at_base: [...value.payable_at_base, { label: "", amount: "" }] });
+  const removePab = (idx: number) => onChange({ ...value, payable_at_base: value.payable_at_base.filter((_, k) => k !== idx) });
+
+  return (
+    <div style={{ marginTop: 10, border: "1px solid rgba(13,27,42,0.12)", borderRadius: 2, background: "rgba(13,27,42,0.015)" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={extrasHead}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span>{open ? "▾" : "▸"}</span>
+          <span>This yacht&apos;s extras (money box)</span>
+          {has && <span style={extrasBadge}>set</span>}
+        </span>
+        <span style={{ fontSize: 11, color: "#9CA3AF", textTransform: "none", letterSpacing: 0 }}>
+          {open ? "payable at base · deposit · on board" : "optional"}
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: "10px 12px 12px" }}>
+          <div style={{ fontSize: 11.5, color: "#6b7280", marginBottom: 10, lineHeight: 1.5 }}>
+            Shown in <b>this yacht&apos;s</b> price box (not the last page). Each yacht carries its own. Leave blank to hide. Commission / price-to-agency never goes here.
+          </div>
+
+          <div style={fieldLabel}>Payable at base / obligatory extras</div>
+          {value.payable_at_base.map((p, k) => (
+            <div key={k} style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+              <input value={p.label} onChange={(e) => setPab(k, { label: e.target.value })} placeholder="e.g. Charter Pack — end cleaning, linen, gas, fuel, mooring" style={{ ...txt, flex: 1 }} />
+              <input value={p.amount} onChange={(e) => setPab(k, { amount: e.target.value })} placeholder="EUR 250" style={{ ...priceInput, width: 110 }} />
+              <button type="button" onClick={() => removePab(k)} style={{ ...ghostBtn, padding: "6px 9px", fontSize: 9 }}>✕</button>
+            </div>
+          ))}
+          <button type="button" onClick={addPab} style={{ ...ghostBtn, marginTop: 6, fontSize: 9 }}>+ Add item</button>
+
+          <div style={{ marginTop: 12 }}>
+            <div style={fieldLabel}>Security deposit</div>
+            <input value={value.security_deposit} onChange={(e) => onChange({ ...value, security_deposit: e.target.value })} placeholder="EUR 3,000 refundable (card at base)" style={{ ...txt, marginTop: 4 }} />
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <div style={fieldLabel}>Complimentary on board (one per line)</div>
+            <textarea value={value.free_onboard} onChange={(e) => onChange({ ...value, free_onboard: e.target.value })} rows={3} placeholder={"1 SUP\nWelcome Pack\nEspresso maker\nSnorkelling gear"} style={{ ...txt, marginTop: 4, resize: "vertical", lineHeight: 1.5 }} />
+          </div>
+
+          {has && (
+            <button type="button" onClick={() => onChange({ payable_at_base: [], security_deposit: "", free_onboard: "" })} style={{ ...ghostBtn, marginTop: 10, color: "#7f1d1d", borderColor: "rgba(177,74,58,0.4)", fontSize: 9 }}>
+              Clear this yacht&apos;s extras
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const extrasHead: React.CSSProperties = { width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "9px 11px", background: "transparent", border: "none", cursor: "pointer", fontSize: 10.5, letterSpacing: 1.2, textTransform: "uppercase", color: "#0D1B2A", fontWeight: 600 };
+const extrasBadge: React.CSSProperties = { fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: "#F8F5F0", background: "#3A6B47", padding: "1px 6px", borderRadius: 2 };
 
 const card: React.CSSProperties = { background: "#fff", border: "1px solid rgba(13,27,42,0.08)", padding: "14px 16px", marginTop: 14 };
 const cardLabel: React.CSSProperties = { fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", color: "#6b7280", marginBottom: 10 };

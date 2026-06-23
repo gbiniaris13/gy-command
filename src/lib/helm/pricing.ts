@@ -44,6 +44,15 @@ export type ComputedPricing = {
   all_inclusive: boolean; // true when mode === "all_inclusive"
   /** Bold owner-discount note shown above the cost rows (null when no discount). */
   discount_note: string | null;
+  /** Discounted NET charter fee as a display string, when a discount applies in
+   *  breakdown mode (null otherwise). Used by the bareboat/non-weekly money box
+   *  to show the CLIENT figure (post-discount) as the headline charter fee — the
+   *  client never sees the gross list figure as the price. Additive: the weekly
+   *  render does not read this, so weekly output is byte-identical. */
+  net_after_discount: string | null;
+  /** The raw discount percent applied (null when none). For the muted "was"
+   *  sub-line in the bareboat money box. */
+  discount_pct_applied: number | null;
   rows: [string, string][];
   all_in: string | null;
   charter_fee_disp: string;
@@ -145,6 +154,8 @@ export function computePricing(p?: PricingInput | null): ComputedPricing {
     extras_mode: false,
     all_inclusive: false,
     discount_note: null,
+    net_after_discount: null,
+    discount_pct_applied: null,
     rows: [],
     all_in: null,
     charter_fee_disp: "",
@@ -208,6 +219,9 @@ export function computePricing(p?: PricingInput | null): ComputedPricing {
   if (disc !== null) {
     out.discount_note = `The Owner is pleased to offer a ${pct(disc)} discount.`;
     out.rows.push([`Net charter fee after ${pct(disc)} discount`, fmtEur(netFee)]);
+    // CLIENT-facing post-discount figure for the bareboat/non-weekly money box.
+    out.net_after_discount = fmtEur(netFee);
+    out.discount_pct_applied = disc;
   }
 
   let apaAmt: number | null = p.apa_amount ?? null;

@@ -85,6 +85,11 @@ type CombinedInputYacht = {
     tech_specs?: [string, string][];
     crew_line?: string;
   };
+  /** PER-YACHT bareboat extras (money-box only). Optional + additive; absent =>
+   *  nothing renders (weekly/crewed unchanged). NEVER includes commission. */
+  payable_at_base?: { label?: string; amount?: string }[];
+  security_deposit?: string | null;
+  free_onboard?: string[];
 };
 
 // Assemble the per-yacht voyage line for the proposal: embark/disembark ports +
@@ -154,6 +159,34 @@ function sanitizeTerms(input: unknown): import("@/lib/helm/proposal-template").T
     if (Array.isArray(v) ? v.length : v) t[k] = v;
   }
   return Object.keys(t).length ? (t as import("@/lib/helm/proposal-template").Terms) : undefined;
+}
+
+// Sanitise the PER-YACHT bareboat extras posted by the combined review UI into
+// the CombinedYacht shape. Drops empty/whitespace entries, trims, caps for
+// safety. Returns only the keys that have content so an empty yacht stays clean
+// (absent => the template renders nothing for it; weekly/crewed unchanged).
+// IMPORTANT: this NEVER carries commission / price-to-agency — those are not in
+// the input shape and must never reach the proposal.
+function sanitizeYachtExtras(iy: CombinedInputYacht): {
+  payable_at_base?: { label: string; amount?: string }[];
+  security_deposit?: string;
+  free_onboard?: string[];
+} {
+  const out: { payable_at_base?: { label: string; amount?: string }[]; security_deposit?: string; free_onboard?: string[] } = {};
+  const pab = (Array.isArray(iy.payable_at_base) ? iy.payable_at_base : [])
+    .map((p) => ({ label: (p?.label ?? "").toString().trim(), amount: (p?.amount ?? "").toString().trim() }))
+    .filter((p) => p.label)
+    .slice(0, 20)
+    .map((p) => (p.amount ? { label: p.label, amount: p.amount } : { label: p.label }));
+  if (pab.length) out.payable_at_base = pab;
+  const dep = (iy.security_deposit ?? "").toString().trim();
+  if (dep) out.security_deposit = dep;
+  const fob = (Array.isArray(iy.free_onboard) ? iy.free_onboard : [])
+    .map((s) => (s ?? "").toString().trim())
+    .filter(Boolean)
+    .slice(0, 30);
+  if (fob.length) out.free_onboard = fob;
+  return out;
 }
 
 function buildPeriodLine(r: RequestRow): string {
@@ -338,6 +371,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         if (media.brochure_url) links.brochure = media.brochure_url;
 
         const specStrip = (Array.isArray(content.tech_specs) ? content.tech_specs : []).slice(0, 3) as [string, string][];
+        // PER-YACHT bareboat extras — this yacht's OWN money-box extras (absent
+        // => nothing renders). Commission is never in this shape.
+        const extras = sanitizeYachtExtras(iy);
         const yacht: CombinedYacht = {
           name: v.name || "Yacht",
           type: v.type || undefined,
@@ -349,6 +385,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           pricing,
           links: Object.keys(links).length ? links : undefined,
           images: mainImg ? { main: mainImg } : {},
+          ...(extras.payable_at_base ? { payable_at_base: extras.payable_at_base } : {}),
+          ...(extras.security_deposit ? { security_deposit: extras.security_deposit } : {}),
+          ...(extras.free_onboard ? { free_onboard: extras.free_onboard } : {}),
         };
         const ain = allInNumber(pricing);
         const sortKey = ain ?? (pricing.charter_fee != null ? Number(pricing.charter_fee) : Number.POSITIVE_INFINITY);

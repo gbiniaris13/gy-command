@@ -36,6 +36,32 @@ export type ExtractedPricing = {
   /** ONE fully-inclusive figure (APA+VAT+extras inside) when the supplier
    *  states "all included / fully inclusive / όλα μέσα / all-in". */
   all_inclusive_total: Field<number>;
+  /** OPTIONAL discount the supplier offered off the list rate, as a percentage
+   *  (e.g. "-18%", "18% discount" => 18). The CLIENT charter fee is the
+   *  post-discount figure (computed deterministically downstream, never here). */
+  discount_pct: Field<number>;
+  /** OPTIONAL list / gross rate BEFORE any discount, when the supplier shows
+   *  both a list price and a discounted/net price. */
+  list_price: Field<number>;
+  /** INTERNAL ONLY — the supplier's "price to agency" / "net to us" / commission
+   *  figure or commission percentage. NEVER passed to the proposal / PDF; kept
+   *  so the broker sees their margin on the review screen. The client only ever
+   *  sees the post-discount charter fee. */
+  commission_internal: Field<string>;
+};
+
+// PER-YACHT bareboat extras lifted verbatim from the supplier email (e.g.
+// Vernicos-style "Payable at base", "Security deposit", complimentary items).
+// FACTUAL, never invented; empty when the email does not state them. These flow
+// into the yacht's money box ONLY — never the last page, never commission.
+export type ExtractedYachtExtras = {
+  /** [{label, amount}] — "Payable at base" / obligatory extras, each with its
+   *  amount if stated (e.g. {label:"Charter Pack — …", amount:"EUR 250"}). */
+  payable_at_base: { label: string; amount: string }[];
+  /** Refundable deposit string as written (e.g. "EUR 3,000 refundable, card at base"). */
+  security_deposit: string;
+  /** Complimentary / free on-board items (e.g. ["1 SUP","Welcome Pack"]). */
+  free_onboard: string[];
 };
 
 export type SeasonalRate = { label: string; fee: number; snippet: string };
@@ -63,11 +89,28 @@ export type ExtractedContent = {
   crew_line: string;
 };
 
+/** Charter product type the AI auto-detects from the email language (e.g. the
+ *  word "Bareboat", "day charter", crewed/APA wording). The panel pre-selects
+ *  it; the owner confirms or changes. Absent/unknown => the panel default. */
+export type SuggestedCharterType = "weekly" | "bareboat" | "daily" | "custom";
+
+/** Proposal-level last-page terms the AI SUGGESTS (owner edits/clears in the
+ *  TermsEditor — never auto-final). All optional; empty when not stated. */
+export type SuggestedTerms = {
+  included?: string[];
+  not_included?: string[];
+  payment?: string;
+  skipper?: string;
+  cancellation?: string;
+};
+
 export type Extraction = {
   vessel_name: Field<string>;
   vessel_type: Field<string>;
   spec_line: Field<string>;
   pricing: ExtractedPricing;
+  /** PER-YACHT bareboat extras (money-box only). Empty when not stated. */
+  extras?: ExtractedYachtExtras;
   seasonal_rates: SeasonalRate[];
   dates: { from: Field<string>; to: Field<string> };
   embarkation: Field<string>;
@@ -77,6 +120,17 @@ export type Extraction = {
   suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: ExtractionFlag[];
   notes: string;
+};
+
+/** Combined-extraction envelope: the per-yacht array PLUS proposal-level
+ *  suggestions (auto-detected charter type + last-page terms). Additive: callers
+ *  that only read the yacht array are unaffected. */
+export type CombinedExtraction = {
+  yachts: Extraction[];
+  /** Auto-detected charter type for the whole proposal (panel pre-selects). */
+  suggested_charter_type?: SuggestedCharterType;
+  /** Suggested last-page terms (owner edits/clears). */
+  suggested_terms?: SuggestedTerms;
 };
 
 const SYSTEM_PROMPT = `You extract structured data from a raw yacht central-agency email so a broker (George Yachts) can build a client proposal. You are an EXTRACTOR, not a calculator.
@@ -94,8 +148,21 @@ PRICING FIELDS:
 - extras_text: set (e.g. "plus extras", "plus expenses") ONLY when the supplier gives a lump price with NO APA/VAT breakdown; also add flag PLUS_EXTRAS_NO_BREAKDOWN.
 - all_inclusive_total: if the supplier states ONE fully-inclusive figure (e.g. "all included", "fully inclusive", "all-in", Greek "όλα μέσα"), capture that single number here and set "suggested_mode":"all_inclusive". In that case do NOT fill charter_fee/apa/vat, and do NOT raise MISSING_APA (there is no separate APA). Otherwise set suggested_mode to "breakdown" (normal fee+APA+VAT) or "plus_extras" (lump + extras).
 - divide_by: if the supplier says to divide the weekly rate by a number for a short charter (e.g. "kindly divide by 6"), capture that N. If the request is clearly short but NO divisor is stated, set value null and add flag DIVIDE_BY_UNCLEAR.
+- discount_pct: if the supplier offers a discount off the list rate as a percentage (e.g. "-18%", "18% discount", "less 18%"), capture that number (18). The client charter fee is the DISCOUNTED figure (code computes it; you do NOT). If the email shows a list price AND a discounted/net price, also fill list_price with the list/gross figure and charter_fee with the DISCOUNTED client figure.
+- list_price: the list / gross rate BEFORE discount when both a list and a discounted price are shown.
+- commission_internal: INTERNAL ONLY. If the email states a "price to agency", "net to us", "price to <agency>", commission amount or commission percentage (the broker's margin), capture it here as a STRING exactly as written (e.g. "EUR 4,041 to agency", "20% commission"). This is for the broker's eyes only. NEVER let any commission / price-to-agency figure appear in charter_fee, list_price, extras, content, notes, or anywhere client-facing. The client only ever sees the post-discount charter fee.
 - currency: the currency code if stated (e.g. "EUR").
 - If no price at all is found, add flag NO_PRICE_FOUND.
+
+CHARTER TYPE (auto-detect): set "suggested_charter_type" to the product type the email describes — "bareboat" (the words "bareboat", "skippered/skipper optional", a security deposit + "payable at base" + no APA), "daily" ("day charter", "per day", a single-day cruise), "weekly" (a crewed weekly charter with APA / crew gratuity / MYBA language), or "custom" if unclear. The broker confirms it.
+
+PER-YACHT EXTRAS (bareboat-style; FACTUAL, verbatim, leave empty if not stated) — these go in the yacht's money box, NOT the last page:
+- extras.payable_at_base[]: items the charterer pays at the base (the supplier lists these under "Payable at base", "Obligatory extras", "Charter Pack", "End cleaning", "Transit log", etc.). Each as {"label":"<what it is, verbatim>","amount":"<amount as written, e.g. EUR 250>"} (amount "" if not stated).
+- extras.security_deposit: the refundable security/damage deposit as written (e.g. "EUR 3,000 refundable, by card at base"). "" if not stated.
+- extras.free_onboard[]: complimentary / free / included-on-board items (e.g. "1 SUP", "Welcome Pack", "Snorkelling gear"). [] if not stated.
+For a CREWED weekly email these are normally empty (the APA model covers them) — leave them empty, do not invent.
+
+LAST-PAGE TERMS (suggest only; the broker edits/clears them) — set "suggested_terms": {"included":[...],"not_included":[...],"payment":"...","skipper":"...","cancellation":"..."} from what the email states. Empty arrays / "" where not stated. For BAREBOAT, VAT is INCLUDED in the price — do NOT propose a separate VAT-extra row anywhere; if you note VAT, note it as included.
 
 OTHER FIELDS (factual, verbatim where possible, no invention):
 - vessel_name, vessel_type (e.g. "MOTOR YACHT", "SAILING CATAMARAN"), spec_line (short dot-separated: length/builder/year/refit).
@@ -103,10 +170,10 @@ OTHER FIELDS (factual, verbatim where possible, no invention):
 - embarkation / disembarkation: the embark and disembark ports if stated. "Athens to Mykonos" -> embarkation "Athens", disembarkation "Mykonos"; "Mykonos to Mykonos" -> both "Mykonos". If only a home port is given with no route, leave both null.
 - content (FACTUAL, verbatim, NEVER invented; leave empty if not stated): highlights[] (selling points the supplier listed), accommodation[] (cabin -> description pairs), water_toys[] (toys/tenders listed), tech_specs[] (label -> value pairs: builder/length/beam/guests/cabins/crew/speed...), crew_line (one sentence about the crew if stated). If the supplier did not state something, leave it out - never fill it in.
 
-CONFIDENTIALITY: never include the source agency/broker company name, person names, emails, phone numbers, or broker URLs ANYWHERE in your output. Strip them.
+CONFIDENTIALITY: never include the source agency/broker company name, person names, emails, phone numbers, or broker URLs ANYWHERE in your output. Strip them. NEVER surface commission / price-to-agency to any client-facing field — it lives ONLY in commission_internal.
 
 OUTPUT: a SINGLE JSON object, no markdown fences, exactly this shape:
-{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"embarkation":{"value":null,"confidence":"low","snippet":""},"disembarkation":{"value":null,"confidence":"low","snippet":""},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[{"code":"MISSING_APA","message":"..."}],"notes":""}`;
+{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...},"discount_pct":{...},"list_price":{...},"commission_internal":{"value":null,"confidence":"low","snippet":""}},"extras":{"payable_at_base":[],"security_deposit":"","free_onboard":[]},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"embarkation":{"value":null,"confidence":"low","snippet":""},"disembarkation":{"value":null,"confidence":"low","snippet":""},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","suggested_charter_type":"weekly","suggested_terms":{"included":[],"not_included":[],"payment":"","skipper":"","cancellation":""},"flags":[{"code":"MISSING_APA","message":"..."}],"notes":""}`;
 
 export async function extractSupplier(
   supplierRaw: string,
@@ -142,13 +209,35 @@ export async function extractSupplier(
   // — it only parses the single extracted token, never combines numbers.
   const numericFields: (keyof ExtractedPricing)[] = [
     "charter_fee", "apa_pct", "apa_amount", "vat_pct", "vat_amount", "divide_by", "all_inclusive_total",
+    "discount_pct", "list_price",
   ];
   for (const k of numericFields) {
     const f = parsed.pricing[k] as Field<number> | undefined;
     if (f) f.value = toNum(f.value);
   }
   for (const sr of parsed.seasonal_rates) sr.fee = toNum(sr.fee) ?? sr.fee;
+  parsed.extras = normalizeExtras(parsed.extras);
   return ensureSeasonalFlag(parsed);
+}
+
+// Normalise the per-yacht extras block to the known shape (drop empties, trim,
+// cap). Missing/malformed => an empty extras block (the template renders nothing
+// for it; weekly/crewed unchanged). FACTUAL only — never fabricates entries.
+function normalizeExtras(x: unknown): ExtractedYachtExtras {
+  const o = (x && typeof x === "object") ? (x as Record<string, unknown>) : {};
+  const pab = (Array.isArray(o.payable_at_base) ? o.payable_at_base : [])
+    .map((p) => {
+      const r = (p && typeof p === "object") ? (p as Record<string, unknown>) : {};
+      return { label: (r.label ?? "").toString().trim(), amount: (r.amount ?? "").toString().trim() };
+    })
+    .filter((p) => p.label)
+    .slice(0, 20);
+  const dep = (o.security_deposit ?? "").toString().trim();
+  const fob = (Array.isArray(o.free_onboard) ? o.free_onboard : [])
+    .map((s) => (s ?? "").toString().trim())
+    .filter(Boolean)
+    .slice(0, 30);
+  return { payable_at_base: pab, security_deposit: dep, free_onboard: fob };
 }
 
 // Parse a single numeric token (strip currency/commas/spaces). Returns null
@@ -202,17 +291,25 @@ ABSOLUTE RULES — breaking these causes a contract dispute:
 3. For every pricing field return "value" (the number exactly as written, currency symbols / spaces / thousands separators removed; e.g. "EUR 159,000" -> 159000), "confidence" ("high"/"medium"/"low"), and "snippet" (the EXACT verbatim substring it came from; "" if not found).
 
 Treat EACH yacht the supplier offers as a SEPARATE object with its OWN numbers, snippets, confidence, suggested_mode and flags. Per yacht:
-- charter_fee: the NET rate for the period. If a yacht has TWO+ seasonal rates, set its charter_fee.value=null, list them in that yacht's "seasonal_rates" (label+fee+snippet), add flag MULTIPLE_SEASONAL_RATES.
-- apa_pct AND apa_amount: whichever stated; if neither, add MISSING_APA. vat_pct AND vat_amount: whichever stated; if neither, MISSING_VAT. If APA or VAT is given as a RANGE (e.g. "35-40%", "20% to 40%"), capture the HIGHER end with confidence "low" and the range text in the snippet - never leave null just because it is a range.
+- charter_fee: the NET CLIENT rate for the period (the price the client pays, AFTER any discount, BEFORE commission). If a yacht has TWO+ seasonal rates, set its charter_fee.value=null, list them in that yacht's "seasonal_rates" (label+fee+snippet), add flag MULTIPLE_SEASONAL_RATES.
+- discount_pct: if the supplier offers a discount off the list rate as a percentage (e.g. "-18%", "18% discount", "less 30%"), capture that number. If the email shows a LIST price AND a discounted/net price, set list_price = the list/gross figure and charter_fee = the DISCOUNTED client figure. Code computes the math; you only extract. (e.g. list 6,000, -18% => list_price 6000, discount_pct 18, charter_fee 4920 if the email already states 4,920; if only the % is given, set charter_fee=null with the list_price + discount_pct so code/human resolve it.)
+- list_price: the list / gross rate BEFORE discount, when both are shown.
+- commission_internal (INTERNAL ONLY, STRING): the supplier's "price to agency", "net to us", "price to <agency>", commission amount or commission % (the broker's margin), exactly as written. This is for the broker's eyes only and MUST NEVER appear in charter_fee, list_price, extras, content, notes, or any client-facing field. The client sees only the post-discount charter fee.
+- apa_pct AND apa_amount: whichever stated; if neither, add MISSING_APA. vat_pct AND vat_amount: whichever stated; if neither, MISSING_VAT. If APA or VAT is given as a RANGE (e.g. "35-40%", "20% to 40%"), capture the HIGHER end with confidence "low" and the range text in the snippet - never leave null just because it is a range. NOTE: for BAREBOAT yachts VAT is INCLUDED in the price — do NOT raise MISSING_VAT and do NOT add a separate VAT-extra row.
 - extras_text + flag PLUS_EXTRAS_NO_BREAKDOWN: only for a lump "plus extras / plus expenses" with NO APA/VAT breakdown.
 - all_inclusive_total + "suggested_mode":"all_inclusive": if that yacht states ONE fully-inclusive figure ("all included", "fully inclusive", "all-in", Greek "ola mesa"). Then do NOT fill charter_fee/apa/vat for it and do NOT raise MISSING_APA. Otherwise suggested_mode is "breakdown" or "plus_extras".
 - divide_by (+ DIVIDE_BY_UNCLEAR if short but no divisor), currency, NO_PRICE_FOUND if that yacht has no price.
+- extras (PER-YACHT, FACTUAL, money-box only — NOT the last page; leave empty if not stated): {"payable_at_base":[{"label":"<verbatim, e.g. Charter Pack — end cleaning, linen, gas, outboard fuel, first/last night mooring>","amount":"<as written, e.g. EUR 250>"}],"security_deposit":"<verbatim, e.g. EUR 3,000 refundable, by card at base>","free_onboard":["<complimentary on-board item, e.g. 1 SUP>","Welcome Pack"]}. Bareboat emails list these under "Payable at base", "Security deposit", and free/complimentary items. For CREWED weekly yachts leave extras empty (the APA model covers them).
 - vessel_name, vessel_type, spec_line, dates.from/to, embarkation/disembarkation ports ("Athens to Mykonos" -> embarkation "Athens", disembarkation "Mykonos"; "Mykonos to Mykonos" -> both "Mykonos"; if no route stated, leave null), and content (highlights[], accommodation[][], water_toys[], tech_specs[][], crew_line) - FACTUAL, verbatim, NEVER invented; leave empty if not stated.
 
-CONFIDENTIALITY: never include the source agency/broker company name, person names, emails, phone numbers, or broker URLs anywhere. Strip them from every yacht.
+PROPOSAL-LEVEL (for the whole selection, OUTSIDE the yachts array):
+- suggested_charter_type: auto-detect the product type from the email language — "bareboat" (the words "bareboat", security deposit + "payable at base" + no APA/crew gratuity), "daily" ("day charter", "per day"), "weekly" (crewed weekly with APA / crew gratuity / MYBA language), or "custom" if unclear. The broker confirms it.
+- suggested_terms: {"included":[...],"not_included":[...],"payment":"...","skipper":"...","cancellation":"..."} from what the email states (empty where not stated). For bareboat note VAT as INCLUDED in the price, never as a separate extra. The broker edits/clears these.
+
+CONFIDENTIALITY: never include the source agency/broker company name, person names, emails, phone numbers, or broker URLs anywhere. Strip them from every yacht. NEVER surface commission / price-to-agency to any client-facing field — it lives ONLY in each yacht's commission_internal.
 
 OUTPUT: a SINGLE JSON object, no markdown fences, exactly:
-{"yachts":[{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...}},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"embarkation":{"value":null,"confidence":"low","snippet":""},"disembarkation":{"value":null,"confidence":"low","snippet":""},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[],"notes":""}]}
+{"yachts":[{"vessel_name":{"value":null,"confidence":"low","snippet":""},"vessel_type":{...},"spec_line":{...},"pricing":{"currency":{...},"charter_fee":{...},"apa_pct":{...},"apa_amount":{...},"vat_pct":{...},"vat_amount":{...},"extras_text":{...},"divide_by":{...},"all_inclusive_total":{...},"discount_pct":{...},"list_price":{...},"commission_internal":{"value":null,"confidence":"low","snippet":""}},"extras":{"payable_at_base":[],"security_deposit":"","free_onboard":[]},"seasonal_rates":[],"dates":{"from":{...},"to":{...}},"embarkation":{"value":null,"confidence":"low","snippet":""},"disembarkation":{"value":null,"confidence":"low","snippet":""},"content":{"highlights":[],"accommodation":[],"water_toys":[],"tech_specs":[],"crew_line":""},"suggested_mode":"breakdown","flags":[],"notes":""}],"suggested_charter_type":"weekly","suggested_terms":{"included":[],"not_included":[],"payment":"","skipper":"","cancellation":""}}
 If only one yacht is offered, return an array with one element. NEVER do math.`;
 
 // Numeric/array coercion + defaults for one extracted yacht. Mirrors the
@@ -226,19 +323,43 @@ function coerceYacht(y: Extraction): Extraction {
   }
   const numericFields: (keyof ExtractedPricing)[] = [
     "charter_fee", "apa_pct", "apa_amount", "vat_pct", "vat_amount", "divide_by", "all_inclusive_total",
+    "discount_pct", "list_price",
   ];
   for (const k of numericFields) {
     const f = y.pricing[k] as Field<number> | undefined;
     if (f) f.value = toNum(f.value);
   }
   for (const sr of y.seasonal_rates) sr.fee = toNum(sr.fee) ?? sr.fee;
+  y.extras = normalizeExtras(y.extras);
   return ensureSeasonalFlag(y);
+}
+
+// Validate the auto-detected charter type to the 4 known values; anything else
+// (or absent) is dropped so the panel keeps its own default.
+function coerceCharterType(v: unknown): SuggestedCharterType | undefined {
+  const s = (v ?? "").toString().trim().toLowerCase();
+  return s === "weekly" || s === "bareboat" || s === "daily" || s === "custom" ? (s as SuggestedCharterType) : undefined;
+}
+
+// Normalise the proposal-level suggested terms (drop empties). undefined when
+// nothing usable, so the panel's TermsEditor seeds empty (owner opts in).
+function coerceSuggestedTerms(v: unknown): SuggestedTerms | undefined {
+  const o = (v && typeof v === "object") ? (v as Record<string, unknown>) : {};
+  const arr = (x: unknown) => (Array.isArray(x) ? x.map((s) => (s ?? "").toString().trim()).filter(Boolean).slice(0, 40) : []);
+  const str = (x: unknown) => (x ?? "").toString().trim();
+  const out: SuggestedTerms = {};
+  const inc = arr(o.included); if (inc.length) out.included = inc;
+  const ninc = arr(o.not_included); if (ninc.length) out.not_included = ninc;
+  const pay = str(o.payment); if (pay) out.payment = pay;
+  const skip = str(o.skipper); if (skip) out.skipper = skip;
+  const can = str(o.cancellation); if (can) out.cancellation = can;
+  return Object.keys(out).length ? out : undefined;
 }
 
 export async function extractSupplierYachts(
   supplierRaw: string,
   brief?: string,
-): Promise<Extraction[]> {
+): Promise<CombinedExtraction> {
   const userMsg = [
     brief ? `Broker brief / context: ${brief}` : "",
     "SUPPLIER EMAIL(S) — extract every yacht from this only:",
@@ -254,9 +375,9 @@ export async function extractSupplierYachts(
   // not enough for 2+ yachts with long spec/content; 24000 leaves headroom
   // (you only pay for tokens actually generated).
   const raw = await aiChat(MULTI_SYSTEM, userMsg, { maxTokens: 24000, temperature: 0 });
-  let parsed: { yachts?: unknown };
+  let parsed: { yachts?: unknown; suggested_charter_type?: unknown; suggested_terms?: unknown };
   try {
-    parsed = parseLooseJson(raw) as { yachts?: unknown };
+    parsed = parseLooseJson(raw) as { yachts?: unknown; suggested_charter_type?: unknown; suggested_terms?: unknown };
   } catch {
     const looksCut = !raw.trimEnd().endsWith("}");
     throw new Error(
@@ -267,5 +388,11 @@ export async function extractSupplierYachts(
   }
   const arr = Array.isArray(parsed?.yachts) ? parsed.yachts : [];
   if (!arr.length) throw new Error("Multi-yacht extraction found no yachts in the supplier email.");
-  return arr.map((y) => coerceYacht(y as Extraction));
+  const yachts = arr.map((y) => coerceYacht(y as Extraction));
+  const out: CombinedExtraction = { yachts };
+  const sct = coerceCharterType(parsed?.suggested_charter_type);
+  if (sct) out.suggested_charter_type = sct;
+  const st = coerceSuggestedTerms(parsed?.suggested_terms);
+  if (st) out.suggested_terms = st;
+  return out;
 }

@@ -44,13 +44,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   try {
     // Extract ONLY from the new text — the earlier yachts are never re-extracted.
-    const added = await extractSupplierYachts(text, r.brief || undefined);
+    // The returned envelope carries the new yachts (+ proposal-level suggestions);
+    // we APPEND only the yachts and never disturb the existing cards/suggestions.
+    const result = await extractSupplierYachts(text, r.brief || undefined);
+    const added = result.yachts;
     if (!added.length) {
       return NextResponse.json({ error: "No yachts found in the pasted text. Check it and try again." }, { status: 400 });
     }
 
-    const existing = (r.extraction && Array.isArray(r.extraction.yachts)) ? r.extraction.yachts : [];
-    const extraction = { yachts: [...existing, ...added] };
+    const ex = (r.extraction && typeof r.extraction === "object") ? r.extraction : {};
+    const existing = Array.isArray(ex.yachts) ? ex.yachts : [];
+    // Preserve the existing proposal-level suggestions / settings (charter type,
+    // terms, white_label, featured_index, …) — only the yacht list grows.
+    const extraction = { ...ex, yachts: [...existing, ...added] };
     await saveExtraction(id, extraction);
 
     // Keep the full supplier history on the record (internal only).

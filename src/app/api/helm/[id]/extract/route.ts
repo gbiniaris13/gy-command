@@ -38,8 +38,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     // with its own numbers + snippets + confidence + STOP flags). Single mode
     // → one yacht as before. NOTHING is computed here.
     if (r.mode === "combined") {
-      const yachts = await extractSupplierYachts(r.supplier_raw, r.brief || undefined);
-      const extraction = { yachts };
+      // CombinedExtraction = { yachts, suggested_charter_type?, suggested_terms? }.
+      // The panel pre-selects the auto-detected charter type + seeds the terms
+      // editor from the suggestions (the owner confirms / edits / clears).
+      const extraction = await extractSupplierYachts(r.supplier_raw, r.brief || undefined);
       await saveExtraction(id, extraction);
       return NextResponse.json({ ok: true, extraction });
     }
