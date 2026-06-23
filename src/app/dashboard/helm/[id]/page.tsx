@@ -153,6 +153,8 @@ export default async function HelmDetailPage({
           initialMedia={(r.combined_media && typeof r.combined_media === "object") ? r.combined_media : {}}
           cloudinaryConfigured={isCloudinaryConfigured()}
           initialDraft={r.review_draft ?? null}
+          isAgent={r.request_type === "travel_agent"}
+          initialWhiteLabel={!!(r.extraction && typeof r.extraction === "object" && (r.extraction as Record<string, unknown>).white_label === true)}
         />
       ) : (
         <GeneratePanel
@@ -165,8 +167,13 @@ export default async function HelmDetailPage({
           emailSubject={r.email_subject ?? null}
           emailIntro={r.email_intro ?? null}
           initialDraft={r.review_draft ?? null}
+          isAgent={r.request_type === "travel_agent"}
+          initialWhiteLabel={!!(r.extraction && typeof r.extraction === "object" && (r.extraction as Record<string, unknown>).white_label === true)}
         />
       )}
+
+      {/* open signal — did the client follow the shared proposal link? */}
+      {r.proposal_pdf_path && <OpenSignal extraction={r.extraction} />}
 
       {/* send proposal + capture replies (after the PDF is generated) */}
       {r.proposal_pdf_path && (
@@ -240,6 +247,48 @@ export default async function HelmDetailPage({
 
       {/* actions */}
       <HelmDetailActions requestId={r.id} />
+    </div>
+  );
+}
+
+// Tracked-link open signal. extraction.opens is written by /p/<token>
+// when a real human follows the shared proposal link (preview crawlers
+// are ignored). Shows a gold chip with the count + first-open date, or
+// a muted "not opened yet" once a proposal exists.
+function OpenSignal({ extraction }: { extraction: unknown }) {
+  const ex =
+    extraction && typeof extraction === "object"
+      ? (extraction as Record<string, unknown>)
+      : null;
+  const opens =
+    ex && ex.opens && typeof ex.opens === "object"
+      ? (ex.opens as { count?: number; first_at?: string })
+      : null;
+  const count = opens?.count ?? 0;
+
+  if (count > 0) {
+    return (
+      <div style={{
+        marginTop: 14, display: "inline-flex", alignItems: "center", gap: 8,
+        padding: "6px 12px", background: "rgba(201,168,76,0.12)",
+        border: "1px solid rgba(201,168,76,0.45)", borderRadius: 2,
+        fontSize: 12, color: "#0D1B2A",
+      }}>
+        <span style={{ color: "#C9A84C", fontSize: 14, lineHeight: 1 }}>●</span>
+        <span>
+          Client opened the proposal · {count} time{count === 1 ? "" : "s"}
+          {opens?.first_at ? ` · first ${fmtDate(opens.first_at)}` : ""}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      marginTop: 14, fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase",
+      color: "#9CA3AF",
+    }}>
+      Not opened yet
     </div>
   );
 }

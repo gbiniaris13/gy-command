@@ -97,7 +97,7 @@ function pricingOf(px: Record<string, string>, mode: PriceMode): PricingInput {
 }
 
 export default function CombinedPanel({
-  requestId, surname, initialExtraction, pdfPath, emailSubject, emailIntro, initialMedia, cloudinaryConfigured, initialDraft,
+  requestId, surname, initialExtraction, pdfPath, emailSubject, emailIntro, initialMedia, cloudinaryConfigured, initialDraft, isAgent, initialWhiteLabel,
 }: {
   requestId: string;
   surname: string | null;
@@ -108,9 +108,12 @@ export default function CombinedPanel({
   initialMedia: Record<string, MediaEntry>;
   cloudinaryConfigured: boolean;
   initialDraft: { mode?: string; yachts?: YState[] } | null;
+  isAgent: boolean;
+  initialWhiteLabel: boolean;
 }) {
   const router = useRouter();
   const [ex, setEx] = useState<CombinedExtraction | null>(initialExtraction);
+  const [whiteLabel, setWhiteLabel] = useState(initialWhiteLabel);
   // Restore a saved review draft when it matches the current extraction
   // (same yacht count); otherwise seed fresh from the extraction.
   const [ys, setYs] = useState<YState[]>(() => {
@@ -122,6 +125,10 @@ export default function CombinedPanel({
     return seedStates(initialExtraction);
   });
   const [media, setMedia] = useState<Record<string, MediaEntry>>(initialMedia || {});
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [featuredIdx, setFeaturedIdx] = useState<number | null>(
+    typeof (initialExtraction as any)?.featured_index === "number" ? (initialExtraction as any).featured_index : null,
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
@@ -218,6 +225,7 @@ export default function CombinedPanel({
     try {
       const payload = {
         mode: "combined",
+        white_label: whiteLabel,
         // Excluded yachts are left out of the PDF. media_index = the ORIGINAL
         // card index, so each remaining yacht keeps ITS OWN photos/brochure
         // server-side even when an earlier card is excluded.
@@ -236,6 +244,24 @@ export default function CombinedPanel({
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "generate-failed");
+      router.refresh();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+
+  // ---- feature: pin one yacht as the lead / cover ----
+  // Calls the curate endpoint; the generate route reads extraction.featured_index
+  // to put this yacht first (cover + lead) while the rest keep the price ladder.
+  async function toggleFeature(i: number) {
+    const next = featuredIdx === i ? null : i;
+    setBusy(`feat-${i}`); setError(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}/yachts`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: next === null ? "unfeature" : "feature", index: i }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "feature-failed");
+      setFeaturedIdx(next);
       router.refresh();
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
@@ -308,6 +334,15 @@ export default function CombinedPanel({
             <b>Proposal generated.</b> Open it for a final check, edit any yacht below, then press <b>Generate</b> at the bottom to update it.
           </div>
           <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>Open current PDF ↗</a>
+          {!isAgent && (
+            <label style={wlToggle}>
+              <input type="checkbox" checked={whiteLabel} onChange={(e) => setWhiteLabel(e.target.checked)} style={{ marginTop: 2 }} />
+              <span>
+                <span style={{ fontSize: 12.5, color: "#1f2937", fontWeight: 600 }}>White-label this PDF (remove all George Yachts identity — for forwarding)</span>
+                <span style={{ display: "block", fontSize: 11.5, color: "#9CA3AF", marginTop: 2 }}>Re-press Generate to apply. Logos and George-voice copy are stripped; the client can forward it as their own.</span>
+              </span>
+            </label>
+          )}
           {emailSubject && (<div style={{ marginTop: 12 }}><div style={fieldLabel}>Email subject</div><div style={{ fontSize: 14, color: "#1f2937", marginTop: 2 }}>{emailSubject}</div></div>)}
           {emailIntro && (<div style={{ marginTop: 10 }}><div style={fieldLabel}>Email body</div><pre style={emailPre}>{emailIntro}</pre></div>)}
         </div>
@@ -340,10 +375,24 @@ export default function CombinedPanel({
                   <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#0D1B2A", fontWeight: 600, textDecoration: s.excluded ? "line-through" : "none" }}>
                     Yacht {i + 1}: {s.vessel.name || y.vessel_name?.value || "(unnamed)"}
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    {featuredIdx === i && !s.excluded && (
+                      <span style={{ fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: "#F8F5F0", background: "#0D1B2A", padding: "2px 7px", borderRadius: 2 }}>Lead</span>
+                    )}
                     <span style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: s.excluded ? "#9CA3AF" : ready ? "#3A6B47" : "#B07A2C" }}>
                       {s.excluded ? "excluded from proposal" : ready ? "ready ✓" : "needs review"}
                     </span>
+                    {!s.excluded && (
+                      <button
+                        type="button"
+                        onClick={() => toggleFeature(i)}
+                        disabled={busy !== null}
+                        title={featuredIdx === i ? "Unpin — return to the cheapest→priciest order" : "Pin as the lead — goes on the cover and first; the rest keep the price order"}
+                        style={{ ...ghostBtn, padding: "5px 10px", fontSize: 9, ...(featuredIdx === i ? { background: "#0D1B2A", color: "#F8F5F0", borderColor: "#C9A84C" } : {}) }}
+                      >
+                        {busy === `feat-${i}` ? "…" : featuredIdx === i ? "Lead ✓ — click to unpin" : "Make lead"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => patchY(i, { excluded: !s.excluded })}
@@ -576,5 +625,6 @@ const stopBox: React.CSSProperties = { background: "rgba(177,74,58,0.08)", borde
 const warnBox: React.CSSProperties = { background: "rgba(176,122,44,0.08)", border: "1px solid rgba(176,122,44,0.4)", color: "#7c4a03", padding: "8px 12px", margin: "10px 0", fontSize: 12.5 };
 const pdfLink: React.CSSProperties = { display: "inline-block", background: "#0D1B2A", color: "#F8F5F0", border: "1px solid #C9A84C", padding: "10px 18px", textDecoration: "none", fontSize: 10, letterSpacing: 2, textTransform: "uppercase" };
 const generatedBanner: React.CSSProperties = { background: "rgba(58,107,71,0.07)", border: "1px solid rgba(58,107,71,0.35)", padding: "12px 14px", margin: "10px 0 14px", borderRadius: 2 };
+const wlToggle: React.CSSProperties = { display: "flex", gap: 8, alignItems: "flex-start", marginTop: 12, padding: "10px 12px", background: "#fff", border: "1px solid rgba(13,27,42,0.12)", borderRadius: 2, cursor: "pointer" };
 const emailPre: React.CSSProperties = { whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.55, color: "#1f2937", marginTop: 4, background: "rgba(13,27,42,0.03)", padding: 12 };
 const errStyle: React.CSSProperties = { color: "#b91c1c", fontSize: 12, marginTop: 8 };

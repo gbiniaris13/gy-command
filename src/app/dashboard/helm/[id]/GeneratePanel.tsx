@@ -75,7 +75,7 @@ function pricingOf(px: Record<string, string>, mode: "breakdown" | "plus_extras"
 type SingleVessel = { name: string; type: string; spec_line: string; period_line: string; price_sub: string; embarkation: string; disembarkation: string; date_from: string; date_to: string };
 
 export default function GeneratePanel({
-  requestId, hasSupplier, surname, mode, initialExtraction, pdfPath, emailSubject, emailIntro, initialDraft,
+  requestId, hasSupplier, surname, mode, initialExtraction, pdfPath, emailSubject, emailIntro, initialDraft, isAgent, initialWhiteLabel,
 }: {
   requestId: string;
   hasSupplier: boolean;
@@ -86,9 +86,12 @@ export default function GeneratePanel({
   emailSubject: string | null;
   emailIntro: string | null;
   initialDraft: { mode?: string; px?: Record<string, string>; priceMode?: "breakdown" | "plus_extras" | "all_inclusive"; resolved?: string[]; vessel?: SingleVessel } | null;
+  isAgent: boolean;
+  initialWhiteLabel: boolean;
 }) {
   const router = useRouter();
   const [ex, setEx] = useState<Extraction | null>(initialExtraction);
+  const [whiteLabel, setWhiteLabel] = useState(initialWhiteLabel);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -180,6 +183,7 @@ export default function GeneratePanel({
           pricing: pricingOf(px, priceMode),
           content: ex?.content || {},
           details: [],
+          white_label: whiteLabel,
         }),
       });
       const j = await r.json();
@@ -200,6 +204,15 @@ export default function GeneratePanel({
             <b>Proposal generated.</b> Open it for a final check, edit below, then press <b>Generate</b> at the bottom to update it.
           </div>
           <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>Open current PDF ↗</a>
+          {!isAgent && (
+            <label style={wlToggle}>
+              <input type="checkbox" checked={whiteLabel} onChange={(e) => setWhiteLabel(e.target.checked)} style={{ marginTop: 2 }} />
+              <span>
+                <span style={{ fontSize: 12.5, color: "#1f2937", fontWeight: 600 }}>White-label this PDF (remove all George Yachts identity — for forwarding)</span>
+                <span style={{ display: "block", fontSize: 11.5, color: "#9CA3AF", marginTop: 2 }}>Re-press Generate below to apply. Logos and George-voice copy are stripped; the agent/client can forward it as their own.</span>
+              </span>
+            </label>
+          )}
           {emailSubject && (<div style={{ marginTop: 12 }}><div style={fieldLabel}>Email subject</div><div style={{ fontSize: 14, color: "#1f2937", marginTop: 2 }}>{emailSubject}</div></div>)}
           {emailIntro && (<div style={{ marginTop: 10 }}><div style={fieldLabel}>Email body</div><pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 13.5, lineHeight: 1.55, color: "#1f2937", marginTop: 4, background: "rgba(13,27,42,0.03)", padding: 12 }}>{emailIntro}</pre></div>)}
         </div>
@@ -385,4 +398,5 @@ const stopBox: React.CSSProperties = { background: "rgba(177,74,58,0.08)", borde
 const warnBox: React.CSSProperties = { background: "rgba(176,122,44,0.08)", border: "1px solid rgba(176,122,44,0.4)", color: "#7c4a03", padding: "8px 12px", margin: "10px 0", fontSize: 12.5 };
 const pdfLink: React.CSSProperties = { display: "inline-block", background: "#0D1B2A", color: "#F8F5F0", border: "1px solid #C9A84C", padding: "10px 18px", textDecoration: "none", fontSize: 10, letterSpacing: 2, textTransform: "uppercase" };
 const generatedBanner: React.CSSProperties = { background: "rgba(58,107,71,0.07)", border: "1px solid rgba(58,107,71,0.35)", padding: "12px 14px", margin: "10px 0 14px", borderRadius: 2 };
+const wlToggle: React.CSSProperties = { display: "flex", gap: 8, alignItems: "flex-start", marginTop: 12, padding: "10px 12px", background: "#fff", border: "1px solid rgba(13,27,42,0.12)", borderRadius: 2, cursor: "pointer" };
 const errStyle: React.CSSProperties = { color: "#b91c1c", fontSize: 12, marginTop: 8 };

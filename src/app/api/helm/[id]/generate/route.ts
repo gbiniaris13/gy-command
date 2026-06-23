@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { getRequest, saveGenerated } from "@/lib/helm-admin";
+import { getRequest, saveGenerated, saveExtraction } from "@/lib/helm-admin";
 import { computePricing, allInNumber, type PricingInput } from "@/lib/helm/pricing";
 import { composeSingleNarrative, composeEmail, composeYachtInsideInfo, composeCombinedIntro } from "@/lib/helm/compose";
 import { buildSingleProposal, buildCombinedProposal, formalAddress } from "@/lib/helm/build";
@@ -16,6 +16,7 @@ import { renderProposalPdf } from "@/lib/helm/render";
 import { uploadProposalPdf } from "@/lib/helm/storage";
 import { optimizedUrl } from "@/lib/helm/cloudinary";
 import { assertWhiteLabelClean } from "@/lib/helm/whitelabel";
+import { fleetPhotosForNames } from "@/lib/helm/fleet-photo";
 
 export const runtime = "nodejs";
 // Combined mode composes copy for N yachts + the intro letter before rendering,
@@ -49,6 +50,10 @@ type RequestRow = {
   vessel_photos?: { url?: string; source?: string }[] | null;
   brochure_url?: string | null;
   combined_media?: Record<string, { main_url?: string | null; brochure_url?: string | null }> | null;
+  // JSON column holding the built yachts + UI metadata (e.g. featured_index for
+  // the pinned lead/cover, and the per-request white_label override). Read at
+  // the use site; declared here so the property access type-checks.
+  extraction?: Record<string, unknown> | null;
 };
 
 // One yacht as posted by the combined review UI (confirmed numbers + facts).
@@ -145,10 +150,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const mode = body.mode || r.mode || "single";
 
-  // Travel-agent white-label: the attached PDF must carry NO George Yachts
-  // identity (anonymous PDF copy + neutral footer + a hard deny-list guard
-  // before finalizing). The agent email itself stays George-voice (B2B).
-  const whiteLabel = r.request_type === "travel_agent";
+  // White-label: travel agents are ALWAYS white-label (the attached PDF must
+  // carry NO George Yachts identity — anonymous copy + neutral footer + a hard
+  // deny-list guard before finalizing; the agent email itself stays George-voice
+  // (B2B)). Direct clients are George-branded by default, but George can convert
+  // a generated proposal to white-label via a per-request toggle — persisted in
+  // extraction.white_label so it survives refresh + regenerate.
+  const exForWL = (r.extraction && typeof r.extraction === "object")
+    ? (r.extraction as Record<string, unknown>) : {};
+  const wlPersisted = typeof exForWL.white_label === "boolean" ? (exForWL.white_label as boolean) : null;
+  const wlBody = typeof body.white_label === "boolean" ? (body.white_label as boolean) : null;
+  const whiteLabel = r.request_type === "travel_agent"
+    ? true
+    : (wlBody !== null ? wlBody : (wlPersisted ?? false));
+
+  // Persist a direct-client white-label toggle so it survives refresh +
+  // regenerate. Spread the existing extraction so featured_index / yachts
+  // (re-read later in the combined branch) are NOT dropped.
+  if (wlBody !== null && r.request_type !== "travel_agent") {
+    await saveExtraction(id, { ...exForWL, white_label: whiteLabel });
+  }
 
   // FORMAL ADDRESSING — never a bare first name. No surname => stop and ask.
   const addr = formalAddress({ title: r.client_title, surname: r.client_surname, isFamily: r.client_is_family });
@@ -186,6 +207,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     try {
       const combinedMedia = (r.combined_media && typeof r.combined_media === "object") ? r.combined_media : {};
+
+      // Auto-attach REAL fleet photos when a proposed yacht is one of our own
+      // (exact normalized-name match). Fetched ONCE here (not per yacht), and
+      // only fills a yacht that has NO manual main_url — manual media always
+      // wins. Skipped for white-label (the agent presents it as their own).
+      const fleetPhotos = whiteLabel
+        ? {}
+        : await fleetPhotosForNames(inYachts.map((iy) => iy.vessel?.name || ""));
 
       // Build each yacht (compute pricing + compose copy + embed its photo) in
       // parallel, then sort. allInNumber is the deterministic sort key.
@@ -230,7 +259,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // per-yacht media, keyed by the ORIGINAL card index (media_index) so an
         // excluded yacht earlier in the list never shifts another yacht's photos.
         const media = combinedMedia[String(iy.media_index ?? i)] || {};
-        const mainImg = media.main_url ? await toDataUri(optimizedUrl(media.main_url)) : null;
+        // Manual main photo wins. If absent, fall back to a REAL fleet photo
+        // when this yacht is one of our own (exact-name match; [] otherwise).
+        const fleetMain = media.main_url ? "" : (fleetPhotos[v.name || ""]?.[0] || "");
+        const mainSrc = media.main_url || fleetMain;
+        const mainImg = mainSrc ? await toDataUri(optimizedUrl(mainSrc)) : null;
         const links: Record<string, string> = {};
         // Operator-vetted: include the brochure link as provided (George confirms white-label).
         if (media.brochure_url) links.brochure = media.brochure_url;
@@ -253,15 +286,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         return { yacht, sortKey };
       }));
 
-      built.sort((a, b) => a.sortKey - b.sortKey);
-      const sorted = built.map((b) => b.yacht);
-      // tier labels at the ends (only when there is a genuine spread)
-      if (sorted.length >= 2) {
-        sorted[0].tier_label = "The Considered Value";
-        sorted[sorted.length - 1].tier_label = "The Statement";
+      // Order: by default the deterministic cheapest→priciest value-ladder.
+      // If George pinned a "lead" yacht (extraction.featured_index), that one
+      // goes first (cover + lead) and the REST keep the price-ladder among
+      // themselves. featured_index refers to the input/built order.
+      const featuredIndex: number | null =
+        typeof exForWL.featured_index === "number" ? (exForWL.featured_index as number) : null;
+
+      let sorted: CombinedYacht[];
+      if (featuredIndex !== null && featuredIndex >= 0 && featuredIndex < built.length) {
+        const feat = built[featuredIndex];
+        const rest = built.filter((_, i) => i !== featuredIndex).sort((a, b) => a.sortKey - b.sortKey);
+        feat.yacht.tier_label = "Our Recommendation";
+        if (rest.length >= 2) {
+          rest[0].yacht.tier_label = "The Considered Value";
+          rest[rest.length - 1].yacht.tier_label = "The Statement";
+        }
+        sorted = [feat.yacht, ...rest.map((b) => b.yacht)];
+      } else {
+        built.sort((a, b) => a.sortKey - b.sortKey);
+        sorted = built.map((b) => b.yacht);
+        // tier labels at the ends (only when there is a genuine spread)
+        if (sorted.length >= 2) {
+          sorted[0].tier_label = "The Considered Value";
+          sorted[sorted.length - 1].tier_label = "The Statement";
+        }
       }
 
-      // cover image = the cheapest yacht's photo if any has one
+      // cover image = the lead/first yacht's photo (falls back to the first
+      // yacht that has one)
       const images: Record<string, string | null> = {};
       const withPhoto = sorted.find((y) => y.images?.main);
       if (withPhoto?.images?.main) images.cover = withPhoto.images.main as string;
@@ -381,7 +434,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const photoUrls = (Array.isArray(r.vessel_photos) ? r.vessel_photos : [])
       .map((p) => p?.url)
       .filter((u): u is string => !!u);
-    const dataUris = await Promise.all(photoUrls.map((u) => toDataUri(optimizedUrl(u))));
+    // Auto-attach REAL fleet photos ONLY when no manual photo was uploaded and
+    // this isn't white-label. Exact normalized-name match; [] otherwise. Manual
+    // photos always win. Inside the try/catch so a Sanity hiccup never fails gen.
+    const sourceUrls = (photoUrls.length === 0 && !whiteLabel)
+      ? (await fleetPhotosForNames([v.name || ""]))[v.name || ""] || []
+      : photoUrls;
+    const dataUris = await Promise.all(sourceUrls.map((u) => toDataUri(optimizedUrl(u))));
     const imgs = dataUris.filter((d): d is string => !!d);
     const mediaImages: Record<string, string | null> = {};
     const SLOTS = ["cover", "experience", "interior1", "interior2", "exterior", "closing"];

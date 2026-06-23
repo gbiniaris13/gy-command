@@ -10,6 +10,7 @@ import { getRequest, markRequestSent, logHelmMessage } from "@/lib/helm-admin";
 import { downloadProposalPdf } from "@/lib/helm/storage";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
 import { PARTNERSHIP_PDF_BASE64, PARTNERSHIP_PDF_FILENAME } from "@/lib/helm/partnership-pdf.generated";
+import { addSubscribers } from "@/lib/newsletter-proxy";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -88,7 +89,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       gmail_message_id: sent.messageId,
     });
 
-    return NextResponse.json({ ok: true, messageId: sent.messageId, threadId: sent.threadId });
+    // Auto-grow the newsletter audience from every proposal we actually send:
+    // a DIRECT CLIENT → "bridge" (clients), a TRAVEL AGENT → "wake" (the agent's
+    // own email is in client_email for travel_agent). Best-effort — it never
+    // blocks or fails the send, and the proxy de-dupes + records consent source.
+    // send_welcome is OFF so we don't fire a second email on top of the proposal.
+    let newsletterSync: { ok: boolean; stream: string; added?: number; error?: string } | null = null;
+    try {
+      const stream = isAgent ? "wake" : "bridge";
+      const res = await addSubscribers({ stream, emails: [to], source: "helm_request", send_welcome: false });
+      newsletterSync = { ok: true, stream, added: res.added };
+    } catch (e) {
+      newsletterSync = { ok: false, stream: isAgent ? "wake" : "bridge", error: (e as Error).message };
+      console.warn("[helm/send] newsletter auto-add failed:", (e as Error).message);
+    }
+
+    return NextResponse.json({ ok: true, messageId: sent.messageId, threadId: sent.threadId, newsletterSync });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

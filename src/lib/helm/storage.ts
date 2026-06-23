@@ -28,3 +28,19 @@ export async function downloadProposalPdf(path: string): Promise<Uint8Array> {
   if (error || !data) throw new Error(`storage download failed: ${error?.message ?? "no data"}`);
   return new Uint8Array(await data.arrayBuffer());
 }
+
+/** Time-limited signed URL to the (private) proposal PDF — for sharing by
+ *  WhatsApp or manually, without making the bucket public. Default 7 days. */
+export async function getSignedProposalUrl(
+  path: string,
+  expiresIn = 7 * 24 * 3600,
+): Promise<string> {
+  const db = createServiceClient();
+  const { data, error } = await db.storage
+    .from(PROPOSALS_BUCKET)
+    .createSignedUrl(path, expiresIn);
+  if (error || !data?.signedUrl) {
+    throw new Error(`signed URL failed: ${error?.message ?? "no url"}`);
+  }
+  return data.signedUrl;
+}

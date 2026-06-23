@@ -5,7 +5,7 @@
 // the request (status 'new') and link/create the contact by email.
 // Generating the proposal + email comes from the detail page later.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -38,6 +38,33 @@ export default function NewHelmRequestPage() {
 
   function set<K extends keyof typeof f>(k: K, v: (typeof f)[K]) {
     setF((prev) => ({ ...prev, [k]: v }));
+  }
+
+  // Address book — recent contacts from past requests, for autocomplete.
+  type BookContact = {
+    email: string; name: string | null; surname: string | null;
+    title: string | null; whatsapp: string | null; request_type: string | null;
+  };
+  const [book, setBook] = useState<BookContact[]>([]);
+  useEffect(() => {
+    fetch("/api/helm/contacts-suggest")
+      .then((r) => r.json())
+      .then((j) => setBook(Array.isArray(j.contacts) ? j.contacts : []))
+      .catch(() => {});
+  }, []);
+
+  // When the typed email matches a known contact, prefill their details
+  // (picking from the address book = "use this person").
+  function onEmailChange(v: string) {
+    set("client_email", v);
+    const hit = book.find((c) => c.email?.trim().toLowerCase() === v.trim().toLowerCase());
+    if (hit) {
+      if (hit.request_type === "direct_client" || hit.request_type === "travel_agent") set("request_type", hit.request_type);
+      if (hit.surname) set("client_surname", hit.surname);
+      if (hit.name) set("client_name", hit.name);
+      if (hit.title) set("client_title", hit.title);
+      if (hit.whatsapp) set("client_whatsapp", hit.whatsapp);
+    }
   }
 
   const agent = f.request_type === "travel_agent";
@@ -130,7 +157,14 @@ export default function NewHelmRequestPage() {
           </label>
         )}
         <div style={grid2}>
-          <Input label={agent ? "Agent email" : "Email"} type="email" value={f.client_email} onChange={(v) => set("client_email", v)} placeholder="name@example.com" />
+          <Input label={agent ? "Agent email" : "Email"} type="email" value={f.client_email} onChange={onEmailChange} placeholder="name@example.com" list="helm-contacts" />
+          <datalist id="helm-contacts">
+            {book.map((c) => (
+              <option key={c.email} value={c.email}>
+                {[c.title, c.surname, c.name].filter(Boolean).join(" ")}{c.request_type === "travel_agent" ? " · agent" : ""}
+              </option>
+            ))}
+          </datalist>
           <Input label={agent ? "Agent WhatsApp / phone" : "WhatsApp / phone"} value={f.client_whatsapp} onChange={(v) => set("client_whatsapp", v)} placeholder="+1 …" />
           <Input label="Occasion" value={f.occasion} onChange={(v) => set("occasion", v)} placeholder="wedding · birthday · family · corporate" />
           <Input label="Party size" value={f.party_size} onChange={(v) => set("party_size", v)} placeholder="e.g. 6 guests + 2 children" />
@@ -225,9 +259,9 @@ export default function NewHelmRequestPage() {
 }
 
 function Input({
-  label, value, onChange, placeholder, type = "text",
+  label, value, onChange, placeholder, type = "text", list,
 }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string; list?: string;
 }) {
   return (
     <label style={{ display: "block" }}>
@@ -237,6 +271,7 @@ function Input({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        list={list}
         style={{ width: "100%", padding: 9, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", marginTop: 4 }}
       />
     </label>
