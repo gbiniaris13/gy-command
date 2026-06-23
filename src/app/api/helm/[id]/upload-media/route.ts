@@ -1,6 +1,8 @@
-// POST /api/helm/:id/upload-media — vessel photos + brochure, hosted on
-// Cloudinary (NOT Supabase Storage). Admin-gated. Two request shapes:
-//   • multipart/form-data: { file, kind: "photo" | "brochure" } → Cloudinary upload
+// POST /api/helm/:id/upload-media — vessel photos + brochure. Admin-gated.
+// Hosting split: IMAGES → Cloudinary (web-optimized); BROCHURE PDFs → our own
+// Supabase storage (Cloudinary blocks PDF delivery behind a console toggle, so
+// PDFs live with us and "just work"). Two request shapes:
+//   • multipart/form-data: { file, kind: "photo" | "brochure" } → upload
 //   • application/json:     { action: "add-photo-link" | "remove-photo" |
 //                             "add-brochure-link" | "remove-brochure", url? }
 // Degrades gracefully when Cloudinary is not configured (paste-link still
@@ -10,7 +12,8 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { addVesselPhoto, removeVesselPhoto, setBrochureUrl, setCombinedMedia } from "@/lib/helm-admin";
-import { isCloudinaryConfigured, uploadToCloudinary, slugifyFilename } from "@/lib/helm/cloudinary";
+import { isCloudinaryConfigured, uploadToCloudinary } from "@/lib/helm/cloudinary";
+import { uploadBrochurePdf } from "@/lib/helm/storage";
 import { agencyDomainWarning } from "@/lib/helm/media";
 
 export const runtime = "nodejs";
@@ -45,6 +48,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const yachtIndex = rawIdx !== null && rawIdx !== "" ? Number(rawIdx) : null;
     if (!(file instanceof File)) return NextResponse.json({ error: "no file" }, { status: 400 });
 
+    const buf = Buffer.from(await file.arrayBuffer());
+    const isPdf = (file.type || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(file.name || "");
+
+    // BROCHURE PDFs → OUR OWN Supabase storage, INDEPENDENT of Cloudinary.
+    // Cloudinary accounts block PDF delivery behind a console security toggle, so
+    // hosting the PDF ourselves makes the brochure button "just work" with zero
+    // per-account setup (free, permanent signed link). Images stay on Cloudinary
+    // below — they deliver fine and keep web-optimization.
+    if (isPdf) {
+      if (buf.length > 25 * 1024 * 1024) {
+        return NextResponse.json({ error: `This PDF is ${(buf.length / 1024 / 1024).toFixed(1)}MB - the upload limit is 25MB. Compress it (macOS Preview: File > Export > Quartz Filter > Reduce File Size) and upload again.` }, { status: 400 });
+      }
+      try {
+        const secureUrl = await uploadBrochurePdf(id, file.name || "brochure", buf);
+        if (yachtIndex !== null && Number.isFinite(yachtIndex)) {
+          const combined_media = await setCombinedMedia(id, yachtIndex, { brochure_url: secureUrl });
+          return NextResponse.json({ ok: true, configured: true, kind: "brochure", yacht_index: yachtIndex, url: secureUrl, combined_media });
+        }
+        await setBrochureUrl(id, secureUrl);
+        return NextResponse.json({ ok: true, configured: true, kind: "brochure", url: secureUrl });
+      } catch (e) {
+        return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+      }
+    }
+
+    // IMAGES → Cloudinary (web-optimized delivery; behaviour unchanged).
     if (!isCloudinaryConfigured()) {
       // graceful degrade — never crash the page
       return NextResponse.json({
@@ -54,34 +83,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       });
     }
     try {
-      const buf = Buffer.from(await file.arrayBuffer());
-      const isPdf = (file.type || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(file.name || "");
-      // Cloudinary's free tier caps raw files at 10MB — return a friendly,
-      // actionable note instead of a cryptic SDK error.
-      if (isPdf && buf.length > 10 * 1024 * 1024) {
-        return NextResponse.json({ error: `This PDF is ${(buf.length / 1024 / 1024).toFixed(1)}MB - the free hosting limit is 10MB. Compress it (macOS Preview: File > Export > Quartz Filter > Reduce File Size) and upload again.` }, { status: 400 });
-      }
       const dataUri = `data:${file.type || "application/octet-stream"};base64,${buf.toString("base64")}`;
-      // PDFs upload as RAW with the .pdf extension inside the public_id — only
-      // then does the delivery URL carry content-type application/pdf, so the
-      // proposal's gold brochure button opens INLINE in the client's browser.
-      // Images keep the previous behaviour exactly.
-      const secureUrl = isPdf
-        ? await uploadToCloudinary(dataUri, {
-            folder: `helm/${id}`,
-            resourceType: "raw",
-            publicId: `${slugifyFilename(file.name || "brochure")}-${Date.now().toString(36)}.pdf`,
-          })
-        : await uploadToCloudinary(dataUri, { folder: `helm/${id}`, resourceType: "auto" });
-      // GUARD: never store a brochure link the client could not open. Cloudinary
-      // accounts block .pdf delivery by default (Security setting); verify the
-      // public URL actually serves before saving it.
-      if (isPdf) {
-        const head = await fetch(secureUrl, { method: "HEAD" }).catch(() => null);
-        if (!head || !head.ok) {
-          return NextResponse.json({ error: "Cloudinary is blocking PDF delivery on this account. One-time fix: cloudinary.com console > Settings > Security > enable 'Allow delivery of PDF and ZIP files', then upload again. (The link was NOT saved, so nothing broken reaches a client.)" }, { status: 400 });
-        }
-      }
+      const secureUrl = await uploadToCloudinary(dataUri, { folder: `helm/${id}`, resourceType: "auto" });
       // Combined per-yacht media → combined_media[index], not the single-yacht arrays.
       if (yachtIndex !== null && Number.isFinite(yachtIndex)) {
         const patch = kind === "brochure" ? { brochure_url: secureUrl } : { main_url: secureUrl };
