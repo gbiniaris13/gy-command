@@ -8,8 +8,18 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { createBrowserClient } from "@supabase/ssr";
 
 type Photo = { url: string; source: "upload" | "link"; caption?: string };
+
+// Never crash on a non-JSON response (e.g. Vercel's plain-text 413 "Request
+// Entity Too Large"). Returns a friendly { error } message instead of throwing
+// "Unexpected token 'R'…" out of res.json().
+async function readJsonSafe(r: Response): Promise<any> {
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch { return { error: r.status === 413 ? "That file is too large to upload through the server. (Large PDFs now upload directly — if you still see this, the file may exceed 45MB.)" : (text.slice(0, 200) || `Upload failed (HTTP ${r.status})`) }; }
+}
 
 export default function HelmMedia({
   requestId, initialPhotos, initialBrochureUrl, cloudinaryConfigured,
@@ -35,7 +45,30 @@ export default function HelmMedia({
     fd.append("file", file);
     fd.append("kind", kind);
     const r = await fetch(`/api/helm/${requestId}/upload-media`, { method: "POST", body: fd });
-    return r.json();
+    return readJsonSafe(r);
+  }
+
+  // Large brochure PDFs go straight from the browser to our Supabase storage
+  // (signed upload URL), bypassing Vercel's ~4.5MB serverless body cap, then
+  // finalize on the server to mint the long-lived download URL.
+  async function uploadBrochurePdfDirect(file: File): Promise<{ error?: string; url?: string }> {
+    if (file.size > 45 * 1024 * 1024) {
+      return { error: `This PDF is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is 45MB, please compress it` };
+    }
+    const ur = await fetch(`/api/helm/${requestId}/brochure-upload-url`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: file.name }),
+    });
+    const u = await readJsonSafe(ur);
+    if (u.error || !u.path || !u.token) return { error: u.error || "Could not start the upload." };
+    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    const { error } = await supabase.storage.from("helm-proposals").uploadToSignedUrl(u.path, u.token, file, { contentType: "application/pdf" });
+    if (error) return { error: `Upload failed: ${error.message}` };
+    const fr = await fetch(`/api/helm/${requestId}/upload-media`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "finalize-brochure", path: u.path }),
+    });
+    const f = await readJsonSafe(fr);
+    if (f.error || !f.url) return { error: f.error || "Could not save the brochure." };
+    return { url: f.url };
   }
 
   async function onPickFiles(files: FileList | null, kind: "photo" | "brochure") {
@@ -43,6 +76,15 @@ export default function HelmMedia({
     setBusy(true); setMsg(null); setWarn(null);
     try {
       for (const file of Array.from(files)) {
+        const isPdf = (file.type || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(file.name || "");
+        // Brochure PDFs: direct browser → Supabase (no 4.5MB cap). Photos and
+        // non-PDF brochure files keep the multipart route unchanged.
+        if (kind === "brochure" && isPdf) {
+          const res = await uploadBrochurePdfDirect(file);
+          if (res.error) { setMsg(res.error); break; }
+          if (res.url) setBrochure(res.url);
+          continue;
+        }
         const j = await uploadFile(file, kind);
         if (j.configured === false) { setMsg(j.message); break; }
         if (j.error) { setMsg(j.error); break; }
@@ -63,7 +105,7 @@ export default function HelmMedia({
       const r = await fetch(`/api/helm/${requestId}/upload-media`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
-      const j = await r.json();
+      const j = await readJsonSafe(r);
       if (j.error) { setMsg(j.error); return; }
       if (j.vessel_photos) setPhotos(j.vessel_photos);
       if ("brochure_url" in j) setBrochure(j.brochure_url);

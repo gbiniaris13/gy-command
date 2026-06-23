@@ -13,7 +13,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { addVesselPhoto, removeVesselPhoto, setBrochureUrl, setCombinedMedia } from "@/lib/helm-admin";
 import { isCloudinaryConfigured, uploadToCloudinary } from "@/lib/helm/cloudinary";
-import { uploadBrochurePdf } from "@/lib/helm/storage";
+import { uploadBrochurePdf, getSignedProposalUrl } from "@/lib/helm/storage";
 import { agencyDomainWarning } from "@/lib/helm/media";
 
 export const runtime = "nodejs";
@@ -130,6 +130,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       case "remove-brochure": {
         await setBrochureUrl(id, null);
         return NextResponse.json({ ok: true, brochure_url: null });
+      }
+      // Finalize a browser DIRECT upload: the large brochure PDF is already in
+      // storage at `path` (uploaded via a signed upload URL, bypassing the
+      // ~4.5MB serverless cap). Mint a 5-year signed download URL and save it.
+      case "finalize-brochure": {
+        const path = String(body.path || "");
+        if (!path.startsWith(`brochures/${id}/`)) {
+          return NextResponse.json({ error: "invalid path" }, { status: 400 });
+        }
+        const url = await getSignedProposalUrl(path, 5 * 365 * 24 * 3600);
+        const yi = Number(body.yacht_index);
+        if (body.yacht_index !== undefined && body.yacht_index !== null && Number.isFinite(yi)) {
+          const combined_media = await setCombinedMedia(id, yi, { brochure_url: url });
+          return NextResponse.json({ ok: true, combined_media, url });
+        }
+        await setBrochureUrl(id, url);
+        return NextResponse.json({ ok: true, brochure_url: url, url });
       }
       // ---- combined multi-yacht per-yacht media (by index) ----
       case "set-combined-link": {

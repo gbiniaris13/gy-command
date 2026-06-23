@@ -35,12 +35,9 @@ export async function downloadProposalPdf(path: string): Promise<Uint8Array> {
  *  PDF delivery by a console security toggle, so brochure PDFs live here instead
  *  and "just work" (free, no per-account setup). The link is embedded in the
  *  proposal's gold brochure button; 5 years easily outlives any charter cycle. */
-export async function uploadBrochurePdf(
-  requestId: string,
-  filename: string,
-  bytes: Uint8Array,
-): Promise<string> {
-  const db = createServiceClient();
+/** Same brochures/<id>/<slug>-<ts>.pdf path scheme used by both the server-side
+ *  upload and the browser direct-upload (createBrochureUploadUrl). */
+function brochurePath(requestId: string, filename: string): string {
   const slug =
     (filename || "brochure")
       .replace(/\.pdf$/i, "")
@@ -49,7 +46,16 @@ export async function uploadBrochurePdf(
       .replace(/^-|-$/g, "")
       .toLowerCase()
       .slice(0, 60) || "brochure";
-  const path = `brochures/${requestId}/${slug}-${Date.now().toString(36)}.pdf`;
+  return `brochures/${requestId}/${slug}-${Date.now().toString(36)}.pdf`;
+}
+
+export async function uploadBrochurePdf(
+  requestId: string,
+  filename: string,
+  bytes: Uint8Array,
+): Promise<string> {
+  const db = createServiceClient();
+  const path = brochurePath(requestId, filename);
   const { error } = await db.storage
     .from(PROPOSALS_BUCKET)
     .upload(path, bytes, { contentType: "application/pdf", upsert: true });
@@ -61,6 +67,26 @@ export async function uploadBrochurePdf(
     throw new Error(`brochure signed URL failed: ${signErr?.message ?? "no url"}`);
   }
   return data.signedUrl;
+}
+
+/** Create a one-time signed UPLOAD URL so the BROWSER can put a large brochure
+ *  PDF straight into our storage, bypassing Vercel's ~4.5MB serverless body cap.
+ *  Returns the same brochures/<id>/<slug>-<ts>.pdf path scheme as uploadBrochurePdf
+ *  plus the upload token. The client uploads with uploadToSignedUrl(path, token, file),
+ *  then the finalize-brochure action mints a long-lived signed DOWNLOAD URL. */
+export async function createBrochureUploadUrl(
+  requestId: string,
+  filename: string,
+): Promise<{ path: string; token: string }> {
+  const db = createServiceClient();
+  const path = brochurePath(requestId, filename);
+  const { data, error } = await db.storage
+    .from(PROPOSALS_BUCKET)
+    .createSignedUploadUrl(path);
+  if (error || !data?.token) {
+    throw new Error(`brochure upload URL failed: ${error?.message ?? "no token"}`);
+  }
+  return { path, token: data.token };
 }
 
 /** Time-limited signed URL to the (private) proposal PDF — for sharing by

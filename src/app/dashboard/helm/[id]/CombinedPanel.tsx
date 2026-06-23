@@ -9,9 +9,19 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createBrowserClient } from "@supabase/ssr";
 import SeasonProration from "./SeasonProration";
 import PricingExtras from "./PricingExtras";
 import type { PricingInput } from "@/lib/helm/pricing";
+
+// Never crash on a non-JSON response (e.g. Vercel's plain-text 413 "Request
+// Entity Too Large"). Returns a friendly { error } message instead of throwing
+// "Unexpected token 'R'…" out of res.json().
+async function readJsonSafe(r: Response): Promise<any> {
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch { return { error: r.status === 413 ? "That file is too large to upload through the server. (Large PDFs now upload directly — if you still see this, the file may exceed 45MB.)" : (text.slice(0, 200) || `Upload failed (HTTP ${r.status})`) }; }
+}
 
 type Confidence = "high" | "medium" | "low";
 type Field<T> = { value: T | null; confidence: Confidence; snippet: string };
@@ -273,24 +283,49 @@ export default function CombinedPanel({
       const fd = new FormData();
       fd.append("file", file); fd.append("kind", "photo"); fd.append("yacht_index", String(i));
       const r = await fetch(`/api/helm/${requestId}/upload-media`, { method: "POST", body: fd });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "upload-failed");
+      const j = await readJsonSafe(r);
+      if (!r.ok && !j.configured) throw new Error(j.error || "upload-failed");
       if (j.configured === false) { setError(j.message || "Cloudinary not connected. Paste an image link instead."); return; }
+      if (j.error) throw new Error(j.error);
       if (j.combined_media) setMedia(j.combined_media);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
-  // Upload a brochure PDF for one yacht — same endpoint as photos (kind:
-  // brochure); the route stores it as raw .pdf on Cloudinary and saves the
-  // public URL into this yacht's combined_media slot.
+  // Upload a brochure PDF for one yacht. PDFs go DIRECT browser → Supabase
+  // storage (signed upload URL) to bypass Vercel's ~4.5MB serverless body cap,
+  // then finalize on the server (action: finalize-brochure) to save the
+  // long-lived download URL into this yacht's combined_media slot. Non-PDF
+  // brochure files keep the multipart route.
   async function uploadBrochure(i: number, file: File) {
     setBusy(`media-${i}`); setError(null);
     try {
+      const isPdf = (file.type || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(file.name || "");
+      if (isPdf) {
+        if (file.size > 45 * 1024 * 1024) {
+          setError(`This PDF is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is 45MB, please compress it`); return;
+        }
+        const ur = await fetch(`/api/helm/${requestId}/brochure-upload-url`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: file.name }),
+        });
+        const u = await readJsonSafe(ur);
+        if (u.error || !u.path || !u.token) { setError(u.error || "Could not start the upload."); return; }
+        const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+        const { error } = await supabase.storage.from("helm-proposals").uploadToSignedUrl(u.path, u.token, file, { contentType: "application/pdf" });
+        if (error) { setError(`Upload failed: ${error.message}`); return; }
+        const fr = await fetch(`/api/helm/${requestId}/upload-media`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "finalize-brochure", path: u.path, yacht_index: i }),
+        });
+        const f = await readJsonSafe(fr);
+        if (f.error || !f.combined_media) { setError(f.error || "Could not save the brochure."); return; }
+        setMedia(f.combined_media);
+        return;
+      }
       const fd = new FormData();
       fd.append("file", file); fd.append("kind", "brochure"); fd.append("yacht_index", String(i));
       const r = await fetch(`/api/helm/${requestId}/upload-media`, { method: "POST", body: fd });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "upload-failed");
+      const j = await readJsonSafe(r);
+      if (!r.ok && !j.configured) throw new Error(j.error || "upload-failed");
       if (j.configured === false) { setError(j.message || "Cloudinary not connected. Paste a brochure link instead."); return; }
+      if (j.error) throw new Error(j.error);
       if (j.combined_media) setMedia(j.combined_media);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
@@ -303,8 +338,8 @@ export default function CombinedPanel({
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "set-combined-link", index: i, field, url: url.trim() }),
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "link-failed");
+      const j = await readJsonSafe(r);
+      if (!r.ok || j.error) throw new Error(j.error || "link-failed");
       if (j.combined_media) setMedia(j.combined_media);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
@@ -315,8 +350,8 @@ export default function CombinedPanel({
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "remove-combined", index: i, field }),
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "remove-failed");
+      const j = await readJsonSafe(r);
+      if (!r.ok || j.error) throw new Error(j.error || "remove-failed");
       setMedia(j.combined_media || {});
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
