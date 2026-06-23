@@ -215,6 +215,7 @@ export async function extractSupplier(
     const f = parsed.pricing[k] as Field<number> | undefined;
     if (f) f.value = toNum(f.value);
   }
+  enforceGrossCharterFee(parsed.pricing);
   for (const sr of parsed.seasonal_rates) sr.fee = toNum(sr.fee) ?? sr.fee;
   parsed.extras = normalizeExtras(parsed.extras);
   return ensureSeasonalFlag(parsed);
@@ -238,6 +239,24 @@ function normalizeExtras(x: unknown): ExtractedYachtExtras {
     .filter(Boolean)
     .slice(0, 30);
   return { payable_at_base: pab, security_deposit: dep, free_onboard: fob };
+}
+
+// Deterministic pricing-consistency guard (NOT arithmetic — a single field copy).
+// computePricing applies discount_pct to charter_fee: net = charter_fee × (1 − disc%).
+// So charter_fee MUST be the GROSS / list rate the discount is taken off — never an
+// already-discounted figure, or the discount is applied TWICE (supplier 6,000 −18%
+// → client 4,920 would wrongly become 4,920 −18% = 4,034, even below the broker's
+// cost). When BOTH a discount and a list/gross price are present, force
+// charter_fee = list_price so the computed net lands on the supplier's stated
+// post-discount client price. The math itself stays in computePricing.
+function enforceGrossCharterFee(pricing?: ExtractedPricing | null): void {
+  if (!pricing) return;
+  const disc = pricing.discount_pct?.value;
+  const list = pricing.list_price?.value;
+  const fee = pricing.charter_fee;
+  if (fee && typeof disc === "number" && disc > 0 && typeof list === "number" && list > 0) {
+    fee.value = list;
+  }
 }
 
 // Parse a single numeric token (strip currency/commas/spaces). Returns null
@@ -329,6 +348,7 @@ function coerceYacht(y: Extraction): Extraction {
     const f = y.pricing[k] as Field<number> | undefined;
     if (f) f.value = toNum(f.value);
   }
+  enforceGrossCharterFee(y.pricing);
   for (const sr of y.seasonal_rates) sr.fee = toNum(sr.fee) ?? sr.fee;
   y.extras = normalizeExtras(y.extras);
   return ensureSeasonalFlag(y);
