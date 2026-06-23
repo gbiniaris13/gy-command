@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import SeasonProration from "./SeasonProration";
 import PricingExtras from "./PricingExtras";
+import TermsEditor, { type TermsState, EMPTY_TERMS, termsStateFromObject, termsObjectFromState } from "./TermsEditor";
 import type { PricingInput } from "@/lib/helm/pricing";
 
 // Never crash on a non-JSON response (e.g. Vercel's plain-text 413 "Request
@@ -51,6 +52,35 @@ type YState = {
    *  stays — nothing is deleted — it is simply left out of the generated PDF. */
   excluded?: boolean;
 };
+
+type CharterType = "weekly" | "bareboat" | "daily" | "custom";
+const CHARTER_TYPES: [CharterType, string][] = [
+  ["weekly", "Weekly"], ["bareboat", "Bareboat"], ["daily", "Daily"], ["custom", "Custom"],
+];
+
+// Optional smart suggestions by charter type — a one-click seed the owner can
+// edit or clear. Empty for weekly/custom (owner opts in by typing).
+function suggestedTerms(ct: CharterType): TermsState {
+  if (ct === "bareboat") {
+    return {
+      ...EMPTY_TERMS,
+      included: "Use of the yacht and her equipment\nMarine insurance\nApplicable taxes & VAT",
+      not_included: "Fuel\nPort fees\nFood & beverages",
+      obligatory_extras: "End cleaning / transit log (paid locally per the operator)",
+      security_deposit: "A refundable security deposit applies, returned after disembarkation less any damage",
+      skipper: "Skipper licence required for bareboat; a professional skipper can be arranged on request",
+      payment: "To be confirmed per yacht",
+    };
+  }
+  if (ct === "daily") {
+    return {
+      ...EMPTY_TERMS,
+      included: "The cruising hours and route for the day, with inclusions per the operator",
+      payment: "To be confirmed",
+    };
+  }
+  return { ...EMPTY_TERMS };
+}
 
 const STOP_CODES = new Set(["MISSING_APA", "MULTIPLE_SEASONAL_RATES", "DIVIDE_BY_UNCLEAR", "NO_PRICE_FOUND", "AMBIGUOUS"]);
 const PRICE_FIELDS: { key: string; label: string }[] = [
@@ -124,6 +154,15 @@ export default function CombinedPanel({
   const router = useRouter();
   const [ex, setEx] = useState<CombinedExtraction | null>(initialExtraction);
   const [whiteLabel, setWhiteLabel] = useState(initialWhiteLabel);
+  // Charter type + crew note are proposal-level (one per combined PDF), seeded
+  // from the persisted extraction (default weekly). Sent in the generate body.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [charterType, setCharterType] = useState<CharterType>(((initialExtraction as any)?.charter_type as CharterType) ?? "weekly");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [crewNote, setCrewNote] = useState<string>(((initialExtraction as any)?.crew_note as string) ?? "");
+  // OWNER-SELECTABLE last-page terms editor state, seeded from extraction.terms.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [terms, setTerms] = useState<TermsState>(() => termsStateFromObject((initialExtraction as any)?.terms));
   // Restore a saved review draft when it matches the current extraction
   // (same yacht count); otherwise seed fresh from the extraction.
   const [ys, setYs] = useState<YState[]>(() => {
@@ -236,6 +275,9 @@ export default function CombinedPanel({
       const payload = {
         mode: "combined",
         white_label: whiteLabel,
+        charter_type: charterType,
+        crew_note: crewNote,
+        terms: termsObjectFromState(terms) ?? null,
         // Excluded yachts are left out of the PDF. media_index = the ORIGINAL
         // card index, so each remaining yacht keeps ITS OWN photos/brochure
         // server-side even when an earlier card is excluded.
@@ -398,6 +440,42 @@ export default function CombinedPanel({
           </div>
           {!surname && <div style={warnBox}>Add a client <b>surname</b> on this request first — proposals are addressed formally (never a bare first name).</div>}
 
+          {/* CHARTER TYPE — one choice for the whole combined proposal. Weekly
+              (default) keeps the existing crewed-weekly boilerplate + money box. */}
+          <div style={{ margin: "10px 0 4px", padding: "10px 12px", background: "rgba(13,27,42,0.02)", border: "1px solid rgba(13,27,42,0.1)", borderRadius: 2 }}>
+            <div style={fieldLabel}>Charter type (applies to the whole proposal)</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+              {CHARTER_TYPES.map(([ct, label]) => (
+                <button key={ct} type="button" onClick={() => setCharterType(ct)} style={{
+                  ...chipBtn,
+                  background: charterType === ct ? "#0D1B2A" : "rgba(201,168,76,0.12)",
+                  color: charterType === ct ? "#F8F5F0" : "#0D1B2A",
+                }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <div style={fieldLabel}>Crew &amp; extras note (optional)</div>
+              <input
+                value={crewNote}
+                onChange={(e) => setCrewNote(e.target.value)}
+                placeholder="e.g. Private skipper — not charged  ·  + Hostess available"
+                style={{ ...txt, marginTop: 4 }}
+              />
+            </div>
+            {/* OWNER-SELECTABLE last-page terms editor (collapsed by default). */}
+            <TermsEditor value={terms} onChange={setTerms} />
+            {charterType !== "weekly" && (
+              <button
+                type="button"
+                onClick={() => setTerms(suggestedTerms(charterType))}
+                style={{ ...ghostBtn, marginTop: 8, fontSize: 9 }}
+                title="Pre-fill suggested terms for this charter type — you can then edit or clear them"
+              >
+                Suggest terms for {CHARTER_TYPES.find(([c]) => c === charterType)?.[1]}
+              </button>
+            )}
+          </div>
+
           {ex.yachts.map((y, i) => {
             const s = ys[i]; if (!s) return null;
             const stops = stopFlagsFor(i);
@@ -412,7 +490,7 @@ export default function CombinedPanel({
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                     {featuredIdx === i && !s.excluded && (
-                      <span style={{ fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: "#F8F5F0", background: "#0D1B2A", padding: "2px 7px", borderRadius: 2 }}>Lead</span>
+                      <span style={{ fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: "#F8F5F0", background: "#0D1B2A", padding: "2px 7px", borderRadius: 2 }}>Cover</span>
                     )}
                     <span style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: s.excluded ? "#9CA3AF" : ready ? "#3A6B47" : "#B07A2C" }}>
                       {s.excluded ? "excluded from proposal" : ready ? "ready ✓" : "needs review"}
@@ -422,10 +500,10 @@ export default function CombinedPanel({
                         type="button"
                         onClick={() => toggleFeature(i)}
                         disabled={busy !== null}
-                        title={featuredIdx === i ? "Unpin — return to the cheapest→priciest order" : "Pin as the lead — goes on the cover and first; the rest keep the price order"}
+                        title={featuredIdx === i ? "Remove as cover — return to the cheapest→priciest order" : "Set as cover — this yacht's photo leads the proposal and it appears first; the rest keep the price order"}
                         style={{ ...ghostBtn, padding: "5px 10px", fontSize: 9, ...(featuredIdx === i ? { background: "#0D1B2A", color: "#F8F5F0", borderColor: "#C9A84C" } : {}) }}
                       >
-                        {busy === `feat-${i}` ? "…" : featuredIdx === i ? "Lead ✓ — click to unpin" : "Make lead"}
+                        {busy === `feat-${i}` ? "…" : featuredIdx === i ? "Cover ✓ — click to remove" : "Set as cover"}
                       </button>
                     )}
                     <button

@@ -122,6 +122,40 @@ async function toDataUri(url: string): Promise<string | null> {
   }
 }
 
+// Sanitise an owner-supplied `terms` object to the known shape. Array fields
+// become trimmed string arrays (empty lines dropped, capped for safety); string
+// fields become trimmed strings. Anything unexpected is ignored. Returns
+// undefined when there is no usable content, so the last page falls back to the
+// existing per-charter_type default text. NOTE: textareas in the panel send one
+// item per line — splitting is done client-side; here we just clean what we get.
+function sanitizeTerms(input: unknown): import("@/lib/helm/proposal-template").Terms | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const src = input as Record<string, unknown>;
+  const arr = (v: unknown): string[] =>
+    (Array.isArray(v) ? v : [])
+      .map((x) => (x == null ? "" : String(x)).trim())
+      .filter(Boolean)
+      .slice(0, 40);
+  const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const out = {
+    included: arr(src.included),
+    not_included: arr(src.not_included),
+    obligatory_extras: arr(src.obligatory_extras),
+    free_onboard: arr(src.free_onboard),
+    security_deposit: str(src.security_deposit),
+    payment: str(src.payment),
+    skipper: str(src.skipper),
+    cancellation: str(src.cancellation),
+    notes: str(src.notes),
+  };
+  // Drop empty fields so the persisted object stays compact.
+  const t: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(out)) {
+    if (Array.isArray(v) ? v.length : v) t[k] = v;
+  }
+  return Object.keys(t).length ? (t as import("@/lib/helm/proposal-template").Terms) : undefined;
+}
+
 function buildPeriodLine(r: RequestRow): string {
   const seg: string[] = [];
   if (r.dates_from) {
@@ -164,11 +198,46 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     ? true
     : (wlBody !== null ? wlBody : (wlPersisted ?? false));
 
-  // Persist a direct-client white-label toggle so it survives refresh +
-  // regenerate. Spread the existing extraction so featured_index / yachts
-  // (re-read later in the combined branch) are NOT dropped.
-  if (wlBody !== null && r.request_type !== "travel_agent") {
-    await saveExtraction(id, { ...exForWL, white_label: whiteLabel });
+  // CHARTER TYPE — weekly (default) | bareboat | daily | custom. Validated
+  // against the 4 values; anything else (or absent) → weekly, so the existing
+  // crewed-weekly flow is the untouched fallback. Persisted in the extraction
+  // JSON (same pattern as white_label / featured_index), seeded from the panel.
+  const VALID_CT = new Set(["weekly", "bareboat", "daily", "custom"]);
+  const ctBody = typeof body.charter_type === "string" && VALID_CT.has(body.charter_type)
+    ? (body.charter_type as "weekly" | "bareboat" | "daily" | "custom") : null;
+  const ctPersisted = typeof exForWL.charter_type === "string" && VALID_CT.has(exForWL.charter_type as string)
+    ? (exForWL.charter_type as "weekly" | "bareboat" | "daily" | "custom") : null;
+  const charterType = ctBody ?? ctPersisted ?? "weekly";
+
+  // CREW & EXTRAS note — optional free text, rendered verbatim. body wins; else
+  // keep whatever was persisted. Empty string clears it.
+  const crewBody = typeof body.crew_note === "string" ? body.crew_note.trim() : null;
+  const crewPersisted = typeof exForWL.crew_note === "string" ? (exForWL.crew_note as string) : "";
+  const crewNote = (crewBody !== null ? crewBody : crewPersisted) || "";
+
+  // OWNER-SELECTABLE last-page TERMS — optional object. body wins (the panel
+  // always sends the current editor state, incl. cleared fields); else keep
+  // whatever was persisted. Sanitised to the known shape: array fields => string
+  // arrays (trimmed, empties dropped); string fields => trimmed strings. An empty
+  // result becomes undefined so the last page falls back to the existing default.
+  const termsBody = sanitizeTerms(body.terms);
+  const termsPersisted = sanitizeTerms(exForWL.terms);
+  // body provided (even if it sanitises to empty => owner cleared it) wins; else
+  // fall back to persisted. `null` => caller did not include a terms key at all.
+  const termsResolved = ("terms" in body) ? termsBody : termsPersisted;
+
+  // Persist the direct-client white-label toggle + charter_type + crew_note so
+  // they survive refresh + regenerate. Spread the existing extraction first so
+  // featured_index / white_label / opens / yachts (re-read later in the combined
+  // branch) are NOT dropped. Only the direct-client WL toggle is gated; the
+  // charter type + crew note always persist when the panel sends them.
+  const wlPatch = (wlBody !== null && r.request_type !== "travel_agent") ? { white_label: whiteLabel } : {};
+  // Persist terms only when the panel sent a terms key (so we never clobber a
+  // stored object on a generate that omits it). undefined => store `null` so the
+  // key is explicitly cleared in the JSON (and re-reads fall back to default).
+  const termsPatch = ("terms" in body) ? { terms: termsResolved ?? null } : {};
+  if (ctBody !== null || crewBody !== null || ("terms" in body) || (wlBody !== null && r.request_type !== "travel_agent")) {
+    await saveExtraction(id, { ...exForWL, ...wlPatch, ...termsPatch, charter_type: charterType, crew_note: crewNote });
   }
 
   // FORMAL ADDRESSING — never a bare first name. No surname => stop and ask.
@@ -345,7 +414,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           images,
         },
         sorted,
-        { no_myba: !!r.no_myba, show_ghost_credit: r.show_ghost_credit !== false, white_label: whiteLabel },
+        { no_myba: !!r.no_myba, show_ghost_credit: r.show_ghost_credit !== false, white_label: whiteLabel, charter_type: charterType, crew_note: crewNote, terms: termsResolved },
       );
 
       const html = buildProposalHtml(proposal);
@@ -474,6 +543,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       no_myba: !!r.no_myba,
       show_ghost_credit: r.show_ghost_credit !== false,
       white_label: whiteLabel,
+      charter_type: charterType,
+      crew_note: crewNote,
+      terms: termsResolved,
     });
 
     const pr = computePricing(pricing);

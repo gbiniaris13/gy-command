@@ -13,6 +13,8 @@ import type {
   CombinedProposal,
   SingleYacht,
   CombinedYacht,
+  CharterType,
+  Terms,
 } from "./proposal-template";
 
 export function formalAddress(opts: {
@@ -32,13 +34,18 @@ export function formalAddress(opts: {
 
 export function buildSingleProposal(
   yacht: SingleYacht,
-  opts?: { no_myba?: boolean; show_ghost_credit?: boolean; white_label?: boolean },
+  opts?: { no_myba?: boolean; show_ghost_credit?: boolean; white_label?: boolean; charter_type?: CharterType; crew_note?: string; terms?: Terms },
 ): SingleProposal {
   return {
     mode: "single",
     no_myba: opts?.no_myba ?? false,
     show_ghost_credit: opts?.show_ghost_credit ?? true,
     white_label: opts?.white_label ?? false,
+    // Default weekly so old/blank proposals render exactly as before.
+    charter_type: opts?.charter_type ?? "weekly",
+    crew_note: opts?.crew_note || undefined,
+    // Owner-selectable last-page terms (undefined => existing default text).
+    terms: opts?.terms,
     yacht,
   };
 }
@@ -53,7 +60,7 @@ export function buildCombinedProposal(
     images?: Record<string, string | null>;
   },
   yachts: CombinedYacht[],
-  opts?: { no_myba?: boolean; show_ghost_credit?: boolean; white_label?: boolean },
+  opts?: { no_myba?: boolean; show_ghost_credit?: boolean; white_label?: boolean; charter_type?: CharterType; crew_note?: string; terms?: Terms },
 ): CombinedProposal {
   // Caller MUST sort yachts cheapest -> most expensive before calling.
   return {
@@ -61,6 +68,11 @@ export function buildCombinedProposal(
     no_myba: opts?.no_myba ?? false,
     show_ghost_credit: opts?.show_ghost_credit ?? true,
     white_label: opts?.white_label ?? false,
+    // Default weekly so old/blank proposals render exactly as before.
+    charter_type: opts?.charter_type ?? "weekly",
+    crew_note: opts?.crew_note || undefined,
+    // Owner-selectable last-page terms (undefined => existing default text).
+    terms: opts?.terms,
     client_name: meta.coverName ?? undefined,
     period: meta.period,
     guests: meta.guests,

@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import SeasonProration from "./SeasonProration";
 import PricingExtras from "./PricingExtras";
+import TermsEditor, { type TermsState, EMPTY_TERMS, termsStateFromObject, termsObjectFromState } from "./TermsEditor";
 import type { PricingInput } from "@/lib/helm/pricing";
 
 type Confidence = "high" | "medium" | "low";
@@ -30,7 +31,46 @@ type Extraction = {
   suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: { code: string; message: string }[];
   notes?: string;
+  /** Charter product type, persisted in the extraction JSON (default weekly). */
+  charter_type?: CharterType;
+  /** Optional crew/extras note, persisted in the extraction JSON. */
+  crew_note?: string;
+  /** Optional owner-selectable last-page terms, persisted in the extraction JSON. */
+  terms?: Record<string, unknown>;
 };
+
+type CharterType = "weekly" | "bareboat" | "daily" | "custom";
+const CHARTER_TYPES: [CharterType, string][] = [
+  ["weekly", "Weekly"], ["bareboat", "Bareboat"], ["daily", "Daily"], ["custom", "Custom"],
+];
+
+// Optional smart suggestions by charter type — offered ONLY when the owner has no
+// terms set yet (a one-click seed they can then edit or clear). Empty for weekly:
+// the standard MYBA last page stays the default unless the owner opts in.
+function suggestedTerms(ct: CharterType): TermsState {
+  if (ct === "bareboat") {
+    return {
+      ...EMPTY_TERMS,
+      included: "Use of the yacht and her equipment\nMarine insurance\nApplicable taxes & VAT",
+      not_included: "Fuel\nPort fees\nFood & beverages",
+      obligatory_extras: "End cleaning / transit log (paid locally per the operator)",
+      security_deposit: "A refundable security deposit applies, returned after disembarkation less any damage",
+      skipper: "Skipper licence required for bareboat; a professional skipper can be arranged on request",
+      payment: "To be confirmed per yacht",
+    };
+  }
+  if (ct === "daily") {
+    return {
+      ...EMPTY_TERMS,
+      included: "The cruising hours and route for the day, with inclusions per the operator",
+      obligatory_extras: "",
+      free_onboard: "",
+      payment: "To be confirmed",
+    };
+  }
+  // weekly + custom: no auto-seed (owner opts in by typing).
+  return { ...EMPTY_TERMS };
+}
 
 const STOP_CODES = new Set([
   "MISSING_APA", "MULTIPLE_SEASONAL_RATES", "DIVIDE_BY_UNCLEAR", "NO_PRICE_FOUND", "AMBIGUOUS",
@@ -92,6 +132,12 @@ export default function GeneratePanel({
   const router = useRouter();
   const [ex, setEx] = useState<Extraction | null>(initialExtraction);
   const [whiteLabel, setWhiteLabel] = useState(initialWhiteLabel);
+  // Charter type + crew note, seeded from the persisted extraction (default
+  // weekly). Sent in the generate POST body alongside the pricing.
+  const [charterType, setCharterType] = useState<CharterType>(initialExtraction?.charter_type ?? "weekly");
+  const [crewNote, setCrewNote] = useState<string>(initialExtraction?.crew_note ?? "");
+  // OWNER-SELECTABLE last-page terms editor state, seeded from extraction.terms.
+  const [terms, setTerms] = useState<TermsState>(() => termsStateFromObject(initialExtraction?.terms));
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -184,6 +230,9 @@ export default function GeneratePanel({
           content: ex?.content || {},
           details: [],
           white_label: whiteLabel,
+          charter_type: charterType,
+          crew_note: crewNote,
+          terms: termsObjectFromState(terms) ?? null,
         }),
       });
       const j = await r.json();
@@ -276,6 +325,42 @@ export default function GeneratePanel({
               />
             </div>
           )}
+
+          {/* CHARTER TYPE selector — rewrites the boilerplate + money box. Weekly
+              (default) = the existing crewed-weekly proposal, unchanged. */}
+          <div style={{ marginTop: 12 }}>
+            <div style={fieldLabel}>Charter type</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+              {CHARTER_TYPES.map(([ct, label]) => (
+                <button key={ct} type="button" onClick={() => setCharterType(ct)} style={{
+                  ...chipBtn,
+                  background: charterType === ct ? "#0D1B2A" : "rgba(201,168,76,0.12)",
+                  color: charterType === ct ? "#F8F5F0" : "#0D1B2A",
+                }}>{label}</button>
+              ))}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              <div style={fieldLabel}>Crew &amp; extras note (optional)</div>
+              <input
+                value={crewNote}
+                onChange={(e) => setCrewNote(e.target.value)}
+                placeholder="e.g. Private skipper — not charged  ·  + Hostess available"
+                style={{ ...txt, marginTop: 4 }}
+              />
+            </div>
+            {/* OWNER-SELECTABLE last-page terms editor (collapsed by default). */}
+            <TermsEditor value={terms} onChange={setTerms} />
+            {charterType !== "weekly" && (
+              <button
+                type="button"
+                onClick={() => setTerms(suggestedTerms(charterType))}
+                style={{ ...ghostBtn, marginTop: 8, fontSize: 9 }}
+                title="Pre-fill suggested terms for this charter type — you can then edit or clear them"
+              >
+                Suggest terms for {CHARTER_TYPES.find(([c]) => c === charterType)?.[1]}
+              </button>
+            )}
+          </div>
 
           {/* pricing MODE selector (per yacht) */}
           <div style={{ marginTop: 12 }}>
