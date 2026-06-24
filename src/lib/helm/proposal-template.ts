@@ -1173,7 +1173,13 @@ function hasPeriodOptions(y: CombinedYacht): boolean {
 // carries an APA % or VAT % (i.e. the broker filled the figures). Until then we
 // keep the simple "label · dates · fee + generic note" display unchanged.
 function wantsBreakdown(opts: CleanPeriod[]): boolean {
-  return opts.some((p) => p.apa_pct !== undefined || p.vat_pct !== undefined);
+  // Show the full Charter / APA / VAT / all-in breakdown whenever a period is
+  // priced — APA defaults to 40% and VAT to 12% (both broker-overridable), so the
+  // client sees the real total on the very first Regenerate without the broker
+  // having to hunt for a percentage field.
+  return opts.some(
+    (p) => p.apa_pct !== undefined || p.vat_pct !== undefined || (typeof p.fee === "number" && p.fee > 0),
+  );
 }
 
 // COMBINED — compact PERIODS & RATES table for a yacht quoted across 2+ durations.
@@ -1229,10 +1235,12 @@ function periodBreakdownTable(opts: CleanPeriod[]): string {
   // The APA/VAT % row labels use the FIRST period that has each percent (the
   // broker normally sets one APA % across all periods of a yacht). VAT defaults
   // to 12% (Greece) for the label when a fee is computed but no VAT % was typed.
-  const firstApa = opts.find((p) => p.apa_pct !== undefined)?.apa_pct;
-  const firstVat = opts.find((p) => p.vat_pct !== undefined)?.vat_pct;
-  const apaLabel = `APA${firstApa !== undefined ? ` (${pctLabel(firstApa)})` : ""}`;
-  const vatLabel = `VAT${firstVat !== undefined ? ` (${pctLabel(firstVat)})` : ""}`;
+  // Broker-set percentages win; otherwise default APA 40% / VAT 12% so the
+  // breakdown always computes a real total (the broker can override per yacht).
+  const firstApa = opts.find((p) => p.apa_pct !== undefined)?.apa_pct ?? 40;
+  const firstVat = opts.find((p) => p.vat_pct !== undefined)?.vat_pct ?? 12;
+  const apaLabel = `APA (${pctLabel(firstApa)})`;
+  const vatLabel = `VAT (${pctLabel(firstVat)})`;
 
   // Per-column computed pricing (deterministic). A column with no numeric fee
   // falls back to its fee_disp string for the charter-fee cell and blanks the
@@ -1244,8 +1252,8 @@ function periodBreakdownTable(opts: CleanPeriod[]): string {
     const pr = computePricing({
       mode: "breakdown",
       charter_fee: p.fee,
-      apa_pct: p.apa_pct ?? null,
-      vat_pct: p.vat_pct ?? null,
+      apa_pct: p.apa_pct ?? 40,
+      vat_pct: p.vat_pct ?? 12,
     });
     // Pull the APA / VAT amounts off the computed rows (labels start "APA"/"VAT").
     const apaRow = pr.rows.find((r) => r[0].startsWith("APA"));
