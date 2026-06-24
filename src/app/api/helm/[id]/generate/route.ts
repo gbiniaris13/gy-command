@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, saveGenerated, saveExtraction } from "@/lib/helm-admin";
-import { computePricing, allInNumber, type PricingInput } from "@/lib/helm/pricing";
+import { computePricing, allInNumber, fmtEur, type PricingInput } from "@/lib/helm/pricing";
 import { composeSingleNarrative, composeEmail, composeYachtInsideInfo, composeCombinedIntro } from "@/lib/helm/compose";
 import { buildSingleProposal, buildCombinedProposal, formalAddress } from "@/lib/helm/build";
 import { buildProposalHtml, type SingleYacht, type CombinedYacht } from "@/lib/helm/proposal-template";
@@ -92,8 +92,18 @@ type CombinedInputYacht = {
   free_onboard?: string[];
   /** "THE DOUBLE": same yacht quoted across 2+ durations. Optional + additive;
    *  absent => the single-pricing money box renders as before. CLIENT-facing
-   *  fees only — NEVER commission. */
-  period_options?: { label?: string; dates?: string; fee_disp?: string; note?: string }[];
+   *  fees only — NEVER commission. `fee`/`apa_pct`/`vat_pct` are the broker's
+   *  numeric figures that drive the computed per-period breakdown; when none are
+   *  set the simple label·dates·fee display renders (fee_disp). */
+  period_options?: {
+    label?: string;
+    dates?: string;
+    fee?: number | null;
+    fee_disp?: string;
+    apa_pct?: number | null;
+    vat_pct?: number | null;
+    note?: string;
+  }[];
 };
 
 // Assemble the per-yacht voyage line for the proposal: embark/disembark ports +
@@ -199,21 +209,34 @@ function sanitizeYachtExtras(iy: CombinedInputYacht): {
 // stays clean (absent => the single-pricing money box renders as before). NEVER
 // carries commission / price-to-agency — not in the input shape, never reaches it.
 function sanitizePeriodOptions(iy: CombinedInputYacht):
-  | { label: string; dates?: string; fee_disp: string; note?: string }[]
+  | { label: string; dates?: string; fee?: number; fee_disp?: string; apa_pct?: number; vat_pct?: number; note?: string }[]
   | undefined {
+  // Parse a numeric field that may arrive as a number or a "€ 15,000" string.
+  const num = (v: unknown): number | undefined => {
+    if (v === null || v === undefined || v === "") return undefined;
+    const n = typeof v === "number" ? v : Number(String(v).replace(/[^0-9.\-]/g, ""));
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
   const rows = (Array.isArray(iy.period_options) ? iy.period_options : [])
     .map((p) => ({
       label: (p?.label ?? "").toString().trim(),
       dates: (p?.dates ?? "").toString().trim(),
+      fee: num(p?.fee),
       fee_disp: (p?.fee_disp ?? "").toString().trim(),
+      apa_pct: num(p?.apa_pct),
+      vat_pct: num(p?.vat_pct),
       note: (p?.note ?? "").toString().trim(),
     }))
-    .filter((p) => p.fee_disp || p.label)
+    // A row is kept when it has ANY fee (numeric or formatted) OR a label.
+    .filter((p) => p.fee !== undefined || p.fee_disp || p.label)
     .slice(0, 6)
     .map((p) => ({
       label: p.label || "Option",
-      fee_disp: p.fee_disp,
+      ...(p.fee !== undefined ? { fee: p.fee } : {}),
+      ...(p.fee_disp ? { fee_disp: p.fee_disp } : {}),
       ...(p.dates ? { dates: p.dates } : {}),
+      ...(p.apa_pct !== undefined ? { apa_pct: p.apa_pct } : {}),
+      ...(p.vat_pct !== undefined ? { vat_pct: p.vat_pct } : {}),
       ...(p.note ? { note: p.note } : {}),
     }));
   return rows.length ? rows : undefined;
@@ -432,7 +455,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // it still lands sensibly on the cheapest→priciest ladder.
         const periodSortKey = periodOptions
           ? periodOptions.reduce((min, p) => {
-              const n = Number((p.fee_disp || "").replace(/[^0-9.]/g, ""));
+              // Prefer the numeric fee; fall back to digits in the formatted string.
+              const n = p.fee ?? Number((p.fee_disp || "").replace(/[^0-9.]/g, ""));
               return Number.isFinite(n) && n > 0 ? Math.min(min, n) : min;
             }, Number.POSITIVE_INFINITY)
           : Number.POSITIVE_INFINITY;
@@ -478,10 +502,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // A "double" summarises its quoted durations (e.g. "5 nights € 15,000;
         // 7 nights € 17,857") rather than a single headline fee.
         if (Array.isArray(y.period_options) && y.period_options.length) {
+          // When the broker filled APA/VAT %, the PDF shows a full all-in
+          // breakdown per period — say so; otherwise note "plus APA and VAT".
+          const hasBreakdown = y.period_options.some(
+            (p) => p.apa_pct !== undefined || p.vat_pct !== undefined,
+          );
           const opts = y.period_options
-            .map((p) => `${p.label}${p.fee_disp ? ` ${p.fee_disp}` : ""}`)
+            .map((p) => {
+              const fee = p.fee !== undefined ? fmtEur(p.fee) : (p.fee_disp || "");
+              return `${p.label}${fee ? ` ${fee}` : ""}`;
+            })
             .join("; ");
-          return `${y.name}${y.spec_line ? ` - ${y.spec_line}` : ""} - ${opts} (plus APA and VAT)`;
+          const tail = hasBreakdown
+            ? " (each shown with a full APA, VAT and all-in breakdown)"
+            : " (plus APA and VAT)";
+          return `${y.name}${y.spec_line ? ` - ${y.spec_line}` : ""} - ${opts}${tail}`;
         }
         const pr = computePricing(y.pricing);
         return `${y.name}${y.spec_line ? ` - ${y.spec_line}` : ""} - ${pr.headline}${pr.all_inclusive ? " all-inclusive (APA, VAT and extras included)" : pr.extras_mode ? "" : " plus APA and VAT"}`;

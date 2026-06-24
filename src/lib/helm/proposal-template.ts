@@ -12,7 +12,7 @@
 // that passed the branding check) or as data: URIs; null → placeholder.
 // =============================================================
 
-import { computePricing, type PricingInput } from "./pricing";
+import { computePricing, fmtEur, type PricingInput } from "./pricing";
 import { FONT_FACE_CSS } from "./fonts.generated";
 
 // ----------------------------------------------------------------- types
@@ -116,10 +116,28 @@ export type CombinedYacht = {
 };
 
 /** ONE quoted duration for a yacht in "the double". label e.g. "5 nights" /
- *  "7 nights"; dates e.g. "31 Aug – 5 Sep 2026"; fee_disp the formatted client
- *  fee e.g. "€ 15,000"; note an optional muted sub-line e.g. "8% offer, from
- *  € 24,000". Never carries commission / price-to-agency. */
-export type PeriodOption = { label: string; dates?: string; fee_disp: string; note?: string };
+ *  "7 nights"; dates e.g. "31 Aug – 5 Sep 2026". `fee` is the NUMERIC client
+ *  (post-discount) charter fee — when set together with `apa_pct`/`vat_pct` the
+ *  money box renders the FULL per-period BREAKDOWN (Charter fee / APA / VAT /
+ *  ESTIMATED ALL-IN) as a comparison table. `fee_disp` is the pre-formatted
+ *  fallback (e.g. "€ 15,000") used for the SIMPLE display when no APA/VAT % is
+ *  set; it is also derived from `fee` when absent. `apa_pct` (e.g. 40) and
+ *  `vat_pct` (e.g. 12) are the broker-set percentages — present => breakdown.
+ *  `note` an optional muted sub-line e.g. "8% offer, from € 24,000". Never
+ *  carries commission / price-to-agency. */
+export type PeriodOption = {
+  label: string;
+  dates?: string;
+  /** Numeric client (post-discount) charter fee. Drives the computed breakdown. */
+  fee?: number;
+  /** Pre-formatted fee string fallback (simple display / when `fee` is absent). */
+  fee_disp?: string;
+  /** Broker-set APA percentage (e.g. 40). Present (with/without vat) => breakdown. */
+  apa_pct?: number;
+  /** Broker-set VAT percentage (e.g. 12). Present => breakdown. */
+  vat_pct?: number;
+  note?: string;
+};
 
 export type CombinedProposal = {
   mode: "combined";
@@ -812,6 +830,36 @@ const PERIODS_CSS = `
 .periods .po-note{font-size:8pt;font-weight:300;color:var(--gold-soft);
       letter-spacing:.02em;padding:0 0 1.4mm;margin-top:-.4mm;}
 .periods .po-foot{margin-top:2.2mm;font-size:8pt;font-weight:300;color:var(--ivory-dim);
+      line-height:1.4;letter-spacing:.01em;}
+
+/* PER-PERIOD BREAKDOWN as a COMPARISON TABLE — one COLUMN per period (header =
+   label + muted dates), row labels (Charter fee / APA / VAT / ESTIMATED ALL-IN)
+   on the left, figures right-aligned per column, the ALL-IN row in gold. Tight
+   type + line-height so 2–3 columns still clear the .pfoot footer on one A4 page.
+   Uses a CSS grid: first column = row labels, then one fr per period. */
+.periods .po-cmp{margin-top:1.8mm;display:grid;gap:0;}
+.periods .po-cmp .pc-cell{padding:1.5mm 0;border-bottom:1px solid rgba(201,168,76,.12);
+      font-size:9.5pt;font-weight:300;color:var(--ivory-dim);text-align:right;
+      font-variant-numeric:tabular-nums;line-height:1.15;}
+.periods .po-cmp .pc-rowlab{text-align:left;color:var(--slate);font-weight:300;
+      padding-right:5mm;}
+/* Column headers (period label + dates), gold, right-aligned over the figures. */
+.periods .po-cmp .pc-head{padding:0 0 2mm;border-bottom:1px solid var(--hair);text-align:right;}
+.periods .po-cmp .pc-head.pc-rowlab{border-bottom:1px solid var(--hair);}
+.periods .po-cmp .pc-h-lab{font-family:'Cormorant',serif;font-size:13pt;color:var(--ivory);
+      line-height:1.05;}
+.periods .po-cmp .pc-h-dates{display:block;font-family:'Montserrat',sans-serif;font-size:7.5pt;
+      font-weight:300;color:var(--ivory-dim);letter-spacing:.02em;margin-top:.5mm;}
+.periods .po-cmp .pc-h-note{display:block;font-family:'Montserrat',sans-serif;font-size:7pt;
+      font-weight:300;color:var(--gold-soft);letter-spacing:.01em;margin-top:.4mm;line-height:1.25;}
+/* ALL-IN row: gold figures, gold top rule, prominent. */
+.periods .po-cmp .pc-allin{border-bottom:none;border-top:1px solid var(--gold);
+      padding:2.2mm 0 0;}
+.periods .po-cmp .pc-allin.pc-rowlab{font-family:'Cinzel',serif;letter-spacing:.16em;
+      text-transform:uppercase;font-size:8pt;color:var(--gold);}
+.periods .po-cmp .pc-allin .pc-allin-amt{font-family:'Cormorant',serif;font-weight:600;
+      font-size:16pt;color:var(--gold);line-height:1;white-space:nowrap;}
+.periods .po-grat{margin-top:2.4mm;font-size:8pt;font-weight:300;color:var(--ivory-dim);
       line-height:1.4;letter-spacing:.01em;}`;
 
 function wrapPages(pages: string[], title = "", extraCss = ""): string {
@@ -1074,15 +1122,44 @@ function yachtExtrasBlock(y: CombinedYacht): string {
 // it does, the money box renders the compact PERIODS & RATES table INSTEAD of the
 // single charter-fee/all-in rows. Absent / empty => the single-pricing money box
 // renders EXACTLY as before (weekly + every stored proposal unchanged).
-function validPeriodOptions(y: CombinedYacht): PeriodOption[] {
+// A cleaned period option carrying BOTH the formatted fallback (fee_disp) and the
+// computable numerics (fee/apa_pct/vat_pct) so the block can pick simple vs
+// breakdown rendering. fee_disp is derived from fee when only the number is set.
+type CleanPeriod = {
+  label: string;
+  dates: string;
+  fee?: number;
+  fee_disp: string;
+  apa_pct?: number;
+  vat_pct?: number;
+  note: string;
+};
+
+// Parse a numeric period field that may arrive as a number OR a string. Returns
+// undefined for empty/unparseable so "not set" stays distinct from 0.
+function numOrUndef(v: unknown): number | undefined {
+  if (v === null || v === undefined || v === "") return undefined;
+  const n = typeof v === "number" ? v : Number(String(v).replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function validPeriodOptions(y: CombinedYacht): CleanPeriod[] {
   return (Array.isArray(y.period_options) ? y.period_options : [])
     .filter((p) => p && typeof p === "object")
-    .map((p) => ({
-      label: (p.label ?? "").toString().trim(),
-      dates: (p.dates ?? "").toString().trim(),
-      fee_disp: (p.fee_disp ?? "").toString().trim(),
-      note: (p.note ?? "").toString().trim(),
-    }))
+    .map((p) => {
+      const fee = numOrUndef(p.fee);
+      const feeDispRaw = (p.fee_disp ?? "").toString().trim();
+      return {
+        label: (p.label ?? "").toString().trim(),
+        dates: (p.dates ?? "").toString().trim(),
+        fee,
+        // Prefer the explicit display string; else format the numeric fee.
+        fee_disp: feeDispRaw || (fee !== undefined ? fmtEur(fee) : ""),
+        apa_pct: numOrUndef(p.apa_pct),
+        vat_pct: numOrUndef(p.vat_pct),
+        note: (p.note ?? "").toString().trim(),
+      } as CleanPeriod;
+    })
     // An option is renderable when it has at least a fee OR a label (so a robust
     // merge that only captured the fee, or only the label, still shows up).
     .filter((p) => p.fee_disp || p.label);
@@ -1090,6 +1167,13 @@ function validPeriodOptions(y: CombinedYacht): PeriodOption[] {
 
 function hasPeriodOptions(y: CombinedYacht): boolean {
   return validPeriodOptions(y).length > 0;
+}
+
+// The broker wants a COMPUTED breakdown for this yacht when at least one period
+// carries an APA % or VAT % (i.e. the broker filled the figures). Until then we
+// keep the simple "label · dates · fee + generic note" display unchanged.
+function wantsBreakdown(opts: CleanPeriod[]): boolean {
+  return opts.some((p) => p.apa_pct !== undefined || p.vat_pct !== undefined);
 }
 
 // COMBINED — compact PERIODS & RATES table for a yacht quoted across 2+ durations.
@@ -1101,6 +1185,12 @@ function hasPeriodOptions(y: CombinedYacht): boolean {
 function periodOptionsBlock(y: CombinedYacht): string {
   const opts = validPeriodOptions(y);
   if (!opts.length) return "";
+  // BREAKDOWN MODE: the broker filled an APA % or VAT % on at least one period →
+  // render the full per-period price breakdown as a COMPARISON TABLE.
+  if (wantsBreakdown(opts)) return periodBreakdownTable(opts);
+
+  // SIMPLE MODE (unchanged): label · dates · fee, plus one shared APA/VAT/gratuity
+  // note. This is byte-identical to the previous "double" output.
   const rows = opts
     .map((p) => {
       const left =
@@ -1117,6 +1207,101 @@ function periodOptionsBlock(y: CombinedYacht): string {
     `<div class="po-lab-head">Periods &amp; Rates</div>` +
     `<div class="po-table">${rows}</div>` +
     `<div class="po-foot">Each rate is plus APA (estimated 35&#8211;40%), VAT 12%, and crew gratuity 10&#8211;15% as per MYBA.</div>` +
+    `</div>`
+  );
+}
+
+// Percent label for a column header / row label — "40%" / "6.5%". Empty when
+// the percent is undefined (so "APA" / "VAT" render bare in that edge case).
+function pctLabel(v?: number): string {
+  if (v === undefined) return "";
+  return Math.abs(v - Math.trunc(v)) < 1e-9 ? `${Math.trunc(v)}%` : `${v}%`;
+}
+
+// COMBINED — PER-PERIOD BREAKDOWN as a COMPARISON TABLE. Row labels on the left
+// (Charter fee / APA (x%) / VAT (y%) / ESTIMATED ALL-IN), ONE COLUMN per period
+// (header = label + muted dates [+ optional muted note], gold figures, ALL-IN row
+// gold). Each column is computed by the deterministic computePricing in breakdown
+// mode — NO new math here. 1 period → 1 value column; 2–3 → side-by-side; 4+ →
+// still columns but tightened. Fits one A4 page (tight type; hero shrinks to 78mm
+// on breakdown pages — see renderCombinedYacht). NO commission ever appears.
+function periodBreakdownTable(opts: CleanPeriod[]): string {
+  // The APA/VAT % row labels use the FIRST period that has each percent (the
+  // broker normally sets one APA % across all periods of a yacht). VAT defaults
+  // to 12% (Greece) for the label when a fee is computed but no VAT % was typed.
+  const firstApa = opts.find((p) => p.apa_pct !== undefined)?.apa_pct;
+  const firstVat = opts.find((p) => p.vat_pct !== undefined)?.vat_pct;
+  const apaLabel = `APA${firstApa !== undefined ? ` (${pctLabel(firstApa)})` : ""}`;
+  const vatLabel = `VAT${firstVat !== undefined ? ` (${pctLabel(firstVat)})` : ""}`;
+
+  // Per-column computed pricing (deterministic). A column with no numeric fee
+  // falls back to its fee_disp string for the charter-fee cell and blanks the
+  // computed rows (robust: a half-filled period never crashes the table).
+  const cols = opts.map((p) => {
+    if (p.fee === undefined) {
+      return { p, charter: p.fee_disp || "", apa: "", vat: "", allIn: "" };
+    }
+    const pr = computePricing({
+      mode: "breakdown",
+      charter_fee: p.fee,
+      apa_pct: p.apa_pct ?? null,
+      vat_pct: p.vat_pct ?? null,
+    });
+    // Pull the APA / VAT amounts off the computed rows (labels start "APA"/"VAT").
+    const apaRow = pr.rows.find((r) => r[0].startsWith("APA"));
+    const vatRow = pr.rows.find((r) => r[0].startsWith("VAT"));
+    return {
+      p,
+      charter: pr.charter_fee_disp,
+      apa: apaRow ? apaRow[1] : "",
+      vat: vatRow ? vatRow[1] : "",
+      allIn: pr.all_in ?? "",
+    };
+  });
+
+  const n = cols.length;
+  // grid: a left label column (auto) + one equal fraction per period.
+  const gridCols = `minmax(28mm,auto) repeat(${n}, 1fr)`;
+
+  // Build each grid ROW as: [row-label cell] + [one value cell per column].
+  const headCells =
+    `<div class="pc-cell pc-head pc-rowlab"></div>` +
+    cols
+      .map((c) => {
+        const dates = c.p.dates ? `<span class="pc-h-dates">${e(c.p.dates)}</span>` : "";
+        const note = c.p.note ? `<span class="pc-h-note">${e(c.p.note)}</span>` : "";
+        return `<div class="pc-cell pc-head"><span class="pc-h-lab">${e(c.p.label || "Option")}</span>${dates}${note}</div>`;
+      })
+      .join("");
+
+  const rowLine = (label: string, vals: string[], extraCls = "") => {
+    const lab = `<div class="pc-cell pc-rowlab ${extraCls}">${label}</div>`;
+    const cells = vals
+      .map((v) =>
+        extraCls.includes("pc-allin")
+          ? `<div class="pc-cell ${extraCls}"><span class="pc-allin-amt gold-metal">${v}</span></div>`
+          : `<div class="pc-cell ${extraCls}">${v}</div>`,
+      )
+      .join("");
+    return lab + cells;
+  };
+
+  const charterRow = rowLine("Charter fee", cols.map((c) => c.charter));
+  const apaRow = rowLine(apaLabel, cols.map((c) => c.apa));
+  const vatRow = rowLine(vatLabel, cols.map((c) => c.vat));
+  const allInRow = rowLine("Estimated All-In", cols.map((c) => c.allIn), "pc-allin");
+
+  return (
+    `<div class="periods">` +
+    `<div class="po-lab-head">Periods &amp; Rates</div>` +
+    `<div class="po-cmp" style="grid-template-columns:${gridCols};">` +
+    headCells +
+    charterRow +
+    apaRow +
+    vatRow +
+    allInRow +
+    `</div>` +
+    `<div class="po-grat">Crew gratuity 10&#8211;15% as per MYBA, at the client&#8217;s discretion (not included above).</div>` +
     `</div>`
   );
 }
@@ -1521,6 +1706,9 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   // rendered EXACTLY as before. ---
   const periodsHtml = periodOptionsBlock(y);
   const yHasPeriods = !!periodsHtml;
+  // A computed per-period BREAKDOWN table is taller than the simple period list,
+  // so the hero photo shrinks a touch more on those pages to keep one A4 page.
+  const yHasBreakdown = yHasPeriods && wantsBreakdown(validPeriodOptions(y));
 
   // --- pricing rows for the deal panel ---
   let dealRows: string;
@@ -1626,7 +1814,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   ${specClean ? `<div class="body" style="font-size:9.5pt;letter-spacing:.04em;color:var(--ivory-dim);margin-top:1.6mm;line-height:1.5;">${e(specClean)}</div>` : ""}
   ${stripHtml}
 
-  <div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", (yHasExtras || yHasPeriods) ? "80mm" : "88mm")}</div>
+  <div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", yHasBreakdown ? "74mm" : (yHasExtras || yHasPeriods) ? "80mm" : "88mm")}</div>
 
   ${desc ? `<p class="body" style="font-size:10.5pt;line-height:1.6;margin-top:4mm;">${e(desc)}</p>` : ""}
   ${insideHtml}
