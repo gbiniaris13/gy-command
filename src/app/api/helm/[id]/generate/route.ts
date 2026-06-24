@@ -90,6 +90,10 @@ type CombinedInputYacht = {
   payable_at_base?: { label?: string; amount?: string }[];
   security_deposit?: string | null;
   free_onboard?: string[];
+  /** "THE DOUBLE": same yacht quoted across 2+ durations. Optional + additive;
+   *  absent => the single-pricing money box renders as before. CLIENT-facing
+   *  fees only — NEVER commission. */
+  period_options?: { label?: string; dates?: string; fee_disp?: string; note?: string }[];
 };
 
 // Assemble the per-yacht voyage line for the proposal: embark/disembark ports +
@@ -187,6 +191,32 @@ function sanitizeYachtExtras(iy: CombinedInputYacht): {
     .slice(0, 30);
   if (fob.length) out.free_onboard = fob;
   return out;
+}
+
+// Sanitise the PER-YACHT period options ("the double") posted by the review UI
+// into the CombinedYacht shape. Drops rows with no fee AND no label, trims, caps
+// for safety. Returns undefined when nothing usable, so a yacht without a double
+// stays clean (absent => the single-pricing money box renders as before). NEVER
+// carries commission / price-to-agency — not in the input shape, never reaches it.
+function sanitizePeriodOptions(iy: CombinedInputYacht):
+  | { label: string; dates?: string; fee_disp: string; note?: string }[]
+  | undefined {
+  const rows = (Array.isArray(iy.period_options) ? iy.period_options : [])
+    .map((p) => ({
+      label: (p?.label ?? "").toString().trim(),
+      dates: (p?.dates ?? "").toString().trim(),
+      fee_disp: (p?.fee_disp ?? "").toString().trim(),
+      note: (p?.note ?? "").toString().trim(),
+    }))
+    .filter((p) => p.fee_disp || p.label)
+    .slice(0, 6)
+    .map((p) => ({
+      label: p.label || "Option",
+      fee_disp: p.fee_disp,
+      ...(p.dates ? { dates: p.dates } : {}),
+      ...(p.note ? { note: p.note } : {}),
+    }));
+  return rows.length ? rows : undefined;
 }
 
 function buildPeriodLine(r: RequestRow): string {
@@ -298,6 +328,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const p = inYachts[i]?.pricing || {};
       const pm = p.mode || (p.all_inclusive_total != null ? "all_inclusive" : p.extras_text ? "plus_extras" : "breakdown");
       const label = inYachts[i]?.vessel?.name ? `"${inYachts[i].vessel!.name}"` : `#${i + 1}`;
+      // A "double" (period_options with >=1 fee/label) carries its own per-period
+      // fees, so the single charter-fee requirement does not apply to it.
+      const hasPeriods = !!sanitizePeriodOptions(inYachts[i]);
+      if (hasPeriods) continue;
       if (pm === "all_inclusive") {
         if (p.all_inclusive_total == null || Number(p.all_inclusive_total) <= 0) {
           return NextResponse.json({ error: `Yacht ${label}: confirm an all-inclusive total greater than 0. Nothing was generated.` }, { status: 400 });
@@ -374,6 +408,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // PER-YACHT bareboat extras — this yacht's OWN money-box extras (absent
         // => nothing renders). Commission is never in this shape.
         const extras = sanitizeYachtExtras(iy);
+        // "THE DOUBLE": same yacht quoted across 2+ durations (absent => the
+        // single-pricing money box renders as before). CLIENT-facing fees only.
+        const periodOptions = sanitizePeriodOptions(iy);
         const yacht: CombinedYacht = {
           name: v.name || "Yacht",
           type: v.type || undefined,
@@ -388,9 +425,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           ...(extras.payable_at_base ? { payable_at_base: extras.payable_at_base } : {}),
           ...(extras.security_deposit ? { security_deposit: extras.security_deposit } : {}),
           ...(extras.free_onboard ? { free_onboard: extras.free_onboard } : {}),
+          ...(periodOptions ? { period_options: periodOptions } : {}),
         };
         const ain = allInNumber(pricing);
-        const sortKey = ain ?? (pricing.charter_fee != null ? Number(pricing.charter_fee) : Number.POSITIVE_INFINITY);
+        // For a "double" with no top-level fee, sort by the LOWEST period fee so
+        // it still lands sensibly on the cheapest→priciest ladder.
+        const periodSortKey = periodOptions
+          ? periodOptions.reduce((min, p) => {
+              const n = Number((p.fee_disp || "").replace(/[^0-9.]/g, ""));
+              return Number.isFinite(n) && n > 0 ? Math.min(min, n) : min;
+            }, Number.POSITIVE_INFINITY)
+          : Number.POSITIVE_INFINITY;
+        const sortKey = ain
+          ?? (pricing.charter_fee != null ? Number(pricing.charter_fee) : periodSortKey);
         return { yacht, sortKey };
       }));
 
@@ -428,6 +475,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (withPhoto?.images?.main) images.cover = withPhoto.images.main as string;
 
       const summary = sorted.map((y) => {
+        // A "double" summarises its quoted durations (e.g. "5 nights € 15,000;
+        // 7 nights € 17,857") rather than a single headline fee.
+        if (Array.isArray(y.period_options) && y.period_options.length) {
+          const opts = y.period_options
+            .map((p) => `${p.label}${p.fee_disp ? ` ${p.fee_disp}` : ""}`)
+            .join("; ");
+          return `${y.name}${y.spec_line ? ` - ${y.spec_line}` : ""} - ${opts} (plus APA and VAT)`;
+        }
         const pr = computePricing(y.pricing);
         return `${y.name}${y.spec_line ? ` - ${y.spec_line}` : ""} - ${pr.headline}${pr.all_inclusive ? " all-inclusive (APA, VAT and extras included)" : pr.extras_mode ? "" : " plus APA and VAT"}`;
       }).join("\n");

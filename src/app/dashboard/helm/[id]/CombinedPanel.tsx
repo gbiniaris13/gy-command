@@ -45,6 +45,9 @@ type YachtExtraction = {
   content?: Record<string, unknown>;
   suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: { code: string; message: string }[];
+  /** "THE DOUBLE": set by the deterministic merge when the supplier quoted this
+   *  yacht for 2+ durations. Seeds the Periods & rates editor. Absent otherwise. */
+  period_options?: { label?: string; dates?: string; fee_disp?: string; note?: string }[];
 };
 type CombinedExtraction = {
   yachts: YachtExtraction[];
@@ -87,6 +90,38 @@ function extrasPayload(s: ExtrasState): { payable_at_base?: { label: string; amo
   if (fob.length) out.free_onboard = fob;
   return out;
 }
+
+// "THE DOUBLE": editor state for a yacht quoted across 2+ durations. One row per
+// option {label, dates, fee, note}; seeded from the merge; owner can add / edit /
+// remove. Sent in the generate body; persisted in the review draft. CLIENT fees
+// only — commission never goes here.
+type PeriodRow = { label: string; dates: string; fee: string; note: string };
+type PeriodsState = PeriodRow[];
+
+// Seed the periods editor from the extraction's period_options (set by the
+// deterministic merge). Empty array when the yacht was quoted once.
+function periodsStateFrom(opts?: { label?: string; dates?: string; fee_disp?: string; note?: string }[]): PeriodsState {
+  return (Array.isArray(opts) ? opts : []).map((p) => ({
+    label: (p?.label ?? "").toString(),
+    dates: (p?.dates ?? "").toString(),
+    fee: (p?.fee_disp ?? "").toString(),
+    note: (p?.note ?? "").toString(),
+  }));
+}
+// Build the period_options payload for the generate body (drop empty rows). Maps
+// the editor's `fee` to the template's `fee_disp`. Returns [] when none set.
+function periodsPayload(s: PeriodsState): { label: string; dates?: string; fee_disp: string; note?: string }[] {
+  return (s || [])
+    .map((r) => ({ label: r.label.trim(), dates: r.dates.trim(), fee: r.fee.trim(), note: r.note.trim() }))
+    .filter((r) => r.fee || r.label)
+    .map((r) => ({
+      label: r.label || "Option",
+      fee_disp: r.fee,
+      ...(r.dates ? { dates: r.dates } : {}),
+      ...(r.note ? { note: r.note } : {}),
+    }));
+}
+
 type MediaEntry = { main_url?: string; brochure_url?: string };
 type PriceMode = "breakdown" | "plus_extras" | "all_inclusive";
 
@@ -98,6 +133,10 @@ type YState = {
   /** PER-YACHT bareboat extras (money-box only). Seeded from extraction.extras;
    *  editable; sent in the generate body; persisted in the review draft. */
   extras?: ExtrasState;
+  /** "THE DOUBLE": per-yacht period options (label/dates/fee/note). Seeded from
+   *  extraction.period_options (the merge); editable; sent in the generate body;
+   *  persisted in the review draft. Empty => single-pricing money box as before. */
+  periods?: PeriodsState;
   /** Excluded from the proposal (e.g. the yacht got booked meanwhile). The card
    *  stays — nothing is deleted — it is simply left out of the generated PDF. */
   excluded?: boolean;
@@ -165,6 +204,7 @@ function seedStates(ex: CombinedExtraction | null): YState[] {
       date_from: y.dates?.from?.value || "", date_to: y.dates?.to?.value || "",
     },
     extras: extrasStateFrom(y.extras),
+    periods: periodsStateFrom(y.period_options),
   }));
 }
 
@@ -357,6 +397,9 @@ export default function CombinedPanel({
             // PER-YACHT bareboat extras (money-box only). Empty => the route
             // sends nothing and the template renders nothing for this yacht.
             ...extrasPayload(s.extras ?? EMPTY_EXTRAS),
+            // "THE DOUBLE": period options (label/dates/fee/note). Empty => the
+            // single-pricing money box renders as before for this yacht.
+            ...(() => { const po = periodsPayload(s.periods ?? []); return po.length ? { period_options: po } : {}; })(),
           })),
       };
       const r = await fetch(`/api/helm/${requestId}/generate`, {
@@ -728,6 +771,15 @@ export default function CombinedPanel({
                   </div>
                 </div>
 
+                {/* "THE DOUBLE": this yacht quoted across 2+ durations. Seeded by
+                    the merge; the owner can add a period to ANY yacht. When >=1
+                    period is set, the money box shows a PERIODS & RATES table
+                    INSTEAD of the single fee rows. */}
+                <PeriodsEditor
+                  value={s.periods ?? []}
+                  onChange={(next) => patchY(i, { periods: next })}
+                />
+
                 {/* PER-YACHT bareboat extras — this yacht's OWN money-box extras
                     (payable at base, security deposit, complimentary on board).
                     Most relevant for bareboat; shown for every non-weekly type. */}
@@ -799,6 +851,63 @@ function LinkAdder({ placeholder, disabled, onAdd }: { placeholder: string; disa
 
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
   return <label style={{ display: "block" }}><div style={fieldLabel}>{label}</div><div style={{ marginTop: 4 }}>{children}</div></label>;
+}
+
+// "THE DOUBLE" — periods & rates editor. One row per duration {label, dates,
+// fee, note}. Seeded from the deterministic merge (so a yacht the supplier quoted
+// twice arrives pre-filled), but addable to ANY yacht. When >=1 row has a fee or
+// label, the money box renders a compact PERIODS & RATES table INSTEAD of the
+// single fee rows. CLIENT fees only — commission never goes here. Auto-opens when
+// seeded so the merged double is immediately visible to the owner.
+function PeriodsEditor({ value, onChange }: { value: PeriodsState; onChange: (next: PeriodsState) => void }) {
+  const seeded = value.some((r) => r.label.trim() || r.fee.trim() || r.dates.trim());
+  const [open, setOpen] = useState(seeded);
+  const has = seeded;
+  const setRow = (idx: number, patch: Partial<PeriodRow>) =>
+    onChange(value.map((r, k) => (k === idx ? { ...r, ...patch } : r)));
+  const addRow = () => onChange([...value, { label: "", dates: "", fee: "", note: "" }]);
+  const removeRow = (idx: number) => onChange(value.filter((_, k) => k !== idx));
+
+  return (
+    <div style={{ marginTop: 10, border: "1px solid rgba(13,27,42,0.12)", borderRadius: 2, background: "rgba(201,168,76,0.04)" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={extrasHead}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span>{open ? "▾" : "▸"}</span>
+          <span>Periods &amp; rates (the double)</span>
+          {has && <span style={extrasBadge}>{value.filter((r) => r.fee.trim() || r.label.trim()).length} set</span>}
+        </span>
+        <span style={{ fontSize: 11, color: "#9CA3AF", textTransform: "none", letterSpacing: 0 }}>
+          {open ? "two durations on one card" : "optional"}
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: "10px 12px 12px" }}>
+          <div style={{ fontSize: 11.5, color: "#6b7280", marginBottom: 10, lineHeight: 1.5 }}>
+            Same yacht, more than one duration (e.g. 5 nights <b>and</b> 7 nights). Each row shows on the card as a
+            line in the price box. Fees are <b>client-facing</b> (after any discount) — commission never goes here.
+            Leave empty to keep the single price.
+          </div>
+          {value.map((r, k) => (
+            <div key={k} style={{ border: "1px solid rgba(13,27,42,0.1)", borderRadius: 2, padding: "8px 9px", marginTop: 8, background: "#fff" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input value={r.label} onChange={(e) => setRow(k, { label: e.target.value })} placeholder="5 nights" style={{ ...txt, width: 110 }} />
+                <input value={r.dates} onChange={(e) => setRow(k, { dates: e.target.value })} placeholder="31 Aug – 5 Sep 2026" style={{ ...txt, flex: 1 }} />
+                <input value={r.fee} onChange={(e) => setRow(k, { fee: e.target.value })} placeholder="€ 15,000" style={{ ...priceInput, width: 110 }} />
+                <button type="button" onClick={() => removeRow(k)} style={{ ...ghostBtn, padding: "6px 9px", fontSize: 9 }}>✕</button>
+              </div>
+              <input value={r.note} onChange={(e) => setRow(k, { note: e.target.value })} placeholder="optional note — e.g. 8% offer, from € 24,000" style={{ ...txt, marginTop: 6 }} />
+            </div>
+          ))}
+          <button type="button" onClick={addRow} style={{ ...ghostBtn, marginTop: 8, fontSize: 9 }}>+ Add period</button>
+          {has && (
+            <button type="button" onClick={() => onChange([])} style={{ ...ghostBtn, marginTop: 10, marginLeft: 8, color: "#7f1d1d", borderColor: "rgba(177,74,58,0.4)", fontSize: 9 }}>
+              Clear periods
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // PER-YACHT bareboat extras editor (money-box only). Collapsed by default,

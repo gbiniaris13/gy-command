@@ -106,7 +106,20 @@ export type CombinedYacht = {
   payable_at_base?: PayableAtBase[];   // e.g. [{label:"Charter Pack — …", amount:"EUR 250"}]
   security_deposit?: string;           // e.g. "EUR 3,000 refundable (card at base)"
   free_onboard?: string[];             // e.g. ["1 SUP","Welcome Pack","Espresso maker"]
+  /** "THE DOUBLE": when the SAME yacht is quoted for 2+ durations (e.g. 5 nights
+   *  AND 7 nights, different dates + fees), each option is one entry here. When
+   *  present (>=1) the money box renders a compact PERIODS & RATES table INSTEAD
+   *  of the single charter-fee/all-in rows. Absent => the existing single-pricing
+   *  money box renders EXACTLY as before (weekly/bareboat unchanged). The figures
+   *  are CLIENT-facing (post-discount); commission is NEVER here. */
+  period_options?: PeriodOption[];
 };
+
+/** ONE quoted duration for a yacht in "the double". label e.g. "5 nights" /
+ *  "7 nights"; dates e.g. "31 Aug – 5 Sep 2026"; fee_disp the formatted client
+ *  fee e.g. "€ 15,000"; note an optional muted sub-line e.g. "8% offer, from
+ *  € 24,000". Never carries commission / price-to-agency. */
+export type PeriodOption = { label: string; dates?: string; fee_disp: string; note?: string };
 
 export type CombinedProposal = {
   mode: "combined";
@@ -776,6 +789,31 @@ const EXTRAS_CSS = `
       white-space:nowrap;font-variant-numeric:tabular-nums;}
 .deal-extras .ex-line{font-size:8.5pt;font-weight:300;color:var(--ivory-dim);line-height:1.35;margin-top:.8mm;}`;
 
+// PERIODS ("THE DOUBLE") CSS — appended to the document <style> ONLY when at
+// least one yacht carries period_options, so a proposal without them renders
+// byte-for-byte as before. Compact table inside the money box: one row per
+// duration (label + muted dates left, gold fee right), an optional muted note
+// sub-line, then one shared APA/VAT/gratuity foot line. Tight enough that a
+// 2–3 option yacht still clears the .pfoot footer on one A4 page.
+const PERIODS_CSS = `
+.periods{margin-top:2.6mm;}
+.periods .po-lab-head{font-family:'Cinzel',serif;letter-spacing:.22em;text-transform:uppercase;
+      font-size:6.5pt;color:var(--gold);}
+.periods .po-table{margin-top:1.8mm;}
+.periods .po-row{display:flex;justify-content:space-between;align-items:baseline;gap:6mm;
+      padding:1.8mm 0;border-bottom:1px solid rgba(201,168,76,.14);}
+.periods .po-left{display:flex;flex-direction:column;}
+.periods .po-left .po-lab{font-family:'Cormorant',serif;font-size:12.5pt;color:var(--ivory);
+      line-height:1.1;}
+.periods .po-left .po-dates{font-size:8pt;font-weight:300;color:var(--ivory-dim);
+      letter-spacing:.02em;margin-top:.6mm;}
+.periods .po-row .po-fee{font-family:'Cormorant',serif;font-weight:600;font-size:16pt;
+      color:var(--gold);white-space:nowrap;font-variant-numeric:tabular-nums;line-height:1;}
+.periods .po-note{font-size:8pt;font-weight:300;color:var(--gold-soft);
+      letter-spacing:.02em;padding:0 0 1.4mm;margin-top:-.4mm;}
+.periods .po-foot{margin-top:2.2mm;font-size:8pt;font-weight:300;color:var(--ivory-dim);
+      line-height:1.4;letter-spacing:.01em;}`;
+
 function wrapPages(pages: string[], title = "", extraCss = ""): string {
   return (
     `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${e(title)}</title>\n` +
@@ -1029,6 +1067,58 @@ function yachtExtrasBlock(y: CombinedYacht): string {
     parts.push(`<div class="ex-line">${fob.map((s) => e(s)).join(" &middot; ")}</div>`);
   }
   return `<div class="deal-extras">${parts.join("")}</div>`;
+}
+
+// ---------------------------------------------------------- PERIODS ("THE DOUBLE")
+// True when a yacht carries >=1 valid period option (a non-empty fee_disp). When
+// it does, the money box renders the compact PERIODS & RATES table INSTEAD of the
+// single charter-fee/all-in rows. Absent / empty => the single-pricing money box
+// renders EXACTLY as before (weekly + every stored proposal unchanged).
+function validPeriodOptions(y: CombinedYacht): PeriodOption[] {
+  return (Array.isArray(y.period_options) ? y.period_options : [])
+    .filter((p) => p && typeof p === "object")
+    .map((p) => ({
+      label: (p.label ?? "").toString().trim(),
+      dates: (p.dates ?? "").toString().trim(),
+      fee_disp: (p.fee_disp ?? "").toString().trim(),
+      note: (p.note ?? "").toString().trim(),
+    }))
+    // An option is renderable when it has at least a fee OR a label (so a robust
+    // merge that only captured the fee, or only the label, still shows up).
+    .filter((p) => p.fee_disp || p.label);
+}
+
+function hasPeriodOptions(y: CombinedYacht): boolean {
+  return validPeriodOptions(y).length > 0;
+}
+
+// COMBINED — compact PERIODS & RATES table for a yacht quoted across 2+ durations.
+// One row per option: LEFT = label + (muted, smaller dates); RIGHT = fee_disp
+// (gold, prominent); an optional muted sub-line for note. BELOW the table, ONE
+// shared muted note line covering APA / VAT / crew gratuity (these crewed motor
+// yachts are quoted "plus expenses"). Tight type so a yacht with 2–3 options
+// still clears the .pfoot footer on one A4 page. NO commission ever appears.
+function periodOptionsBlock(y: CombinedYacht): string {
+  const opts = validPeriodOptions(y);
+  if (!opts.length) return "";
+  const rows = opts
+    .map((p) => {
+      const left =
+        `<div class="po-left"><span class="po-lab">${e(p.label || "Option")}</span>` +
+        (p.dates ? `<span class="po-dates">${e(p.dates)}</span>` : "") +
+        `</div>`;
+      const right = `<span class="po-fee">${e(p.fee_disp)}</span>`;
+      const noteLine = p.note ? `<div class="po-note">${e(p.note)}</div>` : "";
+      return `<div class="po-row">${left}${right}</div>${noteLine}`;
+    })
+    .join("");
+  return (
+    `<div class="periods">` +
+    `<div class="po-lab-head">Periods &amp; Rates</div>` +
+    `<div class="po-table">${rows}</div>` +
+    `<div class="po-foot">Each rate is plus APA (estimated 35&#8211;40%), VAT 12%, and crew gratuity 10&#8211;15% as per MYBA.</div>` +
+    `</div>`
+  );
 }
 
 // ----------------------------------------------------------------- SINGLE
@@ -1366,10 +1456,13 @@ function renderCombined(d: CombinedProposal): string {
   // Append the per-yacht extras CSS ONLY when at least one yacht carries extras,
   // so a proposal without them is byte-identical to the pre-feature render.
   const anyExtras = yachts.some((y) => hasYachtExtras(y));
+  // Append the PERIODS CSS ONLY when at least one yacht carries period options,
+  // so a proposal without them is byte-identical to the pre-feature render.
+  const anyPeriods = yachts.some((y) => hasPeriodOptions(y));
   return wrapPages(
     pages,
     d.white_label ? "Charter Proposal" : "Curated Selection" + (client ? ` - ${client}` : ""),
-    anyExtras ? EXTRAS_CSS : "",
+    (anyExtras ? EXTRAS_CSS : "") + (anyPeriods ? PERIODS_CSS : ""),
   );
 }
 
@@ -1422,6 +1515,13 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   const yExtras = yachtExtrasBlock(y);
   const yHasExtras = hasYachtExtras(y);
 
+  // --- "THE DOUBLE": this yacht quoted across 2+ durations. When present the
+  // money box renders the compact PERIODS & RATES table INSTEAD of the single
+  // charter-fee/all-in rows. Absent => the existing single-pricing money box is
+  // rendered EXACTLY as before. ---
+  const periodsHtml = periodOptionsBlock(y);
+  const yHasPeriods = !!periodsHtml;
+
   // --- pricing rows for the deal panel ---
   let dealRows: string;
   let dealTotal = "";
@@ -1468,7 +1568,10 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
       ? `<div class="deal-total"><span class="dt-lab">Estimated All-In</span><span class="dt-amt gold-metal">${pr.all_in}</span></div>`
       : "";
   }
-  const perGuest = pr.per_person_4
+  // Per-guest is omitted when multiple periods are shown — a single per-guest
+  // figure would be ambiguous across two different fees, and the periods table
+  // is the headline. (Single-pricing yachts keep the existing per-guest line.)
+  const perGuest = (!yHasPeriods && pr.per_person_4)
     ? `<div class="deal-foot">Per guest, estimated — ${pr.per_person_4} at 4 &#8226; ${pr.per_person_6} at 6</div>`
     : "";
 
@@ -1523,15 +1626,17 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   ${specClean ? `<div class="body" style="font-size:9.5pt;letter-spacing:.04em;color:var(--ivory-dim);margin-top:1.6mm;line-height:1.5;">${e(specClean)}</div>` : ""}
   ${stripHtml}
 
-  <div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", yHasExtras ? "80mm" : "88mm")}</div>
+  <div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", (yHasExtras || yHasPeriods) ? "80mm" : "88mm")}</div>
 
   ${desc ? `<p class="body" style="font-size:10.5pt;line-height:1.6;margin-top:4mm;">${e(desc)}</p>` : ""}
   ${insideHtml}
 
   <div class="deal">
     ${dealHead}
-    <div class="deal-rows">${dealRows}${dealTotal}</div>${yExtras}
-    ${perGuest}
+    ${yHasPeriods
+      ? periodsHtml
+      : `<div class="deal-rows">${dealRows}${dealTotal}</div>${yExtras}
+    ${perGuest}`}
     ${brochureLink(y.links)}
   </div>
 

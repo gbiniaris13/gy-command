@@ -12,6 +12,7 @@
 
 import { aiChat } from "../ai";
 import { parseLooseJson } from "./json";
+import { fmtEur } from "./pricing";
 
 export type Confidence = "high" | "medium" | "low";
 
@@ -104,6 +105,13 @@ export type SuggestedTerms = {
   cancellation?: string;
 };
 
+/** "THE DOUBLE": one quoted duration for a yacht the supplier offered across
+ *  2+ durations. Built DETERMINISTICALLY by the post-extraction merge (NOT the
+ *  AI) from each duplicate entry's dates + post-discount client fee. label e.g.
+ *  "5 nights"; dates e.g. "31 Aug – 5 Sep 2026"; fee_disp e.g. "€ 15,000"; note
+ *  e.g. "8% offer, from € 24,000". CLIENT-facing fee only — never commission. */
+export type PeriodOption = { label: string; dates?: string; fee_disp: string; note?: string };
+
 export type Extraction = {
   vessel_name: Field<string>;
   vessel_type: Field<string>;
@@ -111,6 +119,11 @@ export type Extraction = {
   pricing: ExtractedPricing;
   /** PER-YACHT bareboat extras (money-box only). Empty when not stated. */
   extras?: ExtractedYachtExtras;
+  /** "THE DOUBLE": set ONLY by the deterministic merge when the supplier quoted
+   *  this same yacht for 2+ durations. Each duplicate becomes one option here on
+   *  the surviving base yacht; the duplicates are removed. Absent for a yacht
+   *  quoted once (unchanged). */
+  period_options?: PeriodOption[];
   seasonal_rates: SeasonalRate[];
   dates: { from: Field<string>; to: Field<string> };
   embarkation: Field<string>;
@@ -391,6 +404,169 @@ function coerceSuggestedTerms(v: unknown): SuggestedTerms | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
+// =============================================================
+// DETERMINISTIC DUPLICATE-MERGE ("THE DOUBLE") — NOT AI.
+// A supplier often quotes the SAME yacht for TWO durations (e.g. 5 nights AND
+// 7 nights) with different dates + fees. We want ONE card per yacht showing
+// BOTH options. After extractSupplierYachts parses the array, we group yachts
+// by NORMALISED vessel name; for any name with 2+ entries we keep the FIRST as
+// the base (its specs / photo / features) and turn EACH entry's
+// (dates + post-discount client fee + discount/list) into a period_options
+// entry on that base, then remove the now-merged duplicates. A yacht quoted
+// ONCE is untouched (no period_options). Pure code, fully testable; no model.
+// =============================================================
+
+// Normalise a vessel name for grouping: lowercase, strip M/Y, MOTOR YACHT, S/Y,
+// SAILING YACHT prefixes, drop punctuation, collapse spaces. "" when no name.
+function normalizeVesselName(raw?: string | null): string {
+  let s = (raw ?? "").toString().toLowerCase().trim();
+  if (!s) return "";
+  // Strip leading vessel-type prefixes (with or without slashes / spaces).
+  s = s.replace(/^(m\/?y|s\/?y|motor\s+yacht|sailing\s+yacht|catamaran|motor\s+catamaran|sailing\s+catamaran)\b[\s.:-]*/i, "");
+  // Drop non-alphanumerics (keep spaces), collapse whitespace.
+  s = s.replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  return s;
+}
+
+// Parse a date token (ISO "2026-08-31" or human "31 Aug 2026" / "31 August") to
+// a UTC Date for night-count + display. null when unparseable.
+function parseDateToken(input?: string | null): Date | null {
+  const s = (input ?? "").toString().trim();
+  if (!s) return null;
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    const d = new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const human = s.match(/^(\d{1,2})\s+([A-Za-z]+)\.?(?:\s+(\d{4}))?/);
+  if (human) {
+    const mi = MONTH_IDX[human[2].toLowerCase()];
+    if (mi !== undefined) {
+      const year = human[3] ? Number(human[3]) : new Date().getUTCFullYear();
+      const d = new Date(Date.UTC(year, mi, Number(human[1])));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+  return null;
+}
+
+const MONTHS_3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_IDX: Record<string, number> = (() => {
+  const m: Record<string, number> = {};
+  const long = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  MONTHS_3.forEach((s, i) => { m[s.toLowerCase()] = i; });
+  long.forEach((s, i) => { m[s] = i; });
+  m["sept"] = 8;
+  return m;
+})();
+
+// Nights between two dates (>=1) or null when either is unparseable.
+function nightsBetween(from?: string | null, to?: string | null): number | null {
+  const a = parseDateToken(from), b = parseDateToken(to);
+  if (!a || !b) return null;
+  const n = Math.round((b.getTime() - a.getTime()) / 86400000);
+  return n > 0 ? n : null;
+}
+
+// Display one date as "31 Aug 2026" (year dropped only when absent in source).
+function fmtDay(d: Date, withYear: boolean): string {
+  const day = String(d.getUTCDate());
+  const mon = MONTHS_3[d.getUTCMonth()];
+  return withYear ? `${day} ${mon} ${d.getUTCFullYear()}` : `${day} ${mon}`;
+}
+
+// "31 Aug – 5 Sep 2026" — share the year on the right; if same month, keep both
+// month names (clearer for clients). Falls back to the raw tokens when unparseable.
+function fmtDateRange(from?: string | null, to?: string | null): string {
+  const a = parseDateToken(from), b = parseDateToken(to);
+  if (a && b) {
+    const left = `${String(a.getUTCDate())} ${MONTHS_3[a.getUTCMonth()]}`;
+    const right = fmtDay(b, true);
+    return `${left} – ${right}`;
+  }
+  // Unparseable: present whatever literal tokens exist.
+  const fa = (from ?? "").toString().trim();
+  const fb = (to ?? "").toString().trim();
+  if (fa && fb) return `${fa} – ${fb}`;
+  return fa || fb || "";
+}
+
+// The CLIENT (post-discount) fee for one extracted yacht entry, as a money
+// string. Mirrors computePricing's discount math (net = gross × (1 − disc%)),
+// using the gross that enforceGrossCharterFee already normalised charter_fee to.
+// Returns "" when no fee is present (the option still renders off its label).
+function clientFeeDisp(p: ExtractedPricing): string {
+  const fee = p?.charter_fee?.value;
+  if (typeof fee !== "number" || !(fee > 0)) {
+    const allIn = p?.all_inclusive_total?.value;
+    return typeof allIn === "number" && allIn > 0 ? fmtEur(allIn) : "";
+  }
+  const disc = p?.discount_pct?.value;
+  const net = (typeof disc === "number" && disc > 0 && disc < 100) ? fee * (1 - disc / 100) : fee;
+  return fmtEur(net);
+}
+
+// The muted "8% offer, from € 24,000" sub-line when a discount applies and a
+// list/gross figure is known. "" when no discount. Uses the gross charter_fee
+// (enforceGrossCharterFee set it to the list) as the "from" anchor.
+function periodNote(p: ExtractedPricing): string {
+  const disc = p?.discount_pct?.value;
+  if (typeof disc !== "number" || !(disc > 0) || disc >= 100) return "";
+  const gross = (typeof p?.list_price?.value === "number" && p.list_price.value > 0)
+    ? p.list_price.value
+    : (typeof p?.charter_fee?.value === "number" ? p.charter_fee.value : null);
+  const pctTxt = Math.abs(disc - Math.trunc(disc)) < 1e-9 ? `${Math.trunc(disc)}%` : `${disc}%`;
+  return gross ? `${pctTxt} offer, from ${fmtEur(gross)}` : `${pctTxt} offer`;
+}
+
+// Build ONE period option from a yacht entry. label = night count when both
+// dates parse ("5 nights"); else "Option N". dates = formatted range. fee =
+// post-discount client fee. note = discount line (if any). Robust: an entry
+// with unparseable dates still yields an option (label/fee preserved).
+function periodOptionFromEntry(y: Extraction, ordinal: number): PeriodOption {
+  const from = y.dates?.from?.value;
+  const to = y.dates?.to?.value;
+  const nights = nightsBetween(from, to);
+  const label = nights !== null ? `${nights} night${nights === 1 ? "" : "s"}` : `Option ${ordinal}`;
+  const dates = fmtDateRange(from, to);
+  const fee_disp = clientFeeDisp(y.pricing);
+  const note = periodNote(y.pricing);
+  const opt: PeriodOption = { label, fee_disp };
+  if (dates) opt.dates = dates;
+  if (note) opt.note = note;
+  return opt;
+}
+
+// Group the extracted yachts by normalised name; merge any 2+ same-name entries
+// into the FIRST as the base, carrying each entry's duration into period_options
+// and dropping the merged duplicates. Yachts with a blank/unique name pass
+// through untouched (no period_options). Preserves the first-seen order.
+export function mergeDuplicateYachts(yachts: Extraction[]): Extraction[] {
+  const order: string[] = [];
+  const groups = new Map<string, Extraction[]>();
+  for (const y of yachts) {
+    const key = normalizeVesselName(y.vessel_name?.value);
+    // Yachts with no resolvable name can't be safely grouped — keep each on its
+    // own bucket (unique key) so they are never merged together.
+    const bucket = key || `__unnamed_${order.length}_${groups.size}`;
+    if (!groups.has(bucket)) { groups.set(bucket, []); order.push(bucket); }
+    groups.get(bucket)!.push(y);
+  }
+  const out: Extraction[] = [];
+  for (const bucket of order) {
+    const entries = groups.get(bucket)!;
+    if (entries.length < 2) { out.push(entries[0]); continue; }
+    // MERGE: first entry is the base (its specs / content / type survive).
+    const base = entries[0];
+    base.period_options = entries.map((y, i) => periodOptionFromEntry(y, i + 1));
+    // The base's single charter_fee is now superseded by the period table — the
+    // money box renders periods INSTEAD. (We leave the pricing block intact for
+    // the broker's reference; the template ignores it when period_options exist.)
+    out.push(base);
+  }
+  return out;
+}
+
 export async function extractSupplierYachts(
   supplierRaw: string,
   brief?: string,
@@ -423,7 +599,10 @@ export async function extractSupplierYachts(
   }
   const arr = Array.isArray(parsed?.yachts) ? parsed.yachts : [];
   if (!arr.length) throw new Error("Multi-yacht extraction found no yachts in the supplier email.");
-  const yachts = arr.map((y) => coerceYacht(y as Extraction));
+  const coerced = arr.map((y) => coerceYacht(y as Extraction));
+  // DETERMINISTIC post-process (NOT AI): collapse the SAME yacht quoted for 2+
+  // durations into ONE base yacht carrying both as period_options ("the double").
+  const yachts = mergeDuplicateYachts(coerced);
   const out: CombinedExtraction = { yachts };
   const sct = coerceCharterType(parsed?.suggested_charter_type);
   if (sct) out.suggested_charter_type = sct;
