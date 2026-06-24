@@ -108,21 +108,9 @@ export type SuggestedTerms = {
 /** "THE DOUBLE": one quoted duration for a yacht the supplier offered across
  *  2+ durations. Built DETERMINISTICALLY by the post-extraction merge (NOT the
  *  AI) from each duplicate entry's dates + post-discount client fee. label e.g.
- *  "5 nights"; dates e.g. "31 Aug – 5 Sep 2026". `fee` is the NUMERIC client
- *  (post-discount) charter fee — the computable figure the broker's APA/VAT %
- *  multiply to produce the per-period breakdown. `fee_disp` is the pre-formatted
- *  string (kept as a fallback). `apa_pct`/`vat_pct` are carried only if the email
- *  stated them (usually NOT — the broker fills them on the review screen). `note`
+ *  "5 nights"; dates e.g. "31 Aug – 5 Sep 2026"; fee_disp e.g. "€ 15,000"; note
  *  e.g. "8% offer, from € 24,000". CLIENT-facing fee only — never commission. */
-export type PeriodOption = {
-  label: string;
-  dates?: string;
-  fee?: number;
-  fee_disp?: string;
-  apa_pct?: number;
-  vat_pct?: number;
-  note?: string;
-};
+export type PeriodOption = { label: string; dates?: string; fee_disp: string; note?: string };
 
 export type Extraction = {
   vessel_name: Field<string>;
@@ -472,12 +460,7 @@ const MONTH_IDX: Record<string, number> = (() => {
   return m;
 })();
 
-// Nights between two dates = the DATE DIFFERENCE in days (NOT inclusive of both
-// endpoints): 31 Aug → 5 Sep = 5, 31 Aug → 7 Sep = 7, 1 Sep → 8 Sep = 7,
-// 24 Aug → 31 Aug = 7. parseDateToken pins both to UTC-MIDNIGHT (time stripped),
-// so the divide is an exact whole number of days — Math.round only guards a
-// stray leap-second / float wobble, never shifts a clean day count. >=1 or null
-// when either side is unparseable.
+// Nights between two dates (>=1) or null when either is unparseable.
 function nightsBetween(from?: string | null, to?: string | null): number | null {
   const a = parseDateToken(from), b = parseDateToken(to);
   if (!a || !b) return null;
@@ -508,26 +491,19 @@ function fmtDateRange(from?: string | null, to?: string | null): string {
   return fa || fb || "";
 }
 
-// The CLIENT (post-discount) fee for one extracted yacht entry, as a NUMBER.
-// Mirrors computePricing's discount math (net = gross × (1 − disc%)), using the
-// gross that enforceGrossCharterFee already normalised charter_fee to. null when
-// no usable fee is present (the option still renders off its label). This numeric
-// figure seeds the per-period breakdown the broker computes with their APA/VAT %.
-function clientFeeNum(p: ExtractedPricing): number | null {
+// The CLIENT (post-discount) fee for one extracted yacht entry, as a money
+// string. Mirrors computePricing's discount math (net = gross × (1 − disc%)),
+// using the gross that enforceGrossCharterFee already normalised charter_fee to.
+// Returns "" when no fee is present (the option still renders off its label).
+function clientFeeDisp(p: ExtractedPricing): string {
   const fee = p?.charter_fee?.value;
   if (typeof fee !== "number" || !(fee > 0)) {
     const allIn = p?.all_inclusive_total?.value;
-    return typeof allIn === "number" && allIn > 0 ? allIn : null;
+    return typeof allIn === "number" && allIn > 0 ? fmtEur(allIn) : "";
   }
   const disc = p?.discount_pct?.value;
-  return (typeof disc === "number" && disc > 0 && disc < 100) ? fee * (1 - disc / 100) : fee;
-}
-
-// The CLIENT (post-discount) fee for one extracted yacht entry, as a money
-// string. Thin formatter over clientFeeNum. Returns "" when no fee is present.
-function clientFeeDisp(p: ExtractedPricing): string {
-  const n = clientFeeNum(p);
-  return n !== null ? fmtEur(n) : "";
+  const net = (typeof disc === "number" && disc > 0 && disc < 100) ? fee * (1 - disc / 100) : fee;
+  return fmtEur(net);
 }
 
 // The muted "8% offer, from € 24,000" sub-line when a discount applies and a
@@ -553,19 +529,10 @@ function periodOptionFromEntry(y: Extraction, ordinal: number): PeriodOption {
   const nights = nightsBetween(from, to);
   const label = nights !== null ? `${nights} night${nights === 1 ? "" : "s"}` : `Option ${ordinal}`;
   const dates = fmtDateRange(from, to);
-  const feeNum = clientFeeNum(y.pricing);
   const fee_disp = clientFeeDisp(y.pricing);
   const note = periodNote(y.pricing);
   const opt: PeriodOption = { label, fee_disp };
-  // Numeric client fee seeds the per-period breakdown (broker fills APA/VAT %).
-  if (feeNum !== null) opt.fee = feeNum;
   if (dates) opt.dates = dates;
-  // Carry APA/VAT percentages ONLY when the email explicitly stated them (rare —
-  // usually left blank for the broker to fill on the review screen).
-  const apaPct = y.pricing?.apa_pct?.value;
-  if (typeof apaPct === "number" && apaPct > 0) opt.apa_pct = apaPct;
-  const vatPct = y.pricing?.vat_pct?.value;
-  if (typeof vatPct === "number" && vatPct > 0) opt.vat_pct = vatPct;
   if (note) opt.note = note;
   return opt;
 }
