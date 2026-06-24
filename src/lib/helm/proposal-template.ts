@@ -249,7 +249,11 @@ function cleanDate(input: string): string {
   s = s
     .replace(/\bT(\d{1,2}:\d{2})(?::\d{2})?\b/gi, "$1")
     .replace(/(\d{1,2}:\d{2}):\d{2}\b/g, "$1")
-    .replace(/[ ]?T[ ]?(?=\d)/g, " ")
+    // Strip an ISO datetime separator "T" only when it sits BETWEEN digits
+    // (e.g. "2026-08-31T12:00"). The digit lookbehind stops it from eating the
+    // legitimate trailing "T" of an uppercased month — "AUGUST 2026" was being
+    // turned into "AUGUS 2026" on the cover because "T" was followed by " 2026".
+    .replace(/(?<=\d)[ ]?T[ ]?(?=\d)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   return s;
@@ -1235,6 +1239,46 @@ function pctLabel(v?: number): string {
 // mode — NO new math here. 1 period → 1 value column; 2–3 → side-by-side; 4+ →
 // still columns but tightened. Fits one A4 page (tight type; hero shrinks to 78mm
 // on breakdown pages — see renderCombinedYacht). NO commission ever appears.
+// Derive a "<n> nights" header label from the period's own date range, so a
+// mistyped or mis-extracted count (e.g. "6 nights" against 31 Aug – 7 Sep, which
+// is really 7) is corrected to the truth the dates already state. Only overrides
+// when the stored label IS a bare nights-count AND both dates parse cleanly;
+// otherwise the stored label is kept verbatim (e.g. "Low season", "Option").
+const _MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+function nightsFromRange(dates?: string): number | null {
+  const s = (dates ?? "").trim();
+  if (!s) return null;
+  const parts = s.split(/\s*[–—-]\s*/);
+  if (parts.length !== 2) return null;
+  const yearM = s.match(/\b(20\d{2})\b/);
+  const fallbackYear = yearM ? parseInt(yearM[1], 10) : null;
+  const parseSide = (side: string): number | null => {
+    const m = side.trim().match(/(\d{1,2})\s+([A-Za-z]{3,})\.?(?:\s+(\d{4}))?/);
+    if (!m) return null;
+    const mon = _MONTHS[m[2].slice(0, 3).toLowerCase()];
+    if (mon === undefined) return null;
+    const year = m[3] ? parseInt(m[3], 10) : fallbackYear;
+    if (!year) return null;
+    return Date.UTC(year, mon, parseInt(m[1], 10));
+  };
+  const a = parseSide(parts[0]);
+  const b = parseSide(parts[1]);
+  if (a === null || b === null) return null;
+  const nights = Math.round((b - a) / 86_400_000);
+  return nights >= 1 && nights <= 120 ? nights : null;
+}
+function nightsLabel(label?: string, dates?: string): string {
+  const stored = (label ?? "").trim();
+  if (/^\d+\s*nights?$/i.test(stored)) {
+    const n = nightsFromRange(dates);
+    if (n !== null) return `${n} night${n === 1 ? "" : "s"}`;
+  }
+  return stored || "Option";
+}
+
 function periodBreakdownTable(opts: CleanPeriod[], defApa?: number, defVat?: number): string {
   // The APA/VAT % row labels use the FIRST period that has each percent (the
   // broker normally sets one APA % across all periods of a yacht). VAT defaults
@@ -1282,7 +1326,7 @@ function periodBreakdownTable(opts: CleanPeriod[], defApa?: number, defVat?: num
       .map((c) => {
         const dates = c.p.dates ? `<span class="pc-h-dates">${e(c.p.dates)}</span>` : "";
         const note = c.p.note ? `<span class="pc-h-note">${e(c.p.note)}</span>` : "";
-        return `<div class="pc-cell pc-head"><span class="pc-h-lab">${e(c.p.label || "Option")}</span>${dates}${note}</div>`;
+        return `<div class="pc-cell pc-head"><span class="pc-h-lab">${e(nightsLabel(c.p.label, c.p.dates))}</span>${dates}${note}</div>`;
       })
       .join("");
 
