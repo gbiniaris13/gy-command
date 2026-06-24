@@ -116,17 +116,35 @@ function periodsStateFrom(opts?: { label?: string; dates?: string; fee?: number;
     note: (p?.note ?? "").toString(),
   }));
 }
+// Defensive normaliser: coerce EVERY period row to clean strings. Drafts saved
+// BEFORE the breakdown feature have rows with no apa/vat field, so an unguarded
+// `r.apa.trim()` threw "Cannot read properties of undefined (reading 'trim')" and
+// crashed the request page on load (500). Every consumer of the rows (the editor
+// render + the generate payload) runs them through this first — guaranteed safe.
+function normPeriodsState(rows?: PeriodRow[] | null): PeriodsState {
+  return (Array.isArray(rows) ? rows : []).map((r) => {
+    const o = (r ?? {}) as Partial<PeriodRow>;
+    return {
+      label: (o.label ?? "").toString(),
+      dates: (o.dates ?? "").toString(),
+      fee: (o.fee ?? "").toString(),
+      apa: (o.apa ?? "").toString(),
+      vat: (o.vat ?? "").toString(),
+      note: (o.note ?? "").toString(),
+    };
+  });
+}
 // Build the period_options payload for the generate body (drop empty rows). Sends
 // numeric `fee` (and a `fee_disp` fallback) plus `apa_pct`/`vat_pct` when set, so
 // the template renders the computed breakdown. Returns [] when none set.
 function periodsPayload(s: PeriodsState): { label: string; dates?: string; fee?: number; fee_disp?: string; apa_pct?: number; vat_pct?: number; note?: string }[] {
-  const num = (x: string) => {
-    const v = x.trim();
+  const num = (x?: string) => {
+    const v = (x ?? "").trim();
     if (!v) return undefined;
     const n = Number(v.replace(/[^0-9.\-]/g, ""));
     return Number.isFinite(n) && n > 0 ? n : undefined;
   };
-  return (s || [])
+  return normPeriodsState(s)
     .map((r) => ({ label: r.label.trim(), dates: r.dates.trim(), feeRaw: r.fee.trim(), fee: num(r.fee), apa: num(r.apa), vat: num(r.vat), note: r.note.trim() }))
     .filter((r) => r.feeRaw || r.label)
     .map((r) => ({
@@ -877,7 +895,10 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
 // label, the money box renders a compact PERIODS & RATES table INSTEAD of the
 // single fee rows. CLIENT fees only — commission never goes here. Auto-opens when
 // seeded so the merged double is immediately visible to the owner.
-function PeriodsEditor({ value, onChange }: { value: PeriodsState; onChange: (next: PeriodsState) => void }) {
+function PeriodsEditor({ value: rawValue, onChange }: { value: PeriodsState; onChange: (next: PeriodsState) => void }) {
+  // Normalise once so a legacy draft (rows without apa/vat) can never crash the
+  // `.trim()` calls below — this is the exact 500 the request page hit on load.
+  const value = normPeriodsState(rawValue);
   const seeded = value.some((r) => r.label.trim() || r.fee.trim() || r.dates.trim());
   const [open, setOpen] = useState(seeded);
   const has = seeded;
