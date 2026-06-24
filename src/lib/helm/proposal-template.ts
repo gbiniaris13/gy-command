@@ -1191,9 +1191,13 @@ function wantsBreakdown(opts: CleanPeriod[]): boolean {
 function periodOptionsBlock(y: CombinedYacht): string {
   const opts = validPeriodOptions(y);
   if (!opts.length) return "";
-  // BREAKDOWN MODE: the broker filled an APA % or VAT % on at least one period →
-  // render the full per-period price breakdown as a COMPARISON TABLE.
-  if (wantsBreakdown(opts)) return periodBreakdownTable(opts);
+  // BREAKDOWN MODE: render the full per-period breakdown as a COMPARISON TABLE.
+  // The percentages the broker typed in the yacht's MAIN pricing fields (APA % /
+  // VAT %) are inherited by every period, so the broker sets APA once and both
+  // durations use it. A period's own apa/vat still wins; final fallback 40% / 12%.
+  const yApa = typeof y.pricing?.apa_pct === "number" && y.pricing.apa_pct > 0 ? y.pricing.apa_pct : undefined;
+  const yVat = typeof y.pricing?.vat_pct === "number" && y.pricing.vat_pct > 0 ? y.pricing.vat_pct : undefined;
+  if (wantsBreakdown(opts)) return periodBreakdownTable(opts, yApa, yVat);
 
   // SIMPLE MODE (unchanged): label · dates · fee, plus one shared APA/VAT/gratuity
   // note. This is byte-identical to the previous "double" output.
@@ -1231,14 +1235,14 @@ function pctLabel(v?: number): string {
 // mode — NO new math here. 1 period → 1 value column; 2–3 → side-by-side; 4+ →
 // still columns but tightened. Fits one A4 page (tight type; hero shrinks to 78mm
 // on breakdown pages — see renderCombinedYacht). NO commission ever appears.
-function periodBreakdownTable(opts: CleanPeriod[]): string {
+function periodBreakdownTable(opts: CleanPeriod[], defApa?: number, defVat?: number): string {
   // The APA/VAT % row labels use the FIRST period that has each percent (the
   // broker normally sets one APA % across all periods of a yacht). VAT defaults
   // to 12% (Greece) for the label when a fee is computed but no VAT % was typed.
   // Broker-set percentages win; otherwise default APA 40% / VAT 12% so the
   // breakdown always computes a real total (the broker can override per yacht).
-  const firstApa = opts.find((p) => p.apa_pct !== undefined)?.apa_pct ?? 40;
-  const firstVat = opts.find((p) => p.vat_pct !== undefined)?.vat_pct ?? 12;
+  const firstApa = opts.find((p) => p.apa_pct !== undefined)?.apa_pct ?? defApa ?? 40;
+  const firstVat = opts.find((p) => p.vat_pct !== undefined)?.vat_pct ?? defVat ?? 12;
   const apaLabel = `APA (${pctLabel(firstApa)})`;
   const vatLabel = `VAT (${pctLabel(firstVat)})`;
 
@@ -1252,8 +1256,8 @@ function periodBreakdownTable(opts: CleanPeriod[]): string {
     const pr = computePricing({
       mode: "breakdown",
       charter_fee: p.fee,
-      apa_pct: p.apa_pct ?? 40,
-      vat_pct: p.vat_pct ?? 12,
+      apa_pct: p.apa_pct ?? defApa ?? 40,
+      vat_pct: p.vat_pct ?? defVat ?? 12,
     });
     // Pull the APA / VAT amounts off the computed rows (labels start "APA"/"VAT").
     const apaRow = pr.rows.find((r) => r[0].startsWith("APA"));
