@@ -47,7 +47,7 @@ type YachtExtraction = {
   flags: { code: string; message: string }[];
   /** "THE DOUBLE": set by the deterministic merge when the supplier quoted this
    *  yacht for 2+ durations. Seeds the Periods & rates editor. Absent otherwise. */
-  period_options?: { label?: string; dates?: string; fee_disp?: string; note?: string }[];
+  period_options?: { label?: string; dates?: string; fee?: number; fee_disp?: string; apa_pct?: number; vat_pct?: number; note?: string }[];
 };
 type CombinedExtraction = {
   yachts: YachtExtraction[];
@@ -95,29 +95,47 @@ function extrasPayload(s: ExtrasState): { payable_at_base?: { label: string; amo
 // option {label, dates, fee, note}; seeded from the merge; owner can add / edit /
 // remove. Sent in the generate body; persisted in the review draft. CLIENT fees
 // only — commission never goes here.
-type PeriodRow = { label: string; dates: string; fee: string; note: string };
+// `fee` = the numeric client charter fee (typed as "15000" or "€ 15,000"); `apa`
+// + `vat` = the broker's percentages as typed (e.g. "40", "12"). When >=1 row has
+// an APA % or VAT %, the PDF money box renders the FULL per-period breakdown
+// (Charter / APA / VAT / ALL-IN); otherwise the simple label·dates·fee display.
+type PeriodRow = { label: string; dates: string; fee: string; apa: string; vat: string; note: string };
 type PeriodsState = PeriodRow[];
 
 // Seed the periods editor from the extraction's period_options (set by the
-// deterministic merge). Empty array when the yacht was quoted once.
-function periodsStateFrom(opts?: { label?: string; dates?: string; fee_disp?: string; note?: string }[]): PeriodsState {
+// deterministic merge). VAT defaults to 12 (Greece) per row so the broker only
+// has to type the APA %. Empty array when the yacht was quoted once.
+function periodsStateFrom(opts?: { label?: string; dates?: string; fee?: number; fee_disp?: string; apa_pct?: number; vat_pct?: number; note?: string }[]): PeriodsState {
   return (Array.isArray(opts) ? opts : []).map((p) => ({
     label: (p?.label ?? "").toString(),
     dates: (p?.dates ?? "").toString(),
-    fee: (p?.fee_disp ?? "").toString(),
+    // Prefer the numeric fee; fall back to the formatted string from older drafts.
+    fee: p?.fee !== undefined && p?.fee !== null ? String(p.fee) : (p?.fee_disp ?? "").toString(),
+    apa: p?.apa_pct !== undefined && p?.apa_pct !== null ? String(p.apa_pct) : "",
+    vat: p?.vat_pct !== undefined && p?.vat_pct !== null ? String(p.vat_pct) : "12",
     note: (p?.note ?? "").toString(),
   }));
 }
-// Build the period_options payload for the generate body (drop empty rows). Maps
-// the editor's `fee` to the template's `fee_disp`. Returns [] when none set.
-function periodsPayload(s: PeriodsState): { label: string; dates?: string; fee_disp: string; note?: string }[] {
+// Build the period_options payload for the generate body (drop empty rows). Sends
+// numeric `fee` (and a `fee_disp` fallback) plus `apa_pct`/`vat_pct` when set, so
+// the template renders the computed breakdown. Returns [] when none set.
+function periodsPayload(s: PeriodsState): { label: string; dates?: string; fee?: number; fee_disp?: string; apa_pct?: number; vat_pct?: number; note?: string }[] {
+  const num = (x: string) => {
+    const v = x.trim();
+    if (!v) return undefined;
+    const n = Number(v.replace(/[^0-9.\-]/g, ""));
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
   return (s || [])
-    .map((r) => ({ label: r.label.trim(), dates: r.dates.trim(), fee: r.fee.trim(), note: r.note.trim() }))
-    .filter((r) => r.fee || r.label)
+    .map((r) => ({ label: r.label.trim(), dates: r.dates.trim(), feeRaw: r.fee.trim(), fee: num(r.fee), apa: num(r.apa), vat: num(r.vat), note: r.note.trim() }))
+    .filter((r) => r.feeRaw || r.label)
     .map((r) => ({
       label: r.label || "Option",
-      fee_disp: r.fee,
+      ...(r.fee !== undefined ? { fee: r.fee } : {}),
+      ...(r.feeRaw ? { fee_disp: r.feeRaw } : {}),
       ...(r.dates ? { dates: r.dates } : {}),
+      ...(r.apa !== undefined ? { apa_pct: r.apa } : {}),
+      ...(r.vat !== undefined ? { vat_pct: r.vat } : {}),
       ...(r.note ? { note: r.note } : {}),
     }));
 }
@@ -865,8 +883,17 @@ function PeriodsEditor({ value, onChange }: { value: PeriodsState; onChange: (ne
   const has = seeded;
   const setRow = (idx: number, patch: Partial<PeriodRow>) =>
     onChange(value.map((r, k) => (k === idx ? { ...r, ...patch } : r)));
-  const addRow = () => onChange([...value, { label: "", dates: "", fee: "", note: "" }]);
+  const addRow = () => onChange([...value, { label: "", dates: "", fee: "", apa: "", vat: "12", note: "" }]);
   const removeRow = (idx: number) => onChange(value.filter((_, k) => k !== idx));
+  // One-click: copy the FIRST non-empty APA % across every period of this yacht
+  // (the broker usually quotes one APA % for the whole yacht).
+  const applyApaToAll = () => {
+    const apa = (value.find((r) => r.apa.trim())?.apa ?? "").trim();
+    if (!apa) return;
+    onChange(value.map((r) => ({ ...r, apa })));
+  };
+  // The breakdown table appears once any row has an APA % or VAT % set.
+  const showsBreakdown = value.some((r) => r.apa.trim() || r.vat.trim());
 
   return (
     <div style={{ marginTop: 10, border: "1px solid rgba(13,27,42,0.12)", borderRadius: 2, background: "rgba(201,168,76,0.04)" }}>
@@ -883,26 +910,47 @@ function PeriodsEditor({ value, onChange }: { value: PeriodsState; onChange: (ne
       {open && (
         <div style={{ padding: "10px 12px 12px" }}>
           <div style={{ fontSize: 11.5, color: "#6b7280", marginBottom: 10, lineHeight: 1.5 }}>
-            Same yacht, more than one duration (e.g. 5 nights <b>and</b> 7 nights). Each row shows on the card as a
-            line in the price box. Fees are <b>client-facing</b> (after any discount) — commission never goes here.
-            Leave empty to keep the single price.
+            Same yacht, more than one duration (e.g. 5 nights <b>and</b> 7 nights). Fees are <b>client-facing</b>
+            {" "}(after any discount) — commission never goes here. Type an <b>APA %</b> (e.g. 40) and the price box
+            shows the full <b>Charter fee / APA / VAT / all-in</b> breakdown per period; leave APA blank to keep the
+            simple fee line. VAT defaults to 12% (Greece). Leave empty to keep the single price.
           </div>
           {value.map((r, k) => (
             <div key={k} style={{ border: "1px solid rgba(13,27,42,0.1)", borderRadius: 2, padding: "8px 9px", marginTop: 8, background: "#fff" }}>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <input value={r.label} onChange={(e) => setRow(k, { label: e.target.value })} placeholder="5 nights" style={{ ...txt, width: 110 }} />
+                <input value={r.label} onChange={(e) => setRow(k, { label: e.target.value })} placeholder="5 nights" style={{ ...txt, width: 96 }} />
                 <input value={r.dates} onChange={(e) => setRow(k, { dates: e.target.value })} placeholder="31 Aug – 5 Sep 2026" style={{ ...txt, flex: 1 }} />
-                <input value={r.fee} onChange={(e) => setRow(k, { fee: e.target.value })} placeholder="€ 15,000" style={{ ...priceInput, width: 110 }} />
                 <button type="button" onClick={() => removeRow(k)} style={{ ...ghostBtn, padding: "6px 9px", fontSize: 9 }}>✕</button>
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                <label style={{ ...numCellLabel }}>Fee
+                  <input value={r.fee} onChange={(e) => setRow(k, { fee: e.target.value })} placeholder="€ 15,000" style={{ ...priceInput, width: 110, marginTop: 3 }} />
+                </label>
+                <label style={{ ...numCellLabel }}>APA %
+                  <input value={r.apa} onChange={(e) => setRow(k, { apa: e.target.value })} placeholder="40" style={{ ...priceInput, width: 64, marginTop: 3 }} />
+                </label>
+                <label style={{ ...numCellLabel }}>VAT %
+                  <input value={r.vat} onChange={(e) => setRow(k, { vat: e.target.value })} placeholder="12" style={{ ...priceInput, width: 64, marginTop: 3 }} />
+                </label>
               </div>
               <input value={r.note} onChange={(e) => setRow(k, { note: e.target.value })} placeholder="optional note — e.g. 8% offer, from € 24,000" style={{ ...txt, marginTop: 6 }} />
             </div>
           ))}
           <button type="button" onClick={addRow} style={{ ...ghostBtn, marginTop: 8, fontSize: 9 }}>+ Add period</button>
+          {value.length > 1 && value.some((r) => r.apa.trim()) && (
+            <button type="button" onClick={applyApaToAll} style={{ ...ghostBtn, marginTop: 8, marginLeft: 8, fontSize: 9 }}>
+              Apply APA % to all
+            </button>
+          )}
           {has && (
-            <button type="button" onClick={() => onChange([])} style={{ ...ghostBtn, marginTop: 10, marginLeft: 8, color: "#7f1d1d", borderColor: "rgba(177,74,58,0.4)", fontSize: 9 }}>
+            <button type="button" onClick={() => onChange([])} style={{ ...ghostBtn, marginTop: 8, marginLeft: 8, color: "#7f1d1d", borderColor: "rgba(177,74,58,0.4)", fontSize: 9 }}>
               Clear periods
             </button>
+          )}
+          {showsBreakdown && (
+            <div style={{ fontSize: 11, color: "#3A6B47", marginTop: 8 }}>
+              The PDF will show a Charter fee / APA / VAT / all-in breakdown per period.
+            </div>
           )}
         </div>
       )}
@@ -987,6 +1035,8 @@ const priceRow: React.CSSProperties = { display: "flex", alignItems: "center", g
 const priceInput: React.CSSProperties = { width: 120, padding: 7, border: "1px solid rgba(13,27,42,0.2)", fontSize: 13, fontFamily: "inherit" };
 const snippetStyle: React.CSSProperties = { flex: 1, fontSize: 12, color: "#6b7280", fontStyle: "italic" };
 const txt: React.CSSProperties = { width: "100%", padding: 7, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit" };
+// Small stacked label over a numeric input in the periods breakdown editor.
+const numCellLabel: React.CSSProperties = { display: "flex", flexDirection: "column", fontSize: 9.5, letterSpacing: 0.8, textTransform: "uppercase", color: "#9CA3AF" };
 const stopBox: React.CSSProperties = { background: "rgba(177,74,58,0.08)", border: "1px solid rgba(177,74,58,0.5)", color: "#7f1d1d", padding: "8px 10px", margin: "10px 0", fontSize: 13 };
 const warnBox: React.CSSProperties = { background: "rgba(176,122,44,0.08)", border: "1px solid rgba(176,122,44,0.4)", color: "#7c4a03", padding: "8px 12px", margin: "10px 0", fontSize: 12.5 };
 const pdfLink: React.CSSProperties = { display: "inline-block", background: "#0D1B2A", color: "#F8F5F0", border: "1px solid #C9A84C", padding: "10px 18px", textDecoration: "none", fontSize: 10, letterSpacing: 2, textTransform: "uppercase" };
