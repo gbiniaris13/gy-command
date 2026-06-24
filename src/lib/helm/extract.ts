@@ -259,8 +259,18 @@ function enforceGrossCharterFee(pricing?: ExtractedPricing | null): void {
   const disc = pricing.discount_pct?.value;
   const list = pricing.list_price?.value;
   const fee = pricing.charter_fee;
-  if (fee && typeof disc === "number" && disc > 0 && typeof list === "number" && list > 0) {
-    fee.value = list;
+  if (!fee || typeof disc !== "number" || disc <= 0 || disc >= 100) return;
+  if (typeof list === "number" && list > 0) {
+    fee.value = list;                       // exact gross taken straight from the email
+    return;
+  }
+  // No list price captured, but the model returned a discount % AND the
+  // (post-discount) client fee. Reconstruct the GROSS so computePricing applies
+  // the discount exactly ONCE (net = gross × (1 − disc%)). e.g. fee 5,180 with
+  // −30% → gross 7,400 → net 5,180. Guarantees no double-discount even when the
+  // AI misses the list price.
+  if (typeof fee.value === "number" && fee.value > 0) {
+    fee.value = Math.round((fee.value / (1 - disc / 100)) * 100) / 100;
   }
 }
 

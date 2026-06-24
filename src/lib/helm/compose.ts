@@ -144,30 +144,28 @@ Output JSON only.`;
 export async function composeCombinedIntro(
   f: { salutation: string; occasion?: string; brief?: string; yacht_summary: string; anonymous?: boolean },
 ): Promise<string> {
-  const sys = f.anonymous
-    ? `${VOICE_ANON}
-
-TASK: Write the short note that opens a multi-yacht shortlist proposal PDF. Return JSON: {"intro_letter":"<3 to 4 short paragraphs separated by single newlines>"}.
-- Do NOT open with a salutation or any name (the reader is unknown). Open impersonally. Describe how this selection was assembled (a genuine availability review, narrowed to these few), acknowledge the spread (from the most sensible value to the statement option, only if the shortlist supports it), and close with gentle, real urgency.
-- No first person "I", no sign-off, no name, no broker identity. No em dash. No hype.
-${NO_DATES}
-Output JSON only.`
-    : `${VOICE_BASE}
-
-TASK: Write the short "A Note From Your Broker" letter that opens a multi-yacht shortlist proposal PDF. Return JSON: {"intro_letter":"<3 to 4 short paragraphs separated by single newlines>"}.
-- Begin with the EXACT salutation provided. First-person George: what you did (you went back through what is genuinely available and set these few aside for them), one line acknowledging the spread (from the most sensible value to the statement option, only if the shortlist supports it), and a warm close with gentle, real urgency.
-- Do NOT add a sign-off or your name; the PDF signs you as George Biniaris automatically. No em dash. No hype.
-${NO_DATES}
-Output JSON only.`;
-  const user = [
-    f.anonymous ? "" : `Salutation to use verbatim: ${f.salutation}`,
-    f.occasion ? `Occasion: ${f.occasion}` : "",
-    f.brief ? `Client brief: ${f.brief}` : "",
-    `The shortlist (cheapest first):\n${f.yacht_summary}`,
-  ].filter(Boolean).join("\n");
-  const raw = await aiChat(sys, user, { maxTokens: 6000, temperature: 0.6 });
-  const out = parseLooseJson(raw) as { intro_letter?: string };
-  return deDash(out.intro_letter || "");
+  // DETERMINISTIC + GENERIC by design — the opening note must NEVER commit to a
+  // specific area, route, port, dates or prices. The client may ask for one island
+  // while the genuine availability is elsewhere (e.g. requested the Small Cyclades;
+  // the bareboats sail from Athens). An AI-written intro repeatedly invented or
+  // mis-stated the location, which reads as an error to the client. So this note
+  // stays a warm, non-committal welcome; the yacht pages carry the real, reviewed
+  // facts. No AI call, no invented specifics, identical every time. (occasion /
+  // brief / yacht_summary are intentionally NOT used here.)
+  if (f.anonymous) {
+    return [
+      "Thank you for your interest.",
+      "This proposal sets out a considered selection of yachts, drawn from current availability for your review. Each has been chosen with care, offering a range from genuine value to the more distinctive options, so they may be weighed side by side.",
+      "We would be glad to discuss any of them in more detail, or to refine the selection further.",
+    ].join("\n");
+  }
+  const salutation = (f.salutation || "Dear Guests,").trim();
+  return [
+    salutation,
+    "Thank you for your trust. I have set aside a considered selection of yachts from our network for your review, on the pages that follow.",
+    "Each has been chosen with care, ranging from the most sensible value to the more distinctive options, so you may weigh them at your leisure.",
+    "I would be glad to talk any of them through in more detail, and to refine the selection as you wish. I remain entirely at your disposal.",
+  ].join("\n");
 }
 
 export type EmailFacts = {
