@@ -535,7 +535,7 @@ function companyBlock(showGhost = true, terms = "Charter agreement per MYBA stan
       georgeyachts.com &#8226; george@georgeyachts.com<br>
       Athens +30 6970380999 &#8226; Miami / WhatsApp +1 7867988798</div>
     <div class="label dim" style="font-size:5.8pt;letter-spacing:.12em;margin-top:5mm;line-height:1.6;color:var(--slate);">
-      &copy; 2026 George Yachts Brokerage House LLC. Confidential and proprietary &mdash; prepared exclusively for the named recipient.
+      &copy; 2026 George Yachts Brokerage House LLC. Confidential and proprietary, prepared exclusively for the named recipient.
       Indicative only; not an offer or a binding contract. All rates, availability and terms are subject to a signed charter agreement.
       No part may be reproduced, distributed or forwarded without written consent.<br>
       ${terms}. Prices in EUR, estimates only.</div>
@@ -550,7 +550,7 @@ function neutralFooter(terms = "Charter agreement per MYBA standard terms &amp; 
   return `
   <div style="margin-top:12mm;border-top:1px solid var(--hair);padding-top:6mm;text-align:center;">
     <div class="label dim" style="font-size:6.5pt;letter-spacing:.18em;line-height:1.8;">
-      Confidential and proprietary &mdash; prepared solely for the named recipient. Indicative only; not a binding contract.<br>
+      Confidential and proprietary, prepared solely for the named recipient. Indicative only; not a binding contract.<br>
       All rates and availability are subject to change until confirmed in writing &#8226; Prices in EUR, estimates only<br>
       ${terms}
     </div>
@@ -1001,7 +1001,7 @@ function singleKeyInfo(ctype: CharterType, crewNote?: string | null): string {
         <p class="body" style="margin-top:3mm;font-size:9.5pt;"><b>Included:</b> use of the yacht and her equipment,
         marine insurance, and applicable taxes &amp; VAT.</p>
         <p class="body" style="margin-top:2.5mm;font-size:9.5pt;"><b>Not included:</b> fuel, water, food &amp; drinks,
-        port fees and personal expenses — these are extra.</p>
+        port fees and personal expenses, which are all extra.</p>
         <p class="body" style="margin-top:2.5mm;font-size:9.5pt;"><b>Obligatory extras</b> (e.g. end cleaning / transit
         log, damage waiver) are paid locally per the operator.</p>
         <p class="body" style="margin-top:2.5mm;font-size:9.5pt;"><b>Security deposit:</b> a refundable deposit is held
@@ -1220,7 +1220,7 @@ function periodOptionsBlock(y: CombinedYacht): string {
     `<div class="periods">` +
     `<div class="po-lab-head">Periods &amp; Rates</div>` +
     `<div class="po-table">${rows}</div>` +
-    `<div class="po-foot">Each rate is plus APA (estimated 35&#8211;40%), VAT 12%, and crew gratuity 10&#8211;15% as per MYBA.</div>` +
+    `<div class="po-foot">Each rate is plus APA (estimated 35-40%), VAT 12%, and crew gratuity 10-15% as per MYBA.</div>` +
     `</div>`
   );
 }
@@ -1357,7 +1357,7 @@ function periodBreakdownTable(opts: CleanPeriod[], defApa?: number, defVat?: num
     vatRow +
     allInRow +
     `</div>` +
-    `<div class="po-grat">Crew gratuity 10&#8211;15% as per MYBA, at the client&#8217;s discretion (not included above).</div>` +
+    `<div class="po-grat">Crew gratuity 10-15% as per MYBA, at the client&#8217;s discretion (not included above).</div>` +
     `</div>`
   );
 }
@@ -1816,7 +1816,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   // figure would be ambiguous across two different fees, and the periods table
   // is the headline. (Single-pricing yachts keep the existing per-guest line.)
   const perGuest = (!yHasPeriods && pr.per_person_4)
-    ? `<div class="deal-foot">Per guest, estimated — ${pr.per_person_4} at 4 &#8226; ${pr.per_person_6} at 6</div>`
+    ? `<div class="deal-foot">Per guest, estimated: ${pr.per_person_4} at 4 &#8226; ${pr.per_person_6} at 6</div>`
     : "";
 
   // Deal header cells: Route + Dates (only render a cell when we have content).
@@ -1903,42 +1903,61 @@ function keyInfoPageTerms(d: CombinedProposal): string {
     ${cells}
     <div><div class="label">A Personal Service</div>
     <p class="body" style="font-size:9pt;margin-top:2mm;">Every option here has been selected by hand. We are with you from
-    first enquiry to disembarkation - on the ground in Greece, and a message away at any hour.</p></div>
+    first enquiry to disembarkation, on the ground in Greece, and a message away at any hour.</p></div>
   </div>
   <div style="margin-top:auto;">${footerBlock(d)}</div>
 </div></div>`;
 }
 
 function keyInfoPage(d: CombinedProposal): string {
-  // OWNER-DRIVEN last page wins when terms were supplied (any charter type).
-  if (termsHasContent(d.terms)) return keyInfoPageTerms(d);
-  // Non-weekly charter types get a type-appropriate Key Information page. The
-  // weekly path below is byte-identical to the original.
   const ctype = charterType(d);
-  if (ctype !== "weekly") return keyInfoPageNonWeekly(d, ctype);
+  // WEEKLY / crewed: ALWAYS the polished, generic, accurate Key Information page
+  // (APA explainer + crew gratuity + MYBA payment). It never echoes request-specific
+  // "included / not included" wording, so it can never contradict the actual offer
+  // (the cause of a real client query). Owner terms no longer override it for weekly.
+  if (ctype === "weekly") return keyInfoPageWeekly(d);
+  // Non-weekly: owner-supplied terms win when present; otherwise the type default.
+  if (termsHasContent(d.terms)) return keyInfoPageTerms(d);
+  return keyInfoPageNonWeekly(d, ctype);
+}
 
+// COMBINED — WEEKLY / crewed Key Information page. Generic + accurate by design:
+// explains the APA (definition, ~20-40% range, what it funds, refundable / top-up,
+// Captain-managed) and the MYBA payment cadence, with a small footnote that the
+// payment terms are the MYBA standard. NO request-specific included / not-included
+// list, so the page can never contradict the quoted offer. Figures are general
+// market norms, never a commitment tied to any one deal.
+function keyInfoPageWeekly(d: CombinedProposal): string {
   const noMyba = d.no_myba ?? false;
-  const myba = noMyba
+  const payment = noMyba
     ? ""
     : `
-      <div><div class="label">Booking &amp; Payment</div>
-      <p class="body" style="font-size:9pt;margin-top:2mm;">50% deposit on signing of the MYBA e-contract. The remaining
-      50% + VAT + APA is due four weeks prior to embarkation. Availability is confirmed only at the moment of booking.</p></div>`;
+      <div><div class="label">Payment</div>
+      <p class="body" style="font-size:9pt;margin-top:2mm;">Typically 50% of the net charter fee on signing the MYBA agreement, with the
+      remaining 50%, plus VAT, the APA and any extras, due around four to five weeks before embarkation. Availability is confirmed only
+      at the moment of booking.</p>
+      <p class="body" style="font-size:7pt;color:var(--ivory-dim);margin-top:2mm;line-height:1.45;">These payment terms follow the MYBA
+      standard agreement, under which the great majority of charters are contracted; other contract forms are used on occasion.</p></div>`;
   return `
 <div class="page"><div class="pad" style="display:flex;flex-direction:column;">
   <div class="sec-title">Key Information</div>
   <hr class="hair" style="margin:5mm 0 8mm;">
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8mm;">
     <div><div class="label">What is the APA?</div>
-    <p class="body" style="font-size:9pt;margin-top:2mm;">The Advance Provisioning Allowance covers fuel, port fees,
-    food and beverages. Any unspent funds are refunded after disembarkation with a full expense log from the Captain.</p></div>
-    ${myba}
+    <p class="body" style="font-size:9pt;margin-top:2mm;">The Advance Provisioning Allowance is a running budget held separately from the
+    charter fee, typically between 20% and 40% of it, depending on the yacht, the number of guests and how you cruise. It funds the
+    expenses of the charter itself: fuel, berthing and port fees, food and beverages, and similar running costs. The Captain holds it
+    and settles each expense on your behalf, so nothing is paid item by item and the charter runs seamlessly, with a full account kept
+    throughout. Whatever remains unspent is returned to you, and on the rare occasion the cruising exceeds it, the difference is simply
+    topped up along the way.</p></div>
+    ${payment}
     <div><div class="label">Crew Gratuity</div>
-    <p class="body" style="font-size:9pt;margin-top:2mm;">Not included in any rate. The industry standard is 10-15% of
-    the charter fee, handed to the Captain at disembarkation. Discretionary, but customary for excellent service.</p></div>
+    <p class="body" style="font-size:9pt;margin-top:2mm;">A gratuity for the crew is never included in the rate and is entirely at your
+    discretion. Where the service has delighted, the customary token is in the region of 10% to 15% of the charter fee, offered to the
+    Captain at the close of the charter.</p></div>
     <div><div class="label">A Personal Service</div>
     <p class="body" style="font-size:9pt;margin-top:2mm;">Every option here has been selected by hand. We are with you from
-    first enquiry to disembarkation - on the ground in Greece, and a message away at any hour.</p></div>
+    first enquiry to disembarkation, on the ground in Greece, and a message away at any hour.</p></div>
   </div>
   <div style="margin-top:auto;">${footerBlock(d)}</div>
 </div></div>`;
@@ -1965,9 +1984,9 @@ function keyInfoPageNonWeekly(d: CombinedProposal, ctype: CharterType): string {
     applicable taxes &amp; VAT.</p></div>
     <div><div class="label">Not Included</div>
     <p class="body" style="font-size:9pt;margin-top:2mm;">Fuel, water, food &amp; drinks, port fees and personal
-    expenses — these are extra.</p></div>
+    expenses, which are all extra.</p></div>
     <div><div class="label">Obligatory Extras</div>
-    <p class="body" style="font-size:9pt;margin-top:2mm;">Paid locally per the operator — for example end cleaning /
+    <p class="body" style="font-size:9pt;margin-top:2mm;">Paid locally per the operator, for example end cleaning,
     transit log and a damage waiver.</p></div>
     <div><div class="label">Security Deposit</div>
     <p class="body" style="font-size:9pt;margin-top:2mm;">A refundable security deposit is held and returned after
@@ -2006,7 +2025,7 @@ function keyInfoPageNonWeekly(d: CombinedProposal, ctype: CharterType): string {
     ${noteCell}
     <div><div class="label">A Personal Service</div>
     <p class="body" style="font-size:9pt;margin-top:2mm;">Every option here has been selected by hand. We are with you from
-    first enquiry to disembarkation - on the ground in Greece, and a message away at any hour.</p></div>
+    first enquiry to disembarkation, on the ground in Greece, and a message away at any hour.</p></div>
   </div>
   <div style="margin-top:auto;">${footerBlock(d)}</div>
 </div></div>`;

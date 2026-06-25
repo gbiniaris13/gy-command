@@ -162,9 +162,9 @@ export async function composeCombinedIntro(
   const salutation = (f.salutation || "Dear Guests,").trim();
   return [
     salutation,
-    "Thank you for your trust. I have set aside a considered selection of yachts from our network for your review, on the pages that follow.",
-    "Each has been chosen with care, ranging from the most sensible value to the more distinctive options, so you may weigh them at your leisure.",
-    "I would be glad to talk any of them through in more detail, and to refine the selection as you wish. I remain entirely at your disposal.",
+    "Thank you for choosing George Yachts Brokerage House for this request. We are a boutique firm with our team on the ground in Athens and our headquarters in the United States, guided above all by one Greek principle, filotimo: the quiet duty to treat every guest with honour and to do right by them, always.",
+    "Each yacht on the pages that follow is drawn from our own network and tailored to your request. We weigh availability, the quality of each vessel and your needs, and bring the selection as close to your brief as the market allows.",
+    "I would be glad to talk any of them through in more detail, and to refine the shortlist as you wish. I remain entirely at your disposal.",
   ].join("\n");
 }
 
