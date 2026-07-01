@@ -77,6 +77,10 @@ type CombinedInputYacht = {
     relocation_fee?: number | null;
     relocation_note?: string | null;
     all_in_override?: number | null;
+    half_day_rate?: number | null;
+    full_day_rate?: number | null;
+    half_day_label?: string | null;
+    full_day_label?: string | null;
   };
   content?: {
     highlights?: string[];
@@ -355,7 +359,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // fees, so the single charter-fee requirement does not apply to it.
       const hasPeriods = !!sanitizePeriodOptions(inYachts[i]);
       if (hasPeriods) continue;
-      if (pm === "all_inclusive") {
+      if (pm === "day_charter") {
+        const hd = p.half_day_rate, fd = p.full_day_rate;
+        if ((hd == null || Number(hd) <= 0) && (fd == null || Number(fd) <= 0)) {
+          return NextResponse.json({ error: `Yacht ${label}: enter a half-day or full-day rate. Nothing was generated.` }, { status: 400 });
+        }
+      } else if (pm === "all_inclusive") {
         if (p.all_inclusive_total == null || Number(p.all_inclusive_total) <= 0) {
           return NextResponse.json({ error: `Yacht ${label}: confirm an all-inclusive total greater than 0. Nothing was generated.` }, { status: 400 });
         }
@@ -394,6 +403,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           relocation_fee: iy.pricing?.relocation_fee ?? null,
           relocation_note: iy.pricing?.relocation_note ?? null,
           all_in_override: iy.pricing?.all_in_override ?? null,
+          half_day_rate: iy.pricing?.half_day_rate ?? null,
+          full_day_rate: iy.pricing?.full_day_rate ?? null,
+          half_day_label: iy.pricing?.half_day_label ?? null,
+          full_day_label: iy.pricing?.full_day_label ?? null,
         };
 
         const supplierFacts = [
@@ -582,13 +595,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     relocation_fee: p.relocation_fee ?? null,
     relocation_note: p.relocation_note ?? null,
     all_in_override: p.all_in_override ?? null,
+    half_day_rate: p.half_day_rate ?? null,
+    full_day_rate: p.full_day_rate ?? null,
+    half_day_label: p.half_day_label ?? null,
+    full_day_label: p.full_day_label ?? null,
     details: Array.isArray(body.details) ? body.details : [],
   };
 
   // SERVER-SIDE STOP GUARD (defense in depth behind the UI's disabled button).
   const pricingMode = pricing.mode
     || (pricing.all_inclusive_total != null ? "all_inclusive" : pricing.extras_text ? "plus_extras" : "breakdown");
-  if (pricingMode === "all_inclusive") {
+  if (pricingMode === "day_charter") {
+    const hd = pricing.half_day_rate, fd = pricing.full_day_rate;
+    if ((hd == null || Number(hd) <= 0) && (fd == null || Number(fd) <= 0)) {
+      return NextResponse.json(
+        { error: "Unresolved pricing: enter a half-day or full-day rate. Nothing was generated." },
+        { status: 400 },
+      );
+    }
+  } else if (pricingMode === "all_inclusive") {
     if (pricing.all_inclusive_total == null || Number(pricing.all_inclusive_total) <= 0) {
       return NextResponse.json(
         { error: "Unresolved pricing: confirm an all-inclusive total greater than 0. Nothing was generated." },

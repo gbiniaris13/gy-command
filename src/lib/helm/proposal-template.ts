@@ -1520,7 +1520,17 @@ function renderSingle(d: SingleProposal): string {
   let costBlock = "";
   let apaNote = "";
   let payBlock = "";
-  if (ctype !== "weekly") {
+  if (pr.day_charter) {
+    // ---- DAY CHARTER single-yacht cost block: two FINAL all-in rates
+    // (half day / full day), each as shown. No APA / VAT / MYBA schedule.
+    costBlock =
+      pr.rows
+        .map(([l, a]) => `<div class='cost-row'><span>${e(l)}</span><span class='amt'>${a}</span></div>`)
+        .join("") +
+      `<div class="body" style="margin-top:5mm;font-size:9.5pt;">Day-charter rates as shown, all-inclusive of the operator's standard services for the duration.</div>`;
+    apaNote = "";
+    payBlock = "";
+  } else if (ctype !== "weekly") {
     // ---- BAREBOAT / DAILY / CUSTOM single-yacht cost block. Charter fee is the
     // headline figure (NOT "all-in"); NO APA / VAT-extra rows; NO MYBA 50-50.
     // The Key-Info on this page becomes the type-appropriate inclusions text.
@@ -1769,7 +1779,14 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   // --- pricing rows for the deal panel ---
   let dealRows: string;
   let dealTotal = "";
-  if (ctype !== "weekly") {
+  if (pr.day_charter) {
+    // DAY CHARTER — two FINAL all-in rates (half day / full day), each as a
+    // row. No APA/VAT/all-in total; per-guest is auto-omitted (per_person null).
+    dealRows = pr.rows
+      .map(([l, a]) => `<div class="deal-row"><span>${e(l)}</span><span class="d-amt">${a}</span></div>`)
+      .join("");
+    dealTotal = "";
+  } else if (ctype !== "weekly") {
     // BAREBOAT / DAILY / CUSTOM — Charter fee is the headline figure (label
     // "Charter fee", NOT "all-in"; bareboat fee already includes VAT). NO
     // APA / VAT-extra rows, NO all-in total. When a discount applies, the

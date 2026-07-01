@@ -11,7 +11,7 @@
 // (breakdown + all_inclusive); plus_extras has no total so no per-person.
 // =============================================================
 
-export type PricingMode = "breakdown" | "plus_extras" | "all_inclusive";
+export type PricingMode = "breakdown" | "plus_extras" | "all_inclusive" | "day_charter";
 
 export type PricingInput = {
   currency?: string;
@@ -35,6 +35,13 @@ export type PricingInput = {
   relocation_note?: string | null;
   /** Broker's final rounded all-in total; overrides the computed total when set (> 0). */
   all_in_override?: number | null;
+  /** Day-charter FINAL rates (client-facing, all-in). When either is set the
+   *  proposal shows BOTH as two lines instead of a single charter fee, and no
+   *  APA/VAT/per-guest is applied. Labels default to "Half day" / "Full day". */
+  half_day_rate?: number | null;
+  full_day_rate?: number | null;
+  half_day_label?: string | null;
+  full_day_label?: string | null;
   details?: [string, string][];
 };
 
@@ -42,6 +49,7 @@ export type ComputedPricing = {
   mode: PricingMode;
   extras_mode: boolean; // back-compat: true when mode === "plus_extras"
   all_inclusive: boolean; // true when mode === "all_inclusive"
+  day_charter: boolean; // true when mode === "day_charter" (two final day rates)
   /** Bold owner-discount note shown above the cost rows (null when no discount). */
   discount_note: string | null;
   /** Discounted NET charter fee as a display string, when a discount applies in
@@ -115,7 +123,7 @@ export function allInNumber(p?: PricingInput | null): number | null {
     const t = p.all_inclusive_total;
     return t === null || t === undefined ? null : Number(t);
   }
-  if (mode === "plus_extras") return null; // lump price, no total
+  if (mode === "plus_extras" || mode === "day_charter") return null; // no single total
   const fee0 = p.charter_fee;
   if (fee0 === null || fee0 === undefined) return null;
   const grossFee = Number(fee0);
@@ -143,6 +151,7 @@ function pct(v: number | null | undefined): string {
 
 function resolveMode(p: PricingInput): PricingMode {
   if (p.mode) return p.mode;
+  if ((p.half_day_rate ?? null) !== null || (p.full_day_rate ?? null) !== null) return "day_charter";
   if (p.all_inclusive_total !== null && p.all_inclusive_total !== undefined) return "all_inclusive";
   if (p.extras_text) return "plus_extras";
   return "breakdown";
@@ -153,6 +162,7 @@ export function computePricing(p?: PricingInput | null): ComputedPricing {
     mode: "breakdown",
     extras_mode: false,
     all_inclusive: false,
+    day_charter: false,
     discount_note: null,
     net_after_discount: null,
     discount_pct_applied: null,
@@ -171,6 +181,26 @@ export function computePricing(p?: PricingInput | null): ComputedPricing {
   out.mode = mode;
   out.extras_mode = mode === "plus_extras";
   out.all_inclusive = mode === "all_inclusive";
+  out.day_charter = mode === "day_charter";
+
+  // ---- DAY CHARTER: two FINAL client-facing rates (half day + full day). Shown
+  // as two lines; no APA/VAT/per-guest (the figures are all-in as entered).
+  if (mode === "day_charter") {
+    const half = p.half_day_rate ?? null;
+    const full = p.full_day_rate ?? null;
+    const hl = (p.half_day_label && p.half_day_label.trim()) || "Half day";
+    const fl = (p.full_day_label && p.full_day_label.trim()) || "Full day";
+    const parts: string[] = [];
+    if (half !== null && half !== undefined && String(half) !== "") {
+      out.rows.push([hl, fmtEur(half)]); parts.push(`${hl} ${fmtEur(half)}`);
+    }
+    if (full !== null && full !== undefined && String(full) !== "") {
+      out.rows.push([fl, fmtEur(full)]); parts.push(`${fl} ${fmtEur(full)}`);
+    }
+    out.headline = parts.join(" · ");
+    out.charter_fee_disp = out.headline;
+    return out;
+  }
 
   // ---- ALL-INCLUSIVE: one figure, everything inside. No APA/VAT computed.
   if (mode === "all_inclusive") {

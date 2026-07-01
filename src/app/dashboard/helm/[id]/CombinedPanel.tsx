@@ -159,7 +159,7 @@ function periodsPayload(s: PeriodsState): { label: string; dates?: string; fee?:
 }
 
 type MediaEntry = { main_url?: string; brochure_url?: string };
-type PriceMode = "breakdown" | "plus_extras" | "all_inclusive";
+type PriceMode = "breakdown" | "plus_extras" | "all_inclusive" | "day_charter";
 
 type YState = {
   px: Record<string, string>;
@@ -222,10 +222,18 @@ function ConfBadge({ c }: { c: Confidence }) {
 }
 
 function seedPx(y?: YachtExtraction): Record<string, string> {
-  const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", all_inclusive_total: "", discount_pct: "", relocation_fee: "", all_in_override: "", currency: "EUR" };
+  const o: Record<string, string> = { charter_fee: "", apa_pct: "", apa_amount: "", vat_pct: "", vat_amount: "", extras_text: "", all_inclusive_total: "", discount_pct: "", relocation_fee: "", all_in_override: "", half_day_rate: "", full_day_rate: "", half_day_label: "", full_day_label: "", currency: "EUR" };
   if (y) for (const k of Object.keys(o)) {
     const v = y.pricing?.[k]?.value;
     if (v !== null && v !== undefined && v !== "") o[k] = String(v);
+  }
+  // Pre-fill day-charter labels (and amounts, if quoted) from two extracted rates
+  // (e.g. "Half day (5h)" / "Full day (8h)") so the broker just confirms prices.
+  const sr = y?.seasonal_rates || [];
+  if (sr.length >= 2) {
+    o.half_day_label = sr[0].label || ""; o.full_day_label = sr[1].label || "";
+    if (Number(sr[0].fee) > 0) o.half_day_rate = String(sr[0].fee);
+    if (Number(sr[1].fee) > 0) o.full_day_rate = String(sr[1].fee);
   }
   return o;
 }
@@ -260,6 +268,10 @@ function pricingOf(px: Record<string, string>, mode: PriceMode): PricingInput {
     relocation_fee: /[0-9]/.test(px.relocation_fee || "") ? num(px.relocation_fee) : null,
     relocation_note: ((px.relocation_fee || "").trim() && !/[0-9]/.test(px.relocation_fee || "")) ? (px.relocation_fee || "").trim() : null,
     all_in_override: num(px.all_in_override),
+    half_day_rate: mode === "day_charter" ? num(px.half_day_rate) : null,
+    full_day_rate: mode === "day_charter" ? num(px.full_day_rate) : null,
+    half_day_label: (px.half_day_label || "").trim() || null,
+    full_day_label: (px.full_day_label || "").trim() || null,
   };
 }
 
@@ -369,10 +381,14 @@ export default function CombinedPanel({
     const y = ex?.yachts?.[i];
     if (!y) return [];
     const mode = ys[i]?.priceMode;
+    // Day charter is a different basis (two final rates) — its STOP flags
+    // (seasonal / missing APA-VAT) do not apply once a rate is entered.
+    if (mode === "day_charter") return [];
     return (y.flags || []).filter((f) => STOP_CODES.has(f.code) && !(mode === "all_inclusive" && (f.code === "MISSING_APA" || f.code === "MISSING_VAT")));
   }
   function hasFee(i: number): boolean {
     const s = ys[i]; if (!s) return false;
+    if (s.priceMode === "day_charter") return Number(s.px.half_day_rate) > 0 || Number(s.px.full_day_rate) > 0;
     return s.priceMode === "all_inclusive" ? Number(s.px.all_inclusive_total) > 0 : (!!s.px.charter_fee.trim() || !!s.px.extras_text.trim());
   }
   function yachtReady(i: number): boolean {
@@ -695,8 +711,9 @@ export default function CombinedPanel({
                 )}
                 {warns.length > 0 && <div style={warnBox}>{warns.map((f) => <div key={f.code} style={{ fontSize: 12 }}><b>{f.code}</b> — {f.message}</div>)}</div>}
 
-                {/* seasonal rates: pick one (whole charter in one season), or split by day across seasons */}
-                {y.seasonal_rates?.length > 0 && (
+                {/* seasonal rates: pick one (whole charter in one season), or split by day across seasons.
+                    Hidden in Day charter mode — there the two rates ARE the pricing, not a season split. */}
+                {y.seasonal_rates?.length > 0 && s.priceMode !== "day_charter" && (
                   <div style={{ margin: "8px 0" }}>
                     <div style={fieldLabel}>Seasonal rates — pick the one for these dates, or split by day if it spans seasons</div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
@@ -717,7 +734,7 @@ export default function CombinedPanel({
                 <div style={{ marginTop: 10 }}>
                   <div style={fieldLabel}>Pricing mode</div>
                   <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-                    {([["breakdown", "Breakdown"], ["plus_extras", "Plus extras"], ["all_inclusive", "All-inclusive"]] as const).map(([mm, label]) => (
+                    {([["breakdown", "Breakdown"], ["plus_extras", "Plus extras"], ["all_inclusive", "All-inclusive"], ["day_charter", "Day charter"]] as const).map(([mm, label]) => (
                       <button key={mm} type="button" onClick={() => patchY(i, { priceMode: mm })} style={{ ...chipBtn, background: s.priceMode === mm ? "#0D1B2A" : "rgba(201,168,76,0.12)", color: s.priceMode === mm ? "#F8F5F0" : "#0D1B2A" }}>{label}</button>
                     ))}
                   </div>
@@ -725,7 +742,19 @@ export default function CombinedPanel({
 
                 {/* numbers + snippets */}
                 <div style={{ marginTop: 10 }}>
-                  {s.priceMode === "all_inclusive" ? (
+                  {s.priceMode === "day_charter" ? (
+                    <>
+                      <div style={priceRow}>
+                        <input value={s.px.half_day_label} onChange={(e) => patchY(i, { px: { ...s.px, half_day_label: e.target.value } })} placeholder="Half day (5h)" style={{ ...priceInput, width: 120 }} />
+                        <input value={s.px.half_day_rate} onChange={(e) => patchY(i, { px: { ...s.px, half_day_rate: e.target.value } })} placeholder="final € for half day" style={priceInput} />
+                      </div>
+                      <div style={priceRow}>
+                        <input value={s.px.full_day_label} onChange={(e) => patchY(i, { px: { ...s.px, full_day_label: e.target.value } })} placeholder="Full day (8h)" style={{ ...priceInput, width: 120 }} />
+                        <input value={s.px.full_day_rate} onChange={(e) => patchY(i, { px: { ...s.px, full_day_rate: e.target.value } })} placeholder="final € for full day" style={priceInput} />
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "#9CA3AF", marginTop: 4 }}>Both are FINAL client prices — shown as two lines on the proposal, no APA / VAT / per-guest added.</div>
+                    </>
+                  ) : s.priceMode === "all_inclusive" ? (
                     <div style={priceRow}>
                       <div style={{ width: 130, fontSize: 12.5, color: "#374151" }}>All-inclusive total (EUR)</div>
                       <input value={s.px.all_inclusive_total} onChange={(e) => patchY(i, { px: { ...s.px, all_inclusive_total: e.target.value } })} placeholder="e.g. 200000" style={priceInput} />
