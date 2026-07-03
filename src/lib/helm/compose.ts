@@ -18,7 +18,7 @@ THE HELM OVERRIDE (proposals + emails are George speaking personally):
 - NEVER an em dash. Use a hyphen.
 - NEVER name the source agency/broker, never include broker links, never write "for references contact...".
 - Connect the client's stated need to a CONCRETE, supplier-true feature. Never promise a feature, toy, or detail the supplier data did not state.
-- Address the client formally (title + surname, e.g. "Mrs. Reynolds", or "the Reynolds Family"). Never a bare first name.`;
+- NEVER write the client's name in the body copy. Any greeting/salutation is supplied to you separately and used verbatim; never invent, guess, or echo a client name, title ("Mr."/"Mrs."/"Ms."/"Dr."), or "the X Family" anywhere in the prose.`;
 
 // WHITE-LABEL voice (travel-agent proposals). The PDF is presented to the
 // client by an intermediary, so it must carry NO George / George Yachts
@@ -38,6 +38,20 @@ WHITE-LABEL OVERRIDE (this proposal is presented to the client by an intermediar
 // Hard guarantee on the sacred "never an em dash" rule — strip em/en
 // dashes to a hyphen on every AI output, regardless of what the model did.
 const deDash = (s: string): string => s.replace(/[—–]/g, "-");
+
+// Deterministic safety net for PDF selling copy: strip any client name /
+// salutation the model may have slipped in (Fix 1 - a leaked "Mrs. Reynolds").
+// Removes "Mr./Mrs./Ms./Dr./Miss + Name" (with any leading comma) and rewrites
+// "the <Name> Family" to "your family", then tidies the resulting punctuation.
+// Only ever applied to yacht narrative/inside-info, never to the email (which
+// legitimately opens with the provided salutation).
+const stripClientNames = (s: string): string =>
+  (s || "")
+    .replace(/\bthe\s+[A-Z][A-Za-z'’-]+\s+[Ff]amily\b/g, "your family")
+    .replace(/,?\s*\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][A-Za-z'’-]+/g, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
 // Bound a narrative to N sentences / M chars so a combined yacht card always
 // fits one page (full hero image + pricing + brochure) without overflow. Cuts
@@ -61,6 +75,11 @@ const firstSentences = (s: string, maxSentences: number, maxChars: number): stri
 // (e.g. "your dates of July 1 to 7" when the charter was 23 June - 1 July).
 const NO_DATES =
   `- NEVER write any specific calendar date or date range in the prose (no "July 1 to 7", no "23 June to 1 July", no "your dates of ..."). The charter dates are shown elsewhere in the document. If the supplier facts mention a date window (a discount period or seasonal boundary), do NOT repeat it and NEVER present it as the guest's charter dates.`;
+
+// This is yacht-specific selling copy, NOT a letter to the client. It must never
+// address or name the client - the client's name appears ONLY on the cover page.
+const NO_NAMES =
+  `- This is yacht selling copy, not a letter. NEVER address or name the client: no salutation, no "Mr."/"Mrs."/"Ms."/"Dr." + name, no "the X Family", no first name. Refer generally ("a family", "guests who value ...", "those seeking ..."). The client's name belongs only on the cover, not here.`;
 
 export type NarrativeFacts = {
   vessel_name: string;
@@ -87,6 +106,7 @@ Return JSON: {"experience_title": "<3-5 word title>", "experience_paras": ["para
 - 2 to 3 short paragraphs. Paragraphs 1-2: what she is and what life aboard feels like, drawn ONLY from the supplier facts, luxury-fied but true. ${closeLine}
 - Vary sentence length. No travel-brochure cliche. No AI tells. No em dash.
 ${NO_DATES}
+${NO_NAMES}
 Output JSON only.`;
   const user = [
     `Vessel: ${f.vessel_name}${f.vessel_type ? ` (${f.vessel_type})` : ""}`,
@@ -98,8 +118,8 @@ Output JSON only.`;
   const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.6 });
   const out = parseLooseJson(raw) as { experience_title?: string; experience_paras?: string[] };
   return {
-    experience_title: deDash(out.experience_title || "The Experience"),
-    experience_paras: (Array.isArray(out.experience_paras) ? out.experience_paras : []).map(deDash),
+    experience_title: stripClientNames(deDash(out.experience_title || "The Experience")) || "The Experience",
+    experience_paras: (Array.isArray(out.experience_paras) ? out.experience_paras : []).map((p) => stripClientNames(deDash(p))),
   };
 }
 
@@ -117,6 +137,7 @@ export async function composeYachtInsideInfo(
 TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<ONE short supplier-true sentence, max ~25 words>",${insideSpec}}.
 This card must fit one page with a large photo, so be CONCISE: the description is ONE sentence; the inside_info is 2 to 3 short sentences where the selling lives - distinct and specific, not a feature dump. No em dash.
 ${NO_DATES}
+${NO_NAMES}
 Output JSON only.`;
   const user = [
     `Yacht: ${f.vessel_name}${f.vessel_type ? ` (${f.vessel_type})` : ""}`,
@@ -131,8 +152,8 @@ Output JSON only.`;
   // Hard length cap (safety net) so the card always fits one page even if the
   // model runs long: description ~1 sentence, inside_info ~3 short sentences.
   return {
-    description: deDash(firstSentences(out.description || "", 2, 180)),
-    inside_info: deDash(firstSentences(out.inside_info || "", 3, 340)),
+    description: stripClientNames(deDash(firstSentences(out.description || "", 2, 180))),
+    inside_info: stripClientNames(deDash(firstSentences(out.inside_info || "", 3, 340))),
   };
 }
 

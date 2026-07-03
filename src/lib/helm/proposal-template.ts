@@ -176,6 +176,12 @@ function e(x: unknown): string {
 
 const DIAMOND = "<span class='dia'>&#9670;</span>";
 
+// Per-guest estimate (÷4 / ÷6). OFF by default: it belongs to day-charter math,
+// not a weekly crewed charter, and a per-head divisor cheapens a silent-luxury
+// proposal. Flip to true to restore the "Per guest, estimated ..." line on the
+// single pricing page + each combined yacht card. (George brief, 3-fixes.)
+const SHOW_PER_GUEST = false;
+
 // ----------------------------------------------------------------- text cleaners
 // These are pure string normalisers shared by single + combined. They are
 // defensive: any malformed input degrades to the cleanest legible form rather
@@ -1596,7 +1602,7 @@ function renderSingle(d: SingleProposal): string {
   }
 
   // Per-guest estimate at 4 and 6 guests (when an all-in total exists).
-  const perPerson = pr.per_person_4
+  const perPerson = (SHOW_PER_GUEST && pr.per_person_4)
     ? `<div style="margin-top:8mm;"><div class="label">Per Guest (estimate)</div>
         <div class="body" style="margin-top:3mm;font-size:9.5pt;line-height:1.7;">
           Based on 4 guests: <b>${pr.per_person_4}</b><br>
@@ -1832,7 +1838,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   // Per-guest is omitted when multiple periods are shown — a single per-guest
   // figure would be ambiguous across two different fees, and the periods table
   // is the headline. (Single-pricing yachts keep the existing per-guest line.)
-  const perGuest = (!yHasPeriods && pr.per_person_4)
+  const perGuest = (SHOW_PER_GUEST && !yHasPeriods && pr.per_person_4)
     ? `<div class="deal-foot">Per guest, estimated: ${pr.per_person_4} at 4 &#8226; ${pr.per_person_6} at 6</div>`
     : "";
 
