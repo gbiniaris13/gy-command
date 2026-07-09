@@ -78,7 +78,16 @@ export default async function HelmListPage({
     sp?.type === "travel_agent" || sp?.type === "direct_client" ? sp.type : "all";
 
   const requests = await listHelm();
-  const shown = filter === "all" ? requests : requests.filter((r) => reqType(r) === filter);
+  // 2026-07-08 (George): lost requests sink to the BOTTOM; everything
+  // still alive stays on top, newest first, so the eye lands on what
+  // needs action.
+  const sorted = [...requests].sort((a, b) => {
+    const aLost = a.status === "lost" ? 1 : 0;
+    const bLost = b.status === "lost" ? 1 : 0;
+    if (aLost !== bLost) return aLost - bLost;
+    return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+  });
+  const shown = filter === "all" ? sorted : sorted.filter((r) => reqType(r) === filter);
 
   const dueCount = requests.filter(followUpDue).length;
   const counts = {
@@ -134,6 +143,7 @@ export default async function HelmListPage({
             <tr style={{ background: "rgba(13,27,42,0.04)", textAlign: "left" }}>
               <th style={th}>Client</th>
               <th style={th}>Type</th>
+              <th style={th}>Received</th>
               <th style={th}>Occasion</th>
               <th style={th}>Dates</th>
               <th style={th}>Area</th>
@@ -144,7 +154,7 @@ export default async function HelmListPage({
           </thead>
           <tbody>
             {shown.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
+              <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
                 {filter === "all" ? "No requests yet. Add the first one →" : "No requests of this type."}
               </td></tr>
             )}
@@ -162,6 +172,11 @@ export default async function HelmListPage({
                     <div style={{ fontSize: 12, color: "#6b7280" }}>{r.client_email || r.contact_email || ""}</div>
                   </td>
                   <td style={td}>{typeBadge(reqType(r))}</td>
+                  <td style={td}>
+                    {r.created_at
+                      ? <span style={{ whiteSpace: "nowrap" }}>{fmt(r.created_at)}</span>
+                      : <span style={{ color: "#cbd5e1" }}>—</span>}
+                  </td>
                   <td style={td}>{r.occasion || <span style={{ color: "#cbd5e1" }}>—</span>}</td>
                   <td style={td}>
                     {r.dates_from || r.dates_to
