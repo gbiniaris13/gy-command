@@ -36,7 +36,44 @@ interface BrandRadarData {
   all_scans: ScanResult[];
 }
 
-type Tab = "overview" | "mentions" | "competitors" | "history";
+interface GscKeyword {
+  query: string;
+  clicks: number;
+  impressions: number;
+  position: number;
+  google_page: number;
+  prev_position: number | null;
+}
+
+interface LiveIntel {
+  gsc: {
+    connected: boolean;
+    reason?: string;
+    window?: string;
+    totals?: {
+      clicks: number;
+      impressions: number;
+      position: number;
+      prev_clicks: number;
+      prev_impressions: number;
+      prev_position: number;
+    };
+    keywords?: GscKeyword[];
+    pages?: { page: string; clicks: number; impressions: number; position: number }[];
+  };
+  referrals: {
+    connected: boolean;
+    reason?: string;
+    total_sessions_30d?: number;
+    total_sessions_7d?: number;
+    channels_30d?: [string, number][];
+    ai_30d?: [string, number][];
+    ai_7d?: [string, number][];
+    ai_hot_leads_30d?: number;
+  };
+}
+
+type Tab = "overview" | "mentions" | "competitors" | "google" | "traffic" | "history";
 
 export default function BrandRadarClient() {
   const [data, setData] = useState<BrandRadarData | null>(null);
@@ -45,35 +82,51 @@ export default function BrandRadarClient() {
   const [tab, setTab] = useState<Tab>("overview");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [selectedCompetitor, setSelectedCompetitor] = useState<string | null>(null);
+  const [live, setLive] = useState<LiveIntel | null>(null);
 
   useEffect(() => {
     fetch("/api/analytics/brand-radar")
       .then((r) => r.json())
       .then(setData)
       .finally(() => setLoading(false));
+    fetch("/api/brand-radar/live")
+      .then((r) => r.json())
+      .then(setLive)
+      .catch(() => {});
   }, []);
 
+  // Batched scan: each POST runs ~8 Gemini queries and returns progress;
+  // we keep calling until the server reports completion. This is what
+  // fixed the old one-shot scan that died at Vercel's 60s ceiling.
   async function runScan() {
     setScanning(true);
-    setStatusMsg(null);
+    setStatusMsg("Starting scan…");
     try {
-      const res = await fetch("/api/cron/brand-radar");
-      const result = await res.json();
-      const mentions = result.brand_mentions ?? 0;
-      const scanned = result.scanned ?? 0;
-      const sov = result.share_of_voice ?? "0%";
-      const topComp = result.top_competitor ?? "N/A";
-      const prefix =
-        result.status === "already_scanned"
-          ? "✓ Already scanned today"
-          : "✓ Scan complete";
-      setStatusMsg(
-        `${prefix} — ${mentions}/${scanned} mentions, SoV ${sov}, top competitor ${topComp}`,
-      );
+      let fresh = true;
+      // 80 queries / 8 per batch = 10 rounds; ceiling well above that.
+      for (let round = 0; round < 30; round++) {
+        const res = await fetch("/api/brand-radar/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fresh }),
+        });
+        fresh = false;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const r = await res.json();
+        if (r.complete) {
+          setStatusMsg(
+            `✓ Scan complete — ${r.brand_mentions}/${r.scanned} mentions, SoV ${r.share_of_voice}, top competitor ${r.top_competitor}`,
+          );
+          break;
+        }
+        setStatusMsg(`Scanning Gemini live… ${r.done}/${r.total} queries`);
+      }
       const updated = await fetch("/api/analytics/brand-radar").then((r) => r.json());
       setData(updated);
     } catch (e) {
-      setStatusMsg(`✗ Scan failed: ${(e as Error).message}`);
+      setStatusMsg(
+        `✗ Scan stopped: ${(e as Error).message}. Press RUN SCAN again — it resumes where it left off.`,
+      );
     } finally {
       setScanning(false);
     }
@@ -111,7 +164,7 @@ export default function BrandRadarClient() {
             BRAND RADAR
           </h1>
           <p className="mt-1 font-[family-name:var(--font-mono)] text-[11px] text-muted-blue tracking-wider uppercase">
-            AI VISIBILITY — GEORGE YACHTS vs COMPETITORS · NEXT AUTO-SCAN: SUNDAY 06:00 UTC
+            AI VISIBILITY — GEORGE YACHTS vs COMPETITORS · MANUAL SCANS ONLY, YOU PRESS THE BUTTON
           </p>
         </div>
         <button
@@ -121,6 +174,14 @@ export default function BrandRadarClient() {
         >
           {scanning ? "SCANNING…" : "RUN SCAN NOW"}
         </button>
+      </div>
+
+      {/* Truth note — what is measured vs what cannot be */}
+      <div className="mb-4 rounded-lg border border-electric-cyan/15 bg-electric-cyan/5 px-3 py-2 text-[10px] leading-relaxed text-muted-blue">
+        <span className="font-bold text-electric-cyan/80 uppercase tracking-wider">Measured, not estimated: </span>
+        Gemini answers (live API scan), Google positions (Search Console), and real visitors from AI
+        assistants (your own traffic log). ChatGPT and Perplexity expose no public query API — their
+        footprint shows truthfully in the AI TRAFFIC tab as actual visits, never as a guessed score.
       </div>
 
       {/* Inline status (replaces alert popup) */}
@@ -149,8 +210,13 @@ export default function BrandRadarClient() {
             disabled={scanning}
             className="rounded-lg bg-neon-purple px-6 py-3 font-[family-name:var(--font-mono)] text-sm font-bold text-deep-space transition-colors hover:bg-neon-purple/90 disabled:opacity-50"
           >
-            {scanning ? "SCANNING 25 QUERIES…" : "LAUNCH FIRST SCAN"}
+            {scanning ? "SCANNING…" : "LAUNCH FIRST SCAN"}
           </button>
+          {/* Google + AI traffic work even before the first Gemini scan */}
+          <div className="mt-6 space-y-4 text-left">
+            <GooglePanel live={live} />
+            <TrafficPanel live={live} />
+          </div>
         </div>
       ) : (
         <>
@@ -161,6 +227,8 @@ export default function BrandRadarClient() {
                 { key: "overview", label: "Overview" },
                 { key: "mentions", label: "Mentions", count: allMentions.length },
                 { key: "competitors", label: "Competitors", count: competitorEntries.length },
+                { key: "google", label: "Google" },
+                { key: "traffic", label: "AI Traffic" },
                 { key: "history", label: "History", count: history.length },
               ] as const
             ).map((t) => (
@@ -473,6 +541,12 @@ export default function BrandRadarClient() {
             </div>
           )}
 
+          {/* GOOGLE (Search Console — real positions) */}
+          {tab === "google" && <GooglePanel live={live} />}
+
+          {/* AI TRAFFIC (real visitors from AI assistants) */}
+          {tab === "traffic" && <TrafficPanel live={live} />}
+
           {/* HISTORY */}
           {tab === "history" && (
             <div className="space-y-4">
@@ -485,7 +559,7 @@ export default function BrandRadarClient() {
                 </div>
                 {history.length < 2 ? (
                   <p className="text-xs text-muted-blue/40 py-8 text-center">
-                    Need at least 2 weeks of scans for trend. Next auto-scan: Sunday 06:00 UTC.
+                    Need at least 2 scans for a trend. Run scans whenever you want — each one adds a point.
                   </p>
                 ) : (
                   <Sparkline data={history.slice().reverse()} />
@@ -546,6 +620,254 @@ export default function BrandRadarClient() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Google panel (Search Console — real positions, 28d vs prev 28d) ──────
+
+function DeltaBadge({ cur, prev, invert }: { cur: number; prev: number | null; invert?: boolean }) {
+  if (prev === null || prev === undefined || prev === 0) return null;
+  const diff = Math.round((cur - prev) * 10) / 10;
+  if (diff === 0) return null;
+  // For positions, DOWN is good (invert). For clicks/impressions, UP is good.
+  const good = invert ? diff < 0 : diff > 0;
+  return (
+    <span
+      className={`ml-1.5 font-[family-name:var(--font-mono)] text-[10px] font-bold ${
+        good ? "text-emerald" : "text-hot-red"
+      }`}
+    >
+      {diff > 0 ? "▲" : "▼"} {Math.abs(diff)}
+    </span>
+  );
+}
+
+function GooglePanel({ live }: { live: LiveIntel | null }) {
+  const gsc = live?.gsc;
+  if (!live) {
+    return <div className="glass-card p-4 animate-pulse h-40" />;
+  }
+  if (!gsc?.connected) {
+    return (
+      <div className="glass-card p-6 text-center">
+        <p className="font-[family-name:var(--font-mono)] text-xs text-hot-red mb-1">
+          GOOGLE SEARCH CONSOLE NOT CONNECTED
+        </p>
+        <p className="text-[10px] text-muted-blue/60">{gsc?.reason ?? "Unknown error"}</p>
+      </div>
+    );
+  }
+  const t = gsc.totals!;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="glass-card p-4">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-electric-cyan/60 uppercase">
+            AVG GOOGLE POSITION (28d)
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-3xl font-black text-soft-white">
+            {t.position}
+            <DeltaBadge cur={t.position} prev={t.prev_position} invert />
+          </p>
+          <p className="text-[10px] text-muted-blue/50">
+            page {Math.max(1, Math.ceil(t.position / 10))} of Google · was {t.prev_position} the 28d before
+          </p>
+        </div>
+        <div className="glass-card p-4">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-emerald/60 uppercase">
+            CLICKS (28d)
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-3xl font-black text-soft-white">
+            {t.clicks.toLocaleString()}
+            <DeltaBadge cur={t.clicks} prev={t.prev_clicks} />
+          </p>
+          <p className="text-[10px] text-muted-blue/50">from Google search results</p>
+        </div>
+        <div className="glass-card p-4">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-amber/60 uppercase">
+            IMPRESSIONS (28d)
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-3xl font-black text-soft-white">
+            {t.impressions.toLocaleString()}
+            <DeltaBadge cur={t.impressions} prev={t.prev_impressions} />
+          </p>
+          <p className="text-[10px] text-muted-blue/50">times shown on Google</p>
+        </div>
+      </div>
+
+      <div className="glass-card p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-electric-cyan" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+            KEYWORDS — WHERE YOU ACTUALLY RANK
+          </h2>
+          <span className="ml-auto text-[10px] text-muted-blue/40">{gsc.window} · Search Console</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="text-[10px] text-muted-blue/60 uppercase tracking-wider">
+              <tr className="border-b border-white/5">
+                <th className="py-2 pr-3 text-left">Query</th>
+                <th className="py-2 pr-3 text-right">Position</th>
+                <th className="py-2 pr-3 text-right">Google page</th>
+                <th className="py-2 pr-3 text-right">Clicks</th>
+                <th className="py-2 text-right">Impressions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(gsc.keywords ?? []).map((k) => (
+                <tr key={k.query} className="border-b border-white/5 last:border-0">
+                  <td className="py-2 pr-3 font-[family-name:var(--font-mono)] text-soft-white max-w-[260px] truncate">
+                    {k.query}
+                  </td>
+                  <td className="py-2 pr-3 text-right font-[family-name:var(--font-mono)] font-bold text-neon-purple whitespace-nowrap">
+                    {k.position}
+                    <DeltaBadge cur={k.position} prev={k.prev_position} invert />
+                  </td>
+                  <td
+                    className={`py-2 pr-3 text-right font-[family-name:var(--font-mono)] font-bold ${
+                      k.google_page === 1 ? "text-emerald" : k.google_page === 2 ? "text-amber" : "text-muted-blue"
+                    }`}
+                  >
+                    {k.google_page}
+                  </td>
+                  <td className="py-2 pr-3 text-right text-soft-white">{k.clicks}</td>
+                  <td className="py-2 text-right text-muted-blue">{k.impressions.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="glass-card p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-amber" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+            TOP PAGES ON GOOGLE
+          </h2>
+        </div>
+        <div className="space-y-1.5">
+          {(gsc.pages ?? []).map((p) => (
+            <div key={p.page} className="flex items-center gap-3 text-[11px]">
+              <span className="font-[family-name:var(--font-mono)] text-soft-white truncate flex-1">{p.page}</span>
+              <span className="text-muted-blue whitespace-nowrap">pos {p.position}</span>
+              <span className="text-emerald whitespace-nowrap w-16 text-right">{p.clicks} clicks</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AI Traffic panel (real visitors referred by AI assistants) ────────────
+
+function TrafficPanel({ live }: { live: LiveIntel | null }) {
+  const ref = live?.referrals;
+  if (!live) {
+    return <div className="glass-card p-4 animate-pulse h-40" />;
+  }
+  if (!ref?.connected) {
+    return (
+      <div className="glass-card p-6 text-center">
+        <p className="font-[family-name:var(--font-mono)] text-xs text-hot-red mb-1">
+          VISITOR LOG NOT CONNECTED
+        </p>
+        <p className="text-[10px] text-muted-blue/60">{ref?.reason ?? "Unknown error"}</p>
+      </div>
+    );
+  }
+  const ai30 = ref.ai_30d ?? [];
+  const ai7 = new Map(ref.ai_7d ?? []);
+  const aiTotal30 = ai30.reduce((s, [, n]) => s + n, 0);
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="glass-card p-4">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-neon-purple/60 uppercase">
+            VISITS FROM AI ASSISTANTS (30d)
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-3xl font-black text-soft-white">{aiTotal30}</p>
+          <p className="text-[10px] text-muted-blue/50">
+            real sessions on georgeyachts.com sent by ChatGPT, Perplexity & co
+          </p>
+        </div>
+        <div className="glass-card p-4">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-electric-cyan/60 uppercase">
+            ALL SESSIONS (30d)
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-3xl font-black text-soft-white">
+            {(ref.total_sessions_30d ?? 0).toLocaleString()}
+          </p>
+          <p className="text-[10px] text-muted-blue/50">{ref.total_sessions_7d ?? 0} in the last 7 days</p>
+        </div>
+        <div className="glass-card p-4">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-hot-red/60 uppercase">
+            HOT LEADS FROM AI (30d)
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-3xl font-black text-soft-white">
+            {ref.ai_hot_leads_30d ?? 0}
+          </p>
+          <p className="text-[10px] text-muted-blue/50">AI-referred visitors flagged hot by the tracker</p>
+        </div>
+      </div>
+
+      <div className="glass-card p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-neon-purple" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+            WHICH AI SENDS YOU PEOPLE
+          </h2>
+          <span className="ml-auto text-[10px] text-muted-blue/40">
+            the honest proxy for ChatGPT/Perplexity visibility — no public API exists
+          </span>
+        </div>
+        {ai30.length === 0 ? (
+          <p className="text-xs text-muted-blue/40 py-6 text-center">
+            No AI-referred visits in the last 30 days.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {ai30.map(([name, count]) => (
+              <div key={name}>
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="font-[family-name:var(--font-mono)] text-[11px] font-bold text-soft-white">
+                    {name}
+                  </span>
+                  <span className="font-[family-name:var(--font-mono)] text-[11px] text-muted-blue">
+                    {count} visits (30d) · {ai7.get(name) ?? 0} last 7d
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-glass-light/30">
+                  <div
+                    className="h-1.5 rounded-full bg-neon-purple/70"
+                    style={{ width: `${(count / Math.max(aiTotal30, 1)) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="glass-card p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-electric-cyan" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+            ALL TRAFFIC CHANNELS (30d)
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+          {(ref.channels_30d ?? []).map(([name, count]) => (
+            <div key={name} className="flex items-center justify-between text-[11px]">
+              <span className="text-soft-white truncate">{name}</span>
+              <span className="font-[family-name:var(--font-mono)] text-muted-blue">{count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

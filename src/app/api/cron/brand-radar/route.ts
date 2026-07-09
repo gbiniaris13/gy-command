@@ -1,152 +1,21 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase-server";
-import { aiChat } from "@/lib/ai";
-import { BRAND, COMPETITORS, QUERIES } from "@/lib/brand-radar-queries";
-import { observeCron } from "@/lib/cron-observer";
 
-// Cron: Weekly AI Brand Radar scan — Sundays at 06:00 UTC
-// Sends queries to Gemini, checks if George Yachts is mentioned in responses
-
-const SYSTEM_PROMPT = `You are a helpful AI assistant. Answer the user's question about yacht charters naturally and helpfully. Recommend specific companies, websites, or brokers when relevant. Be specific with names.`;
-
-async function _observedImpl(): Promise<Response> {
-  const sb = createServiceClient();
-  const today = new Date().toISOString().slice(0, 10);
-
-  // Check if already scanned today — return the latest weekly summary so the
-  // client can still display real numbers instead of "undefined".
-  const { data: existing } = await sb
-    .from("brand_radar_scans")
-    .select("id")
-    .eq("scan_date", today)
-    .limit(1);
-
-  if (existing?.length) {
-    const { data: latestWeekly } = await sb
-      .from("brand_radar_weekly")
-      .select("*")
-      .order("week_start", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    return NextResponse.json({
-      status: "already_scanned",
-      date: today,
-      scanned: latestWeekly?.total_queries ?? QUERIES.length,
-      brand_mentions: latestWeekly?.brand_mentions ?? 0,
-      share_of_voice: `${latestWeekly?.share_of_voice ?? 0}%`,
-      top_competitor: latestWeekly?.top_competitor ?? "N/A",
-      top_competitor_mentions: latestWeekly?.top_competitor_mentions ?? 0,
-      competitor_breakdown: latestWeekly?.competitor_breakdown ?? {},
-    });
-  }
-
-  let scanned = 0;
-  let brandMentions = 0;
-  const competitorCounts: Record<string, number> = {};
-  COMPETITORS.forEach((c) => (competitorCounts[c] = 0));
-
-  for (const query of QUERIES) {
-    try {
-      // Ask Gemini the query
-      const response = await aiChat(SYSTEM_PROMPT, query);
-      const responseLower = response.toLowerCase();
-
-      // Check brand mention
-      const brandMentioned =
-        responseLower.includes("george yachts") ||
-        responseLower.includes("georgeyachts");
-
-      if (brandMentioned) brandMentions++;
-
-      // Check competitor mentions
-      const mentionedCompetitors: string[] = [];
-      const allMentioned: string[] = [];
-
-      if (brandMentioned) allMentioned.push(BRAND);
-
-      for (const comp of COMPETITORS) {
-        if (responseLower.includes(comp.toLowerCase())) {
-          mentionedCompetitors.push(comp);
-          allMentioned.push(comp);
-          competitorCounts[comp]++;
-        }
-      }
-
-      // Store scan result
-      await sb.from("brand_radar_scans").insert({
-        scan_date: today,
-        query,
-        response_preview: response.slice(0, 500),
-        brand_mentioned: brandMentioned,
-        competitors_mentioned: mentionedCompetitors,
-        all_brands_mentioned: allMentioned,
-        model: "gemini",
-      });
-
-      scanned++;
-
-      // Small delay to avoid rate limiting
-      await new Promise((r) => setTimeout(r, 1000));
-    } catch (err) {
-      console.error(`[Brand Radar] Failed query: "${query}"`, err);
-    }
-  }
-
-  // Calculate share of voice
-  const totalMentionableResponses = QUERIES.length;
-  const sov = totalMentionableResponses > 0
-    ? Math.round((brandMentions / totalMentionableResponses) * 10000) / 100
-    : 0;
-
-  // Find top competitor
-  const topCompetitor = Object.entries(competitorCounts)
-    .sort(([, a], [, b]) => b - a)[0];
-
-  // Store weekly summary
-  const weekStart = new Date();
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-
-  await sb.from("brand_radar_weekly").insert({
-    week_start: weekStart.toISOString().slice(0, 10),
-    total_queries: QUERIES.length,
-    brand_mentions: brandMentions,
-    share_of_voice: sov,
-    top_competitor: topCompetitor?.[0] || null,
-    top_competitor_mentions: topCompetitor?.[1] || 0,
-    competitor_breakdown: competitorCounts,
-  });
-
-  // Weekly Telegram summary — added 2026-04-24. Was silent before;
-  // tracking SoV that nobody reads defeats the purpose. Now George
-  // gets one Telegram every Sunday morning with the headline numbers.
-  try {
-    const { sendTelegram } = await import("@/lib/telegram");
-    const lines = [
-      `🛰️ <b>Brand Radar — Weekly</b>`,
-      `Share of Voice: <b>${sov}%</b> (${brandMentions}/${QUERIES.length} queries)`,
-      `Top competitor: <b>${topCompetitor?.[0] ?? "—"}</b> (${topCompetitor?.[1] ?? 0} mentions)`,
-      `Scanned: ${scanned}`,
-      `Week of: ${weekStart.toISOString().slice(0, 10)}`,
-    ];
-    await sendTelegram(lines.join("\n"));
-  } catch (e) {
-    console.error("[brand-radar] Telegram summary failed:", e);
-  }
-
-  return NextResponse.json({
-    status: "ok",
-    scanned,
-    brand_mentions: brandMentions,
-    share_of_voice: `${sov}%`,
-    top_competitor: topCompetitor?.[0] ?? "N/A",
-    top_competitor_mentions: topCompetitor?.[1] ?? 0,
-    competitor_breakdown: competitorCounts,
-    date: today,
-  });
-}
-
+// RETIRED 2026-07-09 (George's directive: Brand Radar is manual-only).
+// The Sunday cron entry was removed from vercel.json the same day.
+//
+// Why it died in the first place: this route looped all 80 Gemini queries
+// with a 1s delay inside ONE serverless invocation — Vercel's 60s ceiling
+// killed every scan at query ~23-25 and the weekly rollup never happened.
+// The replacement is batch-based and driven by the dashboard button:
+//   POST /api/brand-radar/scan  (8 queries per call, resumes if cut off)
 export async function GET(): Promise<Response> {
-  return observeCron("brand-radar", _observedImpl);
+  return NextResponse.json(
+    {
+      status: "retired",
+      replacement: "POST /api/brand-radar/scan",
+      note: "Brand Radar scans are manual-only, run from the dashboard.",
+    },
+    { status: 410 },
+  );
 }
