@@ -134,15 +134,38 @@ async function fetchReferrals() {
   if (!url || !key) return { connected: false, reason: "CRM_SUPABASE_* env missing" };
 
   const since = isoDaysAgo(30);
-  const res = await fetch(
-    `${url}/rest/v1/sessions?select=referrer,referrer_url,started_at,is_hot_lead&started_at=gte.${since}T00:00:00&limit=10000`,
-    {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
-      cache: "no-store",
-    },
-  );
-  if (!res.ok) return { connected: false, reason: `sessions HTTP ${res.status}` };
-  const rows = await res.json();
+  // Supabase caps any single response at 1000 rows regardless of ?limit=,
+  // and without pagination the kept rows are arbitrary — which would make
+  // every count on this panel silently wrong. Page through with Range
+  // headers until a short page arrives.
+  const rows: Array<{
+    referrer: string | null;
+    referrer_url: string | null;
+    started_at: string;
+    is_hot_lead: boolean | null;
+  }> = [];
+  const PAGE = 1000;
+  for (let page = 0; page < 20; page++) {
+    const from = page * PAGE;
+    const res = await fetch(
+      `${url}/rest/v1/sessions?select=referrer,referrer_url,started_at,is_hot_lead&started_at=gte.${since}T00:00:00&order=started_at.desc`,
+      {
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          Range: `${from}-${from + PAGE - 1}`,
+        },
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) {
+      if (page === 0) return { connected: false, reason: `sessions HTTP ${res.status}` };
+      break;
+    }
+    const chunk = await res.json();
+    rows.push(...chunk);
+    if (chunk.length < PAGE) break;
+  }
 
   const sevenDaysAgo = Date.now() - 7 * 86400000;
   const channels30: Record<string, number> = {};
