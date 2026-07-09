@@ -183,6 +183,34 @@ export default function BrandRadarClient() {
         </button>
       </div>
 
+      {/* Always-visible headline: average Google position (George's ask
+          2026-07-09 — the ONE number he wants to find instantly) */}
+      {live?.gsc?.connected && live.gsc.totals && (
+        <div className="mb-4 glass-card border border-electric-cyan/30 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[3px] text-electric-cyan uppercase">
+            Google Avg Position
+          </span>
+          <span className="font-[family-name:var(--font-mono)] text-4xl font-black text-soft-white leading-none">
+            {live.gsc.totals.position}
+            <DeltaBadge
+              cur={live.gsc.totals.position}
+              prev={live.gsc.totals.prev_position}
+              invert
+            />
+          </span>
+          <span className="text-[11px] text-muted-blue">
+            page {Math.max(1, Math.ceil(live.gsc.totals.position / 10))} of Google · last 28 days ·
+            was {live.gsc.totals.prev_position} the 28 days before · Search Console, real data
+          </span>
+          <button
+            onClick={() => setTab("google")}
+            className="ml-auto text-[10px] font-[family-name:var(--font-mono)] text-electric-cyan/70 hover:text-electric-cyan transition-colors uppercase tracking-wider"
+          >
+            per keyword →
+          </button>
+        </div>
+      )}
+
       {/* Truth note — what is measured vs what cannot be */}
       <div className="mb-4 rounded-lg border border-electric-cyan/15 bg-electric-cyan/5 px-3 py-2 text-[10px] leading-relaxed text-muted-blue">
         <span className="font-bold text-electric-cyan/80 uppercase tracking-wider">Measured, not estimated: </span>
