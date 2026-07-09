@@ -103,8 +103,8 @@ export default function BrandRadarClient() {
     setStatusMsg("Starting scan…");
     try {
       let fresh = true;
-      // 80 queries / 8 per batch = 10 rounds; ceiling well above that.
-      for (let round = 0; round < 30; round++) {
+      let stalls = 0;
+      for (let round = 0; round < 40; round++) {
         const res = await fetch("/api/brand-radar/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -118,6 +118,13 @@ export default function BrandRadarClient() {
             `✓ Scan complete — ${r.brand_mentions}/${r.scanned} mentions, SoV ${r.share_of_voice}, top competitor ${r.top_competitor}`,
           );
           break;
+        }
+        // Two stalled rounds in a row = Gemini is rate-limiting; stop
+        // honestly instead of hammering. Progress is saved — a later
+        // RUN SCAN resumes from where this one stopped.
+        stalls = r.stalled ? stalls + 1 : 0;
+        if (stalls >= 2) {
+          throw new Error(`Gemini not responding at ${r.done}/${r.total} queries`);
         }
         setStatusMsg(`Scanning Gemini live… ${r.done}/${r.total} queries`);
       }

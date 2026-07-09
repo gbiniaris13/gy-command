@@ -16,7 +16,11 @@ import { BRAND, COMPETITORS, QUERIES } from "@/lib/brand-radar-queries";
 // instead of restarting.
 export const maxDuration = 60;
 
-const BATCH_SIZE = 8;
+// Gemini 2.5-flash answers take 5-10s each, so a fixed batch count can
+// still blow the 60s ceiling. Instead each invocation works against a
+// time budget and returns whatever it finished — the dashboard loop
+// simply calls again. 35s leaves ample room for DB writes + response.
+const TIME_BUDGET_MS = 35_000;
 
 const SYSTEM_PROMPT = `You are a helpful AI assistant. Answer the user's question about yacht charters naturally and helpfully. Recommend specific companies, websites, or brokers when relevant. Be specific with names.`;
 
@@ -110,10 +114,12 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json(await rollup(sb, today));
   }
 
-  const batch = remaining.slice(0, BATCH_SIZE);
+  const startedAt = Date.now();
   let processed = 0;
+  let failed = 0;
 
-  for (const query of batch) {
+  for (const query of remaining) {
+    if (Date.now() - startedAt > TIME_BUDGET_MS) break;
     try {
       const response = await aiChat(SYSTEM_PROMPT, query);
       const responseLower = response.toLowerCase();
@@ -144,6 +150,7 @@ export async function POST(request: Request): Promise<Response> {
       processed++;
       await new Promise((r) => setTimeout(r, 250));
     } catch (err) {
+      failed++;
       console.error(`[Brand Radar] Failed query: "${query}"`, err);
     }
   }
@@ -157,5 +164,8 @@ export async function POST(request: Request): Promise<Response> {
     complete: false,
     done,
     total: QUERIES.length,
+    // stalled = every attempt this round errored (likely Gemini rate
+    // limit) — the client stops instead of hammering the API forever.
+    stalled: processed === 0 && failed > 0,
   });
 }
