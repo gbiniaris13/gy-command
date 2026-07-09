@@ -211,7 +211,7 @@ async function checkIGTokenExpiry(): Promise<CheckResult> {
     // expiration via the official IG endpoint.
     const { result, ms } = await timeIt(() =>
       fetch(
-        `https://graph.facebook.com/v21.0/me?fields=id,username,account_type&access_token=${encodeURIComponent(token)}`,
+        `https://graph.facebook.com/v21.0/me?fields=id,name&access_token=${encodeURIComponent(token)}`,
       ),
     );
     if (!result.ok) {

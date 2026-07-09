@@ -74,7 +74,11 @@ async function _impl(req?: Request) {
     // 2026-05-14 — added 'carousel'. Boss directive: "δε θέλω να
     // ξαναδώ τίποτα να μην πάει στο Facebook". Carousels are the
     // highest-engagement IG format and were silently dropped.
-    .in("post_type", ["reel", "fleet_yacht", "image", "carousel"])
+    // 2026-07-09 FIX — the daily instagram-publish rows carry post_type
+    // NULL, so .in() excluded them and the mirror reported no_candidates
+    // every single day (George: "στο Facebook νομίζω δεν ποστάρει" -
+    // he was right). NULL counts as a mirrorable post now.
+    .or('post_type.is.null,post_type.in.("reel","fleet_yacht","image","carousel")')
     .is("facebook_status", null)
     .gte("published_at", since)
     .limit(2);
