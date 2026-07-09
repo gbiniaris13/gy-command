@@ -27,15 +27,28 @@ const SYSTEM_PROMPT = `You are a helpful AI assistant. Answer the user's questio
 async function rollup(sb, today: string) {
   const { data: rows } = await sb
     .from("brand_radar_scans")
-    .select("brand_mentioned, competitors_mentioned")
+    .select("query, brand_mentioned, competitors_mentioned")
     .eq("scan_date", today);
 
-  const scanned = rows?.length ?? 0;
-  const brandMentions = (rows ?? []).filter((r) => r.brand_mentioned).length;
+  // Aggregate per UNIQUE query — two dashboard tabs (or a retry racing a
+  // slow batch) can insert the same query twice, and raw row counts would
+  // then inflate the SoV denominator. A query counts as mentioned if ANY
+  // of its rows mentioned us; competitors count once per query.
+  const byQuery = new Map<string, { brand: boolean; comps: Set<string> }>();
+  for (const r of rows ?? []) {
+    const entry = byQuery.get(r.query) ?? { brand: false, comps: new Set<string>() };
+    entry.brand = entry.brand || !!r.brand_mentioned;
+    for (const c of r.competitors_mentioned ?? []) entry.comps.add(c);
+    byQuery.set(r.query, entry);
+  }
+
+  const scanned = byQuery.size;
+  let brandMentions = 0;
   const competitorCounts: Record<string, number> = {};
   COMPETITORS.forEach((c) => (competitorCounts[c] = 0));
-  for (const r of rows ?? []) {
-    for (const c of r.competitors_mentioned ?? []) {
+  for (const entry of byQuery.values()) {
+    if (entry.brand) brandMentions++;
+    for (const c of entry.comps) {
       if (c in competitorCounts) competitorCounts[c]++;
     }
   }

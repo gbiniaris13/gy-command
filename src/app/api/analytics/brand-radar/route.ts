@@ -43,6 +43,16 @@ export async function GET() {
   if (latestScanDate) allQuery.eq("scan_date", latestScanDate);
   const { data: allScans } = await allQuery.limit(500);
 
+  // Concurrent scan runs can leave duplicate rows for one query — keep
+  // the newest per query (lists are ordered created_at desc) so the
+  // Mentions/Competitors tabs never show the same query twice.
+  const dedupeByQuery = (list) => {
+    const seen = new Set();
+    return (list ?? []).filter((r) =>
+      seen.has(r.query) ? false : (seen.add(r.query), true),
+    );
+  };
+
   const latest = weekly?.[0];
 
   return NextResponse.json({
@@ -58,8 +68,8 @@ export async function GET() {
         }
       : null,
     history: weekly ?? [],
-    brand_mentions: mentions ?? [],
-    all_scans: allScans ?? [],
+    brand_mentions: dedupeByQuery(mentions),
+    all_scans: dedupeByQuery(allScans),
     latest_scan_date: latestScanDate,
   });
 }
