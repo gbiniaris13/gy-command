@@ -37,7 +37,7 @@ async function gscQuery(token: string, body: Record<string, unknown>) {
   return res.json();
 }
 
-async function fetchGsc() {
+async function fetchGsc(rows = 25) {
   let token = await getGSCAccessToken();
   if (!token) {
     try {
@@ -55,7 +55,7 @@ async function fetchGsc() {
   const prevStart = isoDaysAgo(58);
 
   const [curQ, prevQ, curTot, prevTot, pages] = await Promise.all([
-    gscQuery(token, { startDate: curStart, endDate: curEnd, dimensions: ["query"], rowLimit: 25 }),
+    gscQuery(token, { startDate: curStart, endDate: curEnd, dimensions: ["query"], rowLimit: rows }),
     gscQuery(token, { startDate: prevStart, endDate: prevEnd, dimensions: ["query"], rowLimit: 100 }),
     gscQuery(token, { startDate: curStart, endDate: curEnd, dimensions: [], rowLimit: 1 }),
     gscQuery(token, { startDate: prevStart, endDate: prevEnd, dimensions: [], rowLimit: 1 }),
@@ -202,9 +202,12 @@ async function fetchReferrals() {
   };
 }
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
+  // ?rows=250 → full keyword table (Brand Radar deep dives / strike lists)
+  const rowsParam = Number(new URL(request.url).searchParams.get("rows")) || 25;
+  const rows = Math.min(Math.max(rowsParam, 1), 500);
   const [gsc, referrals] = await Promise.all([
-    fetchGsc().catch((e) => ({ connected: false, reason: String(e?.message ?? e) })),
+    fetchGsc(rows).catch((e) => ({ connected: false, reason: String(e?.message ?? e) })),
     fetchReferrals().catch((e) => ({ connected: false, reason: String(e?.message ?? e) })),
   ]);
 
