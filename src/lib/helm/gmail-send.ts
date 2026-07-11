@@ -110,6 +110,29 @@ export function buildRawEmail(args: {
   return Buffer.from(raw).toString("base64url");
 }
 
+// Create a Gmail DRAFT (never sends) — the follow-up machine's core
+// primitive: the reply sits ready in George's Drafts, threaded under the
+// client's conversation, and only George's own Send button releases it.
+export async function createHelmDraft(args: {
+  to: string;
+  subject: string;
+  body: string;
+  threadId?: string;
+  inReplyTo?: string;
+}): Promise<{ draftId: string }> {
+  const signatureHtml = await getGmailSignature();
+  const raw = buildRawEmail({ ...args, signatureHtml });
+  const message: Record<string, string> = { raw };
+  if (args.threadId) message.threadId = args.threadId;
+  const res = await gmailFetch("/drafts", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(`gmail draft ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return { draftId: data.id };
+}
+
 export async function sendHelmEmail(args: {
   to: string;
   subject: string;
