@@ -11,6 +11,7 @@
     { "path": "/api/cron/rebooking-ritual",        "schedule": "30 7 * * *" },
     { "path": "/api/cron/backlink-pitch",          "schedule": "15 8 * * 1-5" },
     { "path": "/api/cron/rank-alerts",             "schedule": "0 6 * * 1,4" },
+    { "path": "/api/cron/mention-watcher",         "schedule": "30 6 * * 3" },
     { "path": "/api/cron/birthdays",               "schedule": "0 8 * * *" },
     { "path": "/api/cron/holidays",                "schedule": "0 8 * * *" },
     { "path": "/api/cron/competitor-scan",         "schedule": "0 10 * * 0" },
