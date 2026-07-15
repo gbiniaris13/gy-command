@@ -300,7 +300,7 @@ export default function CombinedPanel({
   emailIntro: string | null;
   initialMedia: Record<string, MediaEntry>;
   cloudinaryConfigured: boolean;
-  initialDraft: { mode?: string; yachts?: YState[]; weeks?: WeekState[] } | null;
+  initialDraft: { mode?: string; yachts?: YState[]; weeks?: WeekState[]; cover_line?: string } | null;
   isAgent: boolean;
   initialWhiteLabel: boolean;
 }) {
@@ -350,6 +350,11 @@ export default function CombinedPanel({
   const [weeks, setWeeks] = useState<WeekState[]>(
     Array.isArray(initialDraft?.weeks) ? initialDraft!.weeks!.slice(0, WEEK_LIMITS.weeks) : [],
   );
+  // George's cover sub-line (the words under the client's name on the cover).
+  // 100 chars = two elegant centered lines, measured. Empty => guarded auto line.
+  const [coverLine, setCoverLine] = useState<string>(
+    typeof initialDraft?.cover_line === "string" ? initialDraft.cover_line.slice(0, 100) : "",
+  );
   const patchWeek = (wi: number, patch: Partial<WeekState>) =>
     setWeeks((prev) => prev.map((w, idx) => (idx === wi ? { ...w, ...patch } : w)));
   const cleanWeeksPayload = () =>
@@ -387,7 +392,7 @@ export default function CombinedPanel({
       // requires the yacht count to match the stored extraction).
       await fetch(`/api/helm/${requestId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks } }),
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks, cover_line: coverLine } }),
       });
       setSavedMsg(`Added ${addedCount} yacht${addedCount === 1 ? "" : "s"} from the new supplier. Your earlier yachts are untouched — review the new cards, then ${pdfPath ? "Regenerate" : "Generate"}.`);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
@@ -398,7 +403,7 @@ export default function CombinedPanel({
     try {
       const r = await fetch(`/api/helm/${requestId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys, weeks } }),
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys, weeks, cover_line: coverLine } }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "save-failed");
@@ -468,6 +473,8 @@ export default function CombinedPanel({
         terms: termsObjectFromState(terms) ?? null,
         // George's own itinerary pages (max 2; empty => no week pages).
         custom_weeks: cleanWeeksPayload(),
+        // George's cover sub-line (empty => the template's guarded auto line).
+        cover_line: coverLine.trim().slice(0, 100),
         // Excluded yachts are left out of the PDF. media_index = the ORIGINAL
         // card index, so each remaining yacht keeps ITS OWN photos/brochure
         // server-side even when an earlier card is excluded.
@@ -978,6 +985,30 @@ export default function CombinedPanel({
               </div>
             );
           })}
+
+          {/* George's cover sub-line — the words printed under the client's name
+              on the cover. Fixes the live leak where the internal card note
+              (guests/area fields holding the whole brief) printed on the cover. */}
+          <div style={{ border: "1px solid rgba(13,27,42,0.10)", padding: "12px 14px", margin: "14px 0 6px", borderRadius: 2 }}>
+            <div style={fieldLabel}>Cover line · the words under the client&apos;s name on the cover</div>
+            <div style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 8px" }}>
+              Write it as the client should read it, e.g. &quot;Six guests. Athens to Athens through the Cyclades,
+              Syros included. September 2027.&quot; Empty = a short automatic line (guests &middot; area &middot; yacht count);
+              internal notes are never printed.
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                value={coverLine}
+                maxLength={100}
+                onChange={(e) => setCoverLine(e.target.value)}
+                placeholder="Six guests. Athens to Athens through the Cyclades, Syros included. September 2027."
+                style={{ ...txt, flex: 1 }}
+              />
+              <span style={{ fontSize: 11, color: coverLine.length >= 100 ? "#B45309" : "#9CA3AF", flexShrink: 0 }}>
+                {coverLine.length}/100
+              </span>
+            </div>
+          </div>
 
           <div style={{ border: "1px solid rgba(13,27,42,0.10)", padding: "12px 14px", margin: "14px 0 6px", borderRadius: 2 }}>
             {/* George's itinerary pages — HE writes the route, the PDF typesets it.

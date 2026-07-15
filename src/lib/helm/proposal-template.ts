@@ -173,6 +173,10 @@ export type CombinedProposal = {
    *  legs + notes in the panel (hard char limits enforced there AND clamped
    *  server-side); the template only typesets. Absent/empty => no week pages. */
   custom_weeks?: CustomWeek[];
+  /** GEORGE-WRITTEN cover sub-line (2026-07-15: the auto line printed his
+   *  internal card note under the client's name). When present it renders
+   *  verbatim under the cover title; empty => the guarded auto line. */
+  cover_line?: string;
 };
 
 export type CustomWeek = {
@@ -1906,6 +1910,17 @@ function renderCombined(d: CombinedProposal): string {
     if (!g) return "";
     return /guest/i.test(g) ? g : `${g} Guests`;
   })();
+  // Cover sub-line: George's own words when he wrote them; otherwise the
+  // auto composition, GUARDED - a bloated guests/area field means an internal
+  // note leaked into it (seen live: the whole brief printed under the client's
+  // name), so any over-long part is dropped rather than published.
+  const coverSub = (d.cover_line ?? "").trim()
+    ? e((d.cover_line ?? "").trim().slice(0, 100))
+    : [
+        guestsLabel.length <= 24 ? e(guestsLabel) : "",
+        (() => { const a = (d.area ?? "").toString().trim(); return a && a.length <= 48 ? e(a) : "Greek Waters"; })(),
+        `${yachts.length} Yacht${yachts.length === 1 ? "" : "s"}`,
+      ].filter(Boolean).join(" &#8226; ");
   pages.push(`
 <div class="page">${bg}<div class="scrim-bottom"></div>
   <div class="scrim-bottom" style="background:linear-gradient(to bottom,rgba(9,20,32,.42) 0%,rgba(9,20,32,0) 24%);"></div>
@@ -1917,7 +1932,7 @@ function renderCombined(d: CombinedProposal): string {
       <div class="label dim">${e(cleanDateRange(d.period ?? "") || (d.period ?? ""))}</div>
       <h1 class="cinzel gold-metal" style="font-size:28pt;letter-spacing:.10em;color:var(--gold);margin:5mm 0;font-weight:700;text-shadow:0 2px 6mm rgba(9,20,32,.92),0 0 14mm rgba(9,20,32,.85);">
         ${client ? "Personally Curated for " + e(client) : "A Personally Curated Selection"}</h1>
-      <div class="label dim" style="letter-spacing:.16em;">${[guestsLabel, e(d.area ?? "Greek Waters"), `${yachts.length} Yachts`].filter(Boolean).join(" &#8226; ")}</div>
+      <div class="label dim" style="letter-spacing:.16em;">${coverSub}</div>
     </div>
     <div style="text-align:center;margin-top:auto;"><div class="label dim" style="font-size:6.5pt;">
       Confidential &#8226; Proprietary &#8226; Prepared solely for the named recipient</div></div>

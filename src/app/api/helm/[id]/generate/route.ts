@@ -695,6 +695,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       );
 
       if (cleanWeeks.length) proposal.custom_weeks = cleanWeeks;
+      // George's own cover sub-line (max 100 chars = two elegant centered
+      // lines). Empty => the template's guarded auto line.
+      const coverLine =
+        typeof body.cover_line === "string"
+          ? body.cover_line.replace(/\s*[—–]\s*/g, ", ").trim().slice(0, 100)
+          : "";
+      if (coverLine) proposal.cover_line = coverLine;
 
       const html = buildProposalHtml(proposal);
       // HARD WHITE-LABEL GUARD — abort if any George Yachts token survives.
