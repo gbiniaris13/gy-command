@@ -78,11 +78,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, action: "updated", id: existing.id });
   }
 
+  // contact_type is CHECK-constrained in the live DB (see
+  // contact-type-migration.sql) — NEWSLETTER_SUBSCRIBER is not an
+  // allowed value and DDL cannot run from here. Mapping per George
+  // (2026-07-15): bridge = the client journal, so subscribers land in
+  // the client category; wake = trade advisors, so INDUSTRY. The
+  // newsletter tags carry the distinction for filtering, and the only
+  // mass automation on DIRECT_CLIENT (after-sales seasonal nudges)
+  // also requires charter_end_date, which subscribers never have.
+  const contactType = streams.includes("wake") && !streams.includes("bridge")
+    ? "INDUSTRY"
+    : "DIRECT_CLIENT";
+
   const { data: created, error: insErr } = await sb
     .from("contacts")
     .insert({
       email,
-      contact_type: "NEWSLETTER_SUBSCRIBER",
+      contact_type: contactType,
       source: "site_newsletter",
       tags_v2: newTags,
       notes: "Signed up via the georgeyachts.com Journal form.",
