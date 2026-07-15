@@ -110,7 +110,6 @@ export default async function HelmDetailPage({
       <GmailImport
         requestId={r.id}
         hasThread={!!r.gmail_thread_id}
-        defaultQuery=""
       />
 
       {/* supplier source (internal only) */}

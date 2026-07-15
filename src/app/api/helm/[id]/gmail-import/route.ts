@@ -158,7 +158,7 @@ type Listed = { id: string; from: string; subject: string; date: string; snippet
 
 async function listMeta(ids: string[]): Promise<Listed[]> {
   const out: Listed[] = [];
-  for (const id of ids.slice(0, 20)) {
+  for (const id of ids.slice(0, 25)) {
     const res = await gmailFetch(
       `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
     );
@@ -211,7 +211,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (action === "search") {
       const q = String(body.q || "").trim();
       if (!q) return NextResponse.json({ error: "empty query" }, { status: 400 });
-      const res = await gmailFetch(`/messages?q=${encodeURIComponent(q)}&maxResults=20`);
+      const res = await gmailFetch(`/messages?q=${encodeURIComponent(q)}&maxResults=25`);
       if (!res.ok) return NextResponse.json({ error: "Gmail search failed" }, { status: 502 });
       const list = (await res.json()) as { messages?: { id: string }[] };
       const messages = await listMeta((list.messages || []).map((m) => m.id));
