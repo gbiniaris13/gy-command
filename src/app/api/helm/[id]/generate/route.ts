@@ -480,6 +480,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           spec_strip: specStrip.length ? specStrip : undefined,
           description: info.description,
           inside_info: info.inside_info,
+          ...(info.crew_line ? { crew_line: info.crew_line } : {}),
           pricing,
           links: Object.keys(links).length ? links : undefined,
           images: {

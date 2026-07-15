@@ -102,6 +102,9 @@ export type CombinedYacht = {
   /** Optional muted note under the dates cell, e.g. why this yacht's window or
    *  port differs from the requested brief. Absent => nothing renders. */
   date_note?: string;
+  /** ONE sentence on the crew (roles, size, credentials - NEVER personal
+   *  names). Rendered with the owner-confirmation footnote. Absent => nothing. */
+  crew_line?: string;
   pricing?: PricingInput;
   links?: Record<string, string>;
   images?: Images;
@@ -1700,6 +1703,13 @@ const HELM_V2_CSS = `
 .wk td.w-day{font-family:'Cinzel',serif;letter-spacing:.14em;font-size:7.4pt;color:var(--gold-soft);white-space:nowrap;padding-top:2.9mm;}
 .wk td.w-leg{font-family:'Cormorant',serif;font-size:11.5pt;color:var(--gold);white-space:nowrap;}
 
+/* CREW LINE — one quiet sentence + the owner-confirmation footnote */
+.crewline{margin-top:2.6mm;padding-left:6.5mm;}
+.crewline .c-lab{display:inline;font-family:'Cinzel',serif;letter-spacing:.24em;text-transform:uppercase;
+      font-size:6.6pt;color:var(--gold-soft);margin-right:2mm;}
+.crewline .c-txt{display:inline;font-family:'Montserrat',sans-serif;font-size:8.4pt;color:var(--ivory);line-height:1.45;}
+.crewline .c-note{font-family:'Montserrat',sans-serif;font-size:6.4pt;color:var(--ivory-dim);margin-top:.8mm;line-height:1.4;}
+
 /* WHAT HAPPENS NEXT — full-width band on the key information page */
 .next-band{margin-top:8mm;padding:5mm 6mm;border-radius:2px;
       background:linear-gradient(160deg, rgba(18,36,58,.7), rgba(9,20,32,.55));
@@ -1936,6 +1946,16 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   // --- inside info, sentence-boundary trimmed (no mid-clause dangle), capped to
   // ~3 lines so it can never push the pricing panel off the bottom of the page. ---
   const inside = y.inside_info ? trimToSentence(y.inside_info, 240) : "";
+  // Crew line (Helm v2 #3): roles/credentials only (composer strips names),
+  // always with the owner-confirmation footnote so a crew change is never a
+  // broken promise. Absent => nothing renders and the layout is unchanged.
+  const crewClean = y.crew_line ? trimToSentence(y.crew_line, 170) : "";
+  const crewHtml = crewClean
+    ? `<div class="crewline">
+         <span class="c-lab">Crew</span><span class="c-txt">${e(crewClean)}</span>
+         <div class="c-note">Crew composition is indicative and remains subject to the owner&#8217;s final confirmation.</div>
+       </div>`
+    : "";
   const insideHtml = inside
     ? `<div class="inside">
          <div class="i-lab">${d.white_label ? "Inside Info" : "George&#8217;s Inside Info"}</div>
@@ -2096,18 +2116,23 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
     // still clears the footer). Hero shrinks to make room: 88 -> 60mm.
     const gpics = [imgs.g1, imgs.g2, imgs.g3].filter(Boolean) as string[];
     const squeezed = yHasBreakdown || yHasExtras || yHasPeriods;
+    // The crew line costs ~9mm and the date note ~5mm; take both out of the
+    // hero so the money box always clears the footer on one A4 page, even on
+    // the worst-case card (strip + crew + note + discount row).
+    const crewPad = (crewClean ? 9 : 0) + (dateNote ? 5 : 0);
     if (gpics.length && !squeezed) {
       const cells = gpics
         .slice(0, 3)
         .map((g) => `<div class="ps" style="background-image:url(${g});"></div>`)
         .join("");
-      return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", "60mm")}</div><div class="pstrip">${cells}</div>`;
+      return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", `${60 - crewPad}mm`)}</div><div class="pstrip">${cells}</div>`;
     }
-    return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", yHasBreakdown ? "74mm" : squeezed ? "80mm" : "88mm")}</div>`;
+    return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", yHasBreakdown ? `${74 - crewPad}mm` : squeezed ? `${80 - crewPad}mm` : `${88 - crewPad}mm`)}</div>`;
   })()}
 
   ${desc ? `<p class="body" style="font-size:10.5pt;line-height:1.6;margin-top:4mm;">${e(desc)}</p>` : ""}
   ${insideHtml}
+  ${crewHtml}
 
   <div class="deal">
     ${dealHead}

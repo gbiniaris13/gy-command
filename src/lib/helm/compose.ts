@@ -128,14 +128,19 @@ Output JSON only.`;
 // label voice (no George, no first person) for travel-agent proposals.
 export async function composeYachtInsideInfo(
   f: NarrativeFacts & { tier_hint?: string; anonymous?: boolean },
-): Promise<{ description: string; inside_info: string }> {
+): Promise<{ description: string; inside_info: string; crew_line: string }> {
   const insideSpec = f.anonymous
-    ? `"inside_info":"<EXACTLY 2 to 3 short sentences, IMPERSONAL (no 'I', no names): why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"`
-    : `"inside_info":"<EXACTLY 2 to 3 short sentences, first-person George: why this boat, who it is right for, the one reason to pick it over the others, value/urgency>"`;
+    ? `"inside_info":"<EXACTLY 2 to 3 short sentences, IMPERSONAL (no 'I', no names): why this boat, who it is right for, the one reason to pick it over the others>"`
+    : `"inside_info":"<EXACTLY 2 to 3 short sentences, first-person George: why this boat, who it is right for, the one reason to pick it over the others>"`;
   const sys = `${f.anonymous ? VOICE_ANON : VOICE_BASE}
 
-TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<ONE short supplier-true sentence, max ~25 words>",${insideSpec}}.
-This card must fit one page with a large photo, so be CONCISE: the description is ONE sentence; the inside_info is 2 to 3 short sentences where the selling lives - distinct and specific, not a feature dump. No em dash.
+TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<ONE short supplier-true sentence, max ~25 words>",${insideSpec},"crew_line":"<ONE short sentence about the crew, ONLY from the supplier facts: roles, size, certifications, awards, years of service. NEVER a personal name (crew changes are the owner's prerogative; a named crew member is a liability). Empty string when the supplier facts say nothing about the crew>"}.
+This card must fit one page with a large photo, so be CONCISE: the description is ONE sentence; the inside_info is 2 to 3 short sentences where the selling lives.
+INSIDE INFO RULES (the difference between selling and filler):
+- It MUST be anchored on at least ONE specific, verifiable fact from the supplier facts (a named feature, the refit year, a toy, a chef credential, a layout detail) - the reader should be unable to move this text to another yacht.
+- BANNED, never write these or their variants: "ideal for guests seeking relaxation", "perfect for those who appreciate", "a balance of comfort and style", "unforgettable experience", "has something for everyone". Generic praise is worse than silence.
+- One concrete reason to pick THIS yacht over the others in the shortlist.
+No em dash.
 ${NO_DATES}
 ${NO_NAMES}
 Output JSON only.`;
@@ -148,12 +153,14 @@ Output JSON only.`;
     `Supplier facts (only features you may reference):\n${f.supplier_facts}`,
   ].filter(Boolean).join("\n");
   const raw = await aiChat(sys, user, { maxTokens: 6000, temperature: 0.6 });
-  const out = parseLooseJson(raw) as { description?: string; inside_info?: string };
+  const out = parseLooseJson(raw) as { description?: string; inside_info?: string; crew_line?: string };
   // Hard length cap (safety net) so the card always fits one page even if the
-  // model runs long: description ~1 sentence, inside_info ~3 short sentences.
+  // model runs long: description ~1 sentence, inside_info ~3 short sentences,
+  // crew_line ~1 sentence.
   return {
     description: stripClientNames(deDash(firstSentences(out.description || "", 2, 180))),
     inside_info: stripClientNames(deDash(firstSentences(out.inside_info || "", 3, 340))),
+    crew_line: stripClientNames(deDash(firstSentences(out.crew_line || "", 1, 170))),
   };
 }
 
