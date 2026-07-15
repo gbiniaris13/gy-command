@@ -11,7 +11,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { addVesselPhoto, removeVesselPhoto, setBrochureUrl, setCombinedMedia } from "@/lib/helm-admin";
+import { addVesselPhoto, removeVesselPhoto, setBrochureUrl, setCombinedMedia, appendCombinedExtraUrl, removeCombinedExtraUrl } from "@/lib/helm-admin";
 import { isCloudinaryConfigured, uploadToCloudinary } from "@/lib/helm/cloudinary";
 import { uploadBrochurePdf, getSignedProposalUrl } from "@/lib/helm/storage";
 import { agencyDomainWarning } from "@/lib/helm/media";
@@ -87,8 +87,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const secureUrl = await uploadToCloudinary(dataUri, { folder: `helm/${id}`, resourceType: "auto" });
       // Combined per-yacht media → combined_media[index], not the single-yacht arrays.
       if (yachtIndex !== null && Number.isFinite(yachtIndex)) {
-        const patch = kind === "brochure" ? { brochure_url: secureUrl } : { main_url: secureUrl };
-        const combined_media = await setCombinedMedia(id, yachtIndex, patch);
+        // kind "extra" (Helm v2 gallery strip) appends to extra_urls (cap 3);
+        // "brochure" and default "photo" behave exactly as before.
+        const combined_media =
+          kind === "extra"
+            ? await appendCombinedExtraUrl(id, yachtIndex, secureUrl)
+            : await setCombinedMedia(
+                id,
+                yachtIndex,
+                kind === "brochure" ? { brochure_url: secureUrl } : { main_url: secureUrl },
+              );
         return NextResponse.json({ ok: true, configured: true, kind, yacht_index: yachtIndex, url: secureUrl, combined_media });
       }
       if (kind === "brochure") {
@@ -149,6 +157,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         return NextResponse.json({ ok: true, brochure_url: url, url });
       }
       // ---- combined multi-yacht per-yacht media (by index) ----
+      case "add-combined-extra": {
+        const idx = Number(body.index);
+        if (!Number.isFinite(idx) || typeof body.url !== "string" || !body.url.trim()) {
+          return NextResponse.json({ error: "index and url required" }, { status: 400 });
+        }
+        const combined_media = await appendCombinedExtraUrl(id, idx, String(body.url));
+        return NextResponse.json({ ok: true, combined_media });
+      }
+      case "remove-combined-extra": {
+        const idx = Number(body.index);
+        if (!Number.isFinite(idx) || typeof body.url !== "string") {
+          return NextResponse.json({ error: "index and url required" }, { status: 400 });
+        }
+        const combined_media = await removeCombinedExtraUrl(id, idx, String(body.url));
+        return NextResponse.json({ ok: true, combined_media });
+      }
       case "set-combined-link": {
         const idx = Number(body.index);
         const field = body.field === "brochure_url" ? "brochure_url" : "main_url";

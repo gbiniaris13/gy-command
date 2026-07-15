@@ -297,7 +297,31 @@ export async function removeVesselPhoto(id: string, url: string) {
 
 // Feature 1 (combined multi-yacht) — per-yacht media, keyed by yacht index:
 //   { "0": { main_url, brochure_url }, "1": {...} }  (combined_media jsonb)
-type CombinedMediaEntry = { main_url?: string | null; brochure_url?: string | null };
+type CombinedMediaEntry = { main_url?: string | null; brochure_url?: string | null; extra_urls?: string[] | null };
+
+// Gallery strip (Helm v2): append ONE extra photo URL to a combined yacht's
+// media (cap 3, deduped). Read-modify-write because extra_urls is an array.
+export async function appendCombinedExtraUrl(id: string, index: number, url: string) {
+  const db = createServiceClient();
+  const { data } = await db.from("helm_requests").select("combined_media").eq("id", id).maybeSingle();
+  const cur: Record<string, CombinedMediaEntry> =
+    data?.combined_media && typeof data.combined_media === "object" ? data.combined_media : {};
+  const key = String(index);
+  const existing = Array.isArray(cur[key]?.extra_urls) ? (cur[key]!.extra_urls as string[]) : [];
+  const next = [...new Set([...existing, url.trim()])].slice(0, 3);
+  return setCombinedMedia(id, index, { extra_urls: next });
+}
+
+export async function removeCombinedExtraUrl(id: string, index: number, url: string) {
+  const db = createServiceClient();
+  const { data } = await db.from("helm_requests").select("combined_media").eq("id", id).maybeSingle();
+  const cur: Record<string, CombinedMediaEntry> =
+    data?.combined_media && typeof data.combined_media === "object" ? data.combined_media : {};
+  const key = String(index);
+  const existing = Array.isArray(cur[key]?.extra_urls) ? (cur[key]!.extra_urls as string[]) : [];
+  const next = existing.filter((u) => u !== url);
+  return setCombinedMedia(id, index, { extra_urls: next });
+}
 
 export async function setCombinedMedia(id: string, index: number, patch: CombinedMediaEntry) {
   const db = createServiceClient();
@@ -306,9 +330,10 @@ export async function setCombinedMedia(id: string, index: number, patch: Combine
     data?.combined_media && typeof data.combined_media === "object" ? data.combined_media : {};
   const key = String(index);
   const next = { ...(cur[key] || {}), ...patch };
-  // drop nulled fields so removal actually clears them
+  // drop nulled fields so removal actually clears them (empty arrays too)
   for (const k of Object.keys(next) as (keyof CombinedMediaEntry)[]) {
-    if (next[k] === null || next[k] === undefined || next[k] === "") delete next[k];
+    const v = next[k];
+    if (v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) delete next[k];
   }
   cur[key] = next;
   const { error } = await db

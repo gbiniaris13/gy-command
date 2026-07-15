@@ -158,7 +158,7 @@ function periodsPayload(s: PeriodsState): { label: string; dates?: string; fee?:
     }));
 }
 
-type MediaEntry = { main_url?: string; brochure_url?: string };
+type MediaEntry = { main_url?: string; brochure_url?: string; extra_urls?: string[] };
 type PriceMode = "breakdown" | "plus_extras" | "all_inclusive" | "day_charter";
 
 type YState = {
@@ -478,6 +478,46 @@ export default function CombinedPanel({
       if (!r.ok) throw new Error(j.error || "feature-failed");
       setFeaturedIdx(next);
       router.refresh();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+
+  // ---- gallery strip (Helm v2): up to 3 extra photos per yacht ----
+  async function uploadExtraPhoto(i: number, file: File) {
+    setBusy(`media-${i}`); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file); fd.append("kind", "extra"); fd.append("yacht_index", String(i));
+      const r = await fetch(`/api/helm/${requestId}/upload-media`, { method: "POST", body: fd });
+      const j = await readJsonSafe(r);
+      if (!r.ok && !j.configured) throw new Error(j.error || "upload-failed");
+      if (j.configured === false) { setError(j.message || "Cloudinary not connected. Paste an image link instead."); return; }
+      if (j.error) throw new Error(j.error);
+      if (j.combined_media) setMedia(j.combined_media);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+  async function addExtraLink(i: number, url: string) {
+    if (!url.trim()) return;
+    setBusy(`media-${i}`); setError(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}/upload-media`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add-combined-extra", index: i, url: url.trim() }),
+      });
+      const j = await readJsonSafe(r);
+      if (!r.ok || j.error) throw new Error(j.error || "link-failed");
+      if (j.combined_media) setMedia(j.combined_media);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+  async function removeExtraUrl(i: number, url: string) {
+    setBusy(`media-${i}`); setError(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}/upload-media`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "remove-combined-extra", index: i, url }),
+      });
+      const j = await readJsonSafe(r);
+      if (!r.ok || j.error) throw new Error(j.error || "remove-failed");
+      setMedia(j.combined_media || {});
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
 
@@ -815,6 +855,34 @@ export default function CombinedPanel({
                       <LinkAdder placeholder="…or paste image URL" disabled={busy !== null} onAdd={(u) => setLink(i, "main_url", u)} />
                     </div>
                   )}
+                  {/* Gallery strip (Helm v2): up to 3 extra photos rendered under
+                      the hero on this yacht's PDF page. Own-fleet yachts fill
+                      these automatically when left empty. */}
+                  <div style={{ marginTop: 8 }}>
+                    <div style={fieldLabel}>More photos for the gallery strip (optional · up to 3 · interior, deck, dining)</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                      {(m.extra_urls || []).map((u) => (
+                        <div key={u} style={{ position: "relative" }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={u} alt="" style={{ width: 64, height: 42, objectFit: "cover", borderRadius: 2, border: "1px solid rgba(13,27,42,0.15)" }} />
+                          <button type="button" onClick={() => removeExtraUrl(i, u)} disabled={busy !== null}
+                            title="Remove"
+                            style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, lineHeight: "16px", padding: 0, borderRadius: 9, border: "1px solid rgba(13,27,42,0.25)", background: "#fff", cursor: "pointer", fontSize: 11 }}>×</button>
+                        </div>
+                      ))}
+                      {(m.extra_urls || []).length < 3 && (
+                        <>
+                          {cloudinaryConfigured && (
+                            <label style={{ ...chipBtn, cursor: "pointer" }}>
+                              {busy === `media-${i}` ? "Uploading…" : "Upload photo"}
+                              <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadExtraPhoto(i, f); e.target.value = ""; }} />
+                            </label>
+                          )}
+                          <LinkAdder placeholder="…or paste image URL" disabled={busy !== null} onAdd={(u) => addExtraLink(i, u)} />
+                        </>
+                      )}
+                    </div>
+                  </div>
                   <div style={{ marginTop: 8 }}>
                     <div style={fieldLabel}>Brochure (optional · make sure it is white-label, no agency branding)</div>
                     {m.brochure_url ? (
