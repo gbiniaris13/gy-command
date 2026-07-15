@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { observeCron } from "@/lib/cron-observer";
-import { getIgTokenOptional } from "@/lib/ig-token";
+import { getIgTokenOptional, getIgGraphRoot } from "@/lib/ig-token";
 
 // Vercel cron — pulls insights for every post published in the last 7
 // days and upserts them into ig_post_analytics. Runs every 6 hours so
@@ -45,7 +45,7 @@ async function _observedImpl() {
   let posts: any[] = [];
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v21.0/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=50&access_token=${encodeURIComponent(token)}`,
+      `${getIgGraphRoot()}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=50&access_token=${encodeURIComponent(token)}`,
       { cache: "no-store" }
     );
     if (!res.ok) {

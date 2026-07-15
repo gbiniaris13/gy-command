@@ -31,7 +31,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
-import { getIgTokenOptional } from "@/lib/ig-token";
+import { getIgTokenOptional, getIgGraphRoot } from "@/lib/ig-token";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -85,9 +85,19 @@ async function checkSupabase(): Promise<CheckResult> {
 async function checkVercelKVNewsletter(): Promise<CheckResult> {
   // Probe the newsletter status admin endpoint on the public site
   // (it returns subscriber counts from KV). If it 200s, KV is up.
+  //
+  // 2026-07-15 — the probe MUST authenticate: the site's admin-auth
+  // middleware (2026-05-18) deliberately answers 404 to any
+  // /api/admin/* request without a key, so the keyless probe has
+  // been a daily false-positive "critical" ever since. Same secret
+  // mechanism as checkResendQuota below.
+  const secret = process.env.NEWSLETTER_PROXY_SECRET;
+  if (!secret) return warn("Vercel KV (newsletter)", "NEWSLETTER_PROXY_SECRET not set");
   try {
     const { result, ms } = await timeIt(() =>
-      fetch(`${NEWSLETTER_SITE}/api/admin/newsletter-status`, { cache: "no-store" }),
+      fetch(`${NEWSLETTER_SITE}/api/admin/newsletter-status?key=${encodeURIComponent(secret)}`, {
+        cache: "no-store",
+      }),
     );
     if (!result.ok) return critical("Vercel KV (newsletter)", `HTTP ${result.status}`);
     return ok("Vercel KV (newsletter)", ms);
@@ -211,7 +221,7 @@ async function checkIGTokenExpiry(): Promise<CheckResult> {
     // expiration via the official IG endpoint.
     const { result, ms } = await timeIt(() =>
       fetch(
-        `https://graph.facebook.com/v21.0/me?fields=id,name&access_token=${encodeURIComponent(token)}`,
+        `${getIgGraphRoot()}?fields=username&access_token=${encodeURIComponent(token)}`,
       ),
     );
     if (!result.ok) {

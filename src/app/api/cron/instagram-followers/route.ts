@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
-import { getIgTokenOptional } from "@/lib/ig-token";
+import { getIgTokenOptional, getIgGraphRoot } from "@/lib/ig-token";
 
 // Cron: daily 03:11 UTC (06:11 Athens).
 // Tracks follower count + alerts on growth.
@@ -20,7 +20,7 @@ async function _observedImpl() {
 
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v21.0/me?fields=followers_count,follows_count,media_count&access_token=${encodeURIComponent(token)}`,
+      `${getIgGraphRoot()}?fields=followers_count,follows_count,media_count&access_token=${encodeURIComponent(token)}`,
       { cache: "no-store" }
     );
     if (!res.ok) {
