@@ -1745,6 +1745,13 @@ function comparisonPage(d: CombinedProposal): string {
       </tr>`;
     })
     .join("");
+  // Mention a discount in the fine print ONLY when at least one yacht actually
+  // carries one - the phrase "after any offered discount" on a no-discount
+  // proposal plants an expectation (George, 2026-07-15).
+  const anyDiscount = yachts.some((y) => {
+    const pr = computePricing(y.pricing);
+    return !!(pr.discount_note || pr.net_after_discount);
+  });
   const reco = yachts.find((y) => /recommendation/i.test(y.tier_label ?? ""));
   const recoNote = reco
     ? `If it were my own week on the water, I would take ${e(reco.name)} for this brief. `
@@ -1758,7 +1765,9 @@ function comparisonPage(d: CombinedProposal): string {
     ${rows}
   </table>
   <div class="cmp-note">${recoNote}Reply with the one or two names that speak to you, and I will confirm live availability the same day.</div>
-  <div class="cmp-fine">Estimated all-in figures include the charter fee after any offered discount, APA and VAT at each yacht's certified rate. Crew gratuity is discretionary and not included. Rates and availability move daily in season; every option is subject to owner confirmation at the moment of booking.</div>
+  <div class="cmp-fine">${anyDiscount
+    ? "Estimated all-in figures include the charter fee after the offered discount, APA and VAT at each yacht's certified rate."
+    : "Estimated all-in figures include the charter fee, APA and VAT at each yacht's certified rate."} Crew gratuity is discretionary and not included. Rates and availability move daily in season; every option is subject to owner confirmation at the moment of booking.</div>
   <div style="margin-top:auto;"></div>
   <div class="pfoot"><span>${confLabel(d.white_label)}${d.white_label ? "" : " &#8226; WhatsApp +1 786 798 8798"}</span><span>${e(d.period ?? "")}</span></div>
 </div></div>`;
@@ -1823,10 +1832,23 @@ const SAMPLE_WEEKS: { key: RegExp; title: string; days: [string, string, string]
   },
 ];
 
-function sampleWeekPage(d: CombinedProposal): string {
-  const area = (d.area ?? "").toString();
-  const wk = SAMPLE_WEEKS.find((w) => w.key.test(area));
-  if (!wk) return "";
+function sampleWeekPages(d: CombinedProposal): string[] {
+  // Areas are detected from BOTH the requested area AND each yacht's route -
+  // a shortlist that spans Saronic and Ionian options gets one sample week
+  // per region (max 2), so no equal option is left without its week
+  // (George, 2026-07-15, the Farnham Ionian gap).
+  const texts = [
+    (d.area ?? "").toString(),
+    ...(d.yachts ?? []).map((y) => (y.voyage_line ?? "").toString()),
+  ];
+  const matched: typeof SAMPLE_WEEKS = [];
+  for (const wk of SAMPLE_WEEKS) {
+    if (texts.some((t) => wk.key.test(t)) && !matched.includes(wk)) matched.push(wk);
+  }
+  return matched.slice(0, 2).map((wk) => sampleWeekPageFor(d, wk));
+}
+
+function sampleWeekPageFor(d: CombinedProposal, wk: (typeof SAMPLE_WEEKS)[number]): string {
   const rows = wk.days
     .map(
       ([day, leg, note]) =>
@@ -1905,9 +1927,8 @@ function renderCombined(d: CombinedProposal): string {
   // ---- one page per yacht (caller sorts cheapest -> priciest) ----
   yachts.forEach((y, i) => pages.push(renderCombinedYacht(y, i + 1, d)));
 
-  // ---- a sample week for the requested area (sells the week, not the hull) ----
-  const wk = sampleWeekPage(d);
-  if (wk) pages.push(wk);
+  // ---- sample weeks for every region this shortlist spans (max 2) ----
+  for (const wkPage of sampleWeekPages(d)) pages.push(wkPage);
 
   // ---- key information / closing ----
   pages.push(keyInfoPage(d));

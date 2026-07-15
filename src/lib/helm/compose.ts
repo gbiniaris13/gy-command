@@ -126,6 +126,76 @@ Output JSON only.`;
 // Combined per-yacht: one short supplier-true description + an "inside info"
 // note (why this one, for whom, the reason to pick it). `anonymous` => white-
 // label voice (no George, no first person) for travel-agent proposals.
+// ============================================================= fact-guard
+// Deterministic numeric fact-check for generated yacht copy (George,
+// 2026-07-15, after the live "five dedicated guest cabins" hallucination on a
+// six-cabin yacht). Prompts alone cannot be trusted with counts a spec-literate
+// client verifies against the header of the SAME page. Any cabin/guest/crew
+// count claimed in the copy must appear in the supplier facts (or the client
+// brief - "your party of nine" is the CLIENT's number and legitimate).
+const WORD_NUMS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+const COUNT_RE =
+  /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b[^.,;\d]{0,40}?\b(guest\s+cabins?|guest\s+staterooms?|cabins?|staterooms?|guests?|crew)\b/gi;
+
+type CountNoun = "cabin" | "guest" | "crew";
+function countClaims(text: string): { n: number; noun: CountNoun }[] {
+  const out: { n: number; noun: CountNoun }[] = [];
+  let m: RegExpExecArray | null;
+  const re = new RegExp(COUNT_RE.source, "gi");
+  while ((m = re.exec(text)) !== null) {
+    const n = WORD_NUMS[m[1].toLowerCase()] ?? Number(m[1]);
+    if (!Number.isFinite(n)) continue;
+    const raw = m[2].toLowerCase();
+    // "guest cabins" is a CABIN count - the compound alternation matches it
+    // whole, so any token containing cabin/stateroom classifies as cabin.
+    out.push({ n, noun: /cabin|stateroom/.test(raw) ? "cabin" : /guest/.test(raw) ? "guest" : "crew" });
+  }
+  return out;
+}
+
+/** Sentences of `text` whose cabin/guest/crew counts contradict the allowed
+ *  numbers (drawn from supplier facts + brief). Empty array = clean. */
+function factViolations(text: string, allowedSource: string): string[] {
+  const allowed: Record<CountNoun, Set<number>> = { cabin: new Set(), guest: new Set(), crew: new Set() };
+  for (const c of countClaims(allowedSource)) allowed[c.noun].add(c.n);
+  // Also allow EVERY bare number in the source for guest counts ("party of 9",
+  // "9 pax", spec "sleeps 10") - guests phrasing varies too much to anchor on
+  // the noun alone.
+  const bareNums = new Set<number>();
+  // Dimensions/decimals ("48.5 ft", "14,75 m") must not leak their fragments
+  // into the allowed pool - strip them before collecting bare numbers.
+  const noDecimals = allowedSource.replace(/\d+[.,]\d+/g, " ");
+  for (const m of noDecimals.matchAll(/\b(\d{1,2})\b/g)) bareNums.add(Number(m[1]));
+  for (const [w, n] of Object.entries(WORD_NUMS)) {
+    if (new RegExp(`\\b${w}\\b`, "i").test(allowedSource)) bareNums.add(n);
+  }
+  const bad: string[] = [];
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    for (const c of countClaims(sentence)) {
+      const pool = allowed[c.noun].size ? allowed[c.noun] : bareNums;
+      if (pool.size && !pool.has(c.n) && !bareNums.has(c.n)) {
+        bad.push(sentence.trim());
+        break;
+      }
+    }
+  }
+  return bad;
+}
+
+/** Drop the sentences that fail the fact-guard; never let a wrong count ship. */
+function stripViolatingSentences(text: string, allowedSource: string): string {
+  const bad = new Set(factViolations(text, allowedSource));
+  if (!bad.size) return text;
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .filter((sent) => !bad.has(sent.trim()))
+    .join(" ")
+    .trim();
+}
+
 export async function composeYachtInsideInfo(
   f: NarrativeFacts & { tier_hint?: string; anonymous?: boolean },
 ): Promise<{ description: string; inside_info: string; crew_line: string }> {
@@ -136,6 +206,7 @@ export async function composeYachtInsideInfo(
 
 TASK: For ONE yacht in a multi-yacht shortlist, return JSON: {"description":"<ONE short supplier-true sentence, max ~25 words>",${insideSpec},"crew_line":"<ONE short sentence about the crew, ONLY from the supplier facts: roles, size, certifications, awards, years of service. NEVER a personal name (crew changes are the owner's prerogative; a named crew member is a liability). Empty string when the supplier facts say nothing about the crew>"}.
 This card must fit one page with a large photo, so be CONCISE: the description is ONE sentence; the inside_info is 2 to 3 short sentences where the selling lives.
+NUMBERS RULE (hard): any cabin, guest or crew COUNT you write must appear verbatim in the supplier facts below. If you are not certain of a number, leave it out entirely - the page header already carries the specs.
 INSIDE INFO RULES (the difference between selling and filler):
 - It MUST be anchored on at least ONE specific, verifiable fact from the supplier facts (a named feature, the refit year, a toy, a chef credential, a layout detail) - the reader should be unable to move this text to another yacht.
 - BANNED, never write these or their variants: "ideal for guests seeking relaxation", "perfect for those who appreciate", "a balance of comfort and style", "unforgettable experience", "has something for everyone". Generic praise is worse than silence.
@@ -152,15 +223,42 @@ Output JSON only.`;
     f.occasion ? `Occasion: ${f.occasion}` : "",
     `Supplier facts (only features you may reference):\n${f.supplier_facts}`,
   ].filter(Boolean).join("\n");
-  const raw = await aiChat(sys, user, { maxTokens: 6000, temperature: 0.6 });
-  const out = parseLooseJson(raw) as { description?: string; inside_info?: string; crew_line?: string };
+  // The fact-guard's allowed-numbers source: everything the model was given.
+  const factSource = [f.spec_line || "", f.supplier_facts || "", f.brief || ""].join("\n");
+
+  let out = parseLooseJson(
+    await aiChat(sys, user, { maxTokens: 6000, temperature: 0.6 }),
+  ) as { description?: string; inside_info?: string; crew_line?: string };
+
+  // Fact-guard round 1: if any cabin/guest/crew count contradicts the facts,
+  // retry ONCE with the violations named explicitly.
+  const bad1 = [
+    ...factViolations(out.description || "", factSource),
+    ...factViolations(out.inside_info || "", factSource),
+    ...factViolations(out.crew_line || "", factSource),
+  ];
+  if (bad1.length) {
+    const retryUser =
+      user +
+      `\n\nYOUR PREVIOUS ATTEMPT FAILED FACT-CHECKING. These sentences contradict the supplier facts (wrong cabin/guest/crew count): ${bad1.map((b) => `"${b}"`).join(" | ")}. Rewrite the JSON. Every count you state MUST appear verbatim in the facts above. If unsure of a number, do not mention it at all.`;
+    out = parseLooseJson(
+      await aiChat(sys, retryUser, { maxTokens: 6000, temperature: 0.4 }),
+    ) as { description?: string; inside_info?: string; crew_line?: string };
+  }
+
+  // Fact-guard round 2 (unconditional): whatever still contradicts the facts
+  // is stripped sentence-by-sentence. A wrong count NEVER ships.
+  const desc = stripViolatingSentences(out.description || "", factSource);
+  const inside = stripViolatingSentences(out.inside_info || "", factSource);
+  const crew = stripViolatingSentences(out.crew_line || "", factSource);
+
   // Hard length cap (safety net) so the card always fits one page even if the
   // model runs long: description ~1 sentence, inside_info ~3 short sentences,
   // crew_line ~1 sentence.
   return {
-    description: stripClientNames(deDash(firstSentences(out.description || "", 2, 180))),
-    inside_info: stripClientNames(deDash(firstSentences(out.inside_info || "", 3, 340))),
-    crew_line: stripClientNames(deDash(firstSentences(out.crew_line || "", 1, 170))),
+    description: stripClientNames(deDash(firstSentences(desc, 2, 180))),
+    inside_info: stripClientNames(deDash(firstSentences(inside, 3, 340))),
+    crew_line: stripClientNames(deDash(firstSentences(crew, 1, 170))),
   };
 }
 
