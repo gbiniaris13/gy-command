@@ -14,6 +14,7 @@ import HelmWhatsApp from "./HelmWhatsApp";
 import HelmReply from "./HelmReply";
 import HelmBooking from "./HelmBooking";
 import HelmAgencyInquiry from "./HelmAgencyInquiry";
+import GmailImport from "./GmailImport";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
 import { agencyAlreadySent } from "@/lib/helm/agency";
@@ -103,6 +104,14 @@ export default async function HelmDetailPage({
           </div>
         )}
       </section>
+
+      {/* Gmail import — George picks the exact supplier emails; bodies land
+          in supplier_raw below, PDF brochures are saved + read once. */}
+      <GmailImport
+        requestId={r.id}
+        hasThread={!!r.gmail_thread_id}
+        defaultQuery=""
+      />
 
       {/* supplier source (internal only) */}
       <section style={card}>
