@@ -95,7 +95,10 @@ export async function POST(req: NextRequest) {
     .insert({
       email,
       contact_type: contactType,
-      source: "site_newsletter",
+      // "source" is also CHECK-constrained live (contacts_source_check);
+      // site_newsletter is rejected, website_lead is the allowed value
+      // that fits. The tags carry the newsletter provenance.
+      source: "website_lead",
       tags_v2: newTags,
       notes: "Signed up via the georgeyachts.com Journal form.",
     })
