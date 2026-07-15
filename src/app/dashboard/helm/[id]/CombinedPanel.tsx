@@ -176,7 +176,21 @@ type YState = {
   /** Excluded from the proposal (e.g. the yacht got booked meanwhile). The card
    *  stays — nothing is deleted — it is simply left out of the generated PDF. */
   excluded?: boolean;
+  /** GEORGE'S OWN Inside Info (2026-07-15). When filled, HIS words render in
+   *  the PDF verbatim and the AI text is discarded for this yacht. Hard-capped
+   *  at 240 chars — the exact budget the page renders. */
+  manual_note?: string;
 };
+
+/** GEORGE-WRITTEN itinerary page (max 2). Replaces the retired auto sample
+ *  weeks — a canned route can never cover "the client wants Syros". Limits
+ *  are the exact page geometry: title 30 (one line), leg 34 (one line),
+ *  note 110 (~2 lines), up to 8 days. */
+type WeekState = {
+  title: string;
+  days: { leg: string; note: string }[];
+};
+const WEEK_LIMITS = { title: 30, leg: 34, note: 110, days: 8, weeks: 2 } as const;
 
 type CharterType = "weekly" | "bareboat" | "daily" | "custom";
 const CHARTER_TYPES: [CharterType, string][] = [
@@ -286,7 +300,7 @@ export default function CombinedPanel({
   emailIntro: string | null;
   initialMedia: Record<string, MediaEntry>;
   cloudinaryConfigured: boolean;
-  initialDraft: { mode?: string; yachts?: YState[] } | null;
+  initialDraft: { mode?: string; yachts?: YState[]; weeks?: WeekState[] } | null;
   isAgent: boolean;
   initialWhiteLabel: boolean;
 }) {
@@ -331,6 +345,23 @@ export default function CombinedPanel({
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [moreText, setMoreText] = useState("");
+  // George's itinerary pages — restored from the draft independently of the
+  // yacht-count check (they never depend on the extraction shape).
+  const [weeks, setWeeks] = useState<WeekState[]>(
+    Array.isArray(initialDraft?.weeks) ? initialDraft!.weeks!.slice(0, WEEK_LIMITS.weeks) : [],
+  );
+  const patchWeek = (wi: number, patch: Partial<WeekState>) =>
+    setWeeks((prev) => prev.map((w, idx) => (idx === wi ? { ...w, ...patch } : w)));
+  const cleanWeeksPayload = () =>
+    weeks
+      .map((w) => ({
+        title: w.title.trim().slice(0, WEEK_LIMITS.title),
+        days: w.days
+          .map((d) => ({ leg: d.leg.trim().slice(0, WEEK_LIMITS.leg), note: d.note.trim().slice(0, WEEK_LIMITS.note) }))
+          .filter((d) => d.leg)
+          .slice(0, WEEK_LIMITS.days),
+      }))
+      .filter((w) => w.title && w.days.length);
 
   // A second supplier replied later with more yachts: extract ONLY their email
   // and APPEND the yachts. Existing cards (indexes, prices, photos, brochures)
@@ -356,7 +387,7 @@ export default function CombinedPanel({
       // requires the yacht count to match the stored extraction).
       await fetch(`/api/helm/${requestId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs } }),
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks } }),
       });
       setSavedMsg(`Added ${addedCount} yacht${addedCount === 1 ? "" : "s"} from the new supplier. Your earlier yachts are untouched — review the new cards, then ${pdfPath ? "Regenerate" : "Generate"}.`);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
@@ -367,7 +398,7 @@ export default function CombinedPanel({
     try {
       const r = await fetch(`/api/helm/${requestId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys } }),
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys, weeks } }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "save-failed");
@@ -435,6 +466,8 @@ export default function CombinedPanel({
         charter_type: charterType,
         crew_note: crewNote,
         terms: termsObjectFromState(terms) ?? null,
+        // George's own itinerary pages (max 2; empty => no week pages).
+        custom_weeks: cleanWeeksPayload(),
         // Excluded yachts are left out of the PDF. media_index = the ORIGINAL
         // card index, so each remaining yacht keeps ITS OWN photos/brochure
         // server-side even when an earlier card is excluded.
@@ -443,6 +476,8 @@ export default function CombinedPanel({
           .filter(({ s }) => s && !s.excluded)
           .map(({ y, s, i }) => ({
             media_index: i,
+            // George's own Inside Info — rendered verbatim, AI text discarded.
+            ...(s.manual_note?.trim() ? { manual_note: s.manual_note.trim().slice(0, 240) } : {}),
             vessel: { name: s.vessel.name, type: s.vessel.type, spec_line: s.vessel.spec_line, embarkation: s.vessel.embarkation, disembarkation: s.vessel.disembarkation, date_from: s.vessel.date_from, date_to: s.vessel.date_to },
             pricing: pricingOf(s.px, s.priceMode),
             content: y.content || {},
@@ -734,6 +769,24 @@ export default function CombinedPanel({
                   <Labeled label="Dates to"><input value={s.vessel.date_to} onChange={(e) => patchY(i, { vessel: { ...s.vessel, date_to: e.target.value } })} placeholder="3 July" style={txt} /></Labeled>
                 </div>
 
+                {/* George's own Inside Info — his words verbatim, AI text discarded */}
+                <div style={{ marginTop: 10 }}>
+                  <div style={fieldLabel}>
+                    Your Inside Info · your exact words in the PDF (empty = AI writes it)
+                  </div>
+                  <textarea
+                    value={s.manual_note ?? ""}
+                    maxLength={240}
+                    rows={3}
+                    onChange={(e) => patchY(i, { manual_note: e.target.value })}
+                    placeholder="Write what YOU recommend about this yacht - it replaces the AI text under &quot;George's Inside Info&quot;."
+                    style={{ ...txt, width: "100%", resize: "vertical", lineHeight: 1.5 }}
+                  />
+                  <div style={{ fontSize: 11, color: (s.manual_note?.length ?? 0) >= 240 ? "#B45309" : "#9CA3AF", textAlign: "right" }}>
+                    {(s.manual_note?.length ?? 0)}/240 — the exact space the page fits, so the layout never breaks
+                  </div>
+                </div>
+
                 {/* STOP flags */}
                 {stops.length > 0 && (
                   <div style={stopBox}>
@@ -925,6 +978,77 @@ export default function CombinedPanel({
               </div>
             );
           })}
+
+          <div style={{ border: "1px solid rgba(13,27,42,0.10)", padding: "12px 14px", margin: "14px 0 6px", borderRadius: 2 }}>
+            {/* George's itinerary pages — HE writes the route, the PDF typesets it.
+                Replaces the retired auto sample weeks (they could never cover
+                "the client wants Syros"). Hard limits = the exact page geometry. */}
+            <div style={{ marginTop: 14 }}>
+              <div style={fieldLabel}>Itinerary pages · you write them, the PDF typesets them</div>
+              <div style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 8px" }}>
+                Write the route exactly as you would propose it (e.g. Syros). Each itinerary becomes one elegant
+                &quot;A Week Like This&quot; page. Character limits match the page exactly, so nothing ever overflows.
+                Leave empty for no itinerary pages.
+              </div>
+              {weeks.map((w, wi) => (
+                <div key={wi} style={{ border: "1px solid rgba(13,27,42,0.10)", borderRadius: 2, padding: 12, marginBottom: 10 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      value={w.title}
+                      maxLength={WEEK_LIMITS.title}
+                      onChange={(e) => patchWeek(wi, { title: e.target.value })}
+                      placeholder="Title, e.g. Syros &amp; the Western Cyclades"
+                      style={{ ...txt, flex: 1 }}
+                    />
+                    <span style={{ fontSize: 11, color: "#9CA3AF" }}>{w.title.length}/{WEEK_LIMITS.title}</span>
+                    <button type="button" onClick={() => setWeeks((prev) => prev.filter((_, idx) => idx !== wi))} disabled={busy !== null} style={ghostBtn}>
+                      Remove itinerary
+                    </button>
+                  </div>
+                  {w.days.map((day, di) => (
+                    <div key={di} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                      <span style={{ fontSize: 11, letterSpacing: 1, color: "#9CA3AF", width: 42, flexShrink: 0 }}>Day {di + 1}</span>
+                      <input
+                        value={day.leg}
+                        maxLength={WEEK_LIMITS.leg}
+                        onChange={(e) => patchWeek(wi, { days: w.days.map((d, idx) => (idx === di ? { ...d, leg: e.target.value } : d)) })}
+                        placeholder="Athens -&gt; Syros"
+                        style={{ ...txt, width: 200, flexShrink: 0 }}
+                      />
+                      <input
+                        value={day.note}
+                        maxLength={WEEK_LIMITS.note}
+                        onChange={(e) => patchWeek(wi, { days: w.days.map((d, idx) => (idx === di ? { ...d, note: e.target.value } : d)) })}
+                        placeholder="Short line about the day (swim stop, harbour, dinner...)"
+                        style={{ ...txt, flex: 1 }}
+                      />
+                      <span style={{ fontSize: 10.5, color: day.note.length >= WEEK_LIMITS.note ? "#B45309" : "#9CA3AF", width: 52, flexShrink: 0, textAlign: "right" }}>
+                        {day.note.length}/{WEEK_LIMITS.note}
+                      </span>
+                      <button type="button" onClick={() => patchWeek(wi, { days: w.days.filter((_, idx) => idx !== di) })} disabled={busy !== null}
+                        style={{ ...ghostBtn, padding: "2px 8px" }}>&times;</button>
+                    </div>
+                  ))}
+                  {w.days.length < WEEK_LIMITS.days && (
+                    <button type="button" onClick={() => patchWeek(wi, { days: [...w.days, { leg: "", note: "" }] })} disabled={busy !== null}
+                      style={{ ...ghostBtn, marginTop: 8 }}>
+                      + Add day ({w.days.length}/{WEEK_LIMITS.days})
+                    </button>
+                  )}
+                </div>
+              ))}
+              {weeks.length < WEEK_LIMITS.weeks && (
+                <button type="button" disabled={busy !== null} style={ghostBtn}
+                  onClick={() => setWeeks((prev) => [...prev, { title: "", days: Array.from({ length: 7 }, () => ({ leg: "", note: "" })) }])}>
+                  + Add itinerary page ({weeks.length}/{WEEK_LIMITS.weeks})
+                </button>
+              )}
+              <div style={{ fontSize: 11.5, color: "#9CA3AF", marginTop: 6 }}>
+                Remember to press <b>Save draft</b> below - itineraries are saved with the draft and go into the PDF on Generate.
+              </div>
+            </div>
+
+          </div>
 
           <div style={{ border: "1px dashed rgba(13,27,42,0.25)", padding: "12px 14px", margin: "14px 0 6px", borderRadius: 2 }}>
             <div style={fieldLabel}>Add yachts from another supplier</div>

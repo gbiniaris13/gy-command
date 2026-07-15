@@ -168,6 +168,16 @@ export type CombinedProposal = {
   intro_letter?: string;
   images?: Images;
   yachts: CombinedYacht[];
+  /** GEORGE-WRITTEN itinerary pages (2026-07-15: auto sample weeks removed —
+   *  a canned route can never cover "the client wants Syros"). He writes the
+   *  legs + notes in the panel (hard char limits enforced there AND clamped
+   *  server-side); the template only typesets. Absent/empty => no week pages. */
+  custom_weeks?: CustomWeek[];
+};
+
+export type CustomWeek = {
+  title: string;
+  days: { leg: string; note: string }[];
 };
 
 export type ProposalJson = SingleProposal | CombinedProposal;
@@ -1785,11 +1795,41 @@ function comparisonPage(d: CombinedProposal): string {
 </div></div>`;
 }
 
-// "A Week Like This" — one elegant page with a sample 7-day rhythm for the
-// requested cruising area. Deterministic content (George's own routes, the
-// same ones published on georgeyachts.com), keyed by area keywords. No match
-// => no page. Sells the week, not just the hull.
-const SAMPLE_WEEKS: { key: RegExp; title: string; days: [string, string, string][] }[] = [
+// "A Week Like This" — George writes every itinerary himself (2026-07-15:
+// the canned area-matched routes are GONE — they could never cover "the
+// client wants Syros"). This renders his custom weeks, max 2 pages, in the
+// exact page style the canned ones used. No weeks => no pages.
+function customWeekPages(d: CombinedProposal): string[] {
+  const weeks = (d.custom_weeks ?? []).slice(0, 2);
+  return weeks
+    .filter((wk) => (wk.title || "").trim() && (wk.days ?? []).some((x) => (x.leg || "").trim()))
+    .map((wk) => {
+      const rows = (wk.days ?? [])
+        .filter((x) => (x.leg || "").trim())
+        .slice(0, 8)
+        .map(({ leg, note }, i) => {
+          // "Athens -> Syros" typed in the panel becomes the typographic arrow.
+          const legHtml = e(leg.trim()).replace(/\s*(?:-&gt;|→)\s*/g, " &rarr; ");
+          return `<tr><td class="w-day">Day ${i + 1}</td><td class="w-leg">${legHtml}</td><td>${e((note || "").trim())}</td></tr>`;
+        })
+        .join("");
+      return `
+<div class="page"><div class="pad" style="display:flex;flex-direction:column;">
+  <div class="sec-title">A Week Like This &mdash; ${e(wk.title.trim())}</div>
+  <hr class="hair" style="margin:5mm 0 2mm;">
+  <p class="body" style="font-size:9.5pt;line-height:1.6;margin-top:3mm;color:var(--ivory-dim);">
+    A sample rhythm for the week, drawn from routes we actually run. Every day is adjusted on board
+    around your pace, the wind and the water; nothing is fixed except that the itinerary is yours.</p>
+  <table class="wk">${rows}</table>
+  <div style="margin-top:auto;"></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}${d.white_label ? "" : " &#8226; WhatsApp +1 786 798 8798"}</span><span>${e(d.period ?? "")}</span></div>
+</div></div>`;
+    });
+}
+
+// RETIRED auto sample weeks (kept as data reference for George's own writing;
+// no code path reads this anymore).
+/* const SAMPLE_WEEKS: { key: RegExp; title: string; days: [string, string, string][] }[] = [
   {
     key: /cyclad|mykonos|paros|santorini|milos|sifnos|syros|naxos/i,
     title: "The Cyclades",
@@ -1843,42 +1883,7 @@ const SAMPLE_WEEKS: { key: RegExp; title: string; days: [string, string, string]
     ],
   },
 ];
-
-function sampleWeekPages(d: CombinedProposal): string[] {
-  // Areas are detected from BOTH the requested area AND each yacht's route -
-  // a shortlist that spans Saronic and Ionian options gets one sample week
-  // per region (max 2), so no equal option is left without its week
-  // (George, 2026-07-15, the Farnham Ionian gap).
-  const texts = [
-    (d.area ?? "").toString(),
-    ...(d.yachts ?? []).map((y) => (y.voyage_line ?? "").toString()),
-  ];
-  const matched: typeof SAMPLE_WEEKS = [];
-  for (const wk of SAMPLE_WEEKS) {
-    if (texts.some((t) => wk.key.test(t)) && !matched.includes(wk)) matched.push(wk);
-  }
-  return matched.slice(0, 2).map((wk) => sampleWeekPageFor(d, wk));
-}
-
-function sampleWeekPageFor(d: CombinedProposal, wk: (typeof SAMPLE_WEEKS)[number]): string {
-  const rows = wk.days
-    .map(
-      ([day, leg, note]) =>
-        `<tr><td class="w-day">${day}</td><td class="w-leg">${leg}</td><td>${note}</td></tr>`,
-    )
-    .join("");
-  return `
-<div class="page"><div class="pad" style="display:flex;flex-direction:column;">
-  <div class="sec-title">A Week Like This &mdash; ${e(wk.title)}</div>
-  <hr class="hair" style="margin:5mm 0 2mm;">
-  <p class="body" style="font-size:9.5pt;line-height:1.6;margin-top:3mm;color:var(--ivory-dim);">
-    A sample rhythm for the week, drawn from routes we actually run. Every day is adjusted on board
-    around your pace, the wind and the water; nothing is fixed except that the itinerary is yours.</p>
-  <table class="wk">${rows}</table>
-  <div style="margin-top:auto;"></div>
-  <div class="pfoot"><span>${confLabel(d.white_label)}${d.white_label ? "" : " &#8226; WhatsApp +1 786 798 8798"}</span><span>${e(d.period ?? "")}</span></div>
-</div></div>`;
-}
+*/
 
 function renderCombined(d: CombinedProposal): string {
   const pages: string[] = [];
@@ -1939,8 +1944,8 @@ function renderCombined(d: CombinedProposal): string {
   // ---- one page per yacht (caller sorts cheapest -> priciest) ----
   yachts.forEach((y, i) => pages.push(renderCombinedYacht(y, i + 1, d)));
 
-  // ---- sample weeks for every region this shortlist spans (max 2) ----
-  for (const wkPage of sampleWeekPages(d)) pages.push(wkPage);
+  // ---- George's own itinerary pages (max 2; absent => none) ----
+  for (const wkPage of customWeekPages(d)) pages.push(wkPage);
 
   // ---- key information / closing ----
   pages.push(keyInfoPage(d));

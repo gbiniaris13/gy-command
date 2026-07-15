@@ -62,6 +62,10 @@ type CombinedInputYacht = {
    *  in combined_media. Needed because excluded yachts are filtered out client-
    *  side, which would otherwise shift positions and mismatch the media. */
   media_index?: number;
+  /** GEORGE'S OWN Inside Info for this yacht (2026-07-15). When present it is
+   *  rendered VERBATIM (em dashes normalised, clamped to the 240-char page
+   *  budget) and the AI text is discarded for this yacht. */
+  manual_note?: string;
   vessel?: { name?: string; type?: string; spec_line?: string; embarkation?: string; disembarkation?: string; date_from?: string; date_to?: string };
   pricing?: {
     mode?: PricingInput["mode"];
@@ -490,6 +494,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           occasion: r.occasion || undefined,
           anonymous: whiteLabel,
         });
+        // George's own words beat the AI every time: his card note becomes the
+        // Inside Info verbatim (em dashes normalised, clamped to the exact
+        // 240-char budget the page renders). Crew line stays fact-guarded AI.
+        const manualNote =
+          typeof iy.manual_note === "string"
+            ? iy.manual_note.replace(/\s*[—–]\s*/g, ", ").trim().slice(0, 240)
+            : "";
 
         // per-yacht media, keyed by the ORIGINAL card index (media_index) so an
         // excluded yacht earlier in the list never shifts another yacht's photos.
@@ -544,7 +555,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           voyage_line: voyageLine(v.embarkation, v.disembarkation, v.date_from, v.date_to),
           spec_strip: specStrip.length ? specStrip : undefined,
           description: info.description,
-          inside_info: info.inside_info,
+          inside_info: manualNote || info.inside_info,
           ...(info.crew_line ? { crew_line: info.crew_line } : {}),
           pricing,
           links: Object.keys(links).length ? links : undefined,
@@ -652,6 +663,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         composeEmail({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, selection_summary: summary, agent: whiteLabel }),
       ]);
 
+      // GEORGE-WRITTEN itinerary pages (max 2). Server-side clamps mirror the
+      // panel's hard limits (title 30 / leg 34 / note 110 / 8 days) so a
+      // hand-crafted request can never overflow the A4 page geometry.
+      const cleanWeeks = (Array.isArray(body.custom_weeks) ? body.custom_weeks : [])
+        .slice(0, 2)
+        .map((w: { title?: unknown; days?: unknown }) => ({
+          title: String(w?.title ?? "").trim().slice(0, 30),
+          days: (Array.isArray(w?.days) ? w.days : [])
+            .map((x: { leg?: unknown; note?: unknown }) => ({
+              leg: String(x?.leg ?? "").trim().slice(0, 34),
+              note: String(x?.note ?? "").replace(/\s*[—–]\s*/g, ", ").trim().slice(0, 110),
+            }))
+            .filter((x: { leg: string }) => x.leg)
+            .slice(0, 8),
+        }))
+        .filter((w: { title: string; days: unknown[] }) => w.title && w.days.length);
+
       const proposal = buildCombinedProposal(
         {
           // White-label cover carries no client/agent name (the agent presents it).
@@ -665,6 +693,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         sorted,
         { no_myba: !!r.no_myba, show_ghost_credit: r.show_ghost_credit !== false, white_label: whiteLabel, charter_type: charterType, crew_note: crewNote, terms: termsResolved },
       );
+
+      if (cleanWeeks.length) proposal.custom_weeks = cleanWeeks;
 
       const html = buildProposalHtml(proposal);
       // HARD WHITE-LABEL GUARD — abort if any George Yachts token survives.
