@@ -2115,19 +2115,22 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
     // breakdown pages keep the taller hero and skip the strip so the page
     // still clears the footer). Hero shrinks to make room: 88 -> 60mm.
     const gpics = [imgs.g1, imgs.g2, imgs.g3].filter(Boolean) as string[];
-    const squeezed = yHasBreakdown || yHasExtras || yHasPeriods;
-    // The crew line costs ~9mm and the date note ~5mm; take both out of the
-    // hero so the money box always clears the footer on one A4 page, even on
-    // the worst-case card (strip + crew + note + discount row).
+    // The strip is skipped ONLY under the tall per-period breakdown table
+    // (there is genuinely no room). Extras / simple periods just shrink the
+    // hero further - a relocation-fee row must not cost the client three
+    // photos (found live on the Farnham proposal, 2026-07-15).
     const crewPad = (crewClean ? 9 : 0) + (dateNote ? 5 : 0);
-    if (gpics.length && !squeezed) {
+    const extrasPad = (yHasExtras ? 10 : 0) + (yHasPeriods && !yHasBreakdown ? 12 : 0);
+    if (gpics.length && !yHasBreakdown) {
       const cells = gpics
         .slice(0, 3)
         .map((g) => `<div class="ps" style="background-image:url(${g});"></div>`)
         .join("");
-      return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", `${60 - crewPad}mm`)}</div><div class="pstrip">${cells}</div>`;
+      const h = Math.max(34, 60 - crewPad - extrasPad);
+      return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", `${h}mm`)}</div><div class="pstrip">${cells}</div>`;
     }
-    return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", yHasBreakdown ? `${74 - crewPad}mm` : squeezed ? `${80 - crewPad}mm` : `${88 - crewPad}mm`)}</div>`;
+    const h = yHasBreakdown ? 74 - crewPad : Math.max(40, 88 - crewPad - extrasPad);
+    return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", `${h}mm`)}</div>`;
   })()}
 
   ${desc ? `<p class="body" style="font-size:10.5pt;line-height:1.6;margin-top:4mm;">${e(desc)}</p>` : ""}
