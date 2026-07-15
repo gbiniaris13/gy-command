@@ -600,46 +600,135 @@ export function mergeDuplicateYachts(yachts: Extraction[]): Extraction[] {
   return out;
 }
 
-export async function extractSupplierYachts(
-  supplierRaw: string,
-  brief?: string,
-): Promise<CombinedExtraction> {
+// Thrown when the model ran out of output tokens mid-JSON — the signal to
+// auto-chunk the supplier text and extract in pieces (never George's job).
+class ExtractionCutOffError extends Error {}
+
+type MultiPass = {
+  yachts: Extraction[];
+  suggested_charter_type?: CombinedExtraction["suggested_charter_type"];
+  suggested_terms?: CombinedExtraction["suggested_terms"];
+};
+
+/** One extraction pass over one piece of supplier text. Throws
+ *  ExtractionCutOffError when the JSON was truncated by the token cap. */
+async function extractYachtsOnce(text: string, brief?: string): Promise<MultiPass> {
   const userMsg = [
     brief ? `Broker brief / context: ${brief}` : "",
     "SUPPLIER EMAIL(S) — extract every yacht from this only:",
     "```",
-    supplierRaw,
+    text,
     "```",
   ]
     .filter(Boolean)
     .join("\n");
 
   // Generous token budget: a thinking model emitting N yachts of structured
-  // JSON (each with pricing + content arrays) truncates if starved. 8000 was
-  // not enough for 2+ yachts with long spec/content; 24000 leaves headroom
-  // (you only pay for tokens actually generated).
-  const raw = await aiChat(MULTI_SYSTEM, userMsg, { maxTokens: 24000, temperature: 0 });
+  // JSON (each with pricing + content arrays) truncates if starved. 24000
+  // still got cut on long imported threads; 60000 is just under the
+  // gemini-2.5-flash 65536 output ceiling (you only pay for tokens actually
+  // generated — and the free tier doesn't pay at all).
+  const raw = await aiChat(MULTI_SYSTEM, userMsg, { maxTokens: 60000, temperature: 0 });
   let parsed: { yachts?: unknown; suggested_charter_type?: unknown; suggested_terms?: unknown };
   try {
     parsed = parseLooseJson(raw) as { yachts?: unknown; suggested_charter_type?: unknown; suggested_terms?: unknown };
   } catch {
     const looksCut = !raw.trimEnd().endsWith("}");
+    if (looksCut) throw new ExtractionCutOffError("truncated JSON");
     throw new Error(
-      looksCut
-        ? "Multi-yacht extraction was cut off before the JSON finished (supplier text too long for one pass). Press Extract again; if it repeats, split the two offers and extract them one at a time."
-        : `Multi-yacht extraction returned non-JSON. Start: ${raw.slice(0, 200)} | End: ${raw.slice(-200)}`,
+      `Multi-yacht extraction returned non-JSON. Start: ${raw.slice(0, 200)} | End: ${raw.slice(-200)}`,
     );
   }
   const arr = Array.isArray(parsed?.yachts) ? parsed.yachts : [];
-  if (!arr.length) throw new Error("Multi-yacht extraction found no yachts in the supplier email.");
-  const coerced = arr.map((y) => coerceYacht(y as Extraction));
-  // DETERMINISTIC post-process (NOT AI): collapse the SAME yacht quoted for 2+
-  // durations into ONE base yacht carrying both as period_options ("the double").
-  const yachts = mergeDuplicateYachts(coerced);
-  const out: CombinedExtraction = { yachts };
+  const out: MultiPass = { yachts: arr.map((y) => coerceYacht(y as Extraction)) };
   const sct = coerceCharterType(parsed?.suggested_charter_type);
   if (sct) out.suggested_charter_type = sct;
   const st = coerceSuggestedTerms(parsed?.suggested_terms);
+  if (st) out.suggested_terms = st;
+  return out;
+}
+
+/** Split long supplier text into standalone pieces for per-piece extraction.
+ *  Prefers real email boundaries (the Gmail-import block headers); a piece
+ *  still over ~15k chars is halved at the nearest blank line. Deterministic,
+ *  no AI. Exported for tests. */
+export function splitSupplierChunks(text: string): string[] {
+  const MAX = 15000;
+  const halve = (piece: string): string[] => {
+    if (piece.length <= MAX) return [piece];
+    const mid = Math.floor(piece.length / 2);
+    // nearest paragraph break to the midpoint (fall back: newline, hard cut)
+    const before = piece.lastIndexOf("\n\n", mid);
+    const after = piece.indexOf("\n\n", mid);
+    let cut =
+      before > piece.length * 0.2 ? before
+      : after !== -1 && after < piece.length * 0.8 ? after
+      : piece.lastIndexOf("\n", mid);
+    if (cut <= 0 || cut >= piece.length - 1) cut = mid;
+    return [...halve(piece.slice(0, cut)), ...halve(piece.slice(cut))];
+  };
+
+  // Email boundaries written by the Gmail import ("───── EMAIL [gmail:…]").
+  const parts = text
+    .split(/(?=───── EMAIL \[gmail:)/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+
+  const chunks: string[] = [];
+  for (const p of parts) {
+    for (const piece of halve(p)) {
+      const t = piece.trim();
+      if (!t) continue;
+      // Tiny fragments (a stray header line) ride along with the previous chunk.
+      if (t.length < 200 && chunks.length) chunks[chunks.length - 1] += `\n\n${t}`;
+      else chunks.push(t);
+    }
+  }
+  return chunks.length ? chunks : [text];
+}
+
+export async function extractSupplierYachts(
+  supplierRaw: string,
+  brief?: string,
+): Promise<CombinedExtraction> {
+  let passes: MultiPass[];
+  try {
+    passes = [await extractYachtsOnce(supplierRaw, brief)];
+  } catch (e) {
+    if (!(e instanceof ExtractionCutOffError)) throw e;
+    // The single pass ran out of output tokens — auto-chunk and go again,
+    // one piece at a time, then merge. George never splits offers by hand.
+    const chunks = splitSupplierChunks(supplierRaw);
+    if (chunks.length < 2) {
+      throw new Error(
+        "Multi-yacht extraction was cut off and the supplier text has no natural split point. Trim obvious noise (long quoted history, signatures) from the Supplier email(s) in Edit and press Extract again.",
+      );
+    }
+    passes = [];
+    for (const chunk of chunks) {
+      try {
+        passes.push(await extractYachtsOnce(chunk, brief));
+      } catch (ce) {
+        if (ce instanceof ExtractionCutOffError) {
+          throw new Error(
+            "Multi-yacht extraction was cut off even after splitting the supplier text automatically. Trim obvious noise (long quoted history, signatures) from the Supplier email(s) in Edit and press Extract again.",
+          );
+        }
+        throw ce;
+      }
+    }
+  }
+
+  const allYachts = passes.flatMap((p) => p.yachts);
+  if (!allYachts.length) throw new Error("Multi-yacht extraction found no yachts in the supplier email.");
+  // DETERMINISTIC post-process (NOT AI): collapse the SAME yacht quoted for 2+
+  // durations into ONE base yacht carrying both as period_options ("the double").
+  // Runs across ALL chunks, so a yacht split over two pieces still merges.
+  const yachts = mergeDuplicateYachts(allYachts);
+  const out: CombinedExtraction = { yachts };
+  const sct = passes.map((p) => p.suggested_charter_type).find(Boolean);
+  if (sct) out.suggested_charter_type = sct;
+  const st = passes.map((p) => p.suggested_terms).find(Boolean);
   if (st) out.suggested_terms = st;
   return out;
 }
