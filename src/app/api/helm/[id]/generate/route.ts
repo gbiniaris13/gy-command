@@ -436,6 +436,31 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         const fleetMain = media.main_url ? "" : (fleetPhotos[v.name || ""]?.[0] || "");
         const mainSrc = media.main_url || fleetMain;
         const mainImg = mainSrc ? await toDataUri(optimizedUrl(mainSrc)) : null;
+        // Gallery strip (Helm v2): up to 3 extra photos under the hero. Manual
+        // extra_urls (when George pastes them on the card) win; otherwise our
+        // own fleet photos 2-4 for an exact-name fleet yacht. Supplier yachts
+        // with a single photo simply render as before.
+        const extraUrls: string[] = Array.isArray((media as { extra_urls?: unknown }).extra_urls)
+          ? ((media as { extra_urls: unknown[] }).extra_urls.filter((u) => typeof u === "string") as string[])
+          : [];
+        const gallerySrcs = (extraUrls.length ? extraUrls : (fleetPhotos[v.name || ""] || []).slice(1, 4)).slice(0, 3);
+        const galleryImgs = (
+          await Promise.all(gallerySrcs.map((u) => toDataUri(optimizedUrl(u))))
+        ).filter((g): g is string => !!g);
+        // Date-deviation note (Helm v2): when this yacht's window starts 2+
+        // days off the requested embarkation, say so plainly instead of
+        // leaving the client to wonder whether we misread the brief.
+        let dateNote: string | undefined;
+        if (r.dates_from && v.date_from) {
+          const want = new Date(String(r.dates_from).slice(0, 10) + "T00:00:00Z");
+          const got = new Date(String(v.date_from).slice(0, 10) + "T00:00:00Z");
+          if (!Number.isNaN(want.getTime()) && !Number.isNaN(got.getTime())) {
+            const diffDays = Math.abs(got.getTime() - want.getTime()) / 86400000;
+            if (diffDays >= 2) {
+              dateNote = "The closest window this yacht offers to your requested dates.";
+            }
+          }
+        }
         const links: Record<string, string> = {};
         // Operator-vetted: include the brochure link as provided (George confirms white-label).
         if (media.brochure_url) links.brochure = media.brochure_url;
@@ -457,7 +482,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           inside_info: info.inside_info,
           pricing,
           links: Object.keys(links).length ? links : undefined,
-          images: mainImg ? { main: mainImg } : {},
+          images: {
+            ...(mainImg ? { main: mainImg } : {}),
+            ...(galleryImgs[0] ? { g1: galleryImgs[0] } : {}),
+            ...(galleryImgs[1] ? { g2: galleryImgs[1] } : {}),
+            ...(galleryImgs[2] ? { g3: galleryImgs[2] } : {}),
+          },
+          ...(dateNote ? { date_note: dateNote } : {}),
           ...(extras.payable_at_base ? { payable_at_base: extras.payable_at_base } : {}),
           ...(extras.security_deposit ? { security_deposit: extras.security_deposit } : {}),
           ...(extras.free_onboard ? { free_onboard: extras.free_onboard } : {}),
@@ -478,6 +509,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         return { yacht, sortKey };
       }));
 
+      // Helm v2 (George's PDF critique): EVERY yacht carries a tier eyebrow so
+      // the ladder reads as a curated narrative, not an unlabeled list. Tiers
+      // are price terciles over the already-sorted ladder: bottom third "The
+      // Considered Value", middle "The Balanced Choice", top "The Statement".
+      // A pinned lead keeps "Our Recommendation" untouched.
+      const assignTierLabels = (ys: CombinedYacht[]) => {
+        const n = ys.length;
+        if (!n) return;
+        ys.forEach((y, i) => {
+          if (y.tier_label) return; // never overwrite (e.g. Our Recommendation)
+          if (n === 1) { y.tier_label = "The Considered Choice"; return; }
+          const t = i / (n - 1); // 0..1 across the price ladder
+          y.tier_label = t <= 1 / 3 ? "The Considered Value" : t >= 2 / 3 ? "The Statement" : "The Balanced Choice";
+        });
+      };
+
       // Order: by default the deterministic cheapest→priciest value-ladder.
       // If George pinned a "lead" yacht (extraction.featured_index), that one
       // goes first (cover + lead) and the REST keep the price-ladder among
@@ -490,19 +537,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         const feat = built[featuredIndex];
         const rest = built.filter((_, i) => i !== featuredIndex).sort((a, b) => a.sortKey - b.sortKey);
         feat.yacht.tier_label = "Our Recommendation";
-        if (rest.length >= 2) {
-          rest[0].yacht.tier_label = "The Considered Value";
-          rest[rest.length - 1].yacht.tier_label = "The Statement";
-        }
+        assignTierLabels(rest.map((b) => b.yacht));
         sorted = [feat.yacht, ...rest.map((b) => b.yacht)];
       } else {
         built.sort((a, b) => a.sortKey - b.sortKey);
         sorted = built.map((b) => b.yacht);
-        // tier labels at the ends (only when there is a genuine spread)
-        if (sorted.length >= 2) {
-          sorted[0].tier_label = "The Considered Value";
-          sorted[sorted.length - 1].tier_label = "The Statement";
-        }
+        assignTierLabels(sorted);
       }
 
       // cover image = the lead/first yacht's photo (falls back to the first

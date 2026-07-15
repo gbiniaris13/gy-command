@@ -99,6 +99,9 @@ export type CombinedYacht = {
   spec_strip?: [string, string][];
   description?: string;
   inside_info?: string;
+  /** Optional muted note under the dates cell, e.g. why this yacht's window or
+   *  port differs from the requested brief. Absent => nothing renders. */
+  date_note?: string;
   pricing?: PricingInput;
   links?: Record<string, string>;
   images?: Images;
@@ -336,8 +339,15 @@ function formatVoyage(input?: string | null): string {
 // to leaving the wall intact (we never guess word boundaries badly). Case is
 // preserved as authored; only separators + dupes + whitespace are normalised.
 function cleanSpecLine(input?: string | null): string {
-  const s = (input ?? "").trim();
-  if (!s) return "";
+  let s0 = (input ?? "").trim();
+  if (!s0) return "";
+  // Normalise the two recurring supplier-data blemishes a detail-oriented
+  // client catches instantly: "8 guest" (singular) and continental decimal
+  // commas in dimensions ("27,60 m" / "90,7 ft").
+  s0 = s0
+    .replace(/(\d)\s*guest\b(?!s)/gi, "$1 guests")
+    .replace(/(\d),(\d{1,2})\s*(m|ft)\b/gi, "$1.$2 $3");
+  const s = s0;
   // Split on |, ·, •, / when used as a list separator, or runs of these.
   const rawParts = s.split(/\s*[|·•]\s*/);
   const seen = new Set<string>();
@@ -487,7 +497,7 @@ function linkButtons(links?: Record<string, string> | null, center = false, foot
 function brochureLink(links?: Record<string, string> | null): string {
   const url = links?.brochure;
   if (!url) return "";
-  return `<a class="deal-brochure" href="${e(url)}">Digital Brochure <span class="db-arrow">&#8599;</span></a>`;
+  return `<a class="deal-brochure" href="${e(url)}">Digital Brochure <span class="db-arrow">&raquo;</span></a>`;
 }
 
 function galleryPage(y: SingleYacht, wl = false): string {
@@ -1654,6 +1664,178 @@ function renderSingle(d: SingleProposal): string {
 }
 
 // ----------------------------------------------------------------- COMBINED
+// ============================================================= HELM v2 blocks
+// (George's PDF critique, 2026-07-15). All ADDITIVE: they render only from
+// data that exists (or new optional fields), so nothing here disturbs the
+// single-mode render or any non-combined flow.
+
+const HELM_V2_CSS = `
+/* SELECTION AT A GLANCE — one-page comparison table */
+.cmp{width:100%;border-collapse:collapse;margin-top:6mm;}
+.cmp th{font-family:'Cinzel',serif;letter-spacing:.22em;text-transform:uppercase;font-size:6.8pt;
+      color:var(--gold-soft);text-align:left;padding:2.2mm 2.5mm;border-bottom:1px solid var(--hair);}
+.cmp td{font-family:'Montserrat',sans-serif;font-size:8.6pt;color:var(--ivory);
+      padding:2.6mm 2.5mm;border-bottom:1px solid rgba(201,168,76,.10);vertical-align:top;line-height:1.35;}
+.cmp td.c-name{font-family:'Cinzel',serif;letter-spacing:.06em;font-size:9.2pt;color:var(--gold);white-space:nowrap;}
+.cmp td.c-amt{text-align:right;font-family:'Cormorant',serif;font-size:11.5pt;white-space:nowrap;}
+.cmp tr.c-reco td{background:linear-gradient(90deg,rgba(201,168,76,.10),rgba(201,168,76,.03));}
+.cmp .c-tier{font-family:'Cinzel',serif;letter-spacing:.16em;text-transform:uppercase;font-size:6.4pt;color:var(--gold-soft);}
+.cmp-note{font-family:'Cormorant',serif;font-style:italic;font-size:11.5pt;color:var(--ivory);
+      margin-top:6mm;line-height:1.5;}
+.cmp-fine{font-family:'Montserrat',sans-serif;font-size:7pt;color:var(--ivory-dim);margin-top:3mm;line-height:1.5;}
+
+/* PHOTO STRIP — three small framed photos under the hero */
+.pstrip{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2.5mm;margin-top:2.5mm;}
+.pstrip .ps{height:24mm;background-size:cover;background-position:center;border-radius:1px;
+      box-shadow:inset 0 0 0 1px rgba(201,168,76,.28), inset 0 -8mm 10mm -6mm rgba(9,20,32,.55);}
+
+/* deal date-note — muted italic clarification under the route/dates header */
+.deal-datenote{font-family:'Cormorant',serif;font-style:italic;font-size:9.5pt;color:var(--ivory-dim);
+      margin:1.6mm 0 0;line-height:1.35;}
+
+/* A WEEK LIKE THIS — sample itinerary table */
+.wk{width:100%;border-collapse:collapse;margin-top:5mm;}
+.wk td{font-family:'Montserrat',sans-serif;font-size:8.8pt;color:var(--ivory);padding:2.4mm 2.5mm;
+      border-bottom:1px solid rgba(201,168,76,.10);vertical-align:top;line-height:1.45;}
+.wk td.w-day{font-family:'Cinzel',serif;letter-spacing:.14em;font-size:7.4pt;color:var(--gold-soft);white-space:nowrap;padding-top:2.9mm;}
+.wk td.w-leg{font-family:'Cormorant',serif;font-size:11.5pt;color:var(--gold);white-space:nowrap;}
+
+/* WHAT HAPPENS NEXT — full-width band on the key information page */
+.next-band{margin-top:8mm;padding:5mm 6mm;border-radius:2px;
+      background:linear-gradient(160deg, rgba(18,36,58,.7), rgba(9,20,32,.55));
+      box-shadow:inset 2px 0 0 0 var(--gold), inset 0 0 0 1px var(--hair);}
+.next-band .n-lab{font-family:'Cinzel',serif;letter-spacing:.28em;text-transform:uppercase;font-size:7pt;color:var(--gold-soft);}
+.next-band .n-steps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6mm;margin-top:3mm;}
+.next-band .n-step{font-family:'Montserrat',sans-serif;font-size:8.6pt;color:var(--ivory);line-height:1.5;}
+.next-band .n-num{font-family:'Cormorant',serif;font-size:14pt;color:var(--gold);line-height:1;margin-bottom:1mm;}
+`;
+
+// One-page "Selection at a Glance": the decision surface. Rendered only for
+// 3+ yachts. The recommended row (tier matching /recommendation/i) is washed
+// in gold; the note under the table is the explicit next step.
+function comparisonPage(d: CombinedProposal): string {
+  const yachts = d.yachts ?? [];
+  if (yachts.length < 3) return "";
+  const rows = yachts
+    .map((y, i) => {
+      const pr = computePricing(y.pricing);
+      const voyage = formatVoyage(y.voyage_line);
+      let dates = voyage;
+      const vdot = voyage.indexOf(" \u00b7 ");
+      if (vdot !== -1) dates = voyage.slice(vdot + 3).trim();
+      const amount = Array.isArray(y.period_options) && y.period_options.length
+        ? "See periods & rates"
+        : (pr.all_in || pr.headline || pr.charter_fee_disp || "");
+      const isReco = /recommendation/i.test(y.tier_label ?? "");
+      return `<tr${isReco ? ' class="c-reco"' : ""}>
+        <td class="c-name">${String(i + 1).padStart(2, "0")} &nbsp;${e(y.name)}</td>
+        <td><div>${e(y.type ?? "")}</div>${y.tier_label ? `<div class="c-tier">${e(y.tier_label)}</div>` : ""}</td>
+        <td>${e(dates)}</td>
+        <td class="c-amt">${amount}</td>
+      </tr>`;
+    })
+    .join("");
+  const reco = yachts.find((y) => /recommendation/i.test(y.tier_label ?? ""));
+  const recoNote = reco
+    ? `If it were my own week on the water, I would take ${e(reco.name)} for this brief. `
+    : "";
+  return `
+<div class="page"><div class="pad" style="display:flex;flex-direction:column;">
+  <div class="sec-title">The Selection at a Glance</div>
+  <hr class="hair" style="margin:5mm 0 2mm;">
+  <table class="cmp">
+    <tr><th>Yacht</th><th>Type &amp; Tier</th><th>Dates</th><th style="text-align:right;">Estimated All-In</th></tr>
+    ${rows}
+  </table>
+  <div class="cmp-note">${recoNote}Reply with the one or two names that speak to you, and I will confirm live availability the same day.</div>
+  <div class="cmp-fine">Estimated all-in figures include the charter fee after any offered discount, APA and VAT at each yacht's certified rate. Crew gratuity is discretionary and not included. Rates and availability move daily in season; every option is subject to owner confirmation at the moment of booking.</div>
+  <div style="margin-top:auto;"></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}${d.white_label ? "" : " &#8226; WhatsApp +1 786 798 8798"}</span><span>${e(d.period ?? "")}</span></div>
+</div></div>`;
+}
+
+// "A Week Like This" — one elegant page with a sample 7-day rhythm for the
+// requested cruising area. Deterministic content (George's own routes, the
+// same ones published on georgeyachts.com), keyed by area keywords. No match
+// => no page. Sells the week, not just the hull.
+const SAMPLE_WEEKS: { key: RegExp; title: string; days: [string, string, string][] }[] = [
+  {
+    key: /cyclad|mykonos|paros|santorini|milos|sifnos|syros|naxos/i,
+    title: "The Cyclades",
+    days: [
+      ["Day 1", "Athens &rarr; Kythnos", "Settle in underway; first swim at the double-sided sandbar of Kolona."],
+      ["Day 2", "Kythnos &rarr; Serifos", "Morning passage; evening beneath the whitewashed chora."],
+      ["Day 3", "Serifos &rarr; Milos", "The volcanic sculptures of Kleftiko by tender; night at Adamas."],
+      ["Day 4", "Milos &rarr; Sifnos", "A protected bay, a slow lunch, dinner ashore in the pottery village."],
+      ["Day 5", "Sifnos &rarr; Paros", "Cross to the lively side; cocktails in Naoussa's old harbour."],
+      ["Day 6", "Paros &rarr; Kythnos", "The long reach home; last night at the thermal-spring harbour of Loutra."],
+      ["Day 7", "Kythnos &rarr; Athens", "Lunch at sea; alongside by late afternoon."],
+    ],
+  },
+  {
+    key: /saronic|hydra|spetses|poros|aegina|athens/i,
+    title: "The Saronic Gulf",
+    days: [
+      ["Day 1", "Athens &rarr; Aegina", "The city fades in under an hour; swim off Moni islet."],
+      ["Day 2", "Aegina &rarr; Poros", "Russian Bay afternoon; evening under the clock tower."],
+      ["Day 3", "Poros &rarr; Hydra", "Anchor off Mandraki; a night in the car-free harbour town."],
+      ["Day 4", "Hydra &rarr; Spetses", "Swim stop at uninhabited Dokos; Old Harbour dinner."],
+      ["Day 5", "Spetses &rarr; Porto Cheli", "The lazy day: toys in the water, a lunch that never quite ends."],
+      ["Day 6", "Porto Cheli &rarr; Aegina", "North with a lunch stop at anchor; seafood in Perdika."],
+      ["Day 7", "Aegina &rarr; Athens", "A final morning swim; alongside by early afternoon."],
+    ],
+  },
+  {
+    key: /ionian|corfu|lefkada|kefalonia|zakynthos|paxos|ithaca/i,
+    title: "The Ionian",
+    days: [
+      ["Day 1", "Corfu &rarr; Paxos", "Green water and olive groves; evening in Gaios harbour."],
+      ["Day 2", "Paxos &rarr; Antipaxos", "The blue caves and Voutoumi beach; night back at Gaios."],
+      ["Day 3", "Paxos &rarr; Parga", "The mainland's amphitheatre town; castle walk at dusk."],
+      ["Day 4", "Parga &rarr; Sivota", "Island-studded bays made for a long swim stop."],
+      ["Day 5", "Sivota &rarr; Lefkada", "The west-coast beaches; sunset off Egremni."],
+      ["Day 6", "Lefkada &rarr; Meganisi", "Quiet coves and a family taverna on the quay."],
+      ["Day 7", "Meganisi &rarr; Lefkada", "Short morning leg; disembark rested."],
+    ],
+  },
+  {
+    key: /dodecan|rhodes|symi|kos|patmos|leros|kalymnos/i,
+    title: "The Dodecanese",
+    days: [
+      ["Day 1", "Rhodes &rarr; Symi", "One hour to Pedi Bay; evening in the amphitheatre harbour."],
+      ["Day 2", "Symi &rarr; Kos", "Morning at St George Bay; evening promenade in Kos town."],
+      ["Day 3", "Kos &rarr; Kalymnos", "The sponge-divers' island; afternoon swim at Vlychadia."],
+      ["Day 4", "Kalymnos &rarr; Leros", "Lunch in a quiet bay; evening at Panteli."],
+      ["Day 5", "Leros &rarr; Patmos", "The holy island; waterfront dinner in Skala."],
+      ["Day 6", "Patmos &rarr; Lipsi", "Small-island day: turquoise coves and total quiet."],
+      ["Day 7", "Lipsi &rarr; Rhodes", "The homeward run with a lunch stop on the way."],
+    ],
+  },
+];
+
+function sampleWeekPage(d: CombinedProposal): string {
+  const area = (d.area ?? "").toString();
+  const wk = SAMPLE_WEEKS.find((w) => w.key.test(area));
+  if (!wk) return "";
+  const rows = wk.days
+    .map(
+      ([day, leg, note]) =>
+        `<tr><td class="w-day">${day}</td><td class="w-leg">${leg}</td><td>${note}</td></tr>`,
+    )
+    .join("");
+  return `
+<div class="page"><div class="pad" style="display:flex;flex-direction:column;">
+  <div class="sec-title">A Week Like This &mdash; ${e(wk.title)}</div>
+  <hr class="hair" style="margin:5mm 0 2mm;">
+  <p class="body" style="font-size:9.5pt;line-height:1.6;margin-top:3mm;color:var(--ivory-dim);">
+    A sample rhythm for the week, drawn from routes we actually run. Every day is adjusted on board
+    around your pace, the wind and the water; nothing is fixed except that the itinerary is yours.</p>
+  <table class="wk">${rows}</table>
+  <div style="margin-top:auto;"></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}${d.white_label ? "" : " &#8226; WhatsApp +1 786 798 8798"}</span><span>${e(d.period ?? "")}</span></div>
+</div></div>`;
+}
+
 function renderCombined(d: CombinedProposal): string {
   const pages: string[] = [];
   const yachts = d.yachts ?? [];
@@ -1678,12 +1860,13 @@ function renderCombined(d: CombinedProposal): string {
   pages.push(`
 <div class="page">${bg}<div class="scrim-bottom"></div>
   <div class="scrim-bottom" style="background:linear-gradient(to bottom,rgba(9,20,32,.42) 0%,rgba(9,20,32,0) 24%);"></div>
+  <div class="scrim-bottom" style="background:linear-gradient(to bottom,rgba(9,20,32,0) 34%,rgba(9,20,32,.55) 52%,rgba(9,20,32,.30) 70%,rgba(9,20,32,0) 84%);"></div>
   <div class="pad" style="display:flex;flex-direction:column;padding:22mm 18mm;">
     <div style="text-align:center;"><div class="label">Confidential Charter Proposal</div>
       <div class="drule"><span></span>${DIAMOND}<span></span></div></div>
     <div style="margin-top:auto;text-align:center;">
       <div class="label dim">${e(cleanDateRange(d.period ?? "") || (d.period ?? ""))}</div>
-      <h1 class="cinzel gold-metal" style="font-size:28pt;letter-spacing:.10em;color:var(--gold);margin:5mm 0;font-weight:700;">
+      <h1 class="cinzel gold-metal" style="font-size:28pt;letter-spacing:.10em;color:var(--gold);margin:5mm 0;font-weight:700;text-shadow:0 2px 6mm rgba(9,20,32,.92),0 0 14mm rgba(9,20,32,.85);">
         ${client ? "Personally Curated for " + e(client) : "A Personally Curated Selection"}</h1>
       <div class="label dim" style="letter-spacing:.16em;">${[guestsLabel, e(d.area ?? "Greek Waters"), `${yachts.length} Yachts`].filter(Boolean).join(" &#8226; ")}</div>
     </div>
@@ -1701,12 +1884,20 @@ function renderCombined(d: CombinedProposal): string {
     <div class="corm gold-metal" style="font-size:15pt;color:var(--gold);">George Biniaris</div>
     <div class="label" style="margin-top:1mm;font-size:7.5pt;">Managing Broker &#8226; George Yachts Brokerage House LLC</div>
   </div>`}
-  <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(d.period ?? "")}</span></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}${d.white_label ? "" : " &#8226; WhatsApp +1 786 798 8798"}</span><span>${e(d.period ?? "")}</span></div>
 </div></div>`);
   }
 
+  // ---- the decision surface: selection at a glance (3+ yachts) ----
+  const cmp = comparisonPage(d);
+  if (cmp) pages.push(cmp);
+
   // ---- one page per yacht (caller sorts cheapest -> priciest) ----
   yachts.forEach((y, i) => pages.push(renderCombinedYacht(y, i + 1, d)));
+
+  // ---- a sample week for the requested area (sells the week, not the hull) ----
+  const wk = sampleWeekPage(d);
+  if (wk) pages.push(wk);
 
   // ---- key information / closing ----
   pages.push(keyInfoPage(d));
@@ -1719,7 +1910,7 @@ function renderCombined(d: CombinedProposal): string {
   return wrapPages(
     pages,
     d.white_label ? "Charter Proposal" : "Curated Selection" + (client ? ` - ${client}` : ""),
-    (anyExtras ? EXTRAS_CSS : "") + (anyPeriods ? PERIODS_CSS : ""),
+    (anyExtras ? EXTRAS_CSS : "") + (anyPeriods ? PERIODS_CSS : "") + HELM_V2_CSS,
   );
 }
 
@@ -1850,7 +2041,12 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
     (datesPart
       ? `<div class="deal-cell"><div class="d-lab">Dates</div><div class="d-val">${e(datesPart)}</div></div>`
       : "");
-  const dealHead = headCells ? `<div class="deal-head">${headCells}</div>` : "";
+  const dateNote = (y.date_note ?? "").toString().trim();
+  const dealHead =
+    (headCells ? `<div class="deal-head">${headCells}</div>` : "") +
+    (dateNote
+      ? `<div class="deal-datenote">${e(trimToSentence(dateNote, 140))}</div>`
+      : "");
 
   // spec_strip: a [label,value][] of vessel facts. We render it ONLY when the
   // entries are well-formed (a real multi-char label AND value) — this kills the
@@ -1893,7 +2089,22 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
   ${specClean ? `<div class="body" style="font-size:9.5pt;letter-spacing:.04em;color:var(--ivory-dim);margin-top:1.6mm;line-height:1.5;">${e(specClean)}</div>` : ""}
   ${stripHtml}
 
-  <div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", yHasBreakdown ? "74mm" : (yHasExtras || yHasPeriods) ? "80mm" : "88mm")}</div>
+  ${(() => {
+    // Optional 3-up gallery strip under the hero. Renders ONLY when extra
+    // photos exist AND the money box is the simple one (extras / periods /
+    // breakdown pages keep the taller hero and skip the strip so the page
+    // still clears the footer). Hero shrinks to make room: 88 -> 60mm.
+    const gpics = [imgs.g1, imgs.g2, imgs.g3].filter(Boolean) as string[];
+    const squeezed = yHasBreakdown || yHasExtras || yHasPeriods;
+    if (gpics.length && !squeezed) {
+      const cells = gpics
+        .slice(0, 3)
+        .map((g) => `<div class="ps" style="background-image:url(${g});"></div>`)
+        .join("");
+      return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", "60mm")}</div><div class="pstrip">${cells}</div>`;
+    }
+    return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", yHasBreakdown ? "74mm" : squeezed ? "80mm" : "88mm")}</div>`;
+  })()}
 
   ${desc ? `<p class="body" style="font-size:10.5pt;line-height:1.6;margin-top:4mm;">${e(desc)}</p>` : ""}
   ${insideHtml}
@@ -1907,7 +2118,7 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
     ${brochureLink(y.links)}
   </div>
 
-  <div class="pfoot"><span>${confLabel(d.white_label)}</span><span>${e(d.period ?? "")} &#8226; ${idx2}</span></div>
+  <div class="pfoot"><span>${confLabel(d.white_label)}${d.white_label ? "" : " &#8226; WhatsApp +1 786 798 8798"}</span><span>${e(d.period ?? "")} &#8226; ${idx2}</span></div>
 </div></div>`;
 }
 
@@ -1981,6 +2192,14 @@ function keyInfoPageWeekly(d: CombinedProposal): string {
     <div><div class="label">A Personal Service</div>
     <p class="body" style="font-size:9pt;margin-top:2mm;">Every option here has been selected by hand. We are with you from
     first enquiry to disembarkation, on the ground in Greece, and a message away at any hour.</p></div>
+  </div>
+  <div class="next-band">
+    <div class="n-lab">What Happens Next</div>
+    <div class="n-steps">
+      <div class="n-step"><div class="n-num">1</div>Reply with the one or two yachts that speak to you &mdash; a single line is enough.</div>
+      <div class="n-step"><div class="n-num">2</div>We confirm live availability with each owner the same day and hold nothing without your go-ahead.</div>
+      <div class="n-step"><div class="n-num">3</div>On your word, the MYBA agreement is issued and your dates are secured.</div>
+    </div>
   </div>
   <div style="margin-top:auto;">${footerBlock(d)}</div>
 </div></div>`;
