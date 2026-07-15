@@ -105,6 +105,10 @@ export type CombinedYacht = {
   /** ONE sentence on the crew (roles, size, credentials - NEVER personal
    *  names). Rendered with the owner-confirmation footnote. Absent => nothing. */
   crew_line?: string;
+  /** Width/height ratio of the main photo, measured from its bytes at
+   *  generate time. Portrait-ish (< 1.25) renders letterboxed over a blurred
+   *  self-backdrop instead of cover-cropped to a mast. Absent => cover. */
+  main_aspect?: number;
   pricing?: PricingInput;
   links?: Record<string, string>;
   images?: Images;
@@ -1703,6 +1707,14 @@ const HELM_V2_CSS = `
 .wk td.w-day{font-family:'Cinzel',serif;letter-spacing:.14em;font-size:7.4pt;color:var(--gold-soft);white-space:nowrap;padding-top:2.9mm;}
 .wk td.w-leg{font-family:'Cormorant',serif;font-size:11.5pt;color:var(--gold);white-space:nowrap;}
 
+/* PHOTO FIT — portrait photo shown WHOLE over a blurred self-backdrop.
+   The blur fills the wide frame; the photo itself is never cropped. */
+.photo-fit{position:relative;overflow:hidden;}
+.photo-fit .pf-bg{position:absolute;inset:0;background-size:cover;background-position:center;
+      filter:blur(16px) brightness(.5) saturate(.85);transform:scale(1.18);}
+.photo-fit .pf-img{position:absolute;inset:0;background-size:contain;background-position:center;
+      background-repeat:no-repeat;}
+
 /* CREW LINE — one quiet sentence + the owner-confirmation footnote */
 .crewline{margin-top:2.6mm;padding-left:6.5mm;}
 .crewline .c-lab{display:inline;font-family:'Cinzel',serif;letter-spacing:.24em;text-transform:uppercase;
@@ -1947,8 +1959,17 @@ function renderCombined(d: CombinedProposal): string {
 
 // Large framed hero photo for a content page. Near full content width, gold
 // hairline frame, gradient scrim + vignette baked into CSS. h = CSS height.
-function heroPhoto(src: string | null | undefined, label: string, h: string): string {
+function heroPhoto(src: string | null | undefined, label: string, h: string, aspect?: number | null): string {
   if (src) {
+    // Portrait-ish photo in a wide frame: cover-cropping shows a mast and
+    // sky. Render the WHOLE photo (contain) over a blurred, darkened copy of
+    // itself - the editorial letterbox. Landscape keeps the existing cover.
+    if (aspect && aspect < 1.25) {
+      return `<div class="photo photo-fit" style="height:${h};">
+        <div class="pf-bg" style="background-image:url(${src});"></div>
+        <div class="pf-img" style="background-image:url(${src});"></div>
+      </div>`;
+    }
     return `<div class="photo" style="height:${h};background-image:url(${src});"></div>`;
   }
   return `<div class="photo placeholder" style="height:${h};"><div class="ph-mark">${e(label)}</div></div>`;
@@ -2148,10 +2169,10 @@ function renderCombinedYacht(y: CombinedYacht, idx: number, d: CombinedProposal)
         .map((g) => `<div class="ps" style="background-image:url(${g});"></div>`)
         .join("");
       const h = Math.max(34, 60 - crewPad - extrasPad);
-      return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", `${h}mm`)}</div><div class="pstrip">${cells}</div>`;
+      return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", `${h}mm`, y.main_aspect)}</div><div class="pstrip">${cells}</div>`;
     }
     const h = yHasBreakdown ? 74 - crewPad : Math.max(40, 88 - crewPad - extrasPad);
-    return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", `${h}mm`)}</div>`;
+    return `<div style="margin-top:4.5mm;">${heroPhoto(imgs.main, "Yacht image", `${h}mm`, y.main_aspect)}</div>`;
   })()}
 
   ${desc ? `<p class="body" style="font-size:10.5pt;line-height:1.6;margin-top:4mm;">${e(desc)}</p>` : ""}

@@ -133,6 +133,69 @@ function monthYearLine(r: RequestRow): string {
 
 // Fetch a (Cloudinary-optimized) image URL and inline it as a base64 data
 // URI so the PDF render is self-contained + reliable (no network at render).
+// Parse the pixel dimensions straight from the image bytes (JPEG SOF /
+// PNG IHDR / WebP VP8x / GIF header). No library, no cost - just enough to
+// know the aspect ratio so portrait photos are letterboxed instead of
+// cropped to a mast (George, 2026-07-15).
+function imageAspect(buf: Buffer): number | null {
+  try {
+    // PNG: IHDR at fixed offset
+    if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50) {
+      const w = buf.readUInt32BE(16), h = buf.readUInt32BE(20);
+      return h > 0 ? w / h : null;
+    }
+    // GIF
+    if (buf.length > 10 && buf[0] === 0x47 && buf[1] === 0x49) {
+      const w = buf.readUInt16LE(6), h = buf.readUInt16LE(8);
+      return h > 0 ? w / h : null;
+    }
+    // WebP (VP8X / VP8 / VP8L)
+    if (buf.length > 30 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") {
+      const fmt = buf.toString("ascii", 12, 16);
+      if (fmt === "VP8X") {
+        const w = 1 + (buf[24] | (buf[25] << 8) | (buf[26] << 16));
+        const h = 1 + (buf[27] | (buf[28] << 8) | (buf[29] << 16));
+        return h > 0 ? w / h : null;
+      }
+      if (fmt === "VP8 ") {
+        const w = buf.readUInt16LE(26) & 0x3fff, h = buf.readUInt16LE(28) & 0x3fff;
+        return h > 0 ? w / h : null;
+      }
+    }
+    // JPEG: walk segments to SOF0/1/2
+    if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+      let off = 2;
+      while (off + 9 < buf.length) {
+        if (buf[off] !== 0xff) { off++; continue; }
+        const marker = buf[off + 1];
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          const h = buf.readUInt16BE(off + 5), w = buf.readUInt16BE(off + 7);
+          return h > 0 ? w / h : null;
+        }
+        const len = buf.readUInt16BE(off + 2);
+        if (len < 2) break;
+        off += 2 + len;
+      }
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+// Fetch an image and return BOTH the data URI and its aspect ratio, so the
+// template can choose letterbox-over-blur for portrait shots. Same fetch,
+// zero extra cost.
+async function toDataUriWithAspect(url: string): Promise<{ uri: string; aspect: number | null } | null> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") || "image/jpeg";
+    const buf = Buffer.from(await res.arrayBuffer());
+    return { uri: `data:${ct};base64,${buf.toString("base64")}`, aspect: imageAspect(buf) };
+  } catch {
+    return null;
+  }
+}
+
 async function toDataUri(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
@@ -435,7 +498,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // when this yacht is one of our own (exact-name match; [] otherwise).
         const fleetMain = media.main_url ? "" : (fleetPhotos[v.name || ""]?.[0] || "");
         const mainSrc = media.main_url || fleetMain;
-        const mainImg = mainSrc ? await toDataUri(optimizedUrl(mainSrc)) : null;
+        const mainFetched = mainSrc ? await toDataUriWithAspect(optimizedUrl(mainSrc)) : null;
+        const mainImg = mainFetched?.uri ?? null;
+        const mainAspect = mainFetched?.aspect ?? null;
         // Gallery strip (Helm v2): up to 3 extra photos under the hero. Manual
         // extra_urls (when George pastes them on the card) win; otherwise our
         // own fleet photos 2-4 for an exact-name fleet yacht. Supplier yachts
@@ -483,6 +548,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           ...(info.crew_line ? { crew_line: info.crew_line } : {}),
           pricing,
           links: Object.keys(links).length ? links : undefined,
+          ...(mainAspect ? { main_aspect: Math.round(mainAspect * 100) / 100 } : {}),
           images: {
             ...(mainImg ? { main: mainImg } : {}),
             ...(galleryImgs[0] ? { g1: galleryImgs[0] } : {}),
