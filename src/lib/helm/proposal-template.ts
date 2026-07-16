@@ -195,6 +195,12 @@ export type SalonExtras = {
   highlights?: string[];
   water_toys?: string[];
   accommodation?: [string, string][];
+  /** Awards / competition results / press mentions, verbatim, no crew names.
+   *  When present these lead the yacht's Salon page — George's "protagonist"
+   *  (an awarded chef beats a paddleboard). */
+  distinctions?: string[];
+  /** Guest-review quotes printed in the supplier material, verbatim. */
+  testimonials?: string[];
 };
 
 export type ProposalJson = SingleProposal | CombinedProposal;

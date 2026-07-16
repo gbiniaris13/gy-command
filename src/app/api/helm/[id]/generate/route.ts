@@ -92,6 +92,10 @@ type CombinedInputYacht = {
     water_toys?: string[];
     tech_specs?: [string, string][];
     crew_line?: string;
+    /** Awards / press mentions verbatim (no crew names) — Salon protagonist. */
+    distinctions?: string[];
+    /** Guest-review quotes verbatim — Salon pull-quotes. */
+    testimonials?: string[];
   };
   /** PER-YACHT bareboat extras (money-box only). Optional + additive; absent =>
    *  nothing renders (weekly/crewed unchanged). NEVER includes commission. */
@@ -566,6 +570,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
                 ? { water_toys: content.water_toys.slice(0, 14).map(String) } : {}),
               ...(Array.isArray(content.accommodation) && content.accommodation.length
                 ? { accommodation: (content.accommodation as [string, string][]).slice(0, 8) } : {}),
+              ...(Array.isArray(content.distinctions) && content.distinctions.length
+                ? { distinctions: content.distinctions.slice(0, 5).map(String) } : {}),
+              ...(Array.isArray(content.testimonials) && content.testimonials.length
+                ? { testimonials: content.testimonials.slice(0, 3).map(String) } : {}),
             };
             return Object.keys(se).length ? { salon_extras: se } : {};
           })(),

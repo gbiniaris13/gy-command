@@ -133,7 +133,7 @@ async function brochureFacts(bytes: Buffer, filename: string): Promise<string> {
           parts: [
             { inlineData: { mimeType: "application/pdf", data: bytes.toString("base64") } },
             { text:
-              "This is a yacht charter brochure. Transcribe the FACTS verbatim as plain text lines - yacht name, builder, year built/refit, length, beam, draft, guests, cabins and cabin layout, crew count and crew roles/nationalities (NO crew member names), water toys and tenders, amenities, cruising area, rates if stated. One fact per line, exactly as written in the brochure. Do NOT summarise, do NOT invent, do NOT add marketing language. If a field is absent, skip it." },
+              "This is a yacht charter brochure. Transcribe the FACTS verbatim as plain text lines - yacht name, builder, year built/refit, length, beam, draft, guests, cabins and cabin layout, crew count and crew roles/nationalities (NO crew member names), water toys and tenders, amenities, cruising area, rates if stated, plus ANY awards, competition placements or press mentions exactly as printed (e.g. '3rd Place, Diamond Category - Chef Competition 2024' - the award verbatim but NEVER a crew member's personal name) and any guest-review quotes printed in the brochure (verbatim, prefix each with 'Guest review:'). One fact per line, exactly as written in the brochure. Do NOT summarise, do NOT invent, do NOT add marketing language. If a field is absent, skip it." },
           ],
         }],
         generationConfig: { temperature: 0, maxOutputTokens: 4000 },

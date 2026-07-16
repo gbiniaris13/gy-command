@@ -106,6 +106,8 @@ export default async function SalonPage({
       // objects have all been seen live) — normalize, never crash the page.
       highlights: (y.salon_extras?.highlights ?? []).map((x) => String(x ?? "")).filter(Boolean),
       waterToys: (y.salon_extras?.water_toys ?? []).map((x) => String(x ?? "")).filter(Boolean),
+      distinctions: (y.salon_extras?.distinctions ?? []).map((x) => String(x ?? "")).filter(Boolean),
+      testimonials: (y.salon_extras?.testimonials ?? []).map((x) => String(x ?? "")).filter(Boolean),
       accommodation: ((y.salon_extras?.accommodation ?? []) as unknown[])
         .map((x): [string, string] =>
           Array.isArray(x)
@@ -132,9 +134,19 @@ export default async function SalonPage({
         String(d.period ?? "").trim(),
       ].filter(Boolean).join(" · ");
 
+  // "The Mead Edition" — same surname derivation as the PDF cover masthead.
+  const editionName = (() => {
+    const words = String(d.client_name ?? "")
+      .replace(/\b(mr|mrs|ms|miss|dr|capt|sir|the|family)\.?\b/gi, " ")
+      .trim().split(/\s+/).filter(Boolean);
+    const surname = words.length ? words[words.length - 1] : "";
+    return surname.length >= 2 ? `The ${surname} Edition` : null;
+  })();
+
   const view: SalonView = {
     token,
     clientName: d.client_name ?? null,
+    editionName,
     coverLine,
     period: d.period ?? null,
     guests: d.guests ?? null,
