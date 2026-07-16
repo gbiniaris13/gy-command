@@ -1,25 +1,9 @@
-// src/app/p/[token]/route.ts
-// =============================================================
-// Tracked redirect for LINK-delivered charter proposals.
-//
-// GET /p/<token>  →  302 to a freshly-signed proposal PDF URL.
-// The token (see lib/helm/proposal-token.ts) HMAC-encodes the request
-// id, so the link is tamper-proof and we can record a real "open" the
-// moment a human follows it — without exposing the raw signed URL.
-//
-//   • The open is recorded into extraction.opens (no new column):
-//       { count, first_at, last_at }. We merge ...existingExtraction
-//       so yachts / featured_index / white_label survive.
-//   • Bots and link-preview crawlers (WhatsApp, facebookexternalhit,
-//     Slackbot, …) STILL get the PDF but DO NOT count as an open, so
-//     the signal reflects a real human, not the preview fetch that
-//     fires before the client even taps the link.
-//   • Fail-safe: any error while recording is swallowed — we always
-//     redirect to the PDF, never block delivery.
-//
-// A tampered/unknown token, or a request without a proposal PDF, is a
-// 404 (no enumeration of valid ids).
-// =============================================================
+// GET /p/<token>/pdf — the tracked PDF redirect (was /p/<token> before the
+// Salon, 2026-07-16). The Salon page's "Download the proposal" button and
+// every non-Salon case (travel agent / white-label / single mode / nothing
+// generated) land here. Behavior is byte-for-byte the old route: verify the
+// HMAC token, record a real human open into extraction.opens, 302 to a
+// freshly-signed PDF URL. Never blocks delivery on tracking errors.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
@@ -82,7 +66,7 @@ export async function GET(
       };
       await saveExtraction(id, { ...ex, opens });
     } catch (err) {
-      console.error("[p/token] open-tracking error:", err);
+      console.error("[p/token/pdf] open-tracking error:", err);
       // fall through — delivery is never blocked by tracking
     }
   }

@@ -1803,6 +1803,24 @@ function comparisonPage(d: CombinedProposal): string {
 // the canned area-matched routes are GONE — they could never cover "the
 // client wants Syros"). This renders his custom weeks, max 2 pages, in the
 // exact page style the canned ones used. No weeks => no pages.
+// "THE MEAD EDITION" — magazine-issue masthead on the cover (2026-07-16,
+// George's GO on the proposal-upgrade wave). The proposal reads as a private
+// publication printed for one family. Falls back to the classic label when
+// no client surname is known (incl. white-label covers, whose client name is
+// deliberately absent).
+function editionMasthead(clientName?: string | null): string {
+  const raw = String(clientName ?? "").trim();
+  const words = raw
+    .replace(/\b(mr|mrs|ms|miss|dr|capt|sir|the|family)\.?\b/gi, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const surname = words.length ? words[words.length - 1] : "";
+  if (surname.length < 2) return `<div class="label">Confidential Charter Proposal</div>`;
+  return `<div class="label" style="font-size:10.5pt;letter-spacing:.34em;">The ${e(surname)} Edition</div>
+      <div class="label dim" style="font-size:6.5pt;margin-top:1.6mm;">Confidential Charter Proposal &#8226; a private publication of one</div>`;
+}
+
 function customWeekPages(d: CombinedProposal): string[] {
   const weeks = (d.custom_weeks ?? []).slice(0, 2);
   return weeks
@@ -1926,7 +1944,7 @@ function renderCombined(d: CombinedProposal): string {
   <div class="scrim-bottom" style="background:linear-gradient(to bottom,rgba(9,20,32,.42) 0%,rgba(9,20,32,0) 24%);"></div>
   <div class="scrim-bottom" style="background:linear-gradient(to bottom,rgba(9,20,32,0) 34%,rgba(9,20,32,.55) 52%,rgba(9,20,32,.30) 70%,rgba(9,20,32,0) 84%);"></div>
   <div class="pad" style="display:flex;flex-direction:column;padding:22mm 18mm;">
-    <div style="text-align:center;"><div class="label">Confidential Charter Proposal</div>
+    <div style="text-align:center;">${editionMasthead(d.client_name)}
       <div class="drule"><span></span>${DIAMOND}<span></span></div></div>
     <div style="margin-top:auto;text-align:center;">
       <div class="label dim">${e(cleanDateRange(d.period ?? "") || (d.period ?? ""))}</div>

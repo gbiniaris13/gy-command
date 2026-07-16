@@ -157,6 +157,7 @@ export async function GET(req: NextRequest) {
   let replies = 0;
   let drafts = 0;
   let fallbacks = 0;
+  let pulses = 0;
 
   for (const r of (rows || []) as Row[]) {
     // 1) Capture replies first — may move the request to in_conversation.
@@ -169,6 +170,68 @@ export async function GET(req: NextRequest) {
     if (cap.newReplies > 0) {
       replies++;
       continue; // got a reply → no follow-up needed
+    }
+
+    // 1b) AVAILABILITY PULSE (2026-07-16, proposal-upgrade wave #4) — one day
+    // after the proposal went out and BEFORE the Day-4 follow-up, a one-line
+    // draft lands in Gmail: "checked this morning, still available for your
+    // dates". Makes the proposal feel alive and managed. ONCE per request
+    // (settings key), direct clients only, and NEVER auto-sent: the Telegram
+    // ping tells George to verify availability with the supplier FIRST —
+    // pressing Send is his statement that he did.
+    if (
+      r.request_type !== "travel_agent" &&
+      r.follow_up_at &&
+      r.client_email &&
+      !junk(r.client_email)
+    ) {
+      const fuAt = new Date(r.follow_up_at).getTime();
+      const sentApprox = fuAt - 4 * 24 * 60 * 60 * 1000; // /send sets follow_up_at = sent + 4d
+      if (now >= sentApprox + 24 * 60 * 60 * 1000 && now < fuAt) {
+        const pulseKey = `helm_pulse_${r.id}`;
+        if (!(await getSetting(pulseKey))) {
+          try {
+            const baseSubject = r.email_subject?.trim() || "Your charter proposal";
+            const pulseSubject = /^re:/i.test(baseSubject) ? baseSubject : `Re: ${baseSubject}`;
+            const inReplyTo = await lastMessageIdHeader(r.gmail_last_message_id);
+            const nm = displayName(r);
+            const yl = yachtLine(r);
+            await createHelmDraft({
+              to: r.client_email,
+              subject: pulseSubject,
+              body: [
+                `Dear ${nm},`,
+                ``,
+                `A quick note rather than a follow-up: I checked with the owners' side again this morning, and ${yl ? `${yl} remain available for your dates` : "every yacht in your proposal remains available for your dates"} as of today.`,
+                ``,
+                `If one of them is speaking to you, a simple reply is enough and I will place a courtesy hold the same day.`,
+                ``,
+                `Warm regards,`,
+                `George`,
+              ].join("\n"),
+              threadId: r.gmail_thread_id || undefined,
+              inReplyTo: inReplyTo || undefined,
+            });
+            await setSetting(pulseKey, new Date().toISOString());
+            pulses++;
+            try {
+              const { sendTelegram } = await import("@/lib/telegram");
+              await sendTelegram(
+                [
+                  `🌊 <b>The Helm — availability-pulse draft ready</b>`,
+                  `${nm}${yl ? ` · ${yl}` : ""}`,
+                  `It says you re-confirmed availability THIS MORNING — verify with the supplier first, then send from Gmail Drafts.`,
+                  `Nothing has been sent to the client.`,
+                ].join("\n"),
+              );
+            } catch (e) {
+              console.error("[helm-followup] pulse telegram failed", r.id, e);
+            }
+          } catch (e) {
+            console.error("[helm-followup] pulse draft failed", r.id, e);
+          }
+        }
+      }
     }
 
     // 2) No reply and the follow-up mark has passed → prepare the draft.
@@ -263,5 +326,6 @@ export async function GET(req: NextRequest) {
     replies,
     drafts,
     fallbacks,
+    pulses,
   });
 }

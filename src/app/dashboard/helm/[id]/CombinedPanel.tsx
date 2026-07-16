@@ -300,7 +300,7 @@ export default function CombinedPanel({
   emailIntro: string | null;
   initialMedia: Record<string, MediaEntry>;
   cloudinaryConfigured: boolean;
-  initialDraft: { mode?: string; yachts?: YState[]; weeks?: WeekState[]; cover_line?: string } | null;
+  initialDraft: { mode?: string; yachts?: YState[]; weeks?: WeekState[]; cover_line?: string; salon_video?: string } | null;
   isAgent: boolean;
   initialWhiteLabel: boolean;
 }) {
@@ -355,6 +355,27 @@ export default function CombinedPanel({
   const [coverLine, setCoverLine] = useState<string>(
     typeof initialDraft?.cover_line === "string" ? initialDraft.cover_line.slice(0, 100) : "",
   );
+  // Optional personal video for the Salon page ("A personal word from George").
+  // Stored in review_draft.salon_video; the Salon embeds YouTube/Vimeo/Loom or
+  // plays a direct mp4. Empty => the Salon simply has no video block.
+  const [salonVideo, setSalonVideo] = useState<string>(
+    typeof (initialDraft as { salon_video?: unknown } | null)?.salon_video === "string"
+      ? String((initialDraft as { salon_video?: string }).salon_video)
+      : "",
+  );
+  const [salonCopied, setSalonCopied] = useState(false);
+  async function copySalonLink() {
+    try {
+      const r = await fetch(`/api/helm/${requestId}/share-link`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.url) throw new Error(j.error || "share-link failed");
+      await navigator.clipboard.writeText(j.url);
+      setSalonCopied(true);
+      setTimeout(() => setSalonCopied(false), 4000);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
   const patchWeek = (wi: number, patch: Partial<WeekState>) =>
     setWeeks((prev) => prev.map((w, idx) => (idx === wi ? { ...w, ...patch } : w)));
   const cleanWeeksPayload = () =>
@@ -392,7 +413,7 @@ export default function CombinedPanel({
       // requires the yacht count to match the stored extraction).
       await fetch(`/api/helm/${requestId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks, cover_line: coverLine } }),
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks, cover_line: coverLine, salon_video: salonVideo.trim() } }),
       });
       setSavedMsg(`Added ${addedCount} yacht${addedCount === 1 ? "" : "s"} from the new supplier. Your earlier yachts are untouched — review the new cards, then ${pdfPath ? "Regenerate" : "Generate"}.`);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
@@ -403,7 +424,7 @@ export default function CombinedPanel({
     try {
       const r = await fetch(`/api/helm/${requestId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys, weeks, cover_line: coverLine } }),
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys, weeks, cover_line: coverLine, salon_video: salonVideo.trim() } }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "save-failed");
@@ -656,6 +677,17 @@ export default function CombinedPanel({
             <b>Proposal generated.</b> Open it for a final check, edit any yacht below, then press <b>Generate</b> at the bottom to update it.
           </div>
           <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>Open current PDF ↗</a>
+          {!isAgent && !whiteLabel && (
+            <button
+              type="button"
+              onClick={copySalonLink}
+              disabled={busy !== null}
+              style={{ ...ghostBtn, marginLeft: 10, padding: "6px 12px" }}
+              title="The proposal as a live private page: photos, your video, and a 'This one interests us' button that pings you on Telegram. Send it alongside (or instead of) the PDF."
+            >
+              {salonCopied ? "Salon link copied ✓" : "Copy client Salon link"}
+            </button>
+          )}
           {!isAgent && (
             <label style={wlToggle}>
               <input type="checkbox" checked={whiteLabel} onChange={(e) => setWhiteLabel(e.target.checked)} style={{ marginTop: 2 }} />
@@ -1008,6 +1040,18 @@ export default function CombinedPanel({
                 {coverLine.length}/100
               </span>
             </div>
+            <div style={{ ...fieldLabel, marginTop: 12 }}>Personal video for the Salon page (optional)</div>
+            <div style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 6px" }}>
+              Record 60-90 seconds on your phone ("Mr. Mead, here is why I chose these three for you"),
+              upload it anywhere (YouTube unlisted, Loom, Vimeo) and paste the link. It appears at the top
+              of the client&apos;s Salon page under &quot;A personal word from George&quot;. Save draft to keep it.
+            </div>
+            <input
+              value={salonVideo}
+              onChange={(e) => setSalonVideo(e.target.value)}
+              placeholder="https://youtu.be/… or https://www.loom.com/share/…"
+              style={{ ...txt, width: "100%" }}
+            />
           </div>
 
           <div style={{ border: "1px solid rgba(13,27,42,0.10)", padding: "12px 14px", margin: "14px 0 6px", borderRadius: 2 }}>
