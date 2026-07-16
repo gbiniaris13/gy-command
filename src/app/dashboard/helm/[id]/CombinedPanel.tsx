@@ -364,6 +364,38 @@ export default function CombinedPanel({
       : "",
   );
   const [salonCopied, setSalonCopied] = useState(false);
+  const [videoBusy, setVideoBusy] = useState(false);
+  const [videoMsg, setVideoMsg] = useState<string | null>(null);
+  // Direct browser -> Cloudinary upload (server-minted signature; the file
+  // never touches Vercel's ~4.5MB body cap). Free plan caps videos ~100MB:
+  // an iPhone set to 1080p keeps a 60-90s clip comfortably under it.
+  async function uploadSalonVideo(file: File) {
+    if (file.size > 98 * 1024 * 1024) {
+      setVideoMsg("The file is over ~100MB (the free hosting cap). On the iPhone set Camera to 1080p, or trim the clip, and try again.");
+      return;
+    }
+    setVideoBusy(true); setVideoMsg(null);
+    try {
+      const sr = await fetch(`/api/helm/${requestId}/video-upload-sign`, { method: "POST" });
+      const sig = await sr.json();
+      if (!sr.ok) throw new Error(sig.error || "sign failed");
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("api_key", sig.apiKey);
+      fd.append("timestamp", String(sig.timestamp));
+      fd.append("signature", sig.signature);
+      fd.append("folder", sig.folder);
+      const ur = await fetch(`https://api.cloudinary.com/v1_1/${sig.cloudName}/video/upload`, { method: "POST", body: fd });
+      const uj = await ur.json();
+      if (!ur.ok || !uj.secure_url) throw new Error(uj?.error?.message || "upload failed");
+      setSalonVideo(uj.secure_url);
+      setVideoMsg("✓ Uploaded. Press Save draft to keep it on this request.");
+    } catch (e) {
+      setVideoMsg((e as Error).message);
+    } finally {
+      setVideoBusy(false);
+    }
+  }
   async function copySalonLink() {
     try {
       const r = await fetch(`/api/helm/${requestId}/share-link`, { method: "POST" });
@@ -951,7 +983,7 @@ export default function CombinedPanel({
                       the hero on this yacht's PDF page. Own-fleet yachts fill
                       these automatically when left empty. */}
                   <div style={{ marginTop: 8 }}>
-                    <div style={fieldLabel}>More photos for the gallery strip (optional · up to 3 · interior, deck, dining)</div>
+                    <div style={fieldLabel}>More photos (optional · up to 8 · the first 3 also print in the PDF strip, all show on the client's Salon page)</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
                       {(m.extra_urls || []).map((u) => (
                         <div key={u} style={{ position: "relative" }}>
@@ -962,7 +994,7 @@ export default function CombinedPanel({
                             style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, lineHeight: "16px", padding: 0, borderRadius: 9, border: "1px solid rgba(13,27,42,0.25)", background: "#fff", cursor: "pointer", fontSize: 11 }}>×</button>
                         </div>
                       ))}
-                      {(m.extra_urls || []).length < 3 && (
+                      {(m.extra_urls || []).length < 8 && (
                         <>
                           {cloudinaryConfigured && (
                             <label style={{ ...chipBtn, cursor: "pointer" }}>
@@ -1046,12 +1078,25 @@ export default function CombinedPanel({
               upload it anywhere (YouTube unlisted, Loom, Vimeo) and paste the link. It appears at the top
               of the client&apos;s Salon page under &quot;A personal word from George&quot;. Save draft to keep it.
             </div>
-            <input
-              value={salonVideo}
-              onChange={(e) => setSalonVideo(e.target.value)}
-              placeholder="https://youtu.be/… or https://www.loom.com/share/…"
-              style={{ ...txt, width: "100%" }}
-            />
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                value={salonVideo}
+                onChange={(e) => setSalonVideo(e.target.value)}
+                placeholder="https://youtu.be/… or https://www.loom.com/share/…"
+                style={{ ...txt, flex: "1 1 280px" }}
+              />
+              <label style={{ ...ghostBtn, cursor: videoBusy ? "wait" : "pointer", opacity: videoBusy ? 0.6 : 1 }}>
+                {videoBusy ? "Uploading…" : "…or upload the video file"}
+                <input
+                  type="file"
+                  accept="video/*"
+                  style={{ display: "none" }}
+                  disabled={videoBusy}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadSalonVideo(f); e.target.value = ""; }}
+                />
+              </label>
+            </div>
+            {videoMsg && <div style={{ fontSize: 12, color: videoMsg.startsWith("✓") ? "#3A6B47" : "#B45309", marginTop: 6 }}>{videoMsg}</div>}
           </div>
 
           <div style={{ border: "1px solid rgba(13,27,42,0.10)", padding: "12px 14px", margin: "14px 0 6px", borderRadius: 2 }}>

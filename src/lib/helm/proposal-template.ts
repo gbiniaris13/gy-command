@@ -109,6 +109,9 @@ export type CombinedYacht = {
    *  generate time. Portrait-ish (< 1.25) renders letterboxed over a blurred
    *  self-backdrop instead of cover-cropped to a mast. Absent => cover. */
   main_aspect?: number;
+  /** Salon-only magazine detail (toys / layout / highlights). The PDF
+   *  renderer never reads this — combined pages stay byte-identical. */
+  salon_extras?: SalonExtras;
   pricing?: PricingInput;
   links?: Record<string, string>;
   images?: Images;
@@ -182,6 +185,16 @@ export type CombinedProposal = {
 export type CustomWeek = {
   title: string;
   days: { leg: string; note: string }[];
+};
+
+/** SALON-ONLY enrichment (2026-07-16 "magazine" wave): the extraction already
+ *  knows these; the PDF deliberately stays lean, but the live Salon page
+ *  renders them so a client sees toys, layout and highlights without opening
+ *  the brochure. The PDF renderer NEVER reads these fields. */
+export type SalonExtras = {
+  highlights?: string[];
+  water_toys?: string[];
+  accommodation?: [string, string][];
 };
 
 export type ProposalJson = SingleProposal | CombinedProposal;

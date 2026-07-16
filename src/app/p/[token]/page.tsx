@@ -102,6 +102,19 @@ export default async function SalonPage({
       payableAtBase: (y.payable_at_base ?? []).map((x) => ({ label: x.label ?? "", amount: x.amount ?? "" })),
       deposit: y.security_deposit ?? null,
       freeOnboard: y.free_onboard ?? [],
+      // Defensive: extraction content is loosely shaped (tuples, strings or
+      // objects have all been seen live) — normalize, never crash the page.
+      highlights: (y.salon_extras?.highlights ?? []).map((x) => String(x ?? "")).filter(Boolean),
+      waterToys: (y.salon_extras?.water_toys ?? []).map((x) => String(x ?? "")).filter(Boolean),
+      accommodation: ((y.salon_extras?.accommodation ?? []) as unknown[])
+        .map((x): [string, string] =>
+          Array.isArray(x)
+            ? [String(x[0] ?? ""), String(x[1] ?? "")]
+            : typeof x === "object" && x !== null
+              ? [String(Object.values(x)[0] ?? ""), String(Object.values(x)[1] ?? "")]
+              : [String(x ?? ""), ""],
+        )
+        .filter(([a]) => a),
     };
   });
 

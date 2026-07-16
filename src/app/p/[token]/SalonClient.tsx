@@ -34,6 +34,9 @@ export type SalonYachtView = {
   payableAtBase: { label: string; amount: string }[];
   deposit: string | null;
   freeOnboard: string[];
+  highlights: string[];
+  waterToys: string[];
+  accommodation: [string, string][];
 };
 
 export type SalonView = {
@@ -236,6 +239,42 @@ export default function SalonClient({ view }: { view: SalonView }) {
             )}
             {y.dateNote && (
               <p style={{ fontFamily: "var(--salon-serif)", fontStyle: "italic", fontSize: 15, color: IVORY_DIM, marginTop: 14 }}>{y.dateNote}</p>
+            )}
+
+            {/* magazine detail: layout, toys, highlights (Salon-only richness) */}
+            {y.accommodation.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <p style={{ ...label, fontSize: 8.5, marginBottom: 10 }}>Accommodation</p>
+                {y.accommodation.map(([cab, det], k) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "5px 0", borderBottom: "1px solid rgba(243,239,230,0.07)", fontFamily: "var(--salon-ui)", fontSize: 12.5 }}>
+                    <span style={{ color: IVORY }}>{cab}</span>
+                    <span style={{ color: IVORY_DIM, textAlign: "right" }}>{det}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {y.waterToys.length > 0 && (
+              <div style={{ marginTop: 22 }}>
+                <p style={{ ...label, fontSize: 8.5, marginBottom: 10 }}>Water toys on board</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {y.waterToys.map((t, k) => (
+                    <span key={k} style={{
+                      fontFamily: "var(--salon-ui)", fontSize: 11.5, color: IVORY_DIM,
+                      border: "1px solid rgba(201,168,76,0.35)", borderRadius: 999, padding: "5px 12px",
+                    }}>{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {y.highlights.length > 0 && (
+              <div style={{ marginTop: 22 }}>
+                <p style={{ ...label, fontSize: 8.5, marginBottom: 10 }}>Highlights</p>
+                {y.highlights.map((h, k) => (
+                  <p key={k} style={{ fontFamily: "var(--salon-serif)", fontSize: 16.5, color: IVORY_DIM, margin: "0 0 7px", lineHeight: 1.55 }}>
+                    <span style={{ color: GOLD, marginRight: 10 }}>◆</span>{h}
+                  </p>
+                ))}
+              </div>
             )}
 
             {/* money box */}

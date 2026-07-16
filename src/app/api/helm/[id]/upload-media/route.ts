@@ -87,7 +87,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const secureUrl = await uploadToCloudinary(dataUri, { folder: `helm/${id}`, resourceType: "auto" });
       // Combined per-yacht media → combined_media[index], not the single-yacht arrays.
       if (yachtIndex !== null && Number.isFinite(yachtIndex)) {
-        // kind "extra" (Helm v2 gallery strip) appends to extra_urls (cap 3);
+        // kind "extra" appends to extra_urls (cap 8 - first 3 print in the PDF strip,
         // "brochure" and default "photo" behave exactly as before.
         const combined_media =
           kind === "extra"

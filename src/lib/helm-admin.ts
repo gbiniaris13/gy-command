@@ -308,7 +308,8 @@ export async function appendCombinedExtraUrl(id: string, index: number, url: str
     data?.combined_media && typeof data.combined_media === "object" ? data.combined_media : {};
   const key = String(index);
   const existing = Array.isArray(cur[key]?.extra_urls) ? (cur[key]!.extra_urls as string[]) : [];
-  const next = [...new Set([...existing, url.trim()])].slice(0, 3);
+  // 8 photos feed the Salon gallery; the PDF strip still prints the first 3.
+  const next = [...new Set([...existing, url.trim()])].slice(0, 8);
   return setCombinedMedia(id, index, { extra_urls: next });
 }
 

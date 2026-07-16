@@ -53,6 +53,25 @@ export async function uploadToCloudinary(
   return res.secure_url;
 }
 
+/** Signed params for a DIRECT browser -> Cloudinary video upload (2026-07-16,
+ *  the Salon personal video). George's 60-90s iPhone clip is far over
+ *  Vercel's ~4.5MB body cap, so the browser posts the file straight to
+ *  api.cloudinary.com with this server-minted signature — our lambda never
+ *  carries the bytes. Free-plan cap is ~100MB/video (1080p advised). */
+export function signVideoUpload(folder: string): {
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  signature: string;
+  folder: string;
+} {
+  if (!isCloudinaryConfigured()) throw new Error("CLOUDINARY_NOT_CONFIGURED");
+  const cfg = cloudinary.config();
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = cloudinary.utils.api_sign_request({ folder, timestamp }, String(cfg.api_secret));
+  return { cloudName: String(cfg.cloud_name), apiKey: String(cfg.api_key), timestamp, signature, folder };
+}
+
 /** Filename -> URL-safe slug: lowercase, accents stripped, hyphens only.
  *  "Lagoon 50 Brochure.PDF" -> "lagoon-50-brochure". */
 export function slugifyFilename(name: string): string {

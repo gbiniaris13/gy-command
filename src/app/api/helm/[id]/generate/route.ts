@@ -556,6 +556,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           spec_strip: specStrip.length ? specStrip : undefined,
           description: info.description,
           inside_info: manualNote || info.inside_info,
+          // Salon-only magazine detail — the extraction already knows toys,
+          // layout and highlights; the live page shows them, the PDF stays lean.
+          ...(() => {
+            const se = {
+              ...(Array.isArray(content.highlights) && content.highlights.length
+                ? { highlights: content.highlights.slice(0, 8).map(String) } : {}),
+              ...(Array.isArray(content.water_toys) && content.water_toys.length
+                ? { water_toys: content.water_toys.slice(0, 14).map(String) } : {}),
+              ...(Array.isArray(content.accommodation) && content.accommodation.length
+                ? { accommodation: (content.accommodation as [string, string][]).slice(0, 8) } : {}),
+            };
+            return Object.keys(se).length ? { salon_extras: se } : {};
+          })(),
           ...(info.crew_line ? { crew_line: info.crew_line } : {}),
           pricing,
           links: Object.keys(links).length ? links : undefined,

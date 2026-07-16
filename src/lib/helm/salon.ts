@@ -62,7 +62,7 @@ export async function salonData(requestId: string): Promise<SalonModel | null> {
     const m = cm[String(i)] || {};
     const gallery = (Array.isArray(m.extra_urls) ? m.extra_urls : [])
       .filter(isHttpUrl)
-      .slice(0, 3)
+      .slice(0, 8)
       .map((u) => optimizedUrl(u));
     const entry: SalonYachtMedia = { gallery };
     if (isHttpUrl(m.main_url)) entry.main = optimizedUrl(m.main_url);
