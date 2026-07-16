@@ -15,6 +15,7 @@ import HelmReply from "./HelmReply";
 import HelmBooking from "./HelmBooking";
 import HelmAgencyInquiry from "./HelmAgencyInquiry";
 import GmailImport from "./GmailImport";
+import { HelmFlow, Quiet } from "./HelmFlow";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
 import { agencyAlreadySent } from "@/lib/helm/agency";
@@ -81,7 +82,14 @@ export default async function HelmDetailPage({
       </header>
 
       {/* the brief */}
-      <section style={card}>
+      <HelmFlow
+        hasSupplier={!!r.supplier_raw}
+        hasExtraction={!!(r.extraction && (r.extraction as { yachts?: unknown[] }).yachts?.length)}
+        hasPdf={!!r.proposal_pdf_path}
+        status={r.status}
+      />
+
+      <section style={card} id="flow-request">
         <div style={cardLabel}>The brief</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <Field k="Occasion" v={r.occasion} />
@@ -107,14 +115,14 @@ export default async function HelmDetailPage({
 
       {/* Gmail import — George picks the exact supplier emails; bodies land
           in supplier_raw below, PDF brochures are saved + read once. */}
+      <div id="flow-yachts" />
       <GmailImport
         requestId={r.id}
         hasThread={!!r.gmail_thread_id}
       />
 
-      {/* supplier source (internal only) */}
-      <section style={card}>
-        <div style={cardLabel}>Supplier source · internal only, never shown to the client raw</div>
+      {/* supplier source (internal only) — folded: reference material, not a step */}
+      <Quiet title="Supplier source" hint="the raw emails and brochure facts behind the yachts · internal only">
         {r.supplier_raw
           ? <pre style={{
               whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12.5,
@@ -122,16 +130,19 @@ export default async function HelmDetailPage({
               background: "rgba(13,27,42,0.03)", padding: 12, borderRadius: 2,
             }}>{r.supplier_raw}</pre>
           : <p style={{ color: "#9CA3AF", fontStyle: "italic", fontSize: 13 }}>No supplier text pasted.</p>}
-      </section>
+      </Quiet>
 
       {/* email the central agency (supplier) — broker-to-supplier inquiry */}
+      <Quiet title="Ask the suppliers" hint="broker-to-supplier availability inquiry · tick from your saved list">
       <HelmAgencyInquiry requestId={r.id} agencyEmail={resolveAgencyRecipients(r.central_agency_email, r.supplier_raw, r.client_email).join(", ") || null} alreadySentTo={agencyAlreadySent(messages)} />
+      </Quiet>
 
       {/* media — single mode: one vessel's photos + brochure here.
           Combined mode: media is PER YACHT, on each yacht's card in the
           generate panel (after Extract), so this single-yacht box is hidden. */}
       {r.mode === "combined" ? (
-        <section style={card}>
+        <Quiet title="Where do photos go?" hint="each yacht's photos live on its card below">
+        <section style={{ margin: 0 }}>
           <div style={cardLabel}>Media · per yacht</div>
           <p style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6 }}>
             This is a combined (multi-yacht) proposal, so each yacht has its own photo and brochure.
@@ -139,6 +150,7 @@ export default async function HelmDetailPage({
             photo and brochure link directly on its card.
           </p>
         </section>
+        </Quiet>
       ) : (
         <HelmMedia
           requestId={r.id}
@@ -150,6 +162,7 @@ export default async function HelmDetailPage({
 
       {/* generate proposal (extract -> review numbers -> generate PDF).
           Combined mode shows one card per yacht; single mode the classic flow. */}
+      <div id="flow-review" />
       {r.mode === "combined" ? (
         <CombinedPanel
           requestId={r.id}
@@ -183,6 +196,7 @@ export default async function HelmDetailPage({
       {/* open signal — did the client follow the shared proposal link? */}
       {r.proposal_pdf_path && <OpenSignal extraction={r.extraction} />}
 
+      <div id="flow-send" />
       {/* send proposal + capture replies (after the PDF is generated) */}
       {r.proposal_pdf_path && (
         <HelmSend
@@ -202,7 +216,9 @@ export default async function HelmDetailPage({
         const hasInbound = messages.some((m) => m.direction === "inbound" && (m.body ?? "").trim());
         return (
           <>
-            <HelmWhatsApp requestId={r.id} clientWhatsapp={r.client_whatsapp ?? null} />
+            <Quiet title="WhatsApp nudge" hint="a short casual message with a tap-to-open link">
+              <HelmWhatsApp requestId={r.id} clientWhatsapp={r.client_whatsapp ?? null} />
+            </Quiet>
             {hasInbound && (
               <HelmReply
                 requestId={r.id}
@@ -211,14 +227,16 @@ export default async function HelmDetailPage({
                 hasInbound={hasInbound}
               />
             )}
-            <HelmFollowUp
-              requestId={r.id}
-              clientEmail={r.client_email ?? null}
-              isAgent={r.request_type === "travel_agent"}
-              nextNumber={sentFollowups + 1}
-              sentCount={sentFollowups}
-              followUpAt={r.follow_up_at ?? null}
-            />
+            <Quiet title="Follow-up" hint="draft the next nudge in the client's thread · never auto-sent">
+              <HelmFollowUp
+                requestId={r.id}
+                clientEmail={r.client_email ?? null}
+                isAgent={r.request_type === "travel_agent"}
+                nextNumber={sentFollowups + 1}
+                sentCount={sentFollowups}
+                followUpAt={r.follow_up_at ?? null}
+              />
+            </Quiet>
           </>
         );
       })()}
