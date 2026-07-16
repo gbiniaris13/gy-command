@@ -10,6 +10,7 @@ import {
   getSupplierBook,
   addToSupplierBook,
   removeFromSupplierBook,
+  setSupplierFields,
   isValidSupplierEmail,
 } from "@/lib/helm/supplier-book";
 
@@ -30,7 +31,7 @@ export async function GET() {
   const email = await adminEmail();
   if (!email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
-    return NextResponse.json({ ok: true, emails: await getSupplierBook() });
+    return NextResponse.json({ ok: true, entries: await getSupplierBook() });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
@@ -46,10 +47,16 @@ export async function POST(req: Request) {
   }
   try {
     if (body?.action === "add") {
-      return NextResponse.json({ ok: true, emails: await addToSupplierBook([target]) });
+      return NextResponse.json({ ok: true, entries: await addToSupplierBook([target]) });
     }
     if (body?.action === "remove") {
-      return NextResponse.json({ ok: true, emails: await removeFromSupplierBook(target) });
+      return NextResponse.json({ ok: true, entries: await removeFromSupplierBook(target) });
+    }
+    if (body?.action === "update") {
+      const fields: { name?: string; info?: string } = {};
+      if (typeof body?.name === "string") fields.name = body.name;
+      if (typeof body?.info === "string") fields.info = body.info;
+      return NextResponse.json({ ok: true, entries: await setSupplierFields(target, fields) });
     }
     return NextResponse.json({ error: "unknown action" }, { status: 400 });
   } catch (e) {

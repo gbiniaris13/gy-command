@@ -1,14 +1,19 @@
 "use client";
 
 // The Helm — email the CENTRAL AGENCY (the supplier). Broker-to-supplier B2B:
-// full George Yachts identity, end client kept anonymous. George generates an
-// editable draft, TICKS the suppliers from his saved book (2026-07-16 — his
-// 5-10 regulars, seeded from history; new addresses he types are saved
-// forever), and presses Send with an explicit confirm. One separate email per
-// recipient, never a shared To/CC/BCC. Nothing is ever auto-sent.
+// full George Yachts identity, end client kept anonymous. The supplier book
+// is a PHONEBOOK-STYLE LIST (2026-07-16, George's spec): company name, email
+// under it, and one line per boat CATEGORY with its net-charter-fee range
+// ("Catamarans: EUR 10-60k/wk"), so a non-broker employee holding "all-in
+// EUR 25k, wants a catamaran" picks the right suppliers at a glance. Name and
+// categories are editable per row (pencil). New addresses are saved forever.
+// One separate email per recipient, never a shared To/CC/BCC. Nothing is
+// ever auto-sent.
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+
+type Entry = { email: string; name: string; info: string };
 
 export default function HelmAgencyInquiry({
   requestId, agencyEmail, alreadySentTo,
@@ -27,7 +32,7 @@ export default function HelmAgencyInquiry({
   // ---- supplier book + this request's own addresses ----
   const fieldList = (agencyEmail || "").split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
   const sentSet = new Set((alreadySentTo || []).map((e) => e.toLowerCase()));
-  const [book, setBook] = useState<string[]>([]);
+  const [book, setBook] = useState<Entry[]>([]);
   const [bookLoaded, setBookLoaded] = useState(false);
   // Pre-tick the request's own agencies that have NOT been contacted yet;
   // an already-contacted one starts unticked (re-ticking it = deliberate resend).
@@ -35,20 +40,30 @@ export default function HelmAgencyInquiry({
     () => new Set(fieldList.filter((e) => !sentSet.has(e))),
   );
   const [newAddr, setNewAddr] = useState("");
+  const [filter, setFilter] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     fetch(`/api/helm/supplier-book`)
       .then((r) => r.json())
-      .then((j) => { if (alive && Array.isArray(j.emails)) setBook(j.emails); })
+      .then((j) => { if (alive && Array.isArray(j.entries)) setBook(j.entries); })
       .catch(() => { /* book unavailable -> the request's own addresses still work */ })
       .finally(() => { if (alive) setBookLoaded(true); });
     return () => { alive = false; };
   }, []);
 
   // The visible list = saved book ∪ this request's own addresses.
-  const roster = Array.from(new Set([...book, ...fieldList])).sort();
-  const chosen = roster.filter((e) => selected.has(e));
+  const bookEmails = new Set(book.map((b) => b.email));
+  const roster: Entry[] = [
+    ...book,
+    ...fieldList.filter((e) => !bookEmails.has(e)).map((e) => ({ email: e, name: "", info: "" })),
+  ].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+  const q = filter.trim().toLowerCase();
+  const visible = q
+    ? roster.filter((r) => r.email.includes(q) || r.name.toLowerCase().includes(q) || r.info.toLowerCase().includes(q))
+    : roster;
+  const chosen = roster.filter((r) => selected.has(r.email)).map((r) => r.email);
 
   function toggle(e: string) {
     setSelected((prev) => {
@@ -62,11 +77,11 @@ export default function HelmAgencyInquiry({
     const e = newAddr.trim().toLowerCase();
     if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(e)) { setErr("That does not look like an email address."); return; }
     setErr(null);
-    setBook((prev) => Array.from(new Set([...prev, e])).sort());
+    setBook((prev) => (prev.some((x) => x.email === e) ? prev : [...prev, { email: e, name: "", info: "" }]));
     setSelected((prev) => new Set(prev).add(e));
     setNewAddr("");
-    // Persist to the book right away so it is there next time, even if he
-    // navigates off before sending.
+    setEditing(e); // straight into naming it
+    // Persist right away so it is there next time, even before any send.
     try {
       await fetch(`/api/helm/supplier-book`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -77,7 +92,7 @@ export default function HelmAgencyInquiry({
 
   async function removeAddress(e: string) {
     if (!confirm(`Remove ${e} from your saved suppliers?\n\n(Only the saved list changes - no request is touched.)`)) return;
-    setBook((prev) => prev.filter((x) => x !== e));
+    setBook((prev) => prev.filter((x) => x.email !== e));
     setSelected((prev) => { const n = new Set(prev); n.delete(e); return n; });
     try {
       await fetch(`/api/helm/supplier-book`, {
@@ -85,6 +100,21 @@ export default function HelmAgencyInquiry({
         body: JSON.stringify({ action: "remove", email: e }),
       });
     } catch { /* it will reappear on reload; harmless */ }
+  }
+
+  function editEntry(e: string, patch: Partial<Entry>) {
+    setBook((prev) => prev.map((x) => (x.email === e ? { ...x, ...patch } : x)));
+  }
+
+  async function persistEntry(e: string) {
+    const entry = book.find((x) => x.email === e);
+    if (!entry) return;
+    try {
+      await fetch(`/api/helm/supplier-book`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update", email: e, name: entry.name, info: entry.info }),
+      });
+    } catch { /* kept locally; saved again on next edit */ }
   }
 
   async function generate() {
@@ -133,36 +163,101 @@ export default function HelmAgencyInquiry({
     <section style={card}>
       <div style={cardLabel}>Email the central agency · broker-to-supplier inquiry</div>
 
-      {/* Supplier book — tick who receives this inquiry */}
+      {/* Supplier book — phonebook list: tick who receives this inquiry */}
       <div style={{ marginBottom: 12 }}>
-        <div style={fieldLabel}>Your suppliers · tick who gets this inquiry</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <div style={fieldLabel}>Your suppliers · tick who gets this inquiry</div>
+          {roster.length > 6 && (
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter… (e.g. catamaran, 25k, istion)"
+              style={{ ...input, marginTop: 0, width: 240, padding: "5px 8px", fontSize: 12 }}
+            />
+          )}
+        </div>
         {!bookLoaded && <div style={{ fontSize: 12.5, color: "#9CA3AF", marginTop: 6 }}>Loading your supplier list…</div>}
         {bookLoaded && roster.length === 0 && (
           <div style={{ fontSize: 12.5, color: "#7c4a03", marginTop: 6 }}>No saved suppliers yet - add the first one below and it stays for every next request.</div>
         )}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-          {roster.map((e) => {
-            const isSel = selected.has(e);
-            const wasSent = sentSet.has(e);
+        <div style={{ marginTop: 8, maxHeight: 420, overflow: "auto", border: roster.length ? "1px solid rgba(13,27,42,0.08)" : "none", borderRadius: 2 }}>
+          {visible.map((r) => {
+            const isSel = selected.has(r.email);
+            const wasSent = sentSet.has(r.email);
+            const isEditing = editing === r.email;
+            const infoLines = r.info.split("|").map((s) => s.trim()).filter(Boolean);
             return (
-              <span key={e} style={{
-                display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 8px",
-                borderRadius: 999, fontSize: 12,
-                border: isSel ? "1px solid #0D1B2A" : "1px solid rgba(13,27,42,0.2)",
-                background: isSel ? "#0D1B2A" : "#fff", color: isSel ? "#fff" : "#374151",
+              <div key={r.email} style={{
+                display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 12px",
+                background: isSel ? "rgba(13,27,42,0.05)" : "transparent",
+                borderBottom: "1px solid rgba(13,27,42,0.05)",
               }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                  <input type="checkbox" checked={isSel} onChange={() => toggle(e)} style={{ margin: 0 }} />
-                  {e}{wasSent ? " · already contacted" : ""}
-                </label>
-                <span
-                  title="Remove from saved suppliers"
-                  onClick={() => removeAddress(e)}
-                  style={{ cursor: "pointer", opacity: 0.55, fontWeight: 700 }}
-                >×</span>
-              </span>
+                <input type="checkbox" checked={isSel} onChange={() => toggle(r.email)} style={{ flexShrink: 0, cursor: "pointer", marginTop: 3 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {isEditing ? (
+                    <>
+                      <input
+                        value={r.name}
+                        maxLength={60}
+                        autoFocus
+                        onChange={(e) => editEntry(r.email, { name: e.target.value })}
+                        placeholder="Company name, e.g. Istion Yachting"
+                        style={{ ...input, marginTop: 0, fontWeight: 700, fontSize: 13 }}
+                      />
+                      <textarea
+                        value={r.info}
+                        maxLength={400}
+                        rows={3}
+                        onChange={(e) => editEntry(r.email, { info: e.target.value })}
+                        placeholder={'One line per category, separated by "|", e.g.\nCatamarans: EUR 10-60k/wk | Motor yachts: EUR 30-500k/wk'}
+                        style={{ ...textarea, marginTop: 6, fontSize: 12, rows: 3 } as React.CSSProperties}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setEditing(null); persistEntry(r.email); }}
+                        style={{ ...ghostBtn, marginTop: 6, padding: "5px 10px" }}
+                      >Done</button>
+                    </>
+                  ) : (
+                    <div onClick={() => toggle(r.email)} style={{ cursor: "pointer" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#1f2937" }}>
+                        {r.name || r.email}
+                        {wasSent && <span style={{ color: "#B45309", fontWeight: 500, fontSize: 11.5 }}> · already contacted</span>}
+                      </div>
+                      {r.name && <div style={{ fontSize: 11, color: "#9CA3AF", overflowWrap: "anywhere" }}>{r.email}</div>}
+                      {infoLines.length > 0 ? (
+                        <div style={{ marginTop: 3 }}>
+                          {infoLines.map((line, i) => {
+                            const ci = line.indexOf(":");
+                            const cat = ci > 0 ? line.slice(0, ci) : "";
+                            const rest = ci > 0 ? line.slice(ci + 1).trim() : line;
+                            return (
+                              <div key={i} style={{ fontSize: 12, color: "#374151", lineHeight: 1.5 }}>
+                                {cat ? <b style={{ color: "#0D1B2A" }}>{cat}:</b> : null} {rest}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 11.5, color: "#b7bcc5", fontStyle: "italic", marginTop: 2 }}>
+                          No fleet/budget noted yet - press ✎ to add it.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {!isEditing && (
+                  <span title="Edit name and categories" onClick={() => setEditing(r.email)}
+                    style={{ cursor: "pointer", opacity: 0.5, flexShrink: 0, fontSize: 13 }}>✎</span>
+                )}
+                <span title="Remove from saved suppliers" onClick={() => removeAddress(r.email)}
+                  style={{ cursor: "pointer", opacity: 0.45, fontWeight: 700, flexShrink: 0, padding: "0 4px" }}>×</span>
+              </div>
             );
           })}
+          {bookLoaded && visible.length === 0 && roster.length > 0 && (
+            <div style={{ fontSize: 12.5, color: "#9CA3AF", padding: 10 }}>Nothing matches the filter.</div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 10, maxWidth: 460 }}>
           <input
@@ -202,7 +297,7 @@ export default function HelmAgencyInquiry({
       {msg && <p style={{ color: "#3A6B47", fontSize: 12.5, marginTop: 10 }}>{msg}</p>}
       {err && <p style={{ color: "#b91c1c", fontSize: 12.5, marginTop: 10 }}>{err}</p>}
       <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 10, fontStyle: "italic" }}>
-        Goes to the suppliers from your inbox, never to the client. Each ticked supplier gets a SEPARATE email (no one sees the others). Suppliers already contacted for this request start unticked and are marked - tick one again only if you want a resend. Your Gmail signature is added automatically. Nothing sends without the button. No attachment.
+        Goes to the suppliers from your inbox, never to the client. Each ticked supplier gets a SEPARATE email (no one sees the others). Suppliers already contacted for this request start unticked and are marked - tick one again only if you want a resend. Press ✎ on any supplier to edit their name and boat categories. Your Gmail signature is added automatically. Nothing sends without the button. No attachment.
       </p>
     </section>
   );
