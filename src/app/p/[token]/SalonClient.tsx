@@ -70,6 +70,7 @@ const GOLD_HAIR = "1px solid rgba(168,135,59,0.4)";
 const WA = "https://api.whatsapp.com/send/?phone=17867988798&text=";
 const FORBES_URL = "https://www.forbes.com/sites/jacquesledbetter/2026/05/01/how-the-wealthy-are-hedging-for-instability/";
 const GEORGE_PHOTO = "https://georgeyachts.com/images/george-syros-quay.jpg";
+const GY_LOGO = "https://georgeyachts.com/images/logo-full-dark.svg";
 
 export default function SalonClient({ view }: { view: SalonView }) {
   const sentView = useRef(false);
@@ -123,7 +124,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         setLeaf(p);
         setTurning(dir === 1 ? "next" : "prev");
         if (leafTimer.current) clearTimeout(leafTimer.current);
-        leafTimer.current = setTimeout(() => { setLeaf(null); setTurning(null); }, 780);
+        leafTimer.current = setTimeout(() => { setLeaf(null); setTurning(null); }, 880);
         if (pageRef.current) pageRef.current.scrollTop = 0;
       }
       return n;
@@ -508,7 +509,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         </div>
         <div style={{ borderTop: GOLD_HAIR, marginTop: 24, paddingTop: 18 }}>
           {[
-            "BSc Shipping Management & Operations, London Metropolitan University",
+            "BSc Shipping Management & Operations, London Metropolitan University & Business College of Athens",
             "IYBA Charter Active Member · MYBA-standard practitioner",
           ].map((c, k) => (
             <p key={k} style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, margin: "0 0 8px", lineHeight: 1.6 }}>
@@ -526,24 +527,33 @@ export default function SalonClient({ view }: { view: SalonView }) {
     );
   }
 
-  // THE HOUSE — approved company story (about-us), condensed.
+  // THE HOUSE — the company page: logo, and the romance George asked for
+  // (boutique, white glove, before/during/after, "your guy in Greece",
+  // filotimo). Built on the approved about-us copy, never invented facts.
   function renderHouse() {
     return (
-      <div style={{ ...col, textAlign: "center", paddingTop: 90 }}>
-        <p style={{ ...label, fontSize: 11, letterSpacing: "0.42em", color: INK, marginBottom: 18 }}>GEORGE YACHTS BROKERAGE HOUSE</p>
+      <div style={{ ...col, textAlign: "center", paddingTop: 70 }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={GY_LOGO} alt="George Yachts Brokerage House" style={{ height: 74, margin: "0 auto 22px", display: "block" }} />
         <div style={{ width: 54, height: 1, background: GOLD, margin: "0 auto 30px" }} />
         <p style={{ ...serifBody, maxWidth: 560, margin: "0 auto 16px", textAlign: "left" }}>
-          An American brokerage house, headquartered in Wyoming, USA, and operated from Athens, with an office in Kifisia and boots
-          on the ground in Greek waters all season long.
+          George Yachts Brokerage House is a boutique American brokerage, headquartered in Wyoming, USA, and operated from Athens,
+          with an office in Kifisia and boots on the ground in Greek waters all season long. Small on purpose: few clients, whole
+          attention, excellence as the only acceptable standard.
         </p>
         <p style={{ ...serifBody, maxWidth: 560, margin: "0 auto 16px", textAlign: "left" }}>
-          We are a boutique firm built by people who came from the water and from five-star floors. Every yacht we put a name to has
-          been personally vetted, and every request is answered by the Managing Broker himself, through the full MYBA charter cycle,
-          from the first proposal to the captain&apos;s briefing.
+          White glove, to us, is not a slogan; it is a calendar. We are there long before you step aboard, shaping the week around
+          the people you love. We are on the quay at your check-in. We are a message away every day you are on the water. And we are
+          still here after your check-out, because by then you are no longer a booking, you are a relationship.
+        </p>
+        <p style={{ ...serifBody, maxWidth: 560, margin: "0 auto 16px", textAlign: "left" }}>
+          Our clients describe it simply: <i>our guy in Greece</i>. A team that came from the water and from five-star floors, a fleet
+          where every yacht has been personally vetted, and every request answered by the Managing Broker himself, through the full
+          MYBA charter cycle, from the first proposal to the captain&apos;s briefing.
         </p>
         <p style={{ ...serifBody, maxWidth: 560, margin: "0 auto", textAlign: "left" }}>
-          Above all we are guided by one Greek principle, filotimo: the quiet duty to treat every guest with honour and to do right
-          by them, always.
+          Above all we are guided by one Greek word that does not translate, <i>filotimo</i>: the quiet duty to treat every guest with
+          honour, to give more than was asked, and to do right by them, always.
         </p>
       </div>
     );
@@ -565,23 +575,42 @@ export default function SalonClient({ view }: { view: SalonView }) {
   return (
     <main style={{ background: PAPER, height: "100dvh", color: INK, overflow: "hidden", position: "relative" }}>
       <style>{`
-        /* A paper leaf turning over a book: the OLD page sits on top and
-           rotates away around the spine, its shadow sweeping the new page. */
+        /* A paper leaf turning over a book — WITH the bend of real paper
+           (George: "να κάνει και καμπύλη"): mid-flight the leaf skews and its
+           free edge rounds off, while a curl highlight sweeps across it. */
         @keyframes salonLeafNext {
-          0%   { transform: perspective(1600px) rotateY(0deg); box-shadow: 30px 0 70px rgba(23,38,58,0.28); }
-          100% { transform: perspective(1600px) rotateY(-88deg); box-shadow: 4px 0 12px rgba(23,38,58,0.08); }
+          0%   { transform: perspective(1500px) rotateY(0deg) skewY(0deg); border-radius: 0; box-shadow: 34px 0 80px rgba(23,38,58,0.3); }
+          45%  { transform: perspective(1500px) rotateY(-46deg) skewY(-3.4deg) scaleX(0.96); border-radius: 0 22% 22% 0 / 0 46% 46% 0; box-shadow: 60px 0 90px rgba(23,38,58,0.26); }
+          100% { transform: perspective(1500px) rotateY(-92deg) skewY(0deg); border-radius: 0 8% 8% 0 / 0 30% 30% 0; box-shadow: 6px 0 14px rgba(23,38,58,0.08); }
         }
         @keyframes salonLeafPrev {
-          0%   { transform: perspective(1600px) rotateY(0deg); box-shadow: -30px 0 70px rgba(23,38,58,0.28); }
-          100% { transform: perspective(1600px) rotateY(88deg); box-shadow: -4px 0 12px rgba(23,38,58,0.08); }
+          0%   { transform: perspective(1500px) rotateY(0deg) skewY(0deg); border-radius: 0; box-shadow: -34px 0 80px rgba(23,38,58,0.3); }
+          45%  { transform: perspective(1500px) rotateY(46deg) skewY(3.4deg) scaleX(0.96); border-radius: 22% 0 0 22% / 46% 0 0 46%; box-shadow: -60px 0 90px rgba(23,38,58,0.26); }
+          100% { transform: perspective(1500px) rotateY(92deg) skewY(0deg); border-radius: 8% 0 0 8% / 30% 0 0 30%; box-shadow: -6px 0 14px rgba(23,38,58,0.08); }
+        }
+        /* the light rolling over the bending paper */
+        @keyframes salonCurlNext {
+          0%   { opacity: 0; background-position: 120% 0; }
+          40%  { opacity: 1; }
+          100% { opacity: 0; background-position: -40% 0; }
+        }
+        @keyframes salonCurlPrev {
+          0%   { opacity: 0; background-position: -40% 0; }
+          40%  { opacity: 1; }
+          100% { opacity: 0; background-position: 120% 0; }
         }
         @keyframes salonUnder { from { opacity: 0.82; } to { opacity: 1; } }
         .salon-leaf { position: absolute; inset: 0; background: ${PAPER}; overflow: hidden; z-index: 5; pointer-events: none; will-change: transform; }
-        .salon-leaf.next { transform-origin: left center; animation: salonLeafNext 0.75s cubic-bezier(0.3, 0.2, 0.18, 1) forwards; }
-        .salon-leaf.prev { transform-origin: right center; animation: salonLeafPrev 0.75s cubic-bezier(0.3, 0.2, 0.18, 1) forwards; }
-        .salon-under { animation: salonUnder 0.75s ease; }
+        .salon-leaf.next { transform-origin: left center; animation: salonLeafNext 0.85s cubic-bezier(0.32, 0.12, 0.16, 1) forwards; }
+        .salon-leaf.prev { transform-origin: right center; animation: salonLeafPrev 0.85s cubic-bezier(0.32, 0.12, 0.16, 1) forwards; }
+        .salon-leaf::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+          background: linear-gradient(100deg, rgba(23,38,58,0) 30%, rgba(23,38,58,0.10) 46%, rgba(255,255,255,0.55) 52%, rgba(23,38,58,0.14) 60%, rgba(23,38,58,0) 76%);
+          background-size: 220% 100%; }
+        .salon-leaf.next::after { animation: salonCurlNext 0.85s ease forwards; }
+        .salon-leaf.prev::after { animation: salonCurlPrev 0.85s ease forwards; }
+        .salon-under { animation: salonUnder 0.85s ease; }
         @media (prefers-reduced-motion: reduce) {
-          .salon-leaf.next, .salon-leaf.prev { animation-duration: 0.01s; }
+          .salon-leaf.next, .salon-leaf.prev, .salon-leaf.next::after, .salon-leaf.prev::after { animation-duration: 0.01s; }
           .salon-under { animation: none; }
         }
       `}</style>
