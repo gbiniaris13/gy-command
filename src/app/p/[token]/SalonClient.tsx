@@ -70,7 +70,10 @@ const GOLD_HAIR = "1px solid rgba(168,135,59,0.4)";
 const WA = "https://api.whatsapp.com/send/?phone=17867988798&text=";
 const FORBES_URL = "https://www.forbes.com/sites/jacquesledbetter/2026/05/01/how-the-wealthy-are-hedging-for-instability/";
 const GEORGE_PHOTO = "https://georgeyachts.com/images/george-syros-quay.jpg";
-const GY_LOGO = "https://georgeyachts.com/images/logo-full-dark.svg";
+// George's ACTUAL logo - the gold-and-silver yacht-wave-and-hull mark
+// (gy-logo-real.svg, same asset the Cabin header uses; 2026-05-22 lesson:
+// the logo-full-*.svg files are simplified abstractions, never use them).
+const GY_LOGO = "https://georgeyachts.com/images/gy-logo-real.svg";
 
 export default function SalonClient({ view }: { view: SalonView }) {
   const sentView = useRef(false);
@@ -124,7 +127,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         setLeaf(p);
         setTurning(dir === 1 ? "next" : "prev");
         if (leafTimer.current) clearTimeout(leafTimer.current);
-        leafTimer.current = setTimeout(() => { setLeaf(null); setTurning(null); }, 880);
+        leafTimer.current = setTimeout(() => { setLeaf(null); setTurning(null); }, 930);
         if (pageRef.current) pageRef.current.scrollTop = 0;
       }
       return n;
@@ -466,14 +469,32 @@ export default function SalonClient({ view }: { view: SalonView }) {
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
           <a href={`${WA}${encodeURIComponent("Hello George, we have looked through the proposal and would like to talk.")}`}
             target="_blank" rel="noopener noreferrer" style={goldBtn} onClick={() => beacon("wa")}>WhatsApp George</a>
-          {view.hasPdf && (
-            <a href={`/p/${view.token}/pdf`} style={ghostBtn} onClick={() => beacon("pdf")}>Download the proposal (PDF)</a>
-          )}
         </div>
+        {/* The PDF is the LAST resort by design (George: "αν πατήσουν
+            download PDF, είναι αποτυχία") — a whisper, not a button. */}
+        {view.hasPdf && (
+          <p style={{ marginTop: 26 }}>
+            <a href={`/p/${view.token}/pdf`} onClick={() => beacon("pdf")}
+              style={{ fontFamily: "var(--salon-ui)", fontSize: 10.5, color: INK_FAINT, textDecoration: "none", borderBottom: `1px solid rgba(23,38,58,0.2)` }}>
+              Prefer paper? Download the classic PDF
+            </a>
+          </p>
+        )}
         <div style={{ width: 54, height: 1, background: GOLD, margin: "56px auto 22px" }} />
         <p style={{ ...label, fontSize: 9, color: INK_FAINT, lineHeight: 2.2 }}>
           Confidential · prepared solely for the named recipient<br />
           George Yachts Brokerage House LLC · WhatsApp +1 786 798 8798
+        </p>
+        {/* GHOST_ build credit — same attribution as every page of the site
+            (Boss owns both entities; lead-gen channel for the agency). */}
+        <p style={{ marginTop: 30 }}>
+          <a href="https://ghostwebdesign.dev" target="_blank" rel="noopener noreferrer"
+            style={{
+              fontFamily: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
+              fontSize: 10.5, letterSpacing: "0.12em", color: GOLD, textDecoration: "none",
+            }}>
+            This edition was designed and built by <b style={{ letterSpacing: "0.22em" }}>GHOST_</b> · <i style={{ opacity: 0.9 }}>premium digital agency for the discerning few</i> ↗
+          </a>
         </p>
       </div>
     );
@@ -575,20 +596,30 @@ export default function SalonClient({ view }: { view: SalonView }) {
   return (
     <main style={{ background: PAPER, height: "100dvh", color: INK, overflow: "hidden", position: "relative" }}>
       <style>{`
-        /* A paper leaf turning over a book — WITH the bend of real paper
-           (George: "να κάνει και καμπύλη"): mid-flight the leaf skews and its
-           free edge rounds off, while a curl highlight sweeps across it. */
+        /* A paper leaf turning over a book, WITH the bend of a real page under
+           a thumb: the leaf rotates around the spine while an inner FOLD
+           layer lags a further ~26 degrees mid-flight (nested rotations =
+           visible curvature), and a band of light rolls across the paper. */
         @keyframes salonLeafNext {
-          0%   { transform: perspective(1500px) rotateY(0deg) skewY(0deg); border-radius: 0; box-shadow: 34px 0 80px rgba(23,38,58,0.3); }
-          45%  { transform: perspective(1500px) rotateY(-46deg) skewY(-3.4deg) scaleX(0.96); border-radius: 0 22% 22% 0 / 0 46% 46% 0; box-shadow: 60px 0 90px rgba(23,38,58,0.26); }
-          100% { transform: perspective(1500px) rotateY(-92deg) skewY(0deg); border-radius: 0 8% 8% 0 / 0 30% 30% 0; box-shadow: 6px 0 14px rgba(23,38,58,0.08); }
+          0%   { transform: rotateY(0deg); box-shadow: 34px 0 80px rgba(23,38,58,0.3); }
+          100% { transform: rotateY(-102deg); box-shadow: 6px 0 14px rgba(23,38,58,0.08); }
         }
         @keyframes salonLeafPrev {
-          0%   { transform: perspective(1500px) rotateY(0deg) skewY(0deg); border-radius: 0; box-shadow: -34px 0 80px rgba(23,38,58,0.3); }
-          45%  { transform: perspective(1500px) rotateY(46deg) skewY(3.4deg) scaleX(0.96); border-radius: 22% 0 0 22% / 46% 0 0 46%; box-shadow: -60px 0 90px rgba(23,38,58,0.26); }
-          100% { transform: perspective(1500px) rotateY(92deg) skewY(0deg); border-radius: 8% 0 0 8% / 30% 0 0 30%; box-shadow: -6px 0 14px rgba(23,38,58,0.08); }
+          0%   { transform: rotateY(0deg); box-shadow: -34px 0 80px rgba(23,38,58,0.3); }
+          100% { transform: rotateY(102deg); box-shadow: -6px 0 14px rgba(23,38,58,0.08); }
         }
-        /* the light rolling over the bending paper */
+        @keyframes salonFoldNext {
+          0%   { transform: rotateY(0deg); }
+          38%  { transform: rotateY(-26deg); }
+          72%  { transform: rotateY(-14deg); }
+          100% { transform: rotateY(-4deg); }
+        }
+        @keyframes salonFoldPrev {
+          0%   { transform: rotateY(0deg); }
+          38%  { transform: rotateY(26deg); }
+          72%  { transform: rotateY(14deg); }
+          100% { transform: rotateY(4deg); }
+        }
         @keyframes salonCurlNext {
           0%   { opacity: 0; background-position: 120% 0; }
           40%  { opacity: 1; }
@@ -599,16 +630,23 @@ export default function SalonClient({ view }: { view: SalonView }) {
           40%  { opacity: 1; }
           100% { opacity: 0; background-position: 120% 0; }
         }
-        @keyframes salonUnder { from { opacity: 0.82; } to { opacity: 1; } }
-        .salon-leaf { position: absolute; inset: 0; background: ${PAPER}; overflow: hidden; z-index: 5; pointer-events: none; will-change: transform; }
-        .salon-leaf.next { transform-origin: left center; animation: salonLeafNext 0.85s cubic-bezier(0.32, 0.12, 0.16, 1) forwards; }
-        .salon-leaf.prev { transform-origin: right center; animation: salonLeafPrev 0.85s cubic-bezier(0.32, 0.12, 0.16, 1) forwards; }
-        .salon-leaf::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+        @keyframes salonUnderK { from { opacity: 0.82; } to { opacity: 1; } }
+        .salon-stage { position: absolute; inset: 0; perspective: 1500px; z-index: 5; pointer-events: none; }
+        .salon-leaf { position: absolute; inset: 0; background: ${PAPER}; overflow: hidden; will-change: transform; transform-style: preserve-3d; }
+        .salon-leaf.next { transform-origin: left center; animation: salonLeafNext 0.9s cubic-bezier(0.34, 0.1, 0.14, 1) forwards; }
+        .salon-leaf.prev { transform-origin: right center; animation: salonLeafPrev 0.9s cubic-bezier(0.34, 0.1, 0.14, 1) forwards; }
+        .salon-fold { height: 100%; will-change: transform; }
+        .salon-leaf.next .salon-fold { transform-origin: left center; animation: salonFoldNext 0.9s cubic-bezier(0.34, 0.1, 0.14, 1) forwards; }
+        .salon-leaf.prev .salon-fold { transform-origin: right center; animation: salonFoldPrev 0.9s cubic-bezier(0.34, 0.1, 0.14, 1) forwards; }
+        .salon-leaf::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
           background: linear-gradient(100deg, rgba(23,38,58,0) 30%, rgba(23,38,58,0.10) 46%, rgba(255,255,255,0.55) 52%, rgba(23,38,58,0.14) 60%, rgba(23,38,58,0) 76%);
           background-size: 220% 100%; }
-        .salon-leaf.next::after { animation: salonCurlNext 0.85s ease forwards; }
-        .salon-leaf.prev::after { animation: salonCurlPrev 0.85s ease forwards; }
-        .salon-under { animation: salonUnder 0.85s ease; }
+        .salon-leaf.next::after { animation: salonCurlNext 0.9s ease forwards; }
+        .salon-leaf.prev::after { animation: salonCurlPrev 0.9s ease forwards; }
+        @media (prefers-reduced-motion: reduce) {
+          .salon-leaf.next, .salon-leaf.prev, .salon-fold, .salon-leaf.next::after, .salon-leaf.prev::after { animation-duration: 0.01s !important; }
+        }
+        .salon-under { animation: salonUnderK 0.9s ease; }
         @media (prefers-reduced-motion: reduce) {
           .salon-leaf.next, .salon-leaf.prev, .salon-leaf.next::after, .salon-leaf.prev::after { animation-duration: 0.01s; }
           .salon-under { animation: none; }
@@ -633,8 +671,12 @@ export default function SalonClient({ view }: { view: SalonView }) {
 
       {/* the leaf being turned (the previous page, rotating away) */}
       {leaf !== null && turning && (
-        <div className={`salon-leaf ${turning}`} aria-hidden>
-          <div style={{ height: "100%", overflow: "hidden" }}>{renderPage(pages[leaf])}</div>
+        <div className="salon-stage" aria-hidden>
+          <div className={`salon-leaf ${turning}`}>
+            <div className="salon-fold">
+              <div style={{ height: "100%", overflow: "hidden" }}>{renderPage(pages[leaf])}</div>
+            </div>
+          </div>
         </div>
       )}
 
