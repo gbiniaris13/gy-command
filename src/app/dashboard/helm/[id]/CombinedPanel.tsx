@@ -983,7 +983,7 @@ export default function CombinedPanel({
                       the hero on this yacht's PDF page. Own-fleet yachts fill
                       these automatically when left empty. */}
                   <div style={{ marginTop: 8 }}>
-                    <div style={fieldLabel}>More photos (optional · up to 8 · the first 3 also print in the PDF strip, all show on the client's Salon page)</div>
+                    <div style={fieldLabel}>More photos (optional · up to 24 · the first 3 also print in the PDF strip, ALL slide in the client's Salon carousel)</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
                       {(m.extra_urls || []).map((u) => (
                         <div key={u} style={{ position: "relative" }}>
@@ -994,7 +994,7 @@ export default function CombinedPanel({
                             style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, lineHeight: "16px", padding: 0, borderRadius: 9, border: "1px solid rgba(13,27,42,0.25)", background: "#fff", cursor: "pointer", fontSize: 11 }}>×</button>
                         </div>
                       ))}
-                      {(m.extra_urls || []).length < 8 && (
+                      {(m.extra_urls || []).length < 24 && (
                         <>
                           {cloudinaryConfigured && (
                             <label style={{ ...chipBtn, cursor: "pointer" }}>

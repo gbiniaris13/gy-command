@@ -68,6 +68,8 @@ const PAPER = "#FBFAF6";
 const HAIR = "1px solid rgba(23,38,58,0.14)";
 const GOLD_HAIR = "1px solid rgba(168,135,59,0.4)";
 const WA = "https://api.whatsapp.com/send/?phone=17867988798&text=";
+const FORBES_URL = "https://www.forbes.com/sites/jacquesledbetter/2026/05/01/how-the-wealthy-are-hedging-for-instability/";
+const GEORGE_PHOTO = "https://georgeyachts.com/images/george-syros-quay.jpg";
 
 export default function SalonClient({ view }: { view: SalonView }) {
   const sentView = useRef(false);
@@ -75,6 +77,10 @@ export default function SalonClient({ view }: { view: SalonView }) {
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [turning, setTurning] = useState<"next" | "prev" | null>(null);
+  // The leaf being turned over: during a turn the OLD page is rendered on top
+  // and rotates away like a paper leaf, revealing the new page beneath.
+  const [leaf, setLeaf] = useState<number | null>(null);
+  const leafTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchX = useRef<number | null>(null);
   const pageRef = useRef<HTMLDivElement | null>(null);
 
@@ -104,6 +110,8 @@ export default function SalonClient({ view }: { view: SalonView }) {
     ...(hasGlance ? [{ kind: "glance" }] : []),
     ...view.yachts.map((_, i) => ({ kind: "yacht", idx: i })),
     ...view.weeks.map((_, i) => ({ kind: "week", idx: i })),
+    { kind: "broker" },
+    { kind: "house" },
     { kind: "closing" },
   ];
   const last = pages.length - 1;
@@ -112,8 +120,10 @@ export default function SalonClient({ view }: { view: SalonView }) {
     setPage((p) => {
       const n = Math.min(last, Math.max(0, p + dir));
       if (n !== p) {
+        setLeaf(p);
         setTurning(dir === 1 ? "next" : "prev");
-        setTimeout(() => setTurning(null), 620);
+        if (leafTimer.current) clearTimeout(leafTimer.current);
+        leafTimer.current = setTimeout(() => { setLeaf(null); setTurning(null); }, 780);
         if (pageRef.current) pageRef.current.scrollTop = 0;
       }
       return n;
@@ -160,7 +170,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
     return (
       <div style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
         <div style={{ textAlign: "center", padding: "44px 20px 26px", background: PAPER }}>
-          <p style={{ ...label, fontSize: 11, letterSpacing: "0.5em", color: INK }}>GEORGE YACHTS</p>
+          <p style={{ ...label, fontSize: 11, letterSpacing: "0.42em", color: INK }}>GEORGE YACHTS BROKERAGE HOUSE</p>
           <div style={{ width: 54, height: 1, background: GOLD, margin: "18px auto" }} />
           <p style={{ ...label, fontSize: 9 }}>{view.period || "A private charter publication"}</p>
         </div>
@@ -184,7 +194,11 @@ export default function SalonClient({ view }: { view: SalonView }) {
           {view.coverLine && (
             <p style={{ ...label, color: INK_DIM, letterSpacing: "0.2em", lineHeight: 2 }}>{view.coverLine}</p>
           )}
-          <p style={{ ...label, fontSize: 8.5, color: INK_FAINT, marginTop: 26 }}>
+          <p style={{ fontFamily: "var(--salon-ui)", fontSize: 10.5, color: INK_DIM, marginTop: 30, lineHeight: 1.9, letterSpacing: "0.06em" }}>
+            Prepared by <b style={{ color: INK }}>George P. Biniaris</b>, Founder &amp; Managing Broker<br />
+            IYBA Charter Active Member · <a href={FORBES_URL} target="_blank" rel="noopener noreferrer" style={{ color: GOLD, textDecoration: "none", borderBottom: `1px solid rgba(168,135,59,0.4)` }}>Featured in Forbes</a>
+          </p>
+          <p style={{ ...label, fontSize: 8.5, color: INK_FAINT, marginTop: 22 }}>
             Confidential · prepared solely for the named recipient
           </p>
         </div>
@@ -252,7 +266,19 @@ export default function SalonClient({ view }: { view: SalonView }) {
           {y.name}
         </h2>
         {y.spec && <p style={{ ...label, color: INK_DIM, textAlign: "center", letterSpacing: "0.22em", marginBottom: 4 }}>{y.spec}</p>}
-        {y.voyage && <p style={{ ...label, fontSize: 9, textAlign: "center", marginBottom: 20 }}>{y.voyage}</p>}
+        {y.voyage && <p style={{ ...label, fontSize: 9, textAlign: "center", marginBottom: 8 }}>{y.voyage}</p>}
+        {/* the price is never a mystery: headline figure up top, full
+            breakdown in The Investment box below */}
+        {(y.money.allIn || y.money.headline) && (
+          <p style={{ textAlign: "center", margin: "0 0 20px" }}>
+            <span style={{ fontFamily: "var(--salon-serif)", fontSize: 24, color: INK, fontVariantNumeric: "tabular-nums" }}>
+              {y.money.allIn ?? y.money.headline}
+            </span>
+            <span style={{ ...label, fontSize: 8.5, display: "block", marginTop: 3, color: INK_FAINT }}>
+              {y.money.allIn ? (y.money.allInclusive ? "all-inclusive · full breakdown below" : "estimated all-in · full breakdown below") : "charter fee · details below"}
+            </span>
+          </p>
+        )}
 
         {/* protagonist: distinctions lead when the yacht has them */}
         {y.distinctions.length > 0 && (
@@ -264,18 +290,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
           </div>
         )}
 
-        {y.main && (
-          <img src={y.main} alt={y.name} onClick={() => setLightbox(y.main)}
-            style={{ width: "100%", maxHeight: 440, objectFit: "cover", display: "block", cursor: "zoom-in" }} />
-        )}
-        {y.gallery.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(4, Math.max(2, y.gallery.length))}, 1fr)`, gap: 6, marginTop: 6 }}>
-            {y.gallery.map((g) => (
-              <img key={g} src={g} alt="" onClick={() => setLightbox(g)}
-                style={{ width: "100%", height: 96, objectFit: "cover", cursor: "zoom-in" }} />
-            ))}
-          </div>
-        )}
+        <Carousel photos={[y.main, ...y.gallery].filter(Boolean) as string[]} alt={y.name} onZoom={setLightbox} />
 
         {(y.description || y.insideInfo) && (
           <div style={{ marginTop: 26 }}>
@@ -346,6 +361,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
 
         {/* money box */}
         <div style={{ border: GOLD_HAIR, padding: "22px 22px 18px", marginTop: 28, background: "#FFFFFF" }}>
+          <p style={{ ...label, fontSize: 9, marginBottom: 14 }}>The investment · in full transparency</p>
           {y.money.discountNote && (
             <p style={{ fontFamily: "var(--salon-serif)", fontWeight: 600, fontSize: 17, color: GOLD, margin: "0 0 12px" }}>{y.money.discountNote}</p>
           )}
@@ -462,6 +478,77 @@ export default function SalonClient({ view }: { view: SalonView }) {
     );
   }
 
+  // THE BROKER — approved site bio (about/george-p-biniaris), condensed.
+  function renderBroker() {
+    return (
+      <div style={col}>
+        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>The broker behind this edition</p>
+        <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(26px, 5vw, 36px)", letterSpacing: "0.1em", margin: "0 0 22px" }}>
+          George P. Biniaris
+        </h2>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={GEORGE_PHOTO} alt="George P. Biniaris on the quay in Syros, Cyclades" onClick={() => setLightbox(GEORGE_PHOTO)}
+          style={{ width: "100%", maxHeight: 430, objectFit: "cover", objectPosition: "center 22%", display: "block", cursor: "zoom-in" }} />
+        <p style={{ ...label, fontSize: 8, color: INK_FAINT, textAlign: "right", marginTop: 4 }}>On the quay in Syros, where his family is from</p>
+        <div style={{ marginTop: 22 }}>
+          <p style={{ ...serifBody, margin: "0 0 14px" }}>
+            His connection to these waters is not professional first, it is ancestral. His mother is from Syros, the administrative heart
+            of the Cyclades, and he grew up crossing the Aegean on his uncle&apos;s Ferretti, Athens to Syros to Mykonos, to wherever the
+            islands called.
+          </p>
+          <p style={{ ...serifBody, margin: "0 0 14px" }}>
+            A former captain: licensed skipper seasons out of Corfu and charter operations across the Ionian, the Cyclades and the
+            Saronic. When he recommends an anchorage, it is because he has held a wheel there.
+          </p>
+          <p style={{ ...serifBody, margin: "0 0 14px" }}>
+            Before yachting, a decade at the top of Mykonos hospitality, directing operations for a five-star hotel, a fine-dining
+            restaurant and one of the island&apos;s great beach clubs, leading teams of over two hundred for an international, high-profile
+            clientele.
+          </p>
+        </div>
+        <div style={{ borderTop: GOLD_HAIR, marginTop: 24, paddingTop: 18 }}>
+          {[
+            "BSc Shipping Management & Operations, London Metropolitan University",
+            "IYBA Charter Active Member · MYBA-standard practitioner",
+          ].map((c, k) => (
+            <p key={k} style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, margin: "0 0 8px", lineHeight: 1.6 }}>
+              <span style={{ color: GOLD, marginRight: 10 }}>◆</span>{c}
+            </p>
+          ))}
+          <p style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, margin: "0 0 8px", lineHeight: 1.6 }}>
+            <span style={{ color: GOLD, marginRight: 10 }}>◆</span>
+            <a href={FORBES_URL} target="_blank" rel="noopener noreferrer" style={{ color: INK, textDecoration: "none", borderBottom: GOLD_HAIR }}>
+              Featured in Forbes, May 2026
+            </a>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // THE HOUSE — approved company story (about-us), condensed.
+  function renderHouse() {
+    return (
+      <div style={{ ...col, textAlign: "center", paddingTop: 90 }}>
+        <p style={{ ...label, fontSize: 11, letterSpacing: "0.42em", color: INK, marginBottom: 18 }}>GEORGE YACHTS BROKERAGE HOUSE</p>
+        <div style={{ width: 54, height: 1, background: GOLD, margin: "0 auto 30px" }} />
+        <p style={{ ...serifBody, maxWidth: 560, margin: "0 auto 16px", textAlign: "left" }}>
+          An American brokerage house, headquartered in Wyoming, USA, and operated from Athens, with an office in Kifisia and boots
+          on the ground in Greek waters all season long.
+        </p>
+        <p style={{ ...serifBody, maxWidth: 560, margin: "0 auto 16px", textAlign: "left" }}>
+          We are a boutique firm built by people who came from the water and from five-star floors. Every yacht we put a name to has
+          been personally vetted, and every request is answered by the Managing Broker himself, through the full MYBA charter cycle,
+          from the first proposal to the captain&apos;s briefing.
+        </p>
+        <p style={{ ...serifBody, maxWidth: 560, margin: "0 auto", textAlign: "left" }}>
+          Above all we are guided by one Greek principle, filotimo: the quiet duty to treat every guest with honour and to do right
+          by them, always.
+        </p>
+      </div>
+    );
+  }
+
   function renderPage(p: { kind: string; idx?: number }) {
     switch (p.kind) {
       case "cover": return renderCover();
@@ -469,6 +556,8 @@ export default function SalonClient({ view }: { view: SalonView }) {
       case "glance": return renderGlance();
       case "yacht": return renderYacht(view.yachts[p.idx!], p.idx!);
       case "week": return renderWeek(view.weeks[p.idx!]);
+      case "broker": return renderBroker();
+      case "house": return renderHouse();
       default: return renderClosing();
     }
   }
@@ -476,21 +565,32 @@ export default function SalonClient({ view }: { view: SalonView }) {
   return (
     <main style={{ background: PAPER, height: "100dvh", color: INK, overflow: "hidden", position: "relative" }}>
       <style>{`
-        @keyframes salonTurnNext { from { transform: perspective(2200px) rotateY(9deg) translateX(4%); opacity: 0.35; } to { transform: none; opacity: 1; } }
-        @keyframes salonTurnPrev { from { transform: perspective(2200px) rotateY(-9deg) translateX(-4%); opacity: 0.35; } to { transform: none; opacity: 1; } }
-        .salon-page { transform-origin: left center; }
-        .salon-page.turn-next { animation: salonTurnNext 0.6s cubic-bezier(0.22, 0.7, 0.3, 1); }
-        .salon-page.turn-prev { transform-origin: right center; animation: salonTurnPrev 0.6s cubic-bezier(0.22, 0.7, 0.3, 1); }
+        /* A paper leaf turning over a book: the OLD page sits on top and
+           rotates away around the spine, its shadow sweeping the new page. */
+        @keyframes salonLeafNext {
+          0%   { transform: perspective(1600px) rotateY(0deg); box-shadow: 30px 0 70px rgba(23,38,58,0.28); }
+          100% { transform: perspective(1600px) rotateY(-88deg); box-shadow: 4px 0 12px rgba(23,38,58,0.08); }
+        }
+        @keyframes salonLeafPrev {
+          0%   { transform: perspective(1600px) rotateY(0deg); box-shadow: -30px 0 70px rgba(23,38,58,0.28); }
+          100% { transform: perspective(1600px) rotateY(88deg); box-shadow: -4px 0 12px rgba(23,38,58,0.08); }
+        }
+        @keyframes salonUnder { from { opacity: 0.82; } to { opacity: 1; } }
+        .salon-leaf { position: absolute; inset: 0; background: ${PAPER}; overflow: hidden; z-index: 5; pointer-events: none; will-change: transform; }
+        .salon-leaf.next { transform-origin: left center; animation: salonLeafNext 0.75s cubic-bezier(0.3, 0.2, 0.18, 1) forwards; }
+        .salon-leaf.prev { transform-origin: right center; animation: salonLeafPrev 0.75s cubic-bezier(0.3, 0.2, 0.18, 1) forwards; }
+        .salon-under { animation: salonUnder 0.75s ease; }
         @media (prefers-reduced-motion: reduce) {
-          .salon-page.turn-next, .salon-page.turn-prev { animation: none; }
+          .salon-leaf.next, .salon-leaf.prev { animation-duration: 0.01s; }
+          .salon-under { animation: none; }
         }
       `}</style>
 
       <div
         ref={pageRef}
         key={page}
-        className={`salon-page${turning ? ` turn-${turning}` : ""}`}
-        style={{ height: "100%", overflowY: "auto", WebkitOverflowScrolling: "touch", background: PAPER, boxShadow: turning ? "0 0 60px rgba(23,38,58,0.18)" : "none" }}
+        className={leaf !== null ? "salon-under" : undefined}
+        style={{ height: "100%", overflowY: "auto", WebkitOverflowScrolling: "touch", background: PAPER }}
         onTouchStart={(e) => { touchX.current = e.touches[0].clientX; }}
         onTouchEnd={(e) => {
           if (touchX.current === null) return;
@@ -501,6 +601,13 @@ export default function SalonClient({ view }: { view: SalonView }) {
       >
         {renderPage(pages[page])}
       </div>
+
+      {/* the leaf being turned (the previous page, rotating away) */}
+      {leaf !== null && turning && (
+        <div className={`salon-leaf ${turning}`} aria-hidden>
+          <div style={{ height: "100%", overflow: "hidden" }}>{renderPage(pages[leaf])}</div>
+        </div>
+      )}
 
       {/* pager chrome */}
       <div style={{
@@ -534,5 +641,52 @@ export default function SalonClient({ view }: { view: SalonView }) {
         </div>
       )}
     </main>
+  );
+}
+
+// ─── Photo carousel: one big frame, arrows, swipe, counter, tap to zoom.
+// George's spec: "να σκρολάρει τις φωτογραφίες με βελάκια και να του βάζω
+// όσες θέλω" — up to 24 per yacht from the panel. Its own touch handlers
+// stop propagation so swiping photos never turns the magazine page.
+function Carousel({ photos, alt, onZoom }: { photos: string[]; alt: string; onZoom: (u: string) => void }) {
+  const [i, setI] = useState(0);
+  const tx = useRef<number | null>(null);
+  if (!photos.length) return null;
+  const go = (d: number) => setI((p) => (p + d + photos.length) % photos.length);
+  const arrow = (side: "left" | "right"): React.CSSProperties => ({
+    position: "absolute", top: "50%", [side]: 10, transform: "translateY(-50%)",
+    width: 42, height: 42, borderRadius: "50%", border: "none", cursor: "pointer",
+    background: "rgba(251,250,246,0.88)", color: INK, fontSize: 24, lineHeight: 1,
+    display: "grid", placeItems: "center", boxShadow: "0 1px 8px rgba(23,38,58,0.22)",
+  });
+  return (
+    <div
+      style={{ position: "relative", userSelect: "none" }}
+      onTouchStart={(e) => { tx.current = e.touches[0].clientX; e.stopPropagation(); }}
+      onTouchEnd={(e) => {
+        e.stopPropagation();
+        if (tx.current === null) return;
+        const dx = e.changedTouches[0].clientX - tx.current;
+        tx.current = null;
+        if (Math.abs(dx) > 48) go(dx < 0 ? 1 : -1);
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={photos[i]} alt={alt} onClick={() => onZoom(photos[i])}
+        style={{ width: "100%", height: "min(52vh, 460px)", objectFit: "cover", display: "block", cursor: "zoom-in", background: "#EDEAE2" }} />
+      {photos.length > 1 && (
+        <>
+          <button type="button" aria-label="Previous photo" style={arrow("left")}
+            onClick={(e) => { e.stopPropagation(); go(-1); }}>‹</button>
+          <button type="button" aria-label="Next photo" style={arrow("right")}
+            onClick={(e) => { e.stopPropagation(); go(1); }}>›</button>
+          <span style={{
+            position: "absolute", right: 12, bottom: 10, fontFamily: "var(--salon-ui)",
+            fontSize: 10, letterSpacing: "0.2em", color: "#FFF", background: "rgba(23,38,58,0.55)",
+            padding: "4px 10px", borderRadius: 999,
+          }}>{i + 1} / {photos.length}</span>
+        </>
+      )}
+    </div>
   );
 }
