@@ -14,6 +14,7 @@ import { composeAgencyInquiry } from "@/lib/helm/compose";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
 import { agencyAlreadySent, splitNewVsSent } from "@/lib/helm/agency";
+import { addToSupplierBook, isValidSupplierEmail } from "@/lib/helm/supplier-book";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -108,20 +109,41 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const subject = (body?.subject ?? "").toString().trim();
     let emailBody = (body?.body ?? "").toString().trim();
 
-    // Recipients: the dedicated central_agency_email field wins; otherwise the
-    // emails pasted in the Supplier source box. Client's email is always excluded.
-    const recipients = resolveAgencyRecipients(r.central_agency_email, r.supplier_raw, r.client_email);
-    if (!recipients.length) return NextResponse.json({ error: "No central agency email found. Add the agency email(s) in the Supplier source box above, or via Edit." }, { status: 400 });
+    // Recipients — two paths:
+    // 1. EXPLICIT PICK (2026-07-16, the supplier book): the UI sends `to`, the
+    //    exact addresses George ticked. His tick is the decision — an
+    //    already-contacted agency he re-ticks IS re-sent (the UI unchecks and
+    //    labels those by default, so a resend is always deliberate). Every
+    //    picked address is saved to his book for next time.
+    // 2. LEGACY: no `to` -> resolve from the request fields as before, with the
+    //    automatic already-contacted skip.
+    const clientEmail = (r.client_email ?? "").trim().toLowerCase();
+    const picked: string[] = Array.isArray(body?.to)
+      ? Array.from(new Set(
+          (body.to as unknown[])
+            .map((x) => String(x).trim().toLowerCase())
+            .filter((x) => isValidSupplierEmail(x) && x !== clientEmail),
+        ))
+      : [];
     if (!subject) return NextResponse.json({ error: "Add a subject before sending." }, { status: 400 });
     if (!emailBody) return NextResponse.json({ error: "The inquiry body is empty - generate or write a draft first." }, { status: 400 });
 
-    // NEVER re-email an agency that already received this inquiry. We re-read the
-    // log fresh here (source of truth) and send ONLY to agencies not yet
-    // contacted — unless the operator explicitly chose "resend to everyone".
-    const resendAll = body?.resend_all === true;
-    const alreadySent = agencyAlreadySent(await getMessages(id));
-    const { fresh, skipped } = splitNewVsSent(recipients, alreadySent);
-    const targets = resendAll ? recipients : fresh;
+    let targets: string[];
+    let skipped: string[] = [];
+    if (picked.length) {
+      targets = picked;
+    } else {
+      const recipients = resolveAgencyRecipients(r.central_agency_email, r.supplier_raw, r.client_email);
+      if (!recipients.length) return NextResponse.json({ error: "No supplier selected. Tick at least one supplier in the list, or add one." }, { status: 400 });
+      // NEVER re-email an agency that already received this inquiry. We re-read
+      // the log fresh here (source of truth) and send ONLY to agencies not yet
+      // contacted — unless the operator explicitly chose "resend to everyone".
+      const resendAll = body?.resend_all === true;
+      const alreadySent = agencyAlreadySent(await getMessages(id));
+      const split = splitNewVsSent(recipients, alreadySent);
+      skipped = split.skipped;
+      targets = resendAll ? recipients : split.fresh;
+    }
 
     if (!targets.length) {
       return NextResponse.json({ ok: true, sent: 0, skipped: skipped.length, to: [], message: "Every agency in the list has already received this inquiry. Nothing was re-sent." });
@@ -145,7 +167,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         body: `[Central agency inquiry -> ${targets.join(", ")} - sent individually, one separate email each]\n\n${emailBody}`,
         gmail_message_id: messageIds[0] ?? null,
       });
-      return NextResponse.json({ ok: true, sent: targets.length, to: targets, skipped: resendAll ? 0 : skipped.length, skippedTo: resendAll ? [] : skipped });
+      // Every address that got an inquiry lives in George's book from now on
+      // (manual additions included). Best-effort: a book hiccup never fails
+      // the send that already happened.
+      try { await addToSupplierBook(targets); } catch { /* book only */ }
+      return NextResponse.json({ ok: true, sent: targets.length, to: targets, skipped: skipped.length, skippedTo: skipped });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }
