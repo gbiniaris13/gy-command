@@ -15,6 +15,7 @@ import { sendHelmEmail } from "@/lib/helm/gmail-send";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
 import { agencyAlreadySent, splitNewVsSent } from "@/lib/helm/agency";
 import { addToSupplierBook, isValidSupplierEmail } from "@/lib/helm/supplier-book";
+import { refCode } from "@/lib/helm/refcode";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,6 +32,8 @@ async function adminEmail(): Promise<string | null> {
 }
 
 type Req = {
+  created_at?: string | null;
+  extraction?: Record<string, unknown> | null;
   dates_from?: string | null;
   dates_to?: string | null;
   area?: string | null;
@@ -98,7 +101,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         special_requests: r.special_requests || undefined,
         details: r.brief || undefined,
       });
-      return NextResponse.json({ ok: true, subject: draft.subject, body: scrubClient(draft.body, r) });
+      // George's reference code in every supplier subject: replies (even fresh
+      // emails quoting the code) become findable and auto-matchable.
+      const code = refCode(r.created_at);
+      const subject = code && !draft.subject.includes(code) ? `${draft.subject} - Ref ${code}` : draft.subject;
+      return NextResponse.json({ ok: true, subject, body: scrubClient(draft.body, r) });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }
@@ -157,9 +164,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // that recipient. Central agencies are competing suppliers and must NEVER
       // see one another (no shared To, no CC, no BCC batching).
       const messageIds: string[] = [];
+      const sentThreads: { email: string; thread_id: string; message_id: string; at: string }[] = [];
       for (const rcpt of targets) {
         const sent = await sendHelmEmail({ to: rcpt, subject, body: emailBody });
         messageIds.push(sent.messageId);
+        sentThreads.push({ email: rcpt, thread_id: sent.threadId, message_id: sent.messageId, at: new Date().toISOString() });
+      }
+      // Persist the supplier threads on the request (extraction.supplier_threads,
+      // no schema change) - the Supplier Replies panel reads exactly these, so
+      // every reply lands on the right request automatically.
+      try {
+        const { createServiceClient } = await import("@/lib/supabase-server");
+        const db = createServiceClient();
+        const { data: fresh } = await db.from("helm_requests").select("extraction").eq("id", id).maybeSingle();
+        const ex = (fresh?.extraction && typeof fresh.extraction === "object" ? fresh.extraction : {}) as Record<string, unknown>;
+        const prev = Array.isArray(ex.supplier_threads) ? (ex.supplier_threads as typeof sentThreads) : [];
+        const seen = new Set(prev.map((t) => t.thread_id));
+        ex.supplier_threads = [...prev, ...sentThreads.filter((t) => !seen.has(t.thread_id))];
+        await db.from("helm_requests").update({ extraction: ex, updated_at: new Date().toISOString() }).eq("id", id);
+      } catch (e) {
+        console.error("[agency-inquiry] thread binding failed (send already done)", e);
       }
       await logHelmMessage(id, {
         direction: "outbound",

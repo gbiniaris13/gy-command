@@ -16,6 +16,8 @@ import HelmBooking from "./HelmBooking";
 import HelmAgencyInquiry from "./HelmAgencyInquiry";
 import GmailImport from "./GmailImport";
 import { HelmFlow, Quiet } from "./HelmFlow";
+import SupplierReplies from "./SupplierReplies";
+import { refCode } from "@/lib/helm/refcode";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
 import { agencyAlreadySent } from "@/lib/helm/agency";
@@ -78,6 +80,9 @@ export default async function HelmDetailPage({
         <h1 style={{ margin: "6px 0 0 0", fontSize: 26, fontWeight: 300 }}>{name}</h1>
         <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
           {r.client_email}{r.client_whatsapp ? ` · ${r.client_whatsapp}` : ""}
+          <span style={{ marginLeft: 10, fontFamily: "monospace", fontSize: 12, color: "#C9A84C", fontWeight: 700 }}>
+            Ref {refCode(r.created_at)}
+          </span>
         </div>
       </header>
 
@@ -116,6 +121,7 @@ export default async function HelmDetailPage({
       {/* Gmail import — George picks the exact supplier emails; bodies land
           in supplier_raw below, PDF brochures are saved + read once. */}
       <div id="flow-yachts" />
+      <SupplierReplies requestId={r.id} />
       <GmailImport
         requestId={r.id}
         hasThread={!!r.gmail_thread_id}

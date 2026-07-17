@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { getRequest } from "@/lib/helm-admin";
+import { getRequest, logHelmMessage } from "@/lib/helm-admin";
 import { agentFirstName } from "@/lib/helm/addressing";
 import { composeWhatsApp } from "@/lib/helm/compose";
 
@@ -30,6 +30,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const r = await getRequest(id);
   if (!r) return NextResponse.json({ error: "not-found" }, { status: 404 });
+
+  const body = await req.json().catch(() => ({}));
+
+  // 2026-07-17 (George): keep the WhatsApp story WITH the request. He pastes
+  // the exchange (free, no WhatsApp automation ever - the CallMeBot rule) and
+  // it lands in the conversation log with a timestamp.
+  if (body?.action === "log") {
+    const text = String(body?.text ?? "").trim().slice(0, 8000);
+    if (!text) return NextResponse.json({ error: "Nothing to log." }, { status: 400 });
+    try {
+      await logHelmMessage(id, { direction: null, channel: "whatsapp", body: `[WhatsApp log]\n${text}` });
+      return NextResponse.json({ ok: true });
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    }
+  }
 
   try {
     const draft = await composeWhatsApp({
