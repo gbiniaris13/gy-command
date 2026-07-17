@@ -2,7 +2,8 @@
 // Server component; reads via service-role.
 
 import Link from "next/link";
-import { getRequest, getMessages } from "@/lib/helm-admin";
+import { getRequest, getMessages, isEmailOnNewsletter } from "@/lib/helm-admin";
+import { phoneCountry } from "@/lib/phone-country";
 import StatusTransitions from "./StatusTransitions";
 import HelmDetailActions from "./HelmDetailActions";
 import GeneratePanel from "./GeneratePanel";
@@ -37,6 +38,20 @@ function fmtWhen(iso: string) {
   });
 }
 
+function fmtShort(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+function nightsBetween(from: string | null, to: string | null): number | null {
+  if (!from || !to) return null;
+  const a = new Date(from + "T00:00:00Z").getTime();
+  const b = new Date(to + "T00:00:00Z").getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  const n = Math.round((b - a) / 86400000);
+  return n >= 0 ? n : null;
+}
+
 export default async function HelmDetailPage({
   params,
 }: {
@@ -57,6 +72,17 @@ export default async function HelmDetailPage({
   const messages = await getMessages(id);
   const name = r.client_name || r.client_email || "(unnamed)";
 
+  // At-a-glance context, in the same visual language as the pipeline list, so
+  // opening a request feels continuous (George 2026-07-17: "κάνε φιλικό το μέσα").
+  const pc = phoneCountry(r.client_whatsapp);
+  const isAgent = r.request_type === "travel_agent";
+  const onNewsletter = await isEmailOnNewsletter(r.client_email);
+  const nights = nightsBetween(r.dates_from, r.dates_to);
+  const isDay = nights !== null && nights <= 1;
+  const year = r.dates_from ? new Date(r.dates_from).getUTCFullYear() : null;
+  const futureYear = !!year && year > new Date().getFullYear();
+  const proposalKind = r.mode === "combined" ? "Multiple yachts" : r.mode === "single" ? "Single yacht" : null;
+
   return (
     <div style={{ padding: 24, maxWidth: 920, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -72,13 +98,29 @@ export default async function HelmDetailPage({
         <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase", color: "#C9A84C", fontWeight: 500 }}>
           The Helm · Request
         </div>
-        {r.request_type === "travel_agent" && (
-          <div style={{ display: "inline-block", marginTop: 8, padding: "3px 10px", background: "#6D28D9", color: "#fff", fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase" }}>
-            Travel Agent · white-label PDF
-          </div>
-        )}
-        <h1 style={{ margin: "6px 0 0 0", fontSize: 26, fontWeight: 300 }}>{name}</h1>
-        <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
+        <h1 style={{ margin: "8px 0 0 0", fontSize: 26, fontWeight: 300 }}>
+          {pc?.flag ? `${pc.flag} ` : ""}{name}
+        </h1>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+          <span style={{
+            fontSize: 10, letterSpacing: 1, textTransform: "uppercase", padding: "2px 8px", borderRadius: 3,
+            background: isAgent ? "rgba(109,40,217,0.10)" : "rgba(13,110,90,0.10)",
+            color: isAgent ? "#6D28D9" : "#0d6e5a",
+            border: `1px solid ${isAgent ? "rgba(109,40,217,0.25)" : "rgba(13,110,90,0.25)"}`,
+          }}>{isAgent ? "Travel advisor" : "Direct client"}</span>
+          {isAgent && (
+            <span style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", padding: "2px 8px", borderRadius: 3, background: "#6D28D9", color: "#fff" }}>
+              white-label PDF
+            </span>
+          )}
+          {onNewsletter && (
+            <span title="Already on the newsletter list" style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", padding: "2px 8px", borderRadius: 3, background: "rgba(201,168,76,0.12)", color: "#A8873B", border: "1px solid rgba(201,168,76,0.35)" }}>
+              ✉ Newsletter
+            </span>
+          )}
+          {pc?.country && <span style={{ fontSize: 12, color: "#9CA3AF" }}>{pc.country}</span>}
+        </div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginTop: 8 }}>
           {r.client_email}{r.client_whatsapp ? ` · ${r.client_whatsapp}` : ""}
           <span style={{ marginLeft: 10, fontFamily: "monospace", fontSize: 12, color: "#C9A84C", fontWeight: 700 }}>
             Ref {refCode(r.created_at)}
@@ -96,17 +138,29 @@ export default async function HelmDetailPage({
 
       <section style={card} id="flow-request">
         <div style={cardLabel}>The brief</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <Field k="Occasion" v={r.occasion} />
-          <Field k="Party size" v={r.party_size} />
-          <Field k="Area" v={r.area} />
-          <Field k="Budget" v={r.budget} />
-          <Field k="From" v={fmtDate(r.dates_from)} />
-          <Field k="To" v={fmtDate(r.dates_to)} />
-          <Field k="Mode" v={r.mode} />
+        {/* the essentials, calm and legible, in the same language as the list */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 30px" }}>
+          <Tile k="Guests" v={r.party_size} />
+          <Tile k="Budget" v={r.budget} strong />
+          <Tile k="Dates">
+            {r.dates_from ? (
+              <span>
+                {fmtShort(r.dates_from)}{r.dates_to ? ` – ${fmtShort(r.dates_to)}` : ""}
+                {year && (
+                  <span style={{ marginLeft: 8, display: "inline-block", fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: futureYear ? "#C9A84C" : "rgba(13,27,42,0.08)", color: futureYear ? "#0D1B2A" : "#6b7280" }}>{year}</span>
+                )}
+                <span style={{ marginLeft: 8, fontSize: 11.5, color: "#9CA3AF" }}>{isDay ? "day charter" : nights ? `${nights} nights` : ""}</span>
+              </span>
+            ) : <span style={{ color: "#cbd5e1" }}>—</span>}
+          </Tile>
+          <Tile k="Occasion" v={r.occasion} />
+          {proposalKind && <Tile k="Proposal" v={proposalKind} />}
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <Tile k="Route" v={r.area} block />
         </div>
         {r.brief && (
-          <p style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#1f2937", marginTop: 4 }}>
+          <p style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#1f2937", marginTop: 14 }}>
             {r.brief}
           </p>
         )}
@@ -325,11 +379,16 @@ function OpenSignal({ extraction }: { extraction: unknown }) {
   );
 }
 
-function Field({ k, v }: { k: string; v: string | null | undefined }) {
+function Tile({ k, v, strong, block, children }: {
+  k: string; v?: string | null; strong?: boolean; block?: boolean; children?: React.ReactNode;
+}) {
+  const empty = !children && !v;
   return (
-    <div>
+    <div style={block ? { width: "100%" } : undefined}>
       <div style={{ fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: "#9CA3AF" }}>{k}</div>
-      <div style={{ fontSize: 14, color: v ? "#1f2937" : "#cbd5e1", marginTop: 2 }}>{v || "—"}</div>
+      <div style={{ fontSize: strong ? 16 : 14, fontWeight: strong ? 600 : 400, color: empty ? "#cbd5e1" : "#1f2937", marginTop: 3, lineHeight: 1.4 }}>
+        {children ?? (v || "—")}
+      </div>
     </div>
   );
 }

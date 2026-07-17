@@ -36,6 +36,18 @@ export default async function HelmListPage() {
     const due = !!r.follow_up_at
       && ["sent", "in_conversation", "negotiating"].includes(r.status)
       && new Date(r.follow_up_at).getTime() <= Date.now();
+    // Engagement from the Salon (the client actually opened / pressed interest).
+    // The single strongest "call this one" signal a broker can have.
+    const salonViews = r.salon?.views ?? 0;
+    const salonLastAt = r.salon?.last_at ?? null;
+    const interest = r.salon?.yachts
+      ? Object.entries(r.salon.yachts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+      : null;
+    // How long an un-worked request has been sitting (new/drafted only). Lets
+    // George see at a glance which leads are going cold (George 2026-07-17).
+    const waitingDays = ["new", "drafted"].includes(r.status) && r.created_at
+      ? Math.max(0, Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400000))
+      : null;
     return {
       id: r.id,
       ref: refCode(r.created_at),
@@ -57,6 +69,11 @@ export default async function HelmListPage() {
       followUpAt: r.follow_up_at,
       isAgent: r.request_type === "travel_agent",
       createdAt: r.created_at,
+      salonViews,
+      salonLastAt,
+      interest,
+      waitingDays,
+      onNewsletter: r.on_newsletter,
     };
   });
 

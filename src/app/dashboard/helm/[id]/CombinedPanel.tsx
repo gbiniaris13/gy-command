@@ -371,6 +371,20 @@ export default function CombinedPanel({
   );
   const [videoBusy, setVideoBusy] = useState(false);
   const [videoMsg, setVideoMsg] = useState<string | null>(null);
+  // Fold each yacht card so 17 vessels read as a calm list, not a wall of
+  // fields (George 2026-07-17: "κάνε το πιο εύκολο"). Collapsed by default;
+  // the always-on summary + status still show what needs attention, and the
+  // Generate guards are untouched so nothing can be skipped by folding.
+  const [openCards, setOpenCards] = useState<Set<number>>(new Set());
+  const isCardOpen = (i: number) => openCards.has(i);
+  const toggleCard = (i: number) =>
+    setOpenCards((prev) => {
+      const n = new Set(prev);
+      if (n.has(i)) n.delete(i); else n.add(i);
+      return n;
+    });
+  const setAllCards = (open: boolean) =>
+    setOpenCards(open ? new Set((ex?.yachts ?? []).map((_, i) => i)) : new Set());
   // Direct browser -> Cloudinary upload (server-minted signature; the file
   // never touches Vercel's ~4.5MB body cap). Free plan caps videos ~100MB:
   // an iPhone set to 1080p keeps a 60-90s clip comfortably under it.
@@ -790,6 +804,12 @@ export default function CombinedPanel({
             )}
           </div>
 
+          {(ex.yachts?.length ?? 0) > 1 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 6 }}>
+              <button type="button" onClick={() => setAllCards(true)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 9 }}>Expand all</button>
+              <button type="button" onClick={() => setAllCards(false)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 9 }}>Collapse all</button>
+            </div>
+          )}
           {ex.yachts.map((y, i) => {
             const s = ys[i]; if (!s) return null;
             const stops = stopFlagsFor(i);
@@ -829,9 +849,41 @@ export default function CombinedPanel({
                     >
                       {s.excluded ? "Include again" : "Exclude"}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleCard(i)}
+                      title="Show or hide this yacht's full editing fields"
+                      style={{ ...ghostBtn, padding: "5px 10px", fontSize: 9, borderColor: "rgba(201,168,76,0.6)", color: "#0D1B2A" }}
+                    >
+                      {isCardOpen(i) ? "Hide details ▴" : "Details ▾"}
+                    </button>
                   </div>
                 </div>
 
+                {/* collapsed summary — the essentials at a glance, so a folded
+                    card still says price, note and whether it needs attention.
+                    Skipped for excluded yachts (the struck-through header is
+                    enough; they carry no "resolve" work). */}
+                {!isCardOpen(i) && !s.excluded && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+                    {m.main_url && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.main_url} alt="" style={{ width: 54, height: 40, objectFit: "cover", borderRadius: 2, border: "1px solid rgba(13,27,42,0.1)" }} />
+                    )}
+                    <span style={{ fontSize: 12.5, color: "#374151" }}>
+                      {s.priceMode === "all_inclusive"
+                        ? (s.px.all_inclusive_total ? `€${s.px.all_inclusive_total} all-in` : "no price yet")
+                        : (s.px.charter_fee ? `€${s.px.charter_fee}` : "no price yet")}
+                    </span>
+                    {s.manual_note?.trim() && <span style={{ fontSize: 11.5, color: "#0d6e5a" }}>✎ your note</span>}
+                    {stops.length > 0 && !stops.every((f) => s.resolved.includes(f.code)) && (
+                      <span style={{ fontSize: 11.5, color: "#b91c1c", fontWeight: 600 }}>● resolve before generating</span>
+                    )}
+                    <button type="button" onClick={() => toggleCard(i)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 9, marginLeft: "auto" }}>Open ▾</button>
+                  </div>
+                )}
+
+                {isCardOpen(i) && (<>
                 {/* vessel facts */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
                   <Labeled label="Name"><input value={s.vessel.name} onChange={(e) => patchY(i, { vessel: { ...s.vessel, name: e.target.value } })} style={txt} /></Labeled>
@@ -1051,6 +1103,7 @@ export default function CombinedPanel({
                     onChange={(next) => patchY(i, { extras: next })}
                   />
                 )}
+                </>)}
               </div>
             );
           })}

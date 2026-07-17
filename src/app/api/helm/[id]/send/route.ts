@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, markRequestSent, logHelmMessage } from "@/lib/helm-admin";
+import { subjectWithRef } from "@/lib/helm/refcode";
 import { downloadProposalPdf } from "@/lib/helm/storage";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
 import { PARTNERSHIP_PDF_BASE64, PARTNERSHIP_PDF_FILENAME } from "@/lib/helm/partnership-pdf.generated";
@@ -35,7 +36,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!r) return NextResponse.json({ error: "not-found" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const subject = (body?.subject ?? r.email_subject ?? "").trim();
+  // The GY ref rides on the client/agent subject too (George 2026-07-17), and
+  // it must survive any manual edit of the subject line — re-applied here,
+  // idempotently, right before the email actually goes out.
+  const subject = subjectWithRef((body?.subject ?? r.email_subject ?? "").trim(), r.created_at);
   const emailBody = (body?.body ?? r.email_intro ?? "").trim();
   const to = (r.client_email ?? "").trim();
 

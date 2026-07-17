@@ -28,6 +28,19 @@ export function refCode(createdAt: string | null | undefined): string {
   return `GY${p.day}${p.month}${p.year}${p.hour === "24" ? "00" : p.hour}${p.minute}`;
 }
 
+/** Append " - Ref GY…" to an email subject, once. Idempotent: if the code is
+ *  already there (e.g. George kept it while editing) it is not doubled. Used on
+ *  BOTH the supplier inquiry and the client/agent proposal so one code threads
+ *  the whole conversation (2026-07-17, George: "να υπάρχει και όταν στέλνουμε
+ *  την προσφορά στον πελάτη"). */
+export function subjectWithRef(subject: string, createdAt: string | null | undefined): string {
+  const code = refCode(createdAt);
+  const base = (subject ?? "").trim();
+  if (!code) return base;
+  if (base.toUpperCase().includes(code)) return base;
+  return base ? `${base} - Ref ${code}` : `Ref ${code}`;
+}
+
 /** Parse "GY1707261604" (or with spaces/lowercase) into the UTC minute window
  *  it denotes, for created_at range search. Returns null if not a code. */
 export function parseRefCode(q: string): { fromIso: string; toIso: string } | null {

@@ -10,6 +10,7 @@ import { createServerClient } from "@supabase/ssr";
 import { getRequest, saveGenerated, saveExtraction } from "@/lib/helm-admin";
 import { computePricing, allInNumber, fmtEur, type PricingInput } from "@/lib/helm/pricing";
 import { composeSingleNarrative, composeEmail, composeYachtInsideInfo, composeCombinedIntro } from "@/lib/helm/compose";
+import { subjectWithRef } from "@/lib/helm/refcode";
 import { buildSingleProposal, buildCombinedProposal, formalAddress } from "@/lib/helm/build";
 import { buildProposalHtml, type SingleYacht, type CombinedYacht } from "@/lib/helm/proposal-template";
 import { renderProposalPdf } from "@/lib/helm/render";
@@ -35,6 +36,7 @@ async function adminEmail(): Promise<string | null> {
 }
 
 type RequestRow = {
+  created_at?: string | null;
   client_title?: string | null;
   client_surname?: string | null;
   client_is_family?: boolean | null;
@@ -729,15 +731,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (whiteLabel) assertWhiteLabelClean({ html, title: "Charter Proposal", filename: "Charter_Proposal.pdf" });
       const pdf = await renderProposalPdf(html);
       const path = await uploadProposalPdf(id, pdf);
+      const combinedSubject = subjectWithRef(email_draft.subject, r.created_at);
       await saveGenerated(id, {
         proposal_json: proposal,
         proposal_pdf_path: path,
-        email_subject: email_draft.subject,
+        email_subject: combinedSubject,
         email_intro: email_draft.body,
         mode: "combined",
         client_name: addr.coverName,
       });
-      return NextResponse.json({ ok: true, proposal_pdf_path: path, email_subject: email_draft.subject, email_intro: email_draft.body, yachts: sorted.length });
+      return NextResponse.json({ ok: true, proposal_pdf_path: path, email_subject: combinedSubject, email_intro: email_draft.body, yachts: sorted.length });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }
@@ -885,10 +888,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const pdf = await renderProposalPdf(html);
     const path = await uploadProposalPdf(id, pdf);
 
+    const singleSubject = subjectWithRef(email_draft.subject, r.created_at);
     await saveGenerated(id, {
       proposal_json: proposal,
       proposal_pdf_path: path,
-      email_subject: email_draft.subject,
+      email_subject: singleSubject,
       email_intro: email_draft.body,
       mode: "single",
       client_name: addr.coverName,
@@ -897,7 +901,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({
       ok: true,
       proposal_pdf_path: path,
-      email_subject: email_draft.subject,
+      email_subject: singleSubject,
       email_intro: email_draft.body,
     });
   } catch (e) {

@@ -48,6 +48,13 @@ export type HelmCrmItem = HelmListItem & {
   client_whatsapp: string | null;
   party_size: string | null;
   budget: string | null;
+  /** extraction->salon (views etc.) and extraction->supplier_threads, pulled
+   *  as narrow JSON paths so the row stays light. */
+  salon: { views?: number; last_at?: string; yachts?: Record<string, number> } | null;
+  supplier_threads: { email: string }[] | null;
+  /** true when this client's email is already a newsletter subscriber
+   *  (contacts.tags_v2 contains "newsletter") — George 2026-07-17. */
+  on_newsletter: boolean;
 };
 
 export async function listHelmCrm(): Promise<HelmCrmItem[]> {
@@ -55,14 +62,36 @@ export async function listHelmCrm(): Promise<HelmCrmItem[]> {
   const { data, error } = await db
     .from("helm_requests")
     .select(
-      "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at",
+      "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads",
     )
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
+
+  // Which of these clients are already on the newsletter? One lightweight
+  // lookup over contacts tagged "newsletter" (tags_v2 is jsonb). Best-effort:
+  // a failure here must never break the pipeline list.
+  const newsletterEmails = new Set<string>();
+  try {
+    // tags_v2 is jsonb, so the containment value must be JSON ('["newsletter"]'),
+    // not a PG array literal ('{newsletter}') — hence .filter(cs) with a JSON
+    // string rather than .contains([...]).
+    const { data: nl } = await db
+      .from("contacts")
+      .select("email")
+      .filter("tags_v2", "cs", JSON.stringify(["newsletter"]));
+    for (const c of nl ?? []) {
+      const e = (c as { email: string | null }).email?.trim().toLowerCase();
+      if (e) newsletterEmails.add(e);
+    }
+  } catch {
+    /* ignore — the badge just won't show */
+  }
+
   return (data || []).map((r) => ({
     first_name: null,
     last_name: null,
     contact_email: null,
+    on_newsletter: newsletterEmails.has((r.client_email || "").trim().toLowerCase()),
     ...r,
   })) as HelmCrmItem[];
 }
@@ -86,6 +115,26 @@ export async function getRequest(id: string) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data;
+}
+
+/** Is this one email already a newsletter subscriber? (contacts.tags_v2 has
+ *  "newsletter"). Best-effort; false on any error. Used on the request detail
+ *  header so George sees at once whether the client is on the list. */
+export async function isEmailOnNewsletter(email: string | null | undefined): Promise<boolean> {
+  const e = email?.trim().toLowerCase();
+  if (!e) return false;
+  try {
+    const db = createServiceClient();
+    const { data } = await db
+      .from("contacts")
+      .select("id")
+      .ilike("email", e)
+      .filter("tags_v2", "cs", JSON.stringify(["newsletter"]))
+      .limit(1);
+    return !!(data && data.length);
+  } catch {
+    return false;
+  }
 }
 
 export async function getMessages(requestId: string): Promise<HelmMessage[]> {
