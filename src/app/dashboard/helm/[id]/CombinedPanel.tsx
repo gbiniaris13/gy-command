@@ -300,7 +300,7 @@ export default function CombinedPanel({
   emailIntro: string | null;
   initialMedia: Record<string, MediaEntry>;
   cloudinaryConfigured: boolean;
-  initialDraft: { mode?: string; yachts?: YState[]; weeks?: WeekState[]; cover_line?: string; salon_video?: string } | null;
+  initialDraft: { mode?: string; yachts?: YState[]; weeks?: WeekState[]; cover_line?: string; salon_video?: string; salon_video_off?: boolean } | null;
   isAgent: boolean;
   initialWhiteLabel: boolean;
 }) {
@@ -364,6 +364,11 @@ export default function CombinedPanel({
       : "",
   );
   const [salonCopied, setSalonCopied] = useState(false);
+  // "No video this time" — hides the video block on the client's Salon
+  // without deleting the saved link.
+  const [salonVideoOff, setSalonVideoOff] = useState<boolean>(
+    (initialDraft as { salon_video_off?: unknown } | null)?.salon_video_off === true,
+  );
   const [videoBusy, setVideoBusy] = useState(false);
   const [videoMsg, setVideoMsg] = useState<string | null>(null);
   // Direct browser -> Cloudinary upload (server-minted signature; the file
@@ -445,7 +450,7 @@ export default function CombinedPanel({
       // requires the yacht count to match the stored extraction).
       await fetch(`/api/helm/${requestId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks, cover_line: coverLine, salon_video: salonVideo.trim() } }),
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks, cover_line: coverLine, salon_video: salonVideo.trim(), salon_video_off: salonVideoOff } }),
       });
       setSavedMsg(`Added ${addedCount} yacht${addedCount === 1 ? "" : "s"} from the new supplier. Your earlier yachts are untouched — review the new cards, then ${pdfPath ? "Regenerate" : "Generate"}.`);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
@@ -456,7 +461,7 @@ export default function CombinedPanel({
     try {
       const r = await fetch(`/api/helm/${requestId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys, weeks, cover_line: coverLine, salon_video: salonVideo.trim() } }),
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys, weeks, cover_line: coverLine, salon_video: salonVideo.trim(), salon_video_off: salonVideoOff } }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "save-failed");
@@ -1097,6 +1102,10 @@ export default function CombinedPanel({
               </label>
             </div>
             {videoMsg && <div style={{ fontSize: 12, color: videoMsg.startsWith("✓") ? "#3A6B47" : "#B45309", marginTop: 6 }}>{videoMsg}</div>}
+            <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, cursor: "pointer", fontSize: 12.5, color: "#374151" }}>
+              <input type="checkbox" checked={salonVideoOff} onChange={(e) => setSalonVideoOff(e.target.checked)} />
+              No video this time - hide the video block from this client&apos;s Salon (the saved link stays for later)
+            </label>
           </div>
 
           <div style={{ border: "1px solid rgba(13,27,42,0.10)", padding: "12px 14px", margin: "14px 0 6px", borderRadius: 2 }}>

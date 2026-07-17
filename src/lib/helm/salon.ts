@@ -70,8 +70,12 @@ export async function salonData(requestId: string): Promise<SalonModel | null> {
     media[name] = entry;
   }
 
-  const videoUrlRaw = (r.review_draft as { salon_video?: unknown } | null)?.salon_video;
-  const videoUrl = isHttpUrl(videoUrlRaw) ? videoUrlRaw : null;
+  // George's kill switch (2026-07-16): "no video this time" without losing
+  // the saved link - the panel checkbox sets salon_video_off and the client
+  // simply sees no video block.
+  const draft = r.review_draft as { salon_video?: unknown; salon_video_off?: unknown } | null;
+  const videoUrlRaw = draft?.salon_video;
+  const videoUrl = draft?.salon_video_off === true ? null : isHttpUrl(videoUrlRaw) ? videoUrlRaw : null;
 
   return {
     requestId,
