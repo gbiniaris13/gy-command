@@ -37,7 +37,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!r) return NextResponse.json({ error: "not-found" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const text = (body?.text ?? "").toString().trim();
+  // useImported → extract from the supplier email(s) already imported from Gmail
+  // (brochures already transcribed into supplier_raw). Otherwise a fresh paste.
+  const useImported = body?.useImported === true;
+  const text = (useImported ? (r.supplier_raw ?? "") : (body?.text ?? "")).toString().trim();
   const names = Array.isArray(body?.names) ? (body.names as unknown[]).map(String).filter(Boolean) : [];
   if (!text) return NextResponse.json({ error: "The supplier email is missing." }, { status: 400 });
   if (!names.length) return NextResponse.json({ error: "Tick at least one yacht to add." }, { status: 400 });
@@ -69,12 +72,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!ex.suggested_terms && result.suggested_terms) extraction.suggested_terms = result.suggested_terms;
     await saveExtraction(id, extraction);
 
-    // Combined mode (so the yacht cards render) + keep the supplier text on record.
+    // Combined mode (so the yacht cards render). Append the supplier text to the
+    // record ONLY for a fresh paste — when useImported, it is already in supplier_raw.
     const db = createServiceClient();
     const sep = "\n\n----- SUPPLIER EMAIL (picked yachts) -----\n\n";
     await db.from("helm_requests").update({
       mode: "combined",
-      supplier_raw: r.supplier_raw ? `${r.supplier_raw}${sep}${text}` : text,
+      ...(useImported ? {} : { supplier_raw: r.supplier_raw ? `${r.supplier_raw}${sep}${text}` : text }),
       updated_at: new Date().toISOString(),
     }).eq("id", id);
 

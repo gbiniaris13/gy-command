@@ -180,7 +180,7 @@ export default async function HelmDetailPage({
       <div id="flow-yachts" />
       {/* Two-phase picker: paste a supplier email → tick the yachts you want →
           only those are extracted and added. Repeat per supplier. */}
-      <SupplierYachtPicker requestId={r.id} />
+      <SupplierYachtPicker requestId={r.id} hasImported={!!r.supplier_raw} />
       <SupplierReplies requestId={r.id} />
       <GmailImport
         requestId={r.id}

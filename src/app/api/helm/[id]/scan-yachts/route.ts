@@ -33,8 +33,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!r) return NextResponse.json({ error: "not-found" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const text = (body?.text ?? "").toString().trim();
-  if (!text) return NextResponse.json({ error: "Paste the supplier email first." }, { status: 400 });
+  // useImported → scan the supplier email(s) already imported from Gmail (their
+  // brochures are already transcribed into supplier_raw). Otherwise a fresh paste.
+  const useImported = body?.useImported === true;
+  const text = (useImported ? (r.supplier_raw ?? "") : (body?.text ?? "")).toString().trim();
+  if (!text) {
+    return NextResponse.json(
+      { error: useImported ? "No supplier emails imported yet — import them from Gmail below first." : "Paste the supplier email first." },
+      { status: 400 },
+    );
+  }
 
   try {
     const yachts = await scanSupplierYachts(text);

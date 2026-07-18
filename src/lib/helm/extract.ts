@@ -747,21 +747,24 @@ export async function extractSupplierYachts(
 // Phase 2 extracts full detail for ONLY those. No more extracting 26 to hand-
 // exclude 20, and no more truncation crash on huge multi-yacht emails.
 
-const SCAN_SYSTEM = `You are given a raw yacht central-agency email (or several pasted emails) that offer one or more yachts. Your ONLY job is to LIST every distinct yacht the email offers, so a broker can pick which to include. Do NOT extract prices, APA, dates or any detail — only identify the yachts.
+const SCAN_SYSTEM = `You are given raw yacht central-agency email(s) offering one or more yachts. Your ONLY job is to LIST every distinct yacht offered, so a broker can pick which to include. Do NOT extract prices, APA, dates, toys, awards or any other detail — ONLY a short identifying line.
 CONFIDENTIALITY: never include the agency/broker company name, any person name, email, phone or URL.
-For EACH distinct yacht return:
-- "name": the vessel name EXACTLY as written (e.g. "ChristAl MiO", "M/Y ALVIUM" -> "ALVIUM"; keep the real boat name, drop only the M/Y, S/Y, M/S prefix).
-- "line": a SHORT recognisable one-liner built ONLY from what is stated — type, length, year, guests/cabins (e.g. "MOTOR YACHT · 20m · 2020 · 10 guests · 5 cabins"). Omit any part not stated. Never invent.
-- "snippet": the exact short substring the name came from.
-List each yacht ONCE even if it is quoted for several periods. NEVER invent a yacht that is not offered.
-OUTPUT: a SINGLE JSON object, no markdown fences: {"yachts":[{"name":"","line":"","snippet":""}]}. If none are found, {"yachts":[]}.`;
+For EACH distinct yacht return ONLY these two keys:
+- "name": the vessel name EXACTLY as written (drop only a M/Y, S/Y, M/S prefix; keep the real boat name).
+- "line": a SHORT one-liner, at most ~12 words, built ONLY from what is stated — type, length, year, guests/cabins (e.g. "Motor yacht · 20m · 2020 · 10 guests"). No snippet, no sentences, no marketing, no brochure text.
+List each yacht ONCE even if quoted for several periods. NEVER invent a yacht.
+OUTPUT: a SINGLE compact JSON object, no markdown fences: {"yachts":[{"name":"","line":""}]}. If none are found, {"yachts":[]}. Keep it short.`;
 
 export type ScannedYacht = { name: string; line: string; snippet: string };
 
-/** Phase 1: list the yacht titles in one supplier email so George can pick. */
+/** Phase 1: list the yacht titles across the supplier email(s) so George can pick.
+ *  Names + a short line only (no snippets) — kept tiny so a thinking model with a
+ *  big brochure-laden input never truncates the JSON. */
 export async function scanSupplierYachts(text: string): Promise<ScannedYacht[]> {
   const userMsg = ["SUPPLIER EMAIL(S) - list every yacht offered:", "```", text, "```"].join("\n");
-  const raw = await aiChat(SCAN_SYSTEM, userMsg, { maxTokens: 8000, temperature: 0 });
+  // 24000: leave the thinking model plenty of headroom after its reasoning so the
+  // name list is never cut off, even on a 40k-char import with a dozen brochures.
+  const raw = await aiChat(SCAN_SYSTEM, userMsg, { maxTokens: 24000, temperature: 0 });
   let parsed: { yachts?: unknown };
   try {
     parsed = parseLooseJson(raw) as { yachts?: unknown };
@@ -778,11 +781,7 @@ export async function scanSupplierYachts(text: string): Promise<ScannedYacht[]> 
     const key = name.toLowerCase().replace(/\s+/g, " ");
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({
-      name,
-      line: String(o.line ?? "").trim().slice(0, 140),
-      snippet: String(o.snippet ?? "").trim().slice(0, 200),
-    });
+    out.push({ name, line: String(o.line ?? "").trim().slice(0, 140), snippet: "" });
   }
   return out;
 }
