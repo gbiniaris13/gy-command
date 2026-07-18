@@ -323,9 +323,9 @@ TASK: Write the cover email George sends to a TRAVEL ADVISOR / AGENT (B2B, first
 - This email is for the agent only and is NOT the client-facing document, so naming George / George Yachts here is correct and expected. No em dash, no hype, no exclamation marks. Output JSON only.`
     : `${VOICE_BASE}
 
-TASK: Write the email that accompanies the proposal PDF. Return JSON: {"subject":"<short, warm, specific>","body":"<the email body as plain text with line breaks>"}.
-Structure: warm one-line open referencing the conversation/brief; one short paragraph on what you did; one or two lines per yacht tying a real feature to their need WITH the price (cheapest to most expensive); a close with gentle urgency + an easy next step; END at "Warmly," with NOTHING after it (no name or sign-off block — the email signature is appended automatically).
-- Begin the body with the EXACT salutation provided. First person. No em dash. No hype, no exclamation marks. Output JSON only.`;
+TASK: Write the short email that introduces a PRIVATE ONLINE SELECTION the client opens through a link. The link is added automatically at send time - do NOT write a link yourself, and NEVER mention any PDF, attachment, or download. Return JSON: {"subject":"<short, warm, specific>","body":"<the email body as plain text with line breaks>"}.
+Structure: warm one-line open referencing the conversation/brief; one short paragraph on what you prepared for them; one or two lines per yacht tying a real feature to their need WITH the price (cheapest to most expensive); an invitation to open their selection and reply with the names that speak to them; END at "Warmly," with NOTHING after it (no name or sign-off block - the email signature is appended automatically).
+- Begin the body with the EXACT salutation provided. First person. No em dash. No hype, no exclamation marks. Never write the words "attached", "PDF", or "download". Output JSON only.`;
   const user = [
     `Salutation to use verbatim: ${f.salutation}`,
     f.occasion ? `Occasion: ${f.occasion}` : "",

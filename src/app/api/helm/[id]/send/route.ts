@@ -8,6 +8,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, markRequestSent, logHelmMessage } from "@/lib/helm-admin";
 import { subjectWithRef } from "@/lib/helm/refcode";
+import { proposalToken } from "@/lib/helm/proposal-token";
 import { downloadProposalPdf } from "@/lib/helm/storage";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
 import { PARTNERSHIP_PDF_BASE64, PARTNERSHIP_PDF_FILENAME } from "@/lib/helm/partnership-pdf.generated";
@@ -49,32 +50,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!emailBody) return NextResponse.json({ error: "The email body is empty — write/approve a draft first." }, { status: 400 });
 
   try {
-    const pdf = await downloadProposalPdf(r.proposal_pdf_path);
-    const surname = (r.client_surname || r.client_name || "Charter").toString().replace(/[^A-Za-z0-9]+/g, "_");
-    // Travel-agent: neutral filename (the agent forwards the PDF to their client).
     const isAgent = r.request_type === "travel_agent";
-    const attachment = {
-      filename: isAgent ? "Charter_Proposal.pdf" : `${surname}_Charter_Proposal.pdf`,
-      mimeType: "application/pdf",
-      base64: Buffer.from(pdf).toString("base64"),
-    };
+    type Att = { filename: string; mimeType: string; base64: string };
+    const attachments: Att[] = [];
+    let finalBody = emailBody;
 
-    // Travel agents ALWAYS receive the partnership / commission program PDF in the
-    // same email (so they know their commission and we are covered). NEVER attached
-    // for direct clients.
-    const attachments = [attachment];
     if (isAgent) {
-      attachments.push({
-        filename: PARTNERSHIP_PDF_FILENAME,
-        mimeType: "application/pdf",
-        base64: PARTNERSHIP_PDF_BASE64,
-      });
+      // Travel agents get the WHITE-LABEL proposal PDF to forward, plus the
+      // partnership / commission program PDF. (Agents don't get the
+      // George-branded magazine.)
+      const pdf = await downloadProposalPdf(r.proposal_pdf_path);
+      attachments.push({ filename: "Charter_Proposal.pdf", mimeType: "application/pdf", base64: Buffer.from(pdf).toString("base64") });
+      attachments.push({ filename: PARTNERSHIP_PDF_FILENAME, mimeType: "application/pdf", base64: PARTNERSHIP_PDF_BASE64 });
+    } else {
+      // Direct client: NO PDF, ever (George 2026-07-18 — "το PDF το βγάζεις
+      // τελείως"). The private online magazine is the whole deliverable and it
+      // travels as a LINK. Guarantee the link is in the body even after George
+      // rewrites the AI draft by hand — he only ever presses Send.
+      const origin = new URL(req.url).origin || process.env.NEXT_PUBLIC_SITE_URL || "https://command.georgeyachts.com";
+      const salonUrl = `${origin}/p/${proposalToken(id)}`;
+      if (!finalBody.includes("/p/")) {
+        finalBody = `${finalBody.replace(/\s+$/, "")}\n\nYour private selection, with the photographs and everything in one place:\n${salonUrl}`;
+      }
     }
 
     const sent = await sendHelmEmail({
       to,
       subject: subject || "Your Greek charter",
-      body: emailBody,
+      body: finalBody,
       threadId: r.gmail_thread_id || undefined,
       inReplyTo: r.gmail_last_message_id || undefined,
       attachments,
@@ -84,12 +87,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       gmail_thread_id: sent.threadId,
       gmail_last_message_id: sent.messageId,
       email_subject: subject || "Your Greek charter",
-      email_intro: emailBody,
+      email_intro: finalBody,
     });
     await logHelmMessage(id, {
       direction: "outbound",
       channel: "email",
-      body: emailBody,
+      body: finalBody,
       gmail_message_id: sent.messageId,
     });
 

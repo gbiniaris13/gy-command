@@ -11,12 +11,32 @@
 //     note, because that is a buying signal George acts on immediately.
 
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
 import { verifyProposalToken } from "@/lib/helm/proposal-token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Is the person opening the Salon George himself (logged into the dashboard on
+// this browser)? His own previews must never count as a client open or ping
+// Telegram (2026-07-18: "δεν το έχω στείλει, γιατί λέει opened 2x").
+async function isAdminViewer(): Promise<boolean> {
+  try {
+    const jar = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { getAll: () => jar.getAll(), setAll: () => {} } },
+    );
+    const { data: { user } } = await supabase.auth.getUser();
+    return !!user?.email;
+  } catch {
+    return false;
+  }
+}
 
 type SalonStats = {
   views?: number;
@@ -37,6 +57,9 @@ export async function POST(
   const { token } = await ctx.params;
   const id = verifyProposalToken(token || "");
   if (!id) return NextResponse.json({ ok: true }); // never help enumeration
+
+  // George previewing his own edition is not a client signal — record nothing.
+  if (await isAdminViewer()) return NextResponse.json({ ok: true, self: true });
 
   try {
     const body = (await req.json().catch(() => ({}))) as { t?: string; y?: string };
