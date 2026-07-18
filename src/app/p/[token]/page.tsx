@@ -120,19 +120,12 @@ export default async function SalonPage({
     };
   });
 
-  // Masthead sub-line: George's cover line verbatim; otherwise the SAME
-  // guarded auto line as the PDF cover — an over-long guests/area field is a
-  // leaked internal note (seen live on the Mead request) and is dropped,
-  // never published.
-  const guests = String(d.guests ?? "").trim();
-  const area = String(d.area ?? "").trim();
-  const coverLine = (d.cover_line ?? "").trim()
-    ? (d.cover_line ?? "").trim().slice(0, 100)
-    : [
-        guests && guests.length <= 24 ? (/(guest|adult|children)/i.test(guests) ? guests : `${guests} Guests`) : "",
-        area && area.length <= 48 ? area : "Greek Waters",
-        String(d.period ?? "").trim(),
-      ].filter(Boolean).join(" · ");
+  // Masthead sub-line: ONLY George's own cover line, verbatim. If he wrote
+  // none, we print NOTHING (2026-07-18). The old auto line stitched in a month
+  // derived from the earliest yacht date and could stamp "August" on what
+  // George calls a September charter — the system must never take that
+  // initiative. He writes the period he wants, or the cover stays silent.
+  const coverLine = (d.cover_line ?? "").trim().slice(0, 100);
 
   // "The Mead Edition" — same surname derivation as the PDF cover masthead.
   const editionName = (() => {
@@ -148,7 +141,10 @@ export default async function SalonPage({
     clientName: d.client_name ?? null,
     editionName,
     coverLine,
-    period: d.period ?? null,
+    // No auto-derived month on the cover masthead either (2026-07-18) — same
+    // reason as coverLine; the top line falls back to the neutral publication
+    // label instead of guessing a month.
+    period: null,
     guests: d.guests ?? null,
     area: d.area ?? null,
     introParas: (d.intro_letter ?? "").split("\n").map((s) => s.trim()).filter(Boolean),

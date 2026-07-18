@@ -226,7 +226,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         {view.introParas.map((p, i) => (
           <p key={i} style={{ ...serifBody, margin: "0 0 16px" }}>{p}</p>
         ))}
-        <p style={{ fontFamily: "var(--salon-serif)", fontSize: 23, color: GOLD, margin: "28px 0 2px" }}>George Biniaris</p>
+        <p style={{ fontFamily: "var(--salon-serif)", fontSize: 23, color: GOLD, margin: "28px 0 2px" }}>George P. Biniaris</p>
         <p style={{ ...label, fontSize: 8.5, color: INK_FAINT }}>Managing Broker · George Yachts Brokerage House LLC</p>
       </div>
     );
