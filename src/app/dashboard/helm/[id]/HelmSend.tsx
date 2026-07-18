@@ -35,7 +35,7 @@ function saveCustomSnippets(list: Snippet[]) {
 }
 
 export default function HelmSend({
-  requestId, clientEmail, initialSubject, initialBody, status, followUpAt, threadId,
+  requestId, clientEmail, initialSubject, initialBody, status, followUpAt, threadId, isAgent,
 }: {
   requestId: string;
   clientEmail: string | null;
@@ -44,6 +44,7 @@ export default function HelmSend({
   status: string;
   followUpAt: string | null;
   threadId: string | null;
+  isAgent: boolean;
 }) {
   const router = useRouter();
   const [subject, setSubject] = useState(initialSubject || "");
@@ -121,7 +122,11 @@ export default function HelmSend({
 
   async function send() {
     if (!clientEmail) return;
-    const ok = confirm(`Send this proposal email to ${clientEmail}? The generated PDF will be attached.`);
+    const ok = confirm(
+      isAgent
+        ? `Send this proposal email to ${clientEmail}? The white-label PDF is attached for the agent.`
+        : `Send this proposal email to ${clientEmail}? Your private magazine link is included, no PDF.`,
+    );
     if (!ok) return;
     setBusy("send"); setErr(null); setMsg(null);
     try {

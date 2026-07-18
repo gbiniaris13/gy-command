@@ -269,6 +269,7 @@ export default async function HelmDetailPage({
           status={r.status}
           followUpAt={r.follow_up_at ?? null}
           threadId={r.gmail_thread_id ?? null}
+          isAgent={isAgent}
         />
       )}
 
@@ -348,11 +349,15 @@ function OpenSignal({ extraction }: { extraction: unknown }) {
     extraction && typeof extraction === "object"
       ? (extraction as Record<string, unknown>)
       : null;
-  const opens =
-    ex && ex.opens && typeof ex.opens === "object"
-      ? (ex.opens as { count?: number; first_at?: string })
+  // The MAGAZINE open (extraction.salon) is the real client signal, and the /p
+  // event route already excludes George's own logged-in previews. The legacy
+  // extraction.opens (PDF-link) is ignored so George's test-opens never read as
+  // the client's (2026-07-18: "δεν το έχω στείλει, γιατί λέει opened 2x").
+  const salon =
+    ex && ex.salon && typeof ex.salon === "object"
+      ? (ex.salon as { views?: number; first_at?: string })
       : null;
-  const count = opens?.count ?? 0;
+  const count = salon?.views ?? 0;
 
   if (count > 0) {
     return (
@@ -365,7 +370,7 @@ function OpenSignal({ extraction }: { extraction: unknown }) {
         <span style={{ color: "#C9A84C", fontSize: 14, lineHeight: 1 }}>●</span>
         <span>
           Client opened the proposal · {count} time{count === 1 ? "" : "s"}
-          {opens?.first_at ? ` · first ${fmtDate(opens.first_at)}` : ""}
+          {salon?.first_at ? ` · first ${fmtDate(salon.first_at)}` : ""}
         </span>
       </div>
     );

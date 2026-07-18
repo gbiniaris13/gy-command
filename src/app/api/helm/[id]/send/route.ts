@@ -67,7 +67,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // τελείως"). The private online magazine is the whole deliverable and it
       // travels as a LINK. Guarantee the link is in the body even after George
       // rewrites the AI draft by hand — he only ever presses Send.
-      const origin = new URL(req.url).origin || process.env.NEXT_PUBLIC_SITE_URL || "https://command.georgeyachts.com";
+      // Always the clean custom domain for a CLIENT link, never the raw
+      // *.vercel.app origin George may be browsing from (2026-07-18).
+      const origin = process.env.NEXT_PUBLIC_SITE_URL || "https://command.georgeyachts.com";
       const salonUrl = `${origin}/p/${proposalToken(id)}`;
       if (!finalBody.includes("/p/")) {
         finalBody = `${finalBody.replace(/\s+$/, "")}\n\nYour private selection, with the photographs and everything in one place:\n${salonUrl}`;

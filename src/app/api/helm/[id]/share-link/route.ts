@@ -41,10 +41,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // Tracked redirect link (/p/<token>) instead of the raw signed URL,
     // so we can record a real "open" when the client follows it. The
     // PDF is freshly signed at click time inside that route.
-    const origin =
-      new URL(req.url).origin ||
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      "https://command.georgeyachts.com";
+    // Always the clean custom domain for a CLIENT-shared link, never the raw
+    // *.vercel.app origin George may be browsing from (2026-07-18).
+    const origin = process.env.NEXT_PUBLIC_SITE_URL || "https://command.georgeyachts.com";
     const url = `${origin}/p/${proposalToken(id)}`;
     const isAgent = r.request_type === "travel_agent";
     const title = String(r.client_title || "").trim();
