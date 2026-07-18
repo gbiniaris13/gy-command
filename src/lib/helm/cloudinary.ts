@@ -86,9 +86,14 @@ export function slugifyFilename(name: string): string {
   return slug || "brochure";
 }
 
-/** Web-optimized delivery URL for embedding into the proposal PDF
- *  (keeps render fast + Cloudinary credits low). */
+/** Web-optimized delivery URL for embedding into the proposal PDF and Salon
+ *  (keeps render fast + Cloudinary credits low). ONLY genuine Cloudinary
+ *  delivery URLs take the transformation segment — a pasted supplier link that
+ *  merely happens to contain "/upload/" (e.g. alphayachting.com/images/upload/…)
+ *  must pass through untouched, else the injected w_/q_/f_ path 404s and the
+ *  photo vanishes from the Salon (ZALINA in Nick's proposal, 2026-07-18). */
 export function optimizedUrl(secureUrl: string, width = 1200): string {
+  if (!secureUrl.includes("res.cloudinary.com")) return secureUrl;
   if (!secureUrl.includes("/upload/")) return secureUrl;
   return secureUrl.replace("/upload/", `/upload/w_${width},q_auto,f_auto/`);
 }
