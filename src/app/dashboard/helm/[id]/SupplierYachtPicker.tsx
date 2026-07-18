@@ -11,12 +11,10 @@
 // truncation crash on a long multi-yacht email.
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 type Scanned = { name: string; line: string; snippet: string };
 
 export default function SupplierYachtPicker({ requestId, hasImported }: { requestId: string; hasImported: boolean }) {
-  const router = useRouter();
   const [text, setText] = useState("");
   const [scanned, setScanned] = useState<Scanned[] | null>(null);
   const [source, setSource] = useState<"imported" | "pasted" | null>(null);
@@ -63,9 +61,11 @@ export default function SupplierYachtPicker({ requestId, hasImported }: { reques
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "add failed");
-      setMsg(`Added ${j.added} yacht${j.added === 1 ? "" : "s"} (${j.total} in the proposal). Scroll down to price and photograph them.`);
-      setText(""); setScanned(null); setSource(null); setPicked(new Set());
-      router.refresh();
+      setMsg(`Added ${j.added} yacht${j.added === 1 ? "" : "s"} — loading the cards…`);
+      // A full reload: adding the first yacht flips the request to combined mode,
+      // and the yacht-cards panel is a client component seeded once on mount, so
+      // router.refresh() alone would not show the new cards. Reload re-mounts it.
+      setTimeout(() => window.location.reload(), 700);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
 
