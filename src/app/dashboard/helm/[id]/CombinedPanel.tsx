@@ -427,6 +427,22 @@ export default function CombinedPanel({
       setError((e as Error).message);
     }
   }
+  // See the magazine exactly as the client will (George 2026-07-18: "στέλνω κάτι
+  // που δεν έχω δει"). Open a blank tab synchronously so Safari's pop-up blocker
+  // does not eat it, then point it at the freshly-minted Salon URL.
+  async function openSalon() {
+    const tab = window.open("", "_blank");
+    try {
+      const r = await fetch(`/api/helm/${requestId}/share-link`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok || !j.url) throw new Error(j.error || "share-link failed");
+      if (tab) tab.location.href = j.url;
+      else window.location.href = j.url; // pop-up blocked: fall back to same tab
+    } catch (e) {
+      tab?.close();
+      setError((e as Error).message);
+    }
+  }
   const patchWeek = (wi: number, patch: Partial<WeekState>) =>
     setWeeks((prev) => prev.map((w, idx) => (idx === wi ? { ...w, ...patch } : w)));
   const cleanWeeksPayload = () =>
@@ -729,15 +745,26 @@ export default function CombinedPanel({
           </div>
           <a href={`/api/helm/${requestId}/proposal-pdf`} target="_blank" rel="noreferrer" style={pdfLink}>Open current PDF ↗</a>
           {!isAgent && !whiteLabel && (
-            <button
-              type="button"
-              onClick={copySalonLink}
-              disabled={busy !== null}
-              style={{ ...ghostBtn, marginLeft: 10, padding: "6px 12px" }}
-              title="The proposal as a live private page: photos, your video, and a 'This one interests us' button that pings you on Telegram. Send it alongside (or instead of) the PDF."
-            >
-              {salonCopied ? "Salon link copied ✓" : "Copy client Salon link"}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={openSalon}
+                disabled={busy !== null}
+                style={{ ...ghostBtn, marginLeft: 10, padding: "6px 12px", borderColor: "#C9A84C", color: "#0D1B2A" }}
+                title="Open the magazine in a new tab and see it exactly as the client will, before you send a thing."
+              >
+                Preview the Salon ↗
+              </button>
+              <button
+                type="button"
+                onClick={copySalonLink}
+                disabled={busy !== null}
+                style={{ ...ghostBtn, marginLeft: 8, padding: "6px 12px" }}
+                title="The proposal as a live private page: photos, your video, and a 'This one interests us' button that pings you on Telegram. Send it alongside (or instead of) the PDF."
+              >
+                {salonCopied ? "Salon link copied ✓" : "Copy client Salon link"}
+              </button>
+            </>
           )}
           {!isAgent && (
             <label style={wlToggle}>
@@ -871,9 +898,23 @@ export default function CombinedPanel({
                       <img src={m.main_url} alt="" style={{ width: 54, height: 40, objectFit: "cover", borderRadius: 2, border: "1px solid rgba(13,27,42,0.1)" }} />
                     )}
                     <span style={{ fontSize: 12.5, color: "#374151" }}>
-                      {s.priceMode === "all_inclusive"
-                        ? (s.px.all_inclusive_total ? `€${s.px.all_inclusive_total} all-in` : "no price yet")
-                        : (s.px.charter_fee ? `€${s.px.charter_fee}` : "no price yet")}
+                      {(() => {
+                        // Every pricing shape gets an honest one-liner: a READY
+                        // day-charter or multi-period yacht must never read
+                        // "no price yet" just because charter_fee is empty.
+                        if (s.priceMode === "day_charter") {
+                          const parts = [
+                            s.px.half_day_rate ? `€${s.px.half_day_rate} half day` : "",
+                            s.px.full_day_rate ? `€${s.px.full_day_rate} full day` : "",
+                          ].filter(Boolean);
+                          return parts.length ? parts.join(" · ") : "no price yet";
+                        }
+                        if (s.priceMode === "all_inclusive")
+                          return s.px.all_inclusive_total ? `€${s.px.all_inclusive_total} all-in` : "no price yet";
+                        const withRate = (s.periods ?? []).filter((p) => String(p.fee ?? "").trim());
+                        if (withRate.length) return `${withRate.length} periods priced`;
+                        return s.px.charter_fee ? `€${s.px.charter_fee}` : "no price yet";
+                      })()}
                     </span>
                     {s.manual_note?.trim() && <span style={{ fontSize: 11.5, color: "#0d6e5a" }}>✎ your note</span>}
                     {stops.length > 0 && !stops.every((f) => s.resolved.includes(f.code)) && (
@@ -914,6 +955,12 @@ export default function CombinedPanel({
                     {(s.manual_note?.length ?? 0)}/240 — the exact space the page fits, so the layout never breaks
                   </div>
                 </div>
+
+                {/* What this yacht will SHOW in the Salon magazine — read-only,
+                    so George approves the distinctions/testimonials by seeing
+                    them before the client does (George 2026-07-18; his rule:
+                    no invented facts or testimonials on a client page). */}
+                <SalonExtrasPeek content={y.content} />
 
                 {/* STOP flags */}
                 {stops.length > 0 && (
@@ -1438,6 +1485,62 @@ function YachtExtrasEditor({ value, onChange }: { value: ExtrasState; onChange: 
             <button type="button" onClick={() => onChange({ payable_at_base: [], security_deposit: "", free_onboard: "" })} style={{ ...ghostBtn, marginTop: 10, color: "#7f1d1d", borderColor: "rgba(177,74,58,0.4)", fontSize: 9 }}>
               Clear this yacht&apos;s extras
             </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Read-only peek at the magazine "protagonists" (distinctions, guest
+// testimonials, water toys, highlights, cabins) that this yacht will show in
+// the Salon. They come from the supplier material at extraction time and are
+// published verbatim, so George must be able to SEE them here before he sends
+// the link — nothing invented reaches a client page unseen.
+function SalonExtrasPeek({ content }: { content?: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false);
+  const arr = (k: string): string[] =>
+    Array.isArray(content?.[k]) ? (content![k] as unknown[]).map((x) => String(x ?? "").trim()).filter(Boolean) : [];
+  const acc: [string, string][] = Array.isArray(content?.accommodation)
+    ? (content!.accommodation as unknown[])
+        .filter((a): a is unknown[] => Array.isArray(a) && a.length >= 2)
+        .map((a) => [String(a[0] ?? "").trim(), String(a[1] ?? "").trim()] as [string, string])
+        .filter(([c, d]) => c || d)
+    : [];
+  const groups: [string, string[]][] = ([
+    ["Distinctions", arr("distinctions")],
+    ["Guest testimonials", arr("testimonials")],
+    ["Water toys", arr("water_toys")],
+    ["Highlights", arr("highlights")],
+  ] as [string, string[]][]).filter(([, v]) => v.length);
+  const total = groups.reduce((n, [, v]) => n + v.length, 0) + acc.length;
+  if (!total) return null;
+  return (
+    <div style={{ border: "1px solid rgba(201,168,76,0.35)", borderRadius: 2, marginTop: 10, background: "rgba(201,168,76,0.05)" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={extrasHead}>
+        <span>In the Salon magazine · {total} item{total === 1 ? "" : "s"}</span>
+        <span style={{ fontSize: 14 }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 11px 11px" }}>
+          <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 8, lineHeight: 1.5 }}>
+            From the supplier material, shown verbatim on this yacht&apos;s page. If anything here is not true or not yours to say, tell me and we take it out before the client sees it.
+          </div>
+          {groups.map(([label, items]) => (
+            <div key={label} style={{ marginTop: 6 }}>
+              <div style={fieldLabel}>{label}</div>
+              <ul style={{ margin: "3px 0 0", paddingLeft: 18, fontSize: 12.5, color: "#1f2937", lineHeight: 1.5 }}>
+                {items.map((t, k) => <li key={k}>{t}</li>)}
+              </ul>
+            </div>
+          ))}
+          {acc.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div style={fieldLabel}>Accommodation</div>
+              <ul style={{ margin: "3px 0 0", paddingLeft: 18, fontSize: 12.5, color: "#1f2937", lineHeight: 1.5 }}>
+                {acc.map(([c, d], k) => <li key={k}>{d ? <><b>{c}</b>: {d}</> : <b>{c}</b>}</li>)}
+              </ul>
+            </div>
           )}
         </div>
       )}

@@ -11,9 +11,12 @@ const TZ = "Europe/Athens";
 
 function athensParts(iso: string): Record<string, string> {
   const d = new Date(iso);
+  // hourCycle "h23" pins midnight to "00" on every ICU build. Without it,
+  // hour12:false can resolve to h24 ("24:05"), and patching just the hour
+  // would pair "00" with the WRONG day — corrupting the code at midnight.
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: TZ, day: "2-digit", month: "2-digit", year: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   });
   const out: Record<string, string> = {};
   for (const p of fmt.formatToParts(d)) out[p.type] = p.value;
@@ -25,7 +28,7 @@ export function refCode(createdAt: string | null | undefined): string {
   if (!createdAt) return "";
   const p = athensParts(createdAt);
   if (!p.day) return "";
-  return `GY${p.day}${p.month}${p.year}${p.hour === "24" ? "00" : p.hour}${p.minute}`;
+  return `GY${p.day}${p.month}${p.year}${p.hour}${p.minute}`;
 }
 
 /** Append " - Ref GY…" to an email subject, once. Idempotent: if the code is
@@ -47,6 +50,11 @@ export function parseRefCode(q: string): { fromIso: string; toIso: string } | nu
   const m = q.trim().toUpperCase().replace(/\s+/g, "").match(/^GY(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
   if (!m) return null;
   const [, dd, mm, yy, hh, min] = m;
+  // Range-check before Date.UTC: it silently rolls invalid parts over
+  // (day 99 -> next month), which would search a wrong-but-plausible window
+  // instead of saying "not a code".
+  if (Number(dd) < 1 || Number(dd) > 31 || Number(mm) < 1 || Number(mm) > 12
+    || Number(hh) > 23 || Number(min) > 59) return null;
   // The code is Athens local time; scan a generous window (Athens is UTC+2/+3)
   // so we never miss the minute regardless of DST.
   const base = Date.UTC(2000 + Number(yy), Number(mm) - 1, Number(dd), Number(hh), Number(min));

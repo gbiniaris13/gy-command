@@ -33,8 +33,10 @@ function fmtDate(iso: string | null) {
 }
 
 function fmtWhen(iso: string) {
+  // Athens explicitly: the server renders in UTC, and George reads the
+  // conversation history in his own clock (matches the GY ref codes too).
   return new Date(iso).toLocaleString("en-GB", {
-    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Athens",
   });
 }
 

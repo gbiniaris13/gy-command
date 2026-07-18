@@ -53,15 +53,19 @@ const STAGE_COLOR: Record<string, string> = {
   negotiating: "#F59E0B", won: "#0D1B2A", lost: "#94a3b8",
 };
 
+// Europe/Athens everywhere: George thinks in Athens time (the GY ref codes
+// are Athens too), and a fixed zone keeps the server-rendered HTML identical
+// to the client hydration — no timezone flicker. Date-only strings (charter
+// dates) still show the same calendar day.
 function fmt(iso: string | null) {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/Athens" });
 }
 // Received date carries the year and stays readable (George: the old one was
 // "πολύ αχνή"). "14 Jul 26".
 function fmtReceived(iso: string | null) {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
+  return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit", timeZone: "Europe/Athens" });
 }
 
 // Inline stage change straight from the list (George 2026-07-17: "χωρίς να
@@ -118,7 +122,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
   const [kind, setKind] = useState<"all" | "day" | "week">("all");
 
   const years = useMemo(
-    () => Array.from(new Set(rows.map((r) => r.year).filter((y): y is number => !!y))).sort(),
+    () => Array.from(new Set(rows.map((r) => r.year).filter((y): y is number => !!y))).sort((a, b) => a - b),
     [rows],
   );
 
@@ -205,7 +209,12 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
               return (
               <tr
                 key={r.id}
-                onClick={() => router.push(`/dashboard/helm/${r.id}`)}
+                onClick={() => {
+                  // Let George select-and-copy an email or phone from the row
+                  // without the click whisking him into the request.
+                  if (window.getSelection()?.toString()) return;
+                  router.push(`/dashboard/helm/${r.id}`);
+                }}
                 style={{ borderBottom: "1px solid rgba(13,27,42,0.05)", opacity: r.status === "lost" ? 0.55 : 1, cursor: "pointer" }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(201,168,76,0.06)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -282,8 +291,10 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                   ) : <span style={{ color: "#cbd5e1" }}>—</span>}
                 </td>
 
-                {/* Status — editable inline (change stage without opening) */}
-                <td style={td}>
+                {/* Status — editable inline (change stage without opening).
+                    The whole cell swallows the click: a near-miss around the
+                    dropdown must not navigate away mid-change. */}
+                <td style={td} onClick={(e) => e.stopPropagation()}>
                   <StatusSelect id={r.id} value={r.status} />
                 </td>
 
@@ -307,7 +318,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                           : hasEngagement ? null : <span style={{ color: "#cbd5e1" }}>—</span>;
                     return line ? <div style={{ marginTop: hasEngagement ? 2 : 0 }}>{line}</div> : null;
                   })()}
-                  {r.waitingDays !== null && (
+                  {r.waitingDays !== null && r.waitingDays >= 1 && (
                     <div style={{
                       marginTop: 2, fontSize: 11, fontWeight: 600,
                       color: r.waitingDays >= 7 ? "#b91c1c" : r.waitingDays >= 3 ? "#b45309" : "#9CA3AF",

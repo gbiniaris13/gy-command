@@ -88,8 +88,8 @@ export default function SupplierReplies({ requestId }: { requestId: string }) {
         </p>
       )}
 
-      {(groups || []).map((g) => (
-        <div key={g.supplier} style={{ marginTop: 12 }}>
+      {(groups || []).map((g, gi) => (
+        <div key={`${g.supplier}-${gi}`} style={{ marginTop: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#1f2937" }}>
             {g.supplier}
             {g.replies.length === 0 && <span style={{ color: "#9CA3AF", fontWeight: 400 }}> · no reply yet</span>}

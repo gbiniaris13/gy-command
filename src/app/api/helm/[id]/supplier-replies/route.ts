@@ -63,20 +63,22 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const seenIds = new Set<string>();
 
   try {
-    // 1) bound threads, one group per supplier
+    // 1) bound threads, ONE group per supplier — a re-sent inquiry binds a
+    // second thread to the same address, and those must merge, not duplicate.
+    const bySupplier = new Map<string, Reply[]>();
     for (const t of threads) {
+      if (!bySupplier.has(t.email)) bySupplier.set(t.email, []);
       const res = await gmailFetch(
         `/threads/${t.thread_id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
       );
       if (!res.ok) continue;
       const thread = (await res.json()) as { messages?: GmailMsg[] };
-      const replies: Reply[] = [];
       for (const m of thread.messages || []) {
         const labels = m.labelIds || [];
         if (labels.includes("SENT") || labels.includes("DRAFT")) continue; // ours
         if (seenIds.has(m.id)) continue;
         seenIds.add(m.id);
-        replies.push({
+        bySupplier.get(t.email)!.push({
           id: m.id,
           from: header(m, "From"),
           subject: header(m, "Subject"),
@@ -85,9 +87,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
           imported: supplierRaw.includes(`[gmail:${m.id}]`),
         });
       }
-      if (replies.length) groups.push({ supplier: t.email, replies });
-      else groups.push({ supplier: t.email, replies: [] }); // shown as "no reply yet"
     }
+    for (const [supplier, replies] of bySupplier) groups.push({ supplier, replies }); // empty => "no reply yet"
 
     // 2) Ref-code strays (fresh emails quoting the code, not in any bound thread)
     if (code) {
