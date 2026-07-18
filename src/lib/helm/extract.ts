@@ -616,10 +616,14 @@ type MultiPass = {
 
 /** One extraction pass over one piece of supplier text. Throws
  *  ExtractionCutOffError when the JSON was truncated by the token cap. */
-async function extractYachtsOnce(text: string, brief?: string): Promise<MultiPass> {
+async function extractYachtsOnce(text: string, brief?: string, onlyNames?: string[]): Promise<MultiPass> {
+  const picked = (onlyNames ?? []).map((n) => n.trim()).filter(Boolean);
   const userMsg = [
     brief ? `Broker brief / context: ${brief}` : "",
-    "SUPPLIER EMAIL(S) — extract every yacht from this only:",
+    picked.length
+      ? `Extract full details for ONLY these yachts and IGNORE every other yacht in the email(s): ${picked.join(" | ")}.`
+      : "",
+    picked.length ? "SUPPLIER EMAIL(S):" : "SUPPLIER EMAIL(S) — extract every yacht from this only:",
     "```",
     text,
     "```",
@@ -734,5 +738,67 @@ export async function extractSupplierYachts(
   if (sct) out.suggested_charter_type = sct;
   const st = passes.map((p) => p.suggested_terms).find(Boolean);
   if (st) out.suggested_terms = st;
+  return out;
+}
+
+// --- Two-phase picker (George 2026-07-18): a supplier emails 12 yachts, he
+// wants 6. Phase 1 SCAN lists just the yacht titles (tiny output, never
+// truncates even for 26 across two emails); George ticks the ones he wants;
+// Phase 2 extracts full detail for ONLY those. No more extracting 26 to hand-
+// exclude 20, and no more truncation crash on huge multi-yacht emails.
+
+const SCAN_SYSTEM = `You are given a raw yacht central-agency email (or several pasted emails) that offer one or more yachts. Your ONLY job is to LIST every distinct yacht the email offers, so a broker can pick which to include. Do NOT extract prices, APA, dates or any detail — only identify the yachts.
+CONFIDENTIALITY: never include the agency/broker company name, any person name, email, phone or URL.
+For EACH distinct yacht return:
+- "name": the vessel name EXACTLY as written (e.g. "ChristAl MiO", "M/Y ALVIUM" -> "ALVIUM"; keep the real boat name, drop only the M/Y, S/Y, M/S prefix).
+- "line": a SHORT recognisable one-liner built ONLY from what is stated — type, length, year, guests/cabins (e.g. "MOTOR YACHT · 20m · 2020 · 10 guests · 5 cabins"). Omit any part not stated. Never invent.
+- "snippet": the exact short substring the name came from.
+List each yacht ONCE even if it is quoted for several periods. NEVER invent a yacht that is not offered.
+OUTPUT: a SINGLE JSON object, no markdown fences: {"yachts":[{"name":"","line":"","snippet":""}]}. If none are found, {"yachts":[]}.`;
+
+export type ScannedYacht = { name: string; line: string; snippet: string };
+
+/** Phase 1: list the yacht titles in one supplier email so George can pick. */
+export async function scanSupplierYachts(text: string): Promise<ScannedYacht[]> {
+  const userMsg = ["SUPPLIER EMAIL(S) - list every yacht offered:", "```", text, "```"].join("\n");
+  const raw = await aiChat(SCAN_SYSTEM, userMsg, { maxTokens: 8000, temperature: 0 });
+  let parsed: { yachts?: unknown };
+  try {
+    parsed = parseLooseJson(raw) as { yachts?: unknown };
+  } catch {
+    throw new Error("Could not read the yacht list from this email. Paste it again and press Scan.");
+  }
+  const arr = Array.isArray(parsed?.yachts) ? parsed.yachts : [];
+  const seen = new Set<string>();
+  const out: ScannedYacht[] = [];
+  for (const y of arr) {
+    const o = (y ?? {}) as Record<string, unknown>;
+    const name = String(o.name ?? "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase().replace(/\s+/g, " ");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      name,
+      line: String(o.line ?? "").trim().slice(0, 140),
+      snippet: String(o.snippet ?? "").trim().slice(0, 200),
+    });
+  }
+  return out;
+}
+
+/** Phase 2: full extraction for ONLY the yachts George picked, from that email.
+ *  Few yachts -> small output -> never truncates, so no chunking needed. */
+export async function extractPickedYachts(
+  text: string,
+  names: string[],
+  brief?: string,
+): Promise<CombinedExtraction> {
+  const picked = names.map((n) => n.trim()).filter(Boolean);
+  if (!picked.length) return { yachts: [] };
+  const pass = await extractYachtsOnce(text, brief, picked);
+  const out: CombinedExtraction = { yachts: mergeDuplicateYachts(pass.yachts) };
+  if (pass.suggested_charter_type) out.suggested_charter_type = pass.suggested_charter_type;
+  if (pass.suggested_terms) out.suggested_terms = pass.suggested_terms;
   return out;
 }

@@ -18,6 +18,7 @@ import HelmAgencyInquiry from "./HelmAgencyInquiry";
 import GmailImport from "./GmailImport";
 import { HelmFlow, Quiet } from "./HelmFlow";
 import SupplierReplies from "./SupplierReplies";
+import SupplierYachtPicker from "./SupplierYachtPicker";
 import { refCode } from "@/lib/helm/refcode";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
@@ -177,6 +178,9 @@ export default async function HelmDetailPage({
       {/* Gmail import — George picks the exact supplier emails; bodies land
           in supplier_raw below, PDF brochures are saved + read once. */}
       <div id="flow-yachts" />
+      {/* Two-phase picker: paste a supplier email → tick the yachts you want →
+          only those are extracted and added. Repeat per supplier. */}
+      <SupplierYachtPicker requestId={r.id} />
       <SupplierReplies requestId={r.id} />
       <GmailImport
         requestId={r.id}
