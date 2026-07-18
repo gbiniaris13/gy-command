@@ -2,7 +2,7 @@
 // Server component; reads via service-role.
 
 import Link from "next/link";
-import { getRequest, getMessages, isEmailOnNewsletter } from "@/lib/helm-admin";
+import { getRequestLight, getMessages, isEmailOnNewsletter } from "@/lib/helm-admin";
 import { phoneCountry } from "@/lib/phone-country";
 import StatusTransitions from "./StatusTransitions";
 import HelmDetailActions from "./HelmDetailActions";
@@ -61,7 +61,7 @@ export default async function HelmDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const r = await getRequest(id);
+  const r = await getRequestLight(id);
 
   if (!r) {
     return (

@@ -117,6 +117,25 @@ export async function getRequest(id: string) {
   return data;
 }
 
+// Every column EXCEPT proposal_json — which bakes the PDF's base64 images and
+// can be 20MB+. The request DETAIL page never reads proposal_json, so fetching
+// it on every page load transferred tens of MB and timed the page out on the
+// free-tier DB (2026-07-18: Christopher's 23MB row → "the desk could not load").
+const REQUEST_LIGHT_COLS =
+  "id,contact_id,status,client_name,client_email,client_whatsapp,brief,occasion,party_size,dates_from,dates_to,area,supplier_raw,mode,no_myba,show_ghost_credit,proposal_pdf_path,proposal_generated_at,vessel_photos,email_subject,email_intro,gmail_thread_id,gmail_last_message_id,last_activity_at,follow_up_at,won_reason,lost_reason,created_at,updated_at,client_title,client_surname,client_is_family,extraction,brochure_url,combined_media,request_type,central_agency_email,budget,special_requests,review_draft";
+
+/** getRequest without the heavy proposal_json — for the detail page. */
+export async function getRequestLight(id: string) {
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("helm_requests")
+    .select(REQUEST_LIGHT_COLS)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 /** Is this one email already a newsletter subscriber? (contacts.tags_v2 has
  *  "newsletter"). Best-effort; false on any error. Used on the request detail
  *  header so George sees at once whether the client is on the list. */
