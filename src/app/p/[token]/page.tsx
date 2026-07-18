@@ -160,7 +160,23 @@ export default async function SalonPage({
 
   return (
     <div className={`${cinzel.variable} ${cormorant.variable} ${montserrat.variable}`}>
-      <SalonClient view={view} />
+      <SalonClient view={deepNoDash(view)} />
     </div>
   );
+}
+
+// George's iron rule (2026-07-18): NO long dashes in anything a client reads —
+// em/en dashes read as AI-written. A short hyphen only. This sweeps every
+// string in the view once, at render, so existing editions are clean on a
+// refresh (no regenerate) and future ones stay clean regardless of source.
+// The view is text + URLs only (photos are URLs, never base64), so this is cheap.
+function deepNoDash<T>(v: T): T {
+  if (typeof v === "string") return v.replace(/[—–]/g, "-") as unknown as T;
+  if (Array.isArray(v)) return v.map((x) => deepNoDash(x)) as unknown as T;
+  if (v && typeof v === "object") {
+    const o: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v)) o[k] = deepNoDash(val);
+    return o as unknown as T;
+  }
+  return v;
 }

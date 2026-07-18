@@ -318,7 +318,7 @@ function cleanDateRange(input: string): string {
   if (parts.length === 2) {
     const a = cleanDate(parts[0]);
     const b = cleanDate(parts[1]);
-    if (a || b) return `${a} – ${b}`;
+    if (a || b) return `${a} - ${b}`;
   }
   return cleanDate(s) || s;
 }

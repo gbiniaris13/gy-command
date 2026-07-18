@@ -373,7 +373,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
             <div>
               {y.money.periods.map((po, k) => (
                 <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: HAIR, fontFamily: "var(--salon-ui)", fontSize: 13.5 }}>
-                  <span style={{ color: INK_DIM }}>{[po.label, po.dates].filter(Boolean).join(" · ")}{po.note ? ` — ${po.note}` : ""}</span>
+                  <span style={{ color: INK_DIM }}>{[po.label, po.dates].filter(Boolean).join(" · ")}{po.note ? ` - ${po.note}` : ""}</span>
                   <span style={{ color: INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{po.fee}</span>
                 </div>
               ))}
@@ -404,7 +404,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
               {y.payableAtBase.map((x) => `${x.label}: ${x.amount}`).join(" · ")}
               {y.payableAtBase.length > 0 && y.deposit ? " · " : ""}
               {y.deposit ? `Security deposit: ${y.deposit}` : ""}
-              <span style={{ display: "block", color: INK_FAINT, fontSize: 10.5, marginTop: 2 }}>Payable at base — not part of the charter fee.</span>
+              <span style={{ display: "block", color: INK_FAINT, fontSize: 10.5, marginTop: 2 }}>Payable at base, not part of the charter fee.</span>
             </p>
           )}
           {y.freeOnboard.length > 0 && (
@@ -425,7 +425,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         </div>
         {interested[y.name] && (
           <p style={{ fontFamily: "var(--salon-serif)", fontStyle: "italic", fontSize: 15, color: INK_DIM, marginTop: 12 }}>
-            Noted — George will confirm availability personally and come back to you the same day.
+            Noted. George will confirm availability personally and come back to you the same day.
           </p>
         )}
       </div>
@@ -470,16 +470,9 @@ export default function SalonClient({ view }: { view: SalonView }) {
           <a href={`${WA}${encodeURIComponent("Hello George, we have looked through the proposal and would like to talk.")}`}
             target="_blank" rel="noopener noreferrer" style={goldBtn} onClick={() => beacon("wa")}>WhatsApp George</a>
         </div>
-        {/* The PDF is the LAST resort by design (George: "αν πατήσουν
-            download PDF, είναι αποτυχία") — a whisper, not a button. */}
-        {view.hasPdf && (
-          <p style={{ marginTop: 26 }}>
-            <a href={`/p/${view.token}/pdf`} onClick={() => beacon("pdf")}
-              style={{ fontFamily: "var(--salon-ui)", fontSize: 10.5, color: INK_FAINT, textDecoration: "none", borderBottom: `1px solid rgba(23,38,58,0.2)` }}>
-              Prefer paper? Download the classic PDF
-            </a>
-          </p>
-        )}
+        {/* PDF removed from the client experience entirely (George 2026-07-18:
+            "το PDF το βγάζεις τελείως, χρησιμοποιούμε μόνο το περιοδικό"). The
+            magazine is the whole deliverable; no download link, no whisper. */}
         <div style={{ width: 54, height: 1, background: GOLD, margin: "56px auto 22px" }} />
         <p style={{ ...label, fontSize: 9, color: INK_FAINT, lineHeight: 2.2 }}>
           Confidential · prepared solely for the named recipient<br />
