@@ -279,7 +279,17 @@ export default async function HelmDetailPage({
 
       {/* after the proposal is sent: WhatsApp nudge, reply, follow up (in-thread, never auto) */}
       {r.gmail_thread_id && (() => {
-        const sentFollowups = messages.filter((m) => m.direction === "outbound" && (m.body ?? "").startsWith("[Follow-up")).length;
+        const followupMsgs = messages.filter((m) => (m.body ?? "").startsWith("[Follow-up"));
+        const sentFollowups = followupMsgs.length;
+        // History for the card: date + how it was done (an email we sent vs one
+        // George logged by hand). Newest first so the last touch reads at the top.
+        const followupHistory = followupMsgs
+          .map((m) => {
+            const b = m.body ?? "";
+            const hand = b.match(/\(logged by hand · ([^)]+)\)/);
+            return { at: m.created_at, how: hand ? hand[1] : "email", byHand: !!hand };
+          })
+          .sort((a, z) => (a.at < z.at ? 1 : -1));
         const hasInbound = messages.some((m) => m.direction === "inbound" && (m.body ?? "").trim());
         return (
           <>
@@ -294,7 +304,7 @@ export default async function HelmDetailPage({
                 hasInbound={hasInbound}
               />
             )}
-            <Quiet title="Follow-up" hint="draft the next nudge in the client's thread · never auto-sent">
+            <Quiet title="Follow-up" hint="log a follow-up you did · see the history · know when the next is due">
               <HelmFollowUp
                 requestId={r.id}
                 clientEmail={r.client_email ?? null}
@@ -302,6 +312,7 @@ export default async function HelmDetailPage({
                 nextNumber={sentFollowups + 1}
                 sentCount={sentFollowups}
                 followUpAt={r.follow_up_at ?? null}
+                history={followupHistory}
               />
             </Quiet>
           </>

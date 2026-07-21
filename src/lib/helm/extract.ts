@@ -223,12 +223,21 @@ export async function extractSupplier(
     .filter(Boolean)
     .join("\n");
 
-  const raw = await aiChat(SYSTEM_PROMPT, userMsg, { maxTokens: 4000, temperature: 0 });
+  // 24000: a thinking model spends tokens reasoning before it emits the JSON, so
+  // 4000 truncated a single yacht that carried rich brochure content (Errant
+  // Vagabond, 2026-07-18: "Extraction returned non-JSON: ```json {…" — a cut-off
+  // object). parseLooseJson already strips ``` fences; this gives it whole JSON.
+  const raw = await aiChat(SYSTEM_PROMPT, userMsg, { maxTokens: 24000, temperature: 0 });
   let parsed: Extraction;
   try {
     parsed = parseLooseJson(raw) as Extraction;
   } catch {
-    throw new Error(`Extraction returned non-JSON: ${raw.slice(0, 400)}`);
+    const looksCut = !raw.trimEnd().endsWith("}");
+    throw new Error(
+      looksCut
+        ? "The supplier email was too long to read in one pass. Use 'Add yachts from a supplier email' above (Scan, then pick) - it handles long, multi-yacht emails."
+        : `Extraction returned non-JSON: ${raw.slice(0, 400)}`,
+    );
   }
   if (!parsed.pricing) throw new Error("Extraction missing pricing block");
   if (!Array.isArray(parsed.flags)) parsed.flags = [];

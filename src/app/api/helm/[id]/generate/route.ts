@@ -24,6 +24,28 @@ export const runtime = "nodejs";
 // so allow more headroom than a single proposal.
 export const maxDuration = 120;
 
+// The proposal object carries base64 data-URI images (main/gallery/cover) purely
+// so buildProposalHtml can inline them into the PDF. Once the PDF is rendered and
+// uploaded, those bytes are dead weight - a full multi-yacht proposal_json ran to
+// 20MB+, which bloated the free Supabase row and made the magazine and the detail
+// page crawl. The Salon reads photos from combined_media (CDN URLs), text/pricing
+// from proposal_json, and NEVER these base64 fields; no route re-renders the PDF
+// from the stored json (the PDF is served from Storage). So we strip the base64
+// right before saving - the PDF already has it, nothing else needs it.
+// (Verified 2026-07-21: only generate/route.ts calls buildProposalHtml; salon.ts
+// + /p/[token] use combined_media URLs; cron/helm-followup reads only yacht names.)
+function stripBakedImages(proposal: Record<string, unknown>): void {
+  delete proposal.images;
+  const one = proposal.yacht as Record<string, unknown> | undefined;
+  if (one && typeof one === "object") { delete one.images; delete one.gallery; }
+  const many = proposal.yachts;
+  if (Array.isArray(many)) {
+    for (const y of many) {
+      if (y && typeof y === "object") { delete (y as Record<string, unknown>).images; delete (y as Record<string, unknown>).gallery; }
+    }
+  }
+}
+
 async function adminEmail(): Promise<string | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -732,6 +754,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const pdf = await renderProposalPdf(html);
       const path = await uploadProposalPdf(id, pdf);
       const combinedSubject = subjectWithRef(email_draft.subject, r.created_at);
+      stripBakedImages(proposal as unknown as Record<string, unknown>); // PDF is rendered+uploaded; base64 no longer needed
       await saveGenerated(id, {
         proposal_json: proposal,
         proposal_pdf_path: path,
@@ -889,6 +912,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const path = await uploadProposalPdf(id, pdf);
 
     const singleSubject = subjectWithRef(email_draft.subject, r.created_at);
+    stripBakedImages(proposal as unknown as Record<string, unknown>); // PDF is rendered+uploaded; base64 no longer needed
     await saveGenerated(id, {
       proposal_json: proposal,
       proposal_pdf_path: path,

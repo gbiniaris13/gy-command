@@ -55,6 +55,33 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const body = await req.json().catch(() => ({}));
   const action = body?.action;
 
+  // ---- LOG: George followed up himself (a call, WhatsApp, an email he wrote by
+  // hand) and just wants it on the record. One button. Records the follow-up so
+  // the count and the history are right, and pushes the next reminder out 5 days
+  // so the daily cron nudges him again only when the NEXT one is due. No email is
+  // sent - this only writes what already happened. ----
+  if (action === "log") {
+    const HOW: Record<string, string> = {
+      call: "phone call", whatsapp: "WhatsApp", email: "email",
+      person: "in person", other: "follow-up",
+    };
+    const how = HOW[(body?.how ?? "").toString()] || "follow-up";
+    const note = (body?.note ?? "").toString().trim();
+    const line = `[Follow-up ${followupNumber}] (logged by hand · ${how})${note ? `\n\n${note}` : ""}`;
+    try {
+      await logHelmMessage(id, { direction: "outbound", channel: "note", body: line });
+      const nextDue = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+      const db = createServiceClient();
+      await db
+        .from("helm_requests")
+        .update({ follow_up_at: nextDue, last_activity_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", id);
+      return NextResponse.json({ ok: true, logged: 1, followupNumber, nextDue });
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    }
+  }
+
   // ---- GENERATE: compose an editable draft (no send, no DB write) ----
   if (action === "generate") {
     try {
