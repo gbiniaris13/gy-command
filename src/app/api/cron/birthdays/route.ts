@@ -101,6 +101,22 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
   try {
     const supabase = createServiceClient();
 
+    // George 2026-07-21: wishes to clients are PERSONAL. Default is notify
+    // mode — the occasions-digest cron mails George the day's occasions with
+    // ready drafts and HE sends each one himself. This cron auto-sends only
+    // if he ever flips settings.greetings_mode = "auto".
+    const { data: mode } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "greetings_mode")
+      .maybeSingle();
+    if (mode?.value !== "auto") {
+      return NextResponse.json({
+        ok: true,
+        skipped: "notify mode — occasions-digest informs George, he sends personally. Set greetings_mode=auto to re-enable auto-send.",
+      });
+    }
+
     const now = new Date();
     const month = String(now.getMonth() + 1).padStart(2, "0");
     const day = String(now.getDate()).padStart(2, "0");
