@@ -6,6 +6,7 @@
 // trigger it only after George confirms.
 
 import { gmailFetch } from "@/lib/google-api";
+import { registerTrackedEmail, instrumentHtml } from "@/lib/email-tracking";
 
 export type Attachment = { filename: string; mimeType: string; base64: string };
 
@@ -58,11 +59,15 @@ export function buildRawEmail(args: {
   inReplyTo?: string;
   attachments?: Attachment[];
   signatureHtml?: string;
+  // 2026-07-23 tracking: applied to the HTML alternative only, so the
+  // text/plain part stays byte-identical to what George wrote.
+  htmlTransform?: (html: string) => string;
 }): string {
   const alt = "alt_" + Math.random().toString(36).slice(2);
   const sig = args.signatureHtml?.trim() ? args.signatureHtml : "";
   const textBody = sig ? `${args.body}\n\n${htmlToText(sig)}` : args.body;
-  const htmlBody = `${args.body.replace(/\n/g, "<br>")}${sig ? `<br><br>${sig}` : ""}`;
+  let htmlBody = `${args.body.replace(/\n/g, "<br>")}${sig ? `<br><br>${sig}` : ""}`;
+  if (args.htmlTransform) htmlBody = args.htmlTransform(htmlBody);
   const altBlock = [
     `Content-Type: multipart/alternative; boundary="${alt}"`,
     "",
@@ -121,7 +126,19 @@ export async function createHelmDraft(args: {
   inReplyTo?: string;
 }): Promise<{ draftId: string }> {
   const signatureHtml = await getGmailSignature();
-  const raw = buildRawEmail({ ...args, signatureHtml });
+  // Tracking rides inside the draft's HTML, so when George presses Send in
+  // Gmail the pixel + tracked links go with it — his manual sends report
+  // back too, with zero change to his workflow.
+  const token = await registerTrackedEmail({
+    source: "helm-draft",
+    recipient: args.to,
+    subject: args.subject,
+  });
+  const raw = buildRawEmail({
+    ...args,
+    signatureHtml,
+    ...(token ? { htmlTransform: (h: string) => instrumentHtml(h, token) } : {}),
+  });
   const message: Record<string, string> = { raw };
   if (args.threadId) message.threadId = args.threadId;
   const res = await gmailFetch("/drafts", {
@@ -142,7 +159,16 @@ export async function sendHelmEmail(args: {
   attachments?: Attachment[];
 }): Promise<{ messageId: string; threadId: string }> {
   const signatureHtml = await getGmailSignature();
-  const raw = buildRawEmail({ ...args, signatureHtml });
+  const token = await registerTrackedEmail({
+    source: "helm",
+    recipient: args.to,
+    subject: args.subject,
+  });
+  const raw = buildRawEmail({
+    ...args,
+    signatureHtml,
+    ...(token ? { htmlTransform: (h: string) => instrumentHtml(h, token) } : {}),
+  });
   const sendBody: Record<string, string> = { raw };
   if (args.threadId) sendBody.threadId = args.threadId;
   const res = await gmailFetch("/messages/send", { method: "POST", body: JSON.stringify(sendBody) });

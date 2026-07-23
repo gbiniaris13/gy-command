@@ -14,13 +14,15 @@ import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
 import { refreshContactInbox } from "@/lib/inbox-analyzer";
 import { extractCommitments } from "@/lib/commitment-extractor";
+import { registerTrackedEmail, instrumentHtml } from "@/lib/email-tracking";
 
 function createRawEmail(
   to: string,
   subject: string,
   body: string,
   threadId?: string,
-  inReplyTo?: string
+  inReplyTo?: string,
+  trackingToken?: string | null
 ): string {
   const boundary = "boundary_" + Date.now();
   const lines: string[] = [
@@ -35,13 +37,18 @@ function createRawEmail(
     lines.push(`References: ${inReplyTo}`);
   }
 
+  // 2026-07-23 tracking: pixel + tracked links on the HTML alternative only;
+  // the text/plain part stays exactly what George wrote.
+  let htmlPart = body.replace(/\n/g, "<br>");
+  if (trackingToken) htmlPart = instrumentHtml(htmlPart, trackingToken);
+
   lines.push("", `--${boundary}`);
   lines.push("Content-Type: text/plain; charset=UTF-8", "", body);
   lines.push(
     `--${boundary}`,
     "Content-Type: text/html; charset=UTF-8",
     "",
-    body.replace(/\n/g, "<br>")
+    htmlPart
   );
   lines.push(`--${boundary}--`);
 
@@ -138,7 +145,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const raw = createRawEmail(to, subject ?? "", body, threadId, inReplyTo);
+    const trackingToken = await registerTrackedEmail({
+      source: "cabin",
+      recipient: to,
+      subject: subject ?? "",
+    });
+    const raw = createRawEmail(to, subject ?? "", body, threadId, inReplyTo, trackingToken);
 
     const sendBody: Record<string, string> = { raw };
     if (threadId) {
