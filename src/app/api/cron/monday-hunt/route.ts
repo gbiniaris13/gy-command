@@ -88,7 +88,7 @@ function rawEmail(to: string, subject: string, body: string): string {
 
 async function emailGeorge(subject: string, body: string): Promise<boolean> {
   try {
-    const res = await gmailFetch("users/me/messages/send", {
+    const res = await gmailFetch("/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ raw: rawEmail(GEORGE_EMAIL, subject, body) }),
