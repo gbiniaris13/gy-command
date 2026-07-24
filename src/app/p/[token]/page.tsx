@@ -29,9 +29,28 @@ const cinzel = Cinzel({ subsets: ["latin"], weight: ["400", "700"], variable: "-
 const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["400", "500", "600"], style: ["normal", "italic"], variable: "--salon-serif" });
 const montserrat = Montserrat({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--salon-ui" });
 
+// 2026-07-24 George, after sharing a Salon link on WhatsApp: the preview
+// pulled the ROOT app metadata ("Command Center ... CRM and operations
+// hub") plus a black placeholder icon - the client must never see CRM
+// wording. The link now presents like the magazine itself: the private-
+// selection title, a line in the house voice, and the site's branded
+// navy-and-gold Forbes card as the image.
+const SALON_TITLE = "A Private Charter Selection · George Yachts";
+const SALON_DESC =
+  "Your yachts, itineraries and pricing, prepared personally by George P. Biniaris. Boutique crewed charter, Greek waters exclusively.";
+
 export const metadata: Metadata = {
-  title: "A Private Charter Selection · George Yachts",
+  title: SALON_TITLE,
+  description: SALON_DESC,
   robots: { index: false, follow: false },
+  openGraph: {
+    title: SALON_TITLE,
+    description: SALON_DESC,
+    siteName: "George Yachts Brokerage House",
+    type: "website",
+    images: [{ url: "https://georgeyachts.com/opengraph-image", width: 1200, height: 630 }],
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 /** Convert a pasted video URL into something embeddable. */

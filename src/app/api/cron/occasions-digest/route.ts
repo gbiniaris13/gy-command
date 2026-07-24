@@ -5,6 +5,7 @@ import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
 import { greetingName, properCaseName } from "@/lib/greetings";
 import { nationalDaysToday } from "@/lib/national-days";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 // Occasions Digest — the "keep every guest alive all year" engine
 // (George 2026-07-21). Every morning at 08:30 Athens it:
@@ -35,7 +36,8 @@ function rawEmail(to: string, subject: string, body: string): string {
   const lines = [
     `From: GY Command <${GEORGE_EMAIL}>`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    // RFC 2047 - raw emoji in a Subject header mojibakes in Gmail.
+    `Subject: ${encodeHeaderWord(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset=UTF-8`,
     "",

@@ -1,11 +1,14 @@
 // GET /api/t/o?t=TOKEN — the open pixel.
 // Returns a 1x1 transparent GIF always (even on bad tokens) and logs the
 // open. First real open per email → instant report email to George.
-// Opens within 12s of send are ignored (Gmail's own send-time image fetch).
+// Opens within DELIVERY_GRACE_MS of send are ignored: Gmail's proxy
+// prefetches images at DELIVERY (fired a false "opened" seconds after
+// George's first real send, 2026-07-24), and the send-time fetch lives in
+// the same window.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { emailGeorgeReport, athensTime } from "@/lib/email-tracking";
+import { emailGeorgeReport, athensTime, DELIVERY_GRACE_MS } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     const now = new Date();
     const sentMs = Date.parse(row.sent_at);
-    if (Number.isFinite(sentMs) && now.getTime() - sentMs < 12_000) return gif();
+    if (Number.isFinite(sentMs) && now.getTime() - sentMs < DELIVERY_GRACE_MS) return gif();
 
     const isFirst = !row.first_open_at;
     await sb
@@ -61,10 +64,10 @@ export async function GET(req: NextRequest) {
         `Opened:  ${athensTime(now.toISOString())} (Athens)`,
         `Via:     ${row.source}`,
         ``,
-        `Further opens and clicks are counted silently — the evening digest has the totals.`,
+        `Further opens and clicks are counted silently - the evening digest has the totals.`,
       ].join("\n");
       await emailGeorgeReport(
-        `\u{1F4EC} Opened: ${(row.subject || "(no subject)").slice(0, 60)} — ${row.recipient || ""}`,
+        `\u{1F4EC} Opened: ${(row.subject || "(no subject)").slice(0, 60)} - ${row.recipient || ""}`,
         body,
       );
     }

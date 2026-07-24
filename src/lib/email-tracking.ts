@@ -109,12 +109,27 @@ export function instrumentHtml(html: string, token: string): string {
   return `${out}${pixel}`;
 }
 
+// Delivery-time noise window. Gmail's image proxy PREFETCHES images the
+// moment a message lands in a Gmail inbox (and link scanners probe URLs on
+// arrival), which fired a false "opened 0 minutes ago" on George's first
+// real Helm send (2026-07-24, Mr. Dahan). Hits inside this window after
+// send are machines, not humans - ignored for opens AND clicks.
+export const DELIVERY_GRACE_MS = 120_000;
+
+// RFC 2047 encoding for header values. Raw UTF-8 (emoji included) in a
+// Subject header is mojibake roulette - George's first notification
+// rendered as "Ã°ÂŸÂ“Â¬". Base64 word-encoding is what Gmail itself emits.
+export function encodeHeaderWord(s: string): string {
+  if (/^[\x20-\x7e]*$/.test(s)) return s;
+  return `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
+}
+
 // Minimal raw email builder for the notification reports back to George.
 function rawEmail(subject: string, body: string): string {
   const lines = [
     `From: GY Command <${GEORGE_EMAIL}>`,
     `To: ${GEORGE_EMAIL}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
     "",

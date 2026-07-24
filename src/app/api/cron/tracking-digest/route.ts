@@ -55,7 +55,7 @@ async function _impl(req: NextRequest): Promise<Response> {
   }
 
   const lines: string[] = [
-    `Good evening George — email tracking, last 24 hours.`,
+    `Good evening George - email tracking, last 24 hours.`,
     ``,
   ];
 
@@ -63,7 +63,7 @@ async function _impl(req: NextRequest): Promise<Response> {
     lines.push(`ACTIVITY (${act.length})`);
     for (const r of act) {
       lines.push(
-        `  ${r.recipient || "unknown"} — "${(r.subject || "").slice(0, 60)}"`,
+        `  ${r.recipient || "unknown"} - "${(r.subject || "").slice(0, 60)}"`,
         `    opens: ${r.open_count}${r.first_open_at ? ` (first ${athensTime(r.first_open_at)})` : ""}` +
           `${r.click_count ? `  ·  clicks: ${r.click_count} → ${r.last_click_url || ""}` : ""}`,
       );
@@ -72,14 +72,14 @@ async function _impl(req: NextRequest): Promise<Response> {
   }
 
   if (cold.length) {
-    lines.push(`STILL UNOPENED — sent in the last 3 days (${cold.length})`);
+    lines.push(`STILL UNOPENED - sent in the last 3 days (${cold.length})`);
     for (const r of cold) {
-      lines.push(`  ${r.recipient || "unknown"} — "${(r.subject || "").slice(0, 60)}" · sent ${athensTime(r.sent_at)}`);
+      lines.push(`  ${r.recipient || "unknown"} - "${(r.subject || "").slice(0, 60)}" · sent ${athensTime(r.sent_at)}`);
     }
     lines.push("", `These are your follow-up candidates.`);
   }
 
-  lines.push("", `All times Athens. Counted by our own tracker — no third parties.`);
+  lines.push("", `All times Athens. Counted by our own tracker, no third parties.`);
 
   const emailed = await emailGeorgeReport(
     `\u{1F4CA} Email tracking: ${act.length} active, ${cold.length} unopened`,

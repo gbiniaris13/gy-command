@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { verifyClick, emailGeorgeReport, athensTime } from "@/lib/email-tracking";
+import { verifyClick, emailGeorgeReport, athensTime, DELIVERY_GRACE_MS } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,7 +47,15 @@ export async function GET(req: NextRequest) {
       .eq("token", token)
       .maybeSingle();
 
-    if (row) {
+    // Mail security scanners (Outlook SafeLinks, Gmail) probe links at
+    // delivery - same false-positive class as the image prefetch. Clicks
+    // inside the grace window redirect but never count or notify.
+    const inGrace =
+      row?.sent_at != null &&
+      Number.isFinite(Date.parse(row.sent_at)) &&
+      Date.now() - Date.parse(row.sent_at) < DELIVERY_GRACE_MS;
+
+    if (row && !inGrace) {
       const now = new Date().toISOString();
       const isFirst = !row.first_click_at;
       await sb
@@ -71,7 +79,7 @@ export async function GET(req: NextRequest) {
           `Via:     ${row.source}`,
         ].join("\n");
         await emailGeorgeReport(
-          `\u{1F517} Clicked: ${(row.subject || "(no subject)").slice(0, 60)} — ${row.recipient || ""}`,
+          `\u{1F517} Clicked: ${(row.subject || "(no subject)").slice(0, 60)} - ${row.recipient || ""}`,
           body,
         );
       }

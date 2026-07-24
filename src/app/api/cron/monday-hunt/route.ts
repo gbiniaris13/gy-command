@@ -3,6 +3,7 @@ import { getGSCAccessToken } from "@/lib/google-intel";
 import { getAccessToken, gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 // Monday Hunt — the weekly hunting report (George 2026-07-21: "Κάθε Δευτέρα:
 // GSC θέσεις + ποιες λέξεις ανεβαίνουν + τι άρθρο/σελίδα χτυπάω την εβδομάδα").
@@ -77,7 +78,9 @@ function rawEmail(to: string, subject: string, body: string): string {
   const lines = [
     `From: GY Command <${GEORGE_EMAIL}>`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    // RFC 2047: emoji/non-ASCII in a raw Subject header renders as
+    // mojibake ("Ã°ÂŸ...") in Gmail - seen live on the tracker 24/7.
+    `Subject: ${encodeHeaderWord(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset=UTF-8`,
     "",
