@@ -10,7 +10,7 @@
 // (reduced-motion falls back to a fade). Every page scrolls vertically
 // inside itself when taller than the screen (phones).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type SalonYachtView = {
   name: string;
@@ -87,6 +87,12 @@ export default function SalonClient({ view }: { view: SalonView }) {
   const leafTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchX = useRef<number | null>(null);
   const pageRef = useRef<HTMLDivElement | null>(null);
+  // 2026-07-23 George: "ο πελάτης δεν ξέρει ότι μπορεί να κάνει scroll down" —
+  // on pages taller than the screen (every yacht spread), show a quiet gold
+  // scroll cue until the reader scrolls. Measured per page, twice more after
+  // mount so late-loading photos are counted; hidden the moment they scroll.
+  const [pageScrolled, setPageScrolled] = useState(false);
+  const [pageOverflows, setPageOverflows] = useState(false);
 
   function beacon(t: string, y?: string) {
     try {
@@ -105,6 +111,25 @@ export default function SalonClient({ view }: { view: SalonView }) {
     beacon("view");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Scroll-cue lifecycle: reset + measure on every page turn, before paint so
+  // a short page never flashes the cue. Re-measure after photos land.
+  useLayoutEffect(() => {
+    setPageScrolled(false);
+    const measure = () => {
+      const el = pageRef.current;
+      if (el) setPageOverflows(el.scrollHeight > el.clientHeight + 32);
+    };
+    measure();
+    const t1 = setTimeout(measure, 450);
+    const t2 = setTimeout(measure, 1400);
+    window.addEventListener("resize", measure);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      window.removeEventListener("resize", measure);
+    };
+  }, [page]);
 
   // ---- page plan: cover, letter, glance?, yachts…, weeks…, closing ----
   const hasGlance = view.yachts.length >= 3;
@@ -644,6 +669,31 @@ export default function SalonClient({ view }: { view: SalonView }) {
           .salon-leaf.next, .salon-leaf.prev, .salon-leaf.next::after, .salon-leaf.prev::after { animation-duration: 0.01s; }
           .salon-under { animation: none; }
         }
+        /* Scroll cue — a whisper, not a banner: small caps in the house gold
+           over a hairline with a slowly falling dot. Appears only while the
+           page has unseen content below the fold; the first scroll ends it. */
+        .salon-scrollcue { position: fixed; left: 50%; transform: translateX(-50%); bottom: 58px; z-index: 6;
+          background: rgba(251,250,246,0.88); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+          border: 1px solid rgba(168,135,59,0.32); border-radius: 14px;
+          box-shadow: 0 2px 14px rgba(23,38,58,0.10); cursor: pointer; display: flex; flex-direction: column;
+          align-items: center; gap: 7px; padding: 9px 20px 7px; animation: salonCueIn 0.7s ease 0.5s both; }
+        .salon-scrollcue-label { font-family: var(--salon-ui); font-size: 8.5px; font-weight: 600;
+          letter-spacing: 0.34em; text-transform: uppercase; color: ${GOLD}; white-space: nowrap; }
+        .salon-scrollcue-line { width: 1px; height: 26px; background: rgba(168,135,59,0.32);
+          position: relative; overflow: hidden; display: block; }
+        .salon-scrollcue-dot { position: absolute; left: -1.5px; top: -5px; width: 4px; height: 4px;
+          border-radius: 50%; background: ${GOLD}; animation: salonCueDrift 2.2s cubic-bezier(0.4,0,0.6,1) infinite; }
+        @keyframes salonCueDrift {
+          0% { transform: translateY(0); opacity: 0; }
+          18% { opacity: 1; }
+          72% { opacity: 1; }
+          100% { transform: translateY(32px); opacity: 0; }
+        }
+        @keyframes salonCueIn { from { opacity: 0; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) {
+          .salon-scrollcue { animation: none; }
+          .salon-scrollcue-dot { animation: none; top: 11px; }
+        }
       `}</style>
 
       <div
@@ -651,6 +701,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         key={page}
         className={leaf !== null ? "salon-under" : undefined}
         style={{ height: "100%", overflowY: "auto", WebkitOverflowScrolling: "touch", background: PAPER }}
+        onScroll={(e) => { if (!pageScrolled && e.currentTarget.scrollTop > 48) setPageScrolled(true); }}
         onTouchStart={(e) => { touchX.current = e.touches[0].clientX; }}
         onTouchEnd={(e) => {
           if (touchX.current === null) return;
@@ -688,6 +739,26 @@ export default function SalonClient({ view }: { view: SalonView }) {
         <button type="button" onClick={() => go(1)} disabled={page === last} aria-label="Next page"
           style={{ pointerEvents: "auto", background: "none", border: "none", cursor: page === last ? "default" : "pointer", color: page === last ? INK_FAINT : INK, fontSize: 26, lineHeight: 1, padding: "4px 14px" }}>›</button>
       </div>
+
+      {/* scroll cue — only while this page still hides content below the fold */}
+      {pageOverflows && !pageScrolled && leaf === null && !lightbox && page !== 0 && (
+        <button
+          type="button"
+          className="salon-scrollcue"
+          aria-label="Scroll down for the full details"
+          onClick={() => {
+            const el = pageRef.current;
+            if (el) el.scrollBy({ top: Math.round(el.clientHeight * 0.72), behavior: "smooth" });
+          }}
+        >
+          <span className="salon-scrollcue-label">
+            {pages[page].kind === "yacht" ? "Scroll · the full dossier" : "Scroll · there is more"}
+          </span>
+          <span className="salon-scrollcue-line" aria-hidden>
+            <span className="salon-scrollcue-dot" />
+          </span>
+        </button>
+      )}
 
       {/* first-page hint */}
       {page === 0 && (
