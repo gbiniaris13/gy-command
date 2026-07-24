@@ -25,9 +25,13 @@ import { gmailFetch } from "@/lib/google-api";
 const GEORGE_EMAIL = "george@georgeyachts.com";
 
 export function trackingBaseUrl(): string {
+  // 2026-07-23 George: tracking links ride on our own domain, not
+  // vercel.app — vercel.app URLs in emails read as infrastructure and
+  // cost spam-score points. command.georgeyachts.com was already
+  // attached to this project, so no new domain and no extra build.
   return (
     process.env.TRACKING_BASE_URL ||
-    "https://gy-command.vercel.app"
+    "https://command.georgeyachts.com"
   ).replace(/\/+$/, "");
 }
 
