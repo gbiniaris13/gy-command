@@ -1,14 +1,13 @@
 // GET /api/t/o?t=TOKEN — the open pixel.
-// Returns a 1x1 transparent GIF always (even on bad tokens) and logs the
-// open. First real open per email → instant report email to George.
-// Opens within DELIVERY_GRACE_MS of send are ignored: Gmail's proxy
-// prefetches images at DELIVERY (fired a false "opened" seconds after
-// George's first real send, 2026-07-24), and the send-time fetch lives in
-// the same window.
+// Returns a 1x1 transparent GIF always (even on bad tokens). Every hit is
+// LOGGED to email_tracking_hits with a verdict (human / prefetch / bot /
+// apple-mpp — see classifyOpen); only a HUMAN open updates the counters and
+// notifies George. HubSpot-grade filtering, per hit, because our volume
+// affords the full audit trail.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { emailGeorgeReport, athensTime, DELIVERY_GRACE_MS } from "@/lib/email-tracking";
+import { emailGeorgeReport, athensTime, classifyOpen } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,8 +39,29 @@ export async function GET(req: NextRequest) {
     if (!row) return gif();
 
     const now = new Date();
+    const userAgent = req.headers.get("user-agent");
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      null;
     const sentMs = Date.parse(row.sent_at);
-    if (Number.isFinite(sentMs) && now.getTime() - sentMs < DELIVERY_GRACE_MS) return gif();
+
+    const verdict = classifyOpen({
+      userAgent,
+      sentAtMs: Number.isFinite(sentMs) ? sentMs : null,
+      nowMs: now.getTime(),
+    });
+
+    // Full audit trail — every hit, every verdict. Never blocks the pixel.
+    await sb.from("email_tracking_hits").insert({
+      token,
+      kind: "open",
+      user_agent: (userAgent || "").slice(0, 400),
+      ip,
+      verdict,
+    });
+
+    if (verdict !== "human") return gif();
 
     const isFirst = !row.first_open_at;
     await sb
@@ -64,6 +84,7 @@ export async function GET(req: NextRequest) {
         `Opened:  ${athensTime(now.toISOString())} (Athens)`,
         `Via:     ${row.source}`,
         ``,
+        `Machine fetches (Gmail prefetch, scanners, Apple proxy) are filtered out - this one classified as a real reader.`,
         `Further opens and clicks are counted silently - the evening digest has the totals.`,
       ].join("\n");
       await emailGeorgeReport(

@@ -1,10 +1,13 @@
 // GET /api/t/c?t=TOKEN&u=BASE64URL&s=HMAC — click logger + redirect.
 // The HMAC (keyed on CRON_SECRET) binds token+URL so this cannot be used
-// as an open redirect. First click per email → instant report to George.
+// as an open redirect. Every hit is LOGGED with a verdict (human /
+// prefetch / bot — see classifyClick, incl. the 8s burst rule that catches
+// scanners walking every link); only a HUMAN click counts and notifies.
+// The redirect is always served — filtering never breaks the reader's link.
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { verifyClick, emailGeorgeReport, athensTime, DELIVERY_GRACE_MS } from "@/lib/email-tracking";
+import { verifyClick, emailGeorgeReport, athensTime, classifyClick } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,41 +50,74 @@ export async function GET(req: NextRequest) {
       .eq("token", token)
       .maybeSingle();
 
-    // Mail security scanners (Outlook SafeLinks, Gmail) probe links at
-    // delivery - same false-positive class as the image prefetch. Clicks
-    // inside the grace window redirect but never count or notify.
-    const inGrace =
-      row?.sent_at != null &&
-      Number.isFinite(Date.parse(row.sent_at)) &&
-      Date.now() - Date.parse(row.sent_at) < DELIVERY_GRACE_MS;
+    if (row) {
+      const now = Date.now();
+      const userAgent = req.headers.get("user-agent");
+      const ip =
+        req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        req.headers.get("x-real-ip") ||
+        null;
+      const sentMs = Date.parse(row.sent_at);
 
-    if (row && !inGrace) {
-      const now = new Date().toISOString();
-      const isFirst = !row.first_click_at;
-      await sb
-        .from("email_tracking")
-        .update({
-          click_count: (row.click_count || 0) + 1,
-          last_click_at: now,
-          last_click_url: url.slice(0, 800),
-          ...(isFirst ? { first_click_at: now, click_notified: true } : {}),
-        })
-        .eq("id", row.id);
+      // Burst rule needs the most recent prior click on this token.
+      const { data: prev } = await sb
+        .from("email_tracking_hits")
+        .select("at, url")
+        .eq("token", token)
+        .eq("kind", "click")
+        .order("at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (isFirst && !row.click_notified) {
-        const body = [
-          `A link in your email was just clicked.`,
-          ``,
-          `To:      ${row.recipient || "unknown"}`,
-          `Subject: ${row.subject || "(no subject)"}`,
-          `Clicked: ${url}`,
-          `At:      ${athensTime(now)} (Athens)`,
-          `Via:     ${row.source}`,
-        ].join("\n");
-        await emailGeorgeReport(
-          `\u{1F517} Clicked: ${(row.subject || "(no subject)").slice(0, 60)} - ${row.recipient || ""}`,
-          body,
-        );
+      const verdict = classifyClick({
+        userAgent,
+        sentAtMs: Number.isFinite(sentMs) ? sentMs : null,
+        nowMs: now,
+        prevClick: prev
+          ? { atMs: Date.parse(prev.at), url: prev.url ?? null }
+          : null,
+        url,
+      });
+
+      await sb.from("email_tracking_hits").insert({
+        token,
+        kind: "click",
+        user_agent: (userAgent || "").slice(0, 400),
+        ip,
+        url: url.slice(0, 800),
+        verdict,
+      });
+
+      if (verdict === "human") {
+        const nowIso = new Date(now).toISOString();
+        const isFirst = !row.first_click_at;
+        await sb
+          .from("email_tracking")
+          .update({
+            click_count: (row.click_count || 0) + 1,
+            last_click_at: nowIso,
+            last_click_url: url.slice(0, 800),
+            ...(isFirst ? { first_click_at: nowIso, click_notified: true } : {}),
+          })
+          .eq("id", row.id);
+
+        if (isFirst && !row.click_notified) {
+          const body = [
+            `A link in your email was just clicked.`,
+            ``,
+            `To:      ${row.recipient || "unknown"}`,
+            `Subject: ${row.subject || "(no subject)"}`,
+            `Clicked: ${url}`,
+            `At:      ${athensTime(nowIso)} (Athens)`,
+            `Via:     ${row.source}`,
+            ``,
+            `Scanner and prefetch clicks are filtered out - this one classified as a real reader.`,
+          ].join("\n");
+          await emailGeorgeReport(
+            `\u{1F517} Clicked: ${(row.subject || "(no subject)").slice(0, 60)} - ${row.recipient || ""}`,
+            body,
+          );
+        }
       }
     }
   } catch (err) {

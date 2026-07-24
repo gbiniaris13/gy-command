@@ -116,6 +116,93 @@ export function instrumentHtml(html: string, token: string): string {
 // send are machines, not humans - ignored for opens AND clicks.
 export const DELIVERY_GRACE_MS = 120_000;
 
+// ── Hit classification, v2 (2026-07-24) ─────────────────────────────────
+// George: "don't stop at the 2-minute window - see what HubSpot does and
+// beat it". HubSpot layers a known-bot list over custom rules; GMass and
+// Postmark add User-Agent + timing signatures. We do all three, per hit:
+//
+//   prefetch   inside DELIVERY_GRACE_MS of send (Gmail/Apple load-on-
+//              delivery, link scanners probing on arrival)
+//   bot        security-scanner / script User-Agent, an EMPTY User-Agent,
+//              or a click BURST (two different links inside 8s - scanners
+//              walk every link at machine speed; humans do not)
+//   apple-mpp  Apple Mail Privacy Protection: Apple's proxy preloads every
+//              image and serves later opens from its own cache, so the
+//              true open state of an Apple-proxied recipient is unknowable
+//              by design. Counted apart, never notified as a human open.
+//   human      everything else - including Gmail's GoogleImageProxy AFTER
+//              the grace window, which is how a real Gmail display fetches.
+//
+// Only `human` updates counts and triggers notifications.
+export type HitVerdict = "human" | "prefetch" | "bot" | "apple-mpp";
+
+const BOT_UA = new RegExp(
+  [
+    "barracuda", "proofpoint", "mimecast", "symantec", "messagelabs",
+    "trendmicro", "forcepoint", "sophos", "fireeye", "paloalto",
+    "python-requests", "python/", "\\bcurl\\b", "\\bwget\\b",
+    "go-http-client", "\\bjava/", "okhttp", "libwww", "httpclient",
+    "headlesschrome", "phantomjs", "\\bbot\\b", "spider", "crawler",
+    "urlscan", "scanner", "validator", "monitoring", "preview\\b",
+  ].join("|"),
+  "i",
+);
+
+// Apple's MPP proxy identifies itself with a bare "Mozilla/5.0" and
+// nothing else (documented by Postmark/Bloomreach).
+function isAppleMpp(ua: string): boolean {
+  return ua.trim() === "Mozilla/5.0";
+}
+
+export function classifyOpen(args: {
+  userAgent: string | null;
+  sentAtMs: number | null;
+  nowMs: number;
+}): HitVerdict {
+  const ua = (args.userAgent || "").trim();
+  if (
+    args.sentAtMs != null &&
+    Number.isFinite(args.sentAtMs) &&
+    args.nowMs - args.sentAtMs < DELIVERY_GRACE_MS
+  ) {
+    return "prefetch";
+  }
+  if (!ua) return "bot";
+  if (BOT_UA.test(ua)) return "bot";
+  if (isAppleMpp(ua)) return "apple-mpp";
+  return "human";
+}
+
+export function classifyClick(args: {
+  userAgent: string | null;
+  sentAtMs: number | null;
+  nowMs: number;
+  // The most recent PRIOR click hit for this token, any verdict.
+  prevClick: { atMs: number; url: string | null } | null;
+  url: string;
+}): HitVerdict {
+  const ua = (args.userAgent || "").trim();
+  if (
+    args.sentAtMs != null &&
+    Number.isFinite(args.sentAtMs) &&
+    args.nowMs - args.sentAtMs < DELIVERY_GRACE_MS
+  ) {
+    return "prefetch";
+  }
+  if (!ua) return "bot";
+  if (BOT_UA.test(ua)) return "bot";
+  // Burst rule: a second DIFFERENT link inside 8 seconds is a scanner
+  // walking the link list, not a reader.
+  if (
+    args.prevClick &&
+    args.nowMs - args.prevClick.atMs < 8_000 &&
+    args.prevClick.url !== args.url
+  ) {
+    return "bot";
+  }
+  return "human";
+}
+
 // RFC 2047 encoding for header values. Raw UTF-8 (emoji included) in a
 // Subject header is mojibake roulette - George's first notification
 // rendered as "Ã°ÂŸÂ“Â¬". Base64 word-encoding is what Gmail itself emits.
