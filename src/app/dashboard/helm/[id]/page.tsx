@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { getRequestLight, getMessages, isEmailOnNewsletter } from "@/lib/helm-admin";
 import { phoneCountry } from "@/lib/phone-country";
+import { isFlexibleWindow, readPipeline } from "@/lib/helm/pipeline";
 import StatusTransitions from "./StatusTransitions";
 import HelmDetailActions from "./HelmDetailActions";
 import GeneratePanel from "./GeneratePanel";
@@ -82,6 +83,15 @@ export default async function HelmDetailPage({
   const onNewsletter = await isEmailOnNewsletter(r.client_email);
   const nights = nightsBetween(r.dates_from, r.dates_to);
   const isDay = nights !== null && nights <= 1;
+  // 2026-07-24: a 10+ night span is a flexible WINDOW ("a week in August"),
+  // not the charter length - never claim "29 nights" for it.
+  const flexWindow = isFlexibleWindow(nights);
+  const wantedNights = readPipeline(r.extraction).wanted_nights ?? null;
+  const durationLine = isDay
+    ? "day charter"
+    : flexWindow
+      ? `flexible window · wants ${wantedNights ?? "?"} nights${wantedNights ? ` / ${wantedNights + 1} days` : ""}`
+      : nights ? `${nights} nights / ${nights + 1} days` : "";
   const year = r.dates_from ? new Date(r.dates_from).getUTCFullYear() : null;
   const futureYear = !!year && year > new Date().getFullYear();
   const proposalKind = r.mode === "combined" ? "Multiple yachts" : r.mode === "single" ? "Single yacht" : null;
@@ -152,7 +162,7 @@ export default async function HelmDetailPage({
                 {year && (
                   <span style={{ marginLeft: 8, display: "inline-block", fontSize: 10.5, fontWeight: 700, padding: "1px 8px", borderRadius: 999, background: futureYear ? "#C9A84C" : "rgba(13,27,42,0.08)", color: futureYear ? "#0D1B2A" : "#6b7280" }}>{year}</span>
                 )}
-                <span style={{ marginLeft: 8, fontSize: 11.5, color: "#9CA3AF" }}>{isDay ? "day charter" : nights ? `${nights} nights` : ""}</span>
+                <span style={{ marginLeft: 8, fontSize: 11.5, color: "#9CA3AF" }}>{durationLine}</span>
               </span>
             ) : <span style={{ color: "#cbd5e1" }}>—</span>}
           </Tile>

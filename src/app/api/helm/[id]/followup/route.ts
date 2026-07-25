@@ -10,11 +10,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { getRequest, getMessages, logHelmMessage } from "@/lib/helm-admin";
+import { getRequest, getMessages, logHelmMessage, mergePipeline } from "@/lib/helm-admin";
 import { createServiceClient } from "@/lib/supabase-server";
 import { helmSalutation } from "@/lib/helm/addressing";
 import { composeFollowUp } from "@/lib/helm/compose";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
+import { readPipeline, suggestFollowUps, nextDueTimestamp } from "@/lib/helm/pipeline";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -39,6 +40,92 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const r = await getRequest(id);
   if (!r) return NextResponse.json({ error: "not-found" }, { status: 404 });
+
+  const body = await req.json().catch(() => ({}));
+  const action = body?.action;
+
+  // ── 2026-07-24 pipeline-plan actions (George edits the 3 suggested dates
+  // and ticks steps done straight from the Charter Pipeline list). These do
+  // not need a Gmail thread: notes exist before a send, and a plan can be
+  // laid on an already-sent request that predates the feature. ────────────
+
+  // NOTES: George's own hand-written state of play, saved from the list.
+  if (action === "notes-set") {
+    const notes = (body?.notes ?? "").toString().slice(0, 4000);
+    await mergePipeline(id, { notes });
+    return NextResponse.json({ ok: true });
+  }
+
+  // WANTED NIGHTS: what the client actually asked for inside a flexible
+  // window ("a week in August"), so the row stops claiming "29 nights".
+  if (action === "wanted-nights") {
+    const n = Number(body?.nights);
+    const wanted = Number.isFinite(n) && n > 0 && n < 100 ? Math.round(n) : null;
+    await mergePipeline(id, { wanted_nights: wanted });
+    return NextResponse.json({ ok: true, wanted_nights: wanted });
+  }
+
+  // PLAN-INIT: lay the 3 suggested dates on a request sent before this
+  // feature existed (one click from the list).
+  if (action === "plan-init") {
+    const pipeline = readPipeline(r.extraction);
+    if (!pipeline.fu || pipeline.fu.length !== 3) {
+      const sentAt = pipeline.sent_at || r.last_activity_at || new Date().toISOString();
+      pipeline.fu = suggestFollowUps(sentAt, r.dates_from ?? null);
+      if (!pipeline.sent_at) pipeline.sent_at = sentAt;
+      await mergePipeline(id, { fu: pipeline.fu, sent_at: pipeline.sent_at }, { syncFollowUpAt: true });
+    }
+    return NextResponse.json({ ok: true, fu: pipeline.fu });
+  }
+
+  // PLAN-SET: George changes one suggested date by hand ("told him on the
+  // phone I would come back in three days").
+  if (action === "plan-set") {
+    const step = Number(body?.step);
+    const date = (body?.date ?? "").toString();
+    if (![0, 1, 2].includes(step) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return NextResponse.json({ error: "bad step/date" }, { status: 400 });
+    }
+    const pipeline = readPipeline(r.extraction);
+    if (!pipeline.fu || !pipeline.fu[step]) {
+      return NextResponse.json({ error: "no plan on this request yet" }, { status: 400 });
+    }
+    pipeline.fu[step] = { ...pipeline.fu[step], due: date };
+    await mergePipeline(id, { fu: pipeline.fu }, { syncFollowUpAt: true });
+    return NextResponse.json({ ok: true, fu: pipeline.fu });
+  }
+
+  // PLAN-DONE: "I actually followed up" (WhatsApp, call, anywhere) - one
+  // click. Marks the step, writes the history line, and follow_up_at moves
+  // to the next not-done step so the daily reminder stays truthful.
+  if (action === "plan-done") {
+    const step = Number(body?.step);
+    const how = (body?.how ?? "").toString().slice(0, 40) || null;
+    const pipeline = readPipeline(r.extraction);
+    if (![0, 1, 2].includes(step) || !pipeline.fu || !pipeline.fu[step]) {
+      return NextResponse.json({ error: "no plan/step" }, { status: 400 });
+    }
+    if (!pipeline.fu[step].done_at) {
+      pipeline.fu[step] = { ...pipeline.fu[step], done_at: new Date().toISOString(), how };
+      await mergePipeline(id, { fu: pipeline.fu }, { syncFollowUpAt: true });
+      const label = step === 2 ? "final courtesy note" : `follow-up ${step + 1}`;
+      try {
+        await logHelmMessage(id, {
+          direction: "outbound",
+          channel: "note",
+          body: `[Follow-up ${step + 1}] done (${how || "logged from the pipeline"}) - ${label}`,
+        });
+      } catch { /* history is best-effort; the tick itself already saved */ }
+      const db = createServiceClient();
+      await db
+        .from("helm_requests")
+        .update({ last_activity_at: new Date().toISOString() })
+        .eq("id", id);
+    }
+    return NextResponse.json({ ok: true, fu: pipeline.fu });
+  }
+
+  // ── Original actions (compose/send/log) need the Gmail thread ──────────
   if (!r.gmail_thread_id) {
     return NextResponse.json({ error: "Send the proposal first - a follow-up replies in that email thread." }, { status: 400 });
   }
@@ -51,9 +138,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const followupNumber = priorFollowups + 1;
 
   const { salutation, isAgent } = helmSalutation(r);
-
-  const body = await req.json().catch(() => ({}));
-  const action = body?.action;
 
   // ---- LOG: George followed up himself (a call, WhatsApp, an email he wrote by
   // hand) and just wants it on the record. One button. Records the follow-up so
@@ -70,12 +154,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const line = `[Follow-up ${followupNumber}] (logged by hand · ${how})${note ? `\n\n${note}` : ""}`;
     try {
       await logHelmMessage(id, { direction: "outbound", channel: "note", body: line });
-      const nextDue = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
-      const db = createServiceClient();
-      await db
-        .from("helm_requests")
-        .update({ follow_up_at: nextDue, last_activity_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq("id", id);
+      // Plan-aware (2026-07-24): when the 3-step plan exists, a hand-logged
+      // follow-up ticks the first not-done step and the reminder moves to
+      // the next planned date. Without a plan, the old flat +5 days stands.
+      const pipeline = readPipeline(r.extraction);
+      let nextDue: string | null;
+      if (pipeline.fu?.length === 3 && pipeline.fu.some((s) => !s.done_at)) {
+        const idx = pipeline.fu.findIndex((s) => !s.done_at);
+        pipeline.fu[idx] = { ...pipeline.fu[idx], done_at: new Date().toISOString(), how };
+        await mergePipeline(id, { fu: pipeline.fu }, { syncFollowUpAt: true });
+        nextDue = nextDueTimestamp(pipeline.fu);
+        const db = createServiceClient();
+        await db
+          .from("helm_requests")
+          .update({ last_activity_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", id);
+      } else {
+        nextDue = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+        const db = createServiceClient();
+        await db
+          .from("helm_requests")
+          .update({ follow_up_at: nextDue, last_activity_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", id);
+      }
       return NextResponse.json({ ok: true, logged: 1, followupNumber, nextDue });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
@@ -120,14 +221,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         body: `[Follow-up ${followupNumber}]\n\n${emailBody}`,
         gmail_message_id: sent.messageId,
       });
-      // Keep the thread chain current and push the reminder out so the daily
-      // helm-followup cron nudges George again only when the NEXT one is due.
+      // Keep the thread chain current. Plan-aware (2026-07-24): an emailed
+      // follow-up ticks the first not-done step of the 3-step plan and the
+      // reminder moves to the next planned date; without a plan, +5 days.
+      const pipeline = readPipeline(r.extraction);
+      let nextFollowUp: string | null;
+      if (pipeline.fu?.length === 3 && pipeline.fu.some((s) => !s.done_at)) {
+        const idx = pipeline.fu.findIndex((s) => !s.done_at);
+        pipeline.fu[idx] = { ...pipeline.fu[idx], done_at: new Date().toISOString(), how: "email" };
+        await mergePipeline(id, { fu: pipeline.fu });
+        nextFollowUp = nextDueTimestamp(pipeline.fu);
+      } else {
+        nextFollowUp = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+      }
       const db = createServiceClient();
       await db
         .from("helm_requests")
         .update({
           gmail_last_message_id: sent.messageId,
-          follow_up_at: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+          follow_up_at: nextFollowUp,
           updated_at: new Date().toISOString(),
         })
         .eq("id", id);

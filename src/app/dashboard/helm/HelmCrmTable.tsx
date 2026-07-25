@@ -14,6 +14,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+export type FuStepRow = { due: string; done_at: string | null; how: string | null };
+
 export type CrmRow = {
   id: string;
   ref: string;
@@ -40,6 +42,13 @@ export type CrmRow = {
   interest: string | null;
   waitingDays: number | null;
   onNewsletter: boolean;
+  // 2026-07-24 pipeline upgrade
+  sentAt: string | null; // when the proposal email left for the client
+  fu: FuStepRow[] | null; // the 3-step follow-up plan (null = not laid yet)
+  notes: string; // George's own hand-written state of play
+  yachts: string[]; // "M/Y ALTEA", "S/CAT LUCKY CLOVER", ...
+  wantedNights: number | null; // what the client wants inside a flexible window
+  flexWindow: boolean; // dates span 10+ nights = a window, not the charter length
 };
 
 const STATUS_OPTIONS = ["new", "drafted", "sent", "in_conversation", "negotiating", "won", "lost"];
@@ -66,6 +75,214 @@ function fmt(iso: string | null) {
 function fmtReceived(iso: string | null) {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit", timeZone: "Europe/Athens" });
+}
+
+// Sent moment with the time (George 2026-07-24: "θέλω να βλέπω την
+// ημερομηνία ΚΑΙ ώρα που έστειλα την προσφορά"). "22 Jul 26 · 11:30".
+function fmtSent(iso: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const date = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit", timeZone: "Europe/Athens" });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Athens" });
+  return `${date} · ${time}`;
+}
+
+// ── Follow-ups cell: the 3-step plan, each date editable in place, each
+// step tickable "I did it" (from WhatsApp, a call, anywhere). The final
+// step is the courteous close. follow_up_at stays mirrored server-side.
+function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null; status: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const canPlan = ["sent", "in_conversation", "negotiating"].includes(status);
+
+  async function post(payload: Record<string, unknown>, key: string) {
+    setBusy(key);
+    try {
+      const res = await fetch(`/api/helm/${id}/followup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      router.refresh();
+    } catch {
+      /* the refresh simply won't show a change */
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (!fu || fu.length !== 3) {
+    if (!canPlan) return <span style={{ color: "#cbd5e1" }}>-</span>;
+    return (
+      <button
+        type="button"
+        disabled={busy !== null}
+        onClick={() => post({ action: "plan-init" }, "init")}
+        style={{
+          fontSize: 10.5, padding: "4px 10px", cursor: "pointer", borderRadius: 3,
+          border: "1px solid rgba(201,168,76,0.5)", background: "rgba(201,168,76,0.10)",
+          color: "#A8873B", fontWeight: 600, letterSpacing: 0.5,
+        }}
+      >
+        {busy ? "..." : "Suggest dates"}
+      </button>
+    );
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const labels = ["F1", "F2", "Bye"];
+  const titles = ["Follow-up 1", "Follow-up 2", "Final courtesy note (thank you, at your disposal)"];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {fu.map((s, i) => {
+        const done = !!s.done_at;
+        const isDue = !done && s.due <= today;
+        return (
+          <div key={i} title={titles[i]} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{
+              fontSize: 9, fontWeight: 700, width: 24, letterSpacing: 0.5,
+              color: done ? "#0d6e5a" : isDue ? "#b45309" : "#9CA3AF",
+            }}>
+              {done ? "✓" : isDue ? "●" : "○"} {labels[i]}
+            </span>
+            {done ? (
+              <span style={{ fontSize: 11, color: "#0d6e5a" }}>
+                done {fmt(s.done_at)}{s.how ? ` · ${s.how}` : ""}
+              </span>
+            ) : (
+              <>
+                <input
+                  type="date"
+                  defaultValue={s.due}
+                  disabled={busy !== null}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v && v !== s.due) post({ action: "plan-set", step: i, date: v }, `set${i}`);
+                  }}
+                  style={{
+                    fontSize: 11, border: "1px solid rgba(13,27,42,0.12)", borderRadius: 3,
+                    padding: "1px 3px", color: isDue ? "#b45309" : "#374151",
+                    fontWeight: isDue ? 700 : 400, width: 108, background: "#fff",
+                  }}
+                />
+                <button
+                  type="button"
+                  title="Mark this follow-up as done (call, WhatsApp, anywhere)"
+                  disabled={busy !== null}
+                  onClick={() => post({ action: "plan-done", step: i, how: "pipeline" }, `done${i}`)}
+                  style={{
+                    fontSize: 11, lineHeight: 1, padding: "3px 6px", cursor: "pointer",
+                    border: "1px solid rgba(13,110,90,0.35)", borderRadius: 3,
+                    background: "rgba(13,110,90,0.08)", color: "#0d6e5a", fontWeight: 700,
+                  }}
+                >
+                  {busy === `done${i}` ? "…" : "✓"}
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Notes cell: George's freehand notes, saved in place. ────────────────
+function NotesCell({ id, initial }: { id: string; initial: string }) {
+  const [v, setV] = useState(initial);
+  const [saved, setSaved] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const dirty = v !== saved;
+
+  async function save() {
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/helm/${id}/followup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "notes-set", notes: v }),
+      });
+      if (res.ok) setSaved(v);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <textarea
+        value={v}
+        placeholder="Your notes..."
+        onChange={(e) => setV(e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        onBlur={save}
+        rows={3}
+        style={{
+          width: "100%", fontSize: 11.5, lineHeight: 1.4, resize: "vertical",
+          border: `1px solid ${dirty ? "rgba(201,168,76,0.6)" : "rgba(13,27,42,0.10)"}`,
+          borderRadius: 3, padding: "4px 6px", color: "#374151", background: "#fffdf7",
+          fontFamily: "inherit", minHeight: 46,
+        }}
+      />
+      {(dirty || saving) && (
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          style={{
+            alignSelf: "flex-end", fontSize: 10, padding: "2px 10px", cursor: "pointer",
+            border: "1px solid rgba(201,168,76,0.5)", borderRadius: 3,
+            background: "#C9A84C", color: "#0D1B2A", fontWeight: 700,
+          }}
+        >
+          {saving ? "Saving..." : "Save"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Wanted-nights inline edit for flexible windows ("a week in August"). ─
+function WantedNights({ id, value }: { id: string; value: number | null }) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  return (
+    <span onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
+      wants{" "}
+      <input
+        type="number"
+        min={1}
+        max={60}
+        defaultValue={value ?? ""}
+        placeholder="7"
+        disabled={saving}
+        onBlur={async (e) => {
+          const n = e.target.value;
+          if (n === String(value ?? "")) return;
+          setSaving(true);
+          try {
+            await fetch(`/api/helm/${id}/followup`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "wanted-nights", nights: n ? Number(n) : null }),
+            });
+            router.refresh();
+          } finally {
+            setSaving(false);
+          }
+        }}
+        style={{
+          width: 34, fontSize: 10.5, border: "1px solid rgba(13,27,42,0.15)",
+          borderRadius: 3, padding: "0 3px", textAlign: "center",
+        }}
+      />{" "}
+      nights
+    </span>
+  );
 }
 
 // Inline stage change straight from the list (George 2026-07-17: "χωρίς να
@@ -172,35 +389,42 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
       </div>
 
       <div style={{ background: "#fff", border: "1px solid rgba(13,27,42,0.08)", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 1160, tableLayout: "fixed" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 1560, tableLayout: "fixed" }}>
           {/* Fixed widths so every column stays on screen; long free-text
               (guests, route, budget) wraps inside its box instead of shoving
-              the later columns off the right edge. */}
+              the later columns off the right edge. 2026-07-24: Sent rides
+              inside the Ref cell; Follow-ups, Yachts and Notes are new. */}
           <colgroup>
-            <col style={{ width: 128 }} />
-            <col style={{ width: 230 }} />
-            <col style={{ width: 118 }} />
-            <col style={{ width: 128 }} />
-            <col style={{ width: 178 }} />
-            <col style={{ width: 150 }} />
+            <col style={{ width: 134 }} />
+            <col style={{ width: 200 }} />
+            <col style={{ width: 92 }} />
+            <col style={{ width: 110 }} />
             <col style={{ width: 140 }} />
-            <col style={{ width: 156 }} />
+            <col style={{ width: 148 }} />
+            <col style={{ width: 128 }} />
+            <col style={{ width: 118 }} />
+            <col style={{ width: 196 }} />
+            <col style={{ width: 130 }} />
+            <col style={{ width: 164 }} />
           </colgroup>
           <thead>
             <tr style={{ background: "rgba(13,27,42,0.04)", textAlign: "left" }}>
-              <th style={th}>Ref · Received</th>
+              <th style={th}>Ref · Received · Sent</th>
               <th style={th}>Client</th>
               <th style={thCenter}>Guests</th>
               <th style={th}>Budget</th>
               <th style={th}>Route</th>
               <th style={th}>Charter dates</th>
+              <th style={th}>Yachts</th>
               <th style={th}>Status</th>
-              <th style={th}>Next action</th>
+              <th style={th}>Follow-ups</th>
+              <th style={th}>Signals</th>
+              <th style={th}>Notes</th>
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
+              <tr><td colSpan={11} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
                 Nothing matches. Clear the search or filters.
               </td></tr>
             )}
@@ -219,7 +443,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                 onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(201,168,76,0.06)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
-                {/* Ref + when it came in (year included, clearly legible) */}
+                {/* Ref + when it came in + when the proposal LEFT (with time) */}
                 <td style={{ ...td, whiteSpace: "nowrap" }}>
                   <Link
                     href={`/dashboard/helm/${r.id}`}
@@ -231,6 +455,11 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                   <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
                     <span style={{ color: "#9CA3AF" }}>Received </span>{fmtReceived(r.createdAt)}
                   </div>
+                  {r.sentAt && (
+                    <div style={{ fontSize: 11, color: "#0d6e5a", marginTop: 2, fontWeight: 600 }} title="When the proposal email left for the client (Athens time)">
+                      <span style={{ color: "#9CA3AF", fontWeight: 400 }}>Sent </span>{fmtSent(r.sentAt)}
+                    </div>
+                  )}
                 </td>
 
                 {/* Client: flag + name, Direct/Advisor tag, contact line */}
@@ -272,7 +501,9 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                     : <span style={{ color: "#cbd5e1" }}>—</span>}
                 </td>
 
-                {/* Charter dates + LOUD year badge + day/weekly */}
+                {/* Charter dates + LOUD year badge. A 10+ night span is a
+                    WINDOW ("a week in August"), not the charter length -
+                    show the window and what the client actually wants. */}
                 <td style={td}>
                   {r.datesFrom ? (
                     <>
@@ -285,9 +516,25 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                         }}>{r.year}</span>
                       )}
                       <div style={{ fontSize: 10.5, color: "#9CA3AF", marginTop: 2 }}>
-                        {r.isDay ? "day charter" : r.nights ? `${r.nights} nights` : ""}
+                        {r.isDay
+                          ? "day charter"
+                          : r.flexWindow
+                            ? <>flexible window · <WantedNights id={r.id} value={r.wantedNights} /></>
+                            : r.nights ? `${r.nights} nights / ${r.nights + 1} days` : ""}
                       </div>
                     </>
+                  ) : <span style={{ color: "#cbd5e1" }}>—</span>}
+                </td>
+
+                {/* Yachts in the proposal - George's shorthand prefixes */}
+                <td style={td}>
+                  {r.yachts.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      {r.yachts.slice(0, 6).map((y, i) => (
+                        <span key={i} style={{ fontSize: 11.5, lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={y}>{y}</span>
+                      ))}
+                      {r.yachts.length > 6 && <span style={{ fontSize: 10.5, color: "#9CA3AF" }}>+{r.yachts.length - 6} more</span>}
+                    </div>
                   ) : <span style={{ color: "#cbd5e1" }}>—</span>}
                 </td>
 
@@ -298,7 +545,12 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                   <StatusSelect id={r.id} value={r.status} />
                 </td>
 
-                {/* Next action — engagement first (the buying signal), then the due/follow-up line */}
+                {/* Follow-ups - the 3-step plan, dates editable, steps tickable */}
+                <td style={td} onClick={(e) => e.stopPropagation()}>
+                  <FollowUpsCell id={r.id} fu={r.fu} status={r.status} />
+                </td>
+
+                {/* Signals — engagement (the buying signal) + waiting/next hints */}
                 <td style={td}>
                   {r.interest ? (
                     <div style={{ color: "#A8873B", fontSize: 12, fontWeight: 700 }}>⭐ Interested: {r.interest}</div>
@@ -311,11 +563,9 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                     const hasEngagement = !!r.interest || r.salonViews > 0;
                     const line = r.due
                       ? <span style={{ color: "#b45309", fontSize: 12, fontWeight: 700 }}>● Follow up now</span>
-                      : r.followUpAt
-                        ? <span style={{ color: "#6b7280", fontSize: 12 }}>Follow-up {fmt(r.followUpAt)}</span>
-                        : r.status === "new"
-                          ? <span style={{ color: "#A8873B", fontSize: 12 }}>Build the proposal</span>
-                          : hasEngagement ? null : <span style={{ color: "#cbd5e1" }}>—</span>;
+                      : r.status === "new"
+                        ? <span style={{ color: "#A8873B", fontSize: 12 }}>Build the proposal</span>
+                        : hasEngagement ? null : <span style={{ color: "#cbd5e1" }}>—</span>;
                     return line ? <div style={{ marginTop: hasEngagement ? 2 : 0 }}>{line}</div> : null;
                   })()}
                   {r.waitingDays !== null && r.waitingDays >= 1 && (
@@ -326,6 +576,11 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                       waiting {r.waitingDays}d
                     </div>
                   )}
+                </td>
+
+                {/* George's own notes - typed here, saved here */}
+                <td style={td} onClick={(e) => e.stopPropagation()}>
+                  <NotesCell id={r.id} initial={r.notes} />
                 </td>
               </tr>
               );

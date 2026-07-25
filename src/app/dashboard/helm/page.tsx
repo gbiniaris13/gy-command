@@ -6,6 +6,7 @@ import Link from "next/link";
 import { listHelmCrm } from "@/lib/helm-admin";
 import { refCode } from "@/lib/helm/refcode";
 import { phoneCountry } from "@/lib/phone-country";
+import { isFlexibleWindow } from "@/lib/helm/pipeline";
 import HelmCrmTable, { type CrmRow } from "./HelmCrmTable";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,10 @@ export default async function HelmListPage() {
     const waitingDays = ["new", "drafted"].includes(r.status) && r.created_at
       ? Math.max(0, Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400000))
       : null;
+    // 2026-07-24 pipeline upgrade: sent moment, the 3-step follow-up plan,
+    // George's notes and the flexible-window duration all come from
+    // extraction.pipeline (already selected as a narrow JSON path).
+    const p = r.pipeline || {};
     return {
       id: r.id,
       ref: refCode(r.created_at),
@@ -74,6 +79,14 @@ export default async function HelmListPage() {
       interest,
       waitingDays,
       onNewsletter: r.on_newsletter,
+      sentAt: p.sent_at ?? null,
+      fu: Array.isArray(p.fu) && p.fu.length === 3
+        ? p.fu.map((s) => ({ due: s.due, done_at: s.done_at ?? null, how: s.how ?? null }))
+        : null,
+      notes: p.notes ?? "",
+      yachts: r.yacht_labels,
+      wantedNights: p.wanted_nights ?? null,
+      flexWindow: isFlexibleWindow(nights),
     };
   });
 

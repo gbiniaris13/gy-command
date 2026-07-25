@@ -10,6 +10,13 @@
 // =============================================================
 
 import { createServiceClient } from "./supabase-server";
+import {
+  yachtLabel,
+  suggestFollowUps,
+  nextDueTimestamp,
+  readPipeline,
+  type HelmPipeline,
+} from "./helm/pipeline";
 import { upsertContactByEmail, splitName } from "./contacts";
 
 export type HelmListItem = {
@@ -55,6 +62,12 @@ export type HelmCrmItem = HelmListItem & {
   /** true when this client's email is already a newsletter subscriber
    *  (contacts.tags_v2 contains "newsletter") — George 2026-07-17. */
   on_newsletter: boolean;
+  /** extraction->pipeline: sent_at, the 3-step follow-up plan, George's
+   *  notes, wanted_nights (2026-07-24 pipeline upgrade). */
+  pipeline: import("./helm/pipeline").HelmPipeline | null;
+  /** Compact yacht lines for the list column ("M/Y ALTEA"), derived
+   *  server-side from extraction->yachts so the client row stays tiny. */
+  yacht_labels: string[];
 };
 
 export async function listHelmCrm(): Promise<HelmCrmItem[]> {
@@ -62,7 +75,7 @@ export async function listHelmCrm(): Promise<HelmCrmItem[]> {
   const { data, error } = await db
     .from("helm_requests")
     .select(
-      "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads",
+      "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads, pipeline:extraction->pipeline, yachts_raw:extraction->yachts",
     )
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
@@ -87,13 +100,31 @@ export async function listHelmCrm(): Promise<HelmCrmItem[]> {
     /* ignore — the badge just won't show */
   }
 
-  return (data || []).map((r) => ({
-    first_name: null,
-    last_name: null,
-    contact_email: null,
-    on_newsletter: newsletterEmails.has((r.client_email || "").trim().toLowerCase()),
-    ...r,
-  })) as HelmCrmItem[];
+  return (data || []).map((r) => {
+    // Derive the compact yacht lines server-side and DROP the raw array so
+    // the client row stays tiny (extraction->yachts carries full dossiers).
+    const raw = (r as { yachts_raw?: unknown }).yachts_raw;
+    const yacht_labels: string[] = Array.isArray(raw)
+      ? raw
+          .map((y) =>
+            yachtLabel(
+              (y as { name?: string })?.name ?? null,
+              (y as { type?: string })?.type ?? null,
+            ),
+          )
+          .filter(Boolean)
+      : [];
+    const { yachts_raw: _drop, ...rest } = r as typeof r & { yachts_raw?: unknown };
+    void _drop;
+    return {
+      first_name: null,
+      last_name: null,
+      contact_email: null,
+      on_newsletter: newsletterEmails.has((r.client_email || "").trim().toLowerCase()),
+      yacht_labels,
+      ...rest,
+    };
+  }) as HelmCrmItem[];
 }
 
 export async function listHelm(): Promise<HelmListItem[]> {
@@ -341,7 +372,26 @@ export async function markRequestSent(
   },
 ) {
   const db = createServiceClient();
-  const followUp = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString();
+  const nowIso = new Date().toISOString();
+
+  // 2026-07-24 pipeline upgrade: the moment the proposal leaves, stamp
+  // sent_at and lay down the 3-step follow-up plan scaled by how close the
+  // charter is (see suggestFollowUps). follow_up_at mirrors step 1, so the
+  // existing daily reminder cron keeps working unchanged. A re-send keeps
+  // the ORIGINAL plan (George may have hand-tuned the dates).
+  const { data: row } = await db
+    .from("helm_requests")
+    .select("extraction, dates_from")
+    .eq("id", id)
+    .maybeSingle();
+  const extraction = (row?.extraction as Record<string, unknown> | null) ?? {};
+  const pipeline = readPipeline(extraction);
+  if (!pipeline.sent_at) pipeline.sent_at = nowIso;
+  if (!pipeline.fu || pipeline.fu.length !== 3) {
+    pipeline.fu = suggestFollowUps(nowIso, row?.dates_from ?? null);
+  }
+  const followUp = nextDueTimestamp(pipeline.fu) ?? new Date(Date.now() + 4 * 86400000).toISOString();
+
   const { error } = await db
     .from("helm_requests")
     .update({
@@ -351,11 +401,39 @@ export async function markRequestSent(
       email_intro: fields.email_intro,
       status: "sent",
       follow_up_at: followUp,
-      last_activity_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      last_activity_at: nowIso,
+      updated_at: nowIso,
+      extraction: { ...extraction, pipeline },
     })
     .eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+// 2026-07-24 — read-modify-write of extraction.pipeline (single-user app,
+// races acceptable). Returns the merged pipeline. `syncFollowUpAt` mirrors
+// follow_up_at to the earliest not-done step whenever the plan changes.
+export async function mergePipeline(
+  id: string,
+  patch: Partial<HelmPipeline>,
+  opts: { syncFollowUpAt?: boolean } = {},
+): Promise<HelmPipeline> {
+  const db = createServiceClient();
+  const { data: row, error: readErr } = await db
+    .from("helm_requests")
+    .select("extraction")
+    .eq("id", id)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  const extraction = (row?.extraction as Record<string, unknown> | null) ?? {};
+  const pipeline: HelmPipeline = { ...readPipeline(extraction), ...patch };
+  const update: Record<string, unknown> = {
+    extraction: { ...extraction, pipeline },
+    updated_at: new Date().toISOString(),
+  };
+  if (opts.syncFollowUpAt) update.follow_up_at = nextDueTimestamp(pipeline.fu);
+  const { error } = await db.from("helm_requests").update(update).eq("id", id);
+  if (error) throw new Error(error.message);
+  return pipeline;
 }
 
 // Addition B — media (Cloudinary URLs or pasted links) on the request.
