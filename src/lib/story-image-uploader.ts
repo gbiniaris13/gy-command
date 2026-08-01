@@ -54,30 +54,35 @@ export async function composeAndUploadStoryImage(args: {
     (title ? `&title=${encodeURIComponent(title)}` : "") +
     (subtitle ? `&subtitle=${encodeURIComponent(subtitle)}` : "");
 
+  // 2026-08-01 — retry once. The 10:00 cron was hitting the 25s abort on a
+  // COLD OG lambda (Satori render + Sanity photo fetch on first invocation)
+  // and shipping banner-less stories on the graceful fallback below. The
+  // first attempt's real job is warming the lambda; the second lands on a
+  // warm one and renders in a couple of seconds. Budgets are 20s + 20s so
+  // the worst case stays well inside the cron's 60s Edge proxy ceiling
+  // with room for the Supabase upload and the publish call after us.
   let bytes: Uint8Array | null = null;
-  try {
-    // Hard 25s budget on the render — we'd rather ship a no-banner
-    // story than burn the cron's 60-s Edge proxy timeout. If OG is
-    // cold-starting or upstream Sanity/Supabase is slow, we'll fall
-    // back transparently to the raw photo URL.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25_000);
-    let res: Response;
+  for (let attempt = 1; attempt <= 2 && !bytes; attempt++) {
     try {
-      res = await fetch(ogUrl, { cache: "no-store", signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20_000);
+      let res: Response;
+      try {
+        res = await fetch(ogUrl, { cache: "no-store", signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!res.ok) {
+        console.error(`[story-image-uploader] OG fetch failed (attempt ${attempt})`, res.status);
+        continue;
+      }
+      const ab = await res.arrayBuffer();
+      if (ab.byteLength > 0) bytes = new Uint8Array(ab);
+    } catch (e) {
+      console.error(`[story-image-uploader] OG fetch threw (attempt ${attempt}):`, e);
     }
-    if (!res.ok) {
-      console.error("[story-image-uploader] OG fetch failed", res.status);
-      return photoUrl;
-    }
-    const ab = await res.arrayBuffer();
-    bytes = new Uint8Array(ab);
-  } catch (e) {
-    console.error("[story-image-uploader] OG fetch threw:", e);
-    return photoUrl;
   }
+  // Both attempts spent: ship the raw photo rather than no story at all.
   if (!bytes || bytes.byteLength === 0) return photoUrl;
 
   // Step 2 — upload to Supabase Storage and resolve public URL.
