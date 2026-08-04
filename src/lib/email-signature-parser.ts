@@ -59,15 +59,25 @@ const NOISE_LOCALPARTS = [
   "notifications", "notification", "alerts", "alert",
   "mailer-daemon", "postmaster", "bounce", "bounces",
   "updates@", "news@", "newsletter@",
-  "billing@", "invoice@", "receipts@", "receipt@",
-  "security@", "account@", "accounts@", "password@",
+  "receipts@", "receipt@",
+  "security@", "password@",
   "notify@",
-  // Cross-domain support / system / dealer / report noise
-  "support@", "team@", "info@", "hello@",
+  // 2026-08-04 - REMOVED from this list: info@, hello@, support@, team@,
+  // billing@, invoice@, account@, accounts@, statements@, statement@,
+  // invoice+, billing+. Those are the standard front-desk addresses of
+  // REAL companies, not machines. The noise gate archives whatever matches
+  // here (removes INBOX), so every supplier, partner and client writing
+  // from info@theircompany.gr silently vanished from the inbox. That is
+  // how George lost the whole Hotelier International thread, including the
+  // bank details he needed to pay their invoice, and the Mercury payment
+  // confirmations (hello@mercury.com). Machine senders are still caught by
+  // no-reply/noreply/donotreply/notifications/mailer-daemon/dmarc above
+  // and by the bulk List-Unsubscribe / List-Id header rule below, which is
+  // what actually catches newsletters. Do not put bare front-desk
+  // localparts back in here.
   "dealermessage", "dealermail", "dealerresponse",
   "dmarcreport", "dmarc-report", "dmarc_report", "dmarc@",
   "failed-payments", "failed_payments",
-  "statements@", "statement@", "invoice+", "billing+",
   "kundenservice", // German "customer service"
   "system@", "automated@", "robot@",
   "reports@", "report@", "digest@",
