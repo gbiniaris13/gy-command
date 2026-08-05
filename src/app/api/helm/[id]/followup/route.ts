@@ -15,7 +15,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { helmSalutation } from "@/lib/helm/addressing";
 import { composeFollowUp } from "@/lib/helm/compose";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
-import { readPipeline, suggestFollowUps, nextDueTimestamp } from "@/lib/helm/pipeline";
+import { readPipeline, suggestFollowUps, replanKeepingHistory, nextDueTimestamp } from "@/lib/helm/pipeline";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -76,17 +76,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const pipeline = readPipeline(r.extraction);
     const needsPlan = !pipeline.fu || pipeline.fu.length === 0;
     if (needsPlan || action === "plan-replan") {
-      // Re-planning keeps the ticks already earned: a step George has marked
-      // done stays done, so a refresh never asks him to repeat himself.
-      const doneCount = (pipeline.fu ?? []).filter((s) => s.done_at).length;
       const sentAt = pipeline.sent_at || r.last_activity_at || new Date().toISOString();
-      const fresh = suggestFollowUps(sentAt, r.dates_from ?? null);
-      pipeline.fu = fresh.map((s, i) => {
-        const prior = (pipeline.fu ?? [])[i];
-        return i < doneCount && prior?.done_at
-          ? { ...s, done_at: prior.done_at, how: prior.how }
-          : s;
-      });
+      pipeline.fu = needsPlan
+        // Fresh request: the ladder runs from the moment the proposal left.
+        ? suggestFollowUps(sentAt, r.dates_from ?? null)
+        // Existing request: every tick George has earned is carried across
+        // untouched, and only the steps still ahead are re-timed, from today.
+        : replanKeepingHistory(pipeline.fu, r.dates_from ?? null);
       if (!pipeline.sent_at) pipeline.sent_at = sentAt;
       await mergePipeline(id, { fu: pipeline.fu, sent_at: pipeline.sent_at }, { syncFollowUpAt: true });
     }

@@ -193,3 +193,32 @@ export function yachtLabel(name: string | null | undefined, type: string | null 
 export function isFlexibleWindow(nights: number | null): boolean {
   return nights !== null && nights >= 10;
 }
+
+/** Re-plan an EXISTING request without losing a day of the work already done.
+ *
+ *  Two rules, both learned the hard way (2026-08-04):
+ *   1. A step George has ticked is HISTORY. Its date, its tick and how he did
+ *      it are copied across untouched. A re-plan must never rewrite the past.
+ *   2. The steps still ahead are measured from TODAY, not from the day the
+ *      proposal left. Measuring from the send date on a request that went out
+ *      three weeks ago would schedule the next nudge into last week.
+ *
+ *  Everything else the plan knows (how many steps this lead time deserves, the
+ *  park-and-reopen, the goodbye, the dead days) comes from suggestFollowUps.
+ */
+export function replanKeepingHistory(
+  existing: FuStep[] | undefined,
+  charterFromIso: string | null | undefined,
+  nowIso: string = new Date().toISOString(),
+): FuStep[] {
+  const done = (existing ?? []).filter((s) => s.done_at);
+  // Build the shape of a full plan as if we were starting today, then keep
+  // only as many FUTURE steps as remain after the ones already done.
+  const fresh = suggestFollowUps(nowIso, charterFromIso);
+  const remaining = Math.max(fresh.length - done.length, 1);
+  const future = fresh.slice(fresh.length - remaining);
+  // Never schedule behind a step that is already in the book.
+  const lastDone = done.length ? done[done.length - 1].due : null;
+  const kept = future.filter((s) => !lastDone || s.due > lastDone);
+  return [...done, ...(kept.length ? kept : future.slice(-1))];
+}
