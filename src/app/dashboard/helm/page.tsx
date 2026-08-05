@@ -6,7 +6,8 @@ import Link from "next/link";
 import { listHelmCrm } from "@/lib/helm-admin";
 import { refCode } from "@/lib/helm/refcode";
 import { phoneCountry } from "@/lib/phone-country";
-import { isFlexibleWindow, replanKeepingHistory } from "@/lib/helm/pipeline";
+import { isFlexibleWindow, extendPlan } from "@/lib/helm/pipeline";
+import { mergePipeline } from "@/lib/helm-admin";
 import HelmCrmTable, { type CrmRow } from "./HelmCrmTable";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,30 @@ export default async function HelmListPage() {
     if (la !== lb) return String(lb).localeCompare(String(la));
     return String(b.created_at || "").localeCompare(String(a.created_at || ""));
   });
+
+  // 2026-08-05 — the plan completes ITSELF. George: he works the column live
+  // every morning and does not want a greyed "suggestion" plus a button on
+  // seven rows; he wants each request to simply carry as many follow-ups as
+  // it deserves. So on every visit, any live request whose saved plan is
+  // shorter than the cadence recommends gets the missing tail APPENDED and
+  // saved — his dates, his ticks, his order stay exactly as he left them,
+  // because extendPlan only ever adds past the end. Once a plan is at full
+  // strength this writes nothing, so the everyday page load stays read-only.
+  await Promise.all(
+    sorted.map(async (r) => {
+      if (!["sent", "in_conversation", "negotiating"].includes(r.status)) return;
+      const fu = r.pipeline?.fu;
+      if (!Array.isArray(fu) || fu.length === 0) return;
+      const extended = extendPlan(fu, r.dates_from ?? null);
+      if (!extended) return;
+      try {
+        await mergePipeline(r.id, { fu: extended }, { syncFollowUpAt: true });
+        r.pipeline = { ...r.pipeline, fu: extended };
+      } catch {
+        /* the page still renders the saved plan; next visit tries again */
+      }
+    }),
+  );
 
   const rows: CrmRow[] = sorted.map((r) => {
     const nights = nightsBetween(r.dates_from, r.dates_to);
@@ -106,17 +131,6 @@ export default async function HelmListPage() {
       // "Suggest dates" button instead of the plan George had just made.
       fu: Array.isArray(p.fu) && p.fu.length > 0
         ? p.fu.map((s) => ({ due: s.due, done_at: s.done_at ?? null, how: s.how ?? null, kind: s.kind }))
-        : null,
-      // 2026-08-05 — the plan the cadence WOULD lay for this request today,
-      // computed on every render. George asked to SEE the recommendation in
-      // the column, not to press a button on seven rows to discover it. The
-      // cell draws whatever this adds beyond the saved plan in a lighter,
-      // dashed style: a suggestion, not a commitment. Nothing is written to
-      // the database until he accepts it.
-      fuSuggested: Array.isArray(p.fu) && p.fu.length > 0
-        ? replanKeepingHistory(p.fu, r.dates_from ?? null).map((s) => ({
-            due: s.due, done_at: s.done_at ?? null, how: s.how ?? null, kind: s.kind,
-          }))
         : null,
       notes: p.notes ?? "",
       yachts: r.yacht_labels,

@@ -416,22 +416,40 @@ export async function composeFollowUp(f: {
   occasion?: string;
   brief?: string;
   original_email?: string;   // what was already sent — so the model does NOT repeat it
+  /** 2026-08-05 continuity upgrade (George: "να θυμάται τι έχει γράψει πριν,
+   *  να συνεχίζουμε αλλιώς"). Plans now run up to six steps over many months,
+   *  so each note must read as the SAME person continuing the same thread:
+   *  the previous follow-up bodies ride along, and the step's kind (a nudge,
+   *  the re-open after a long quiet, or the goodbye) picks the tone. */
+  kind?: "nudge" | "reopen" | "bye";
+  charter_when?: string;     // e.g. "June 2027" — lets the re-open say "your summer is getting close"
+  prior_followups?: string[]; // bodies of follow-ups ALREADY sent, oldest first
 }): Promise<{ body: string }> {
   const n = f.followupNumber;
   const isAgent = !!f.agent;
-  // Tone is branch-aware. Agents are partners we write to like friends; their 2nd
-  // note is deliberately tiny and must NOT repeat the "hold a yacht" line.
+  // Tone: the step's KIND decides it first (a re-open after months of quiet
+  // and a goodbye are their own animals); within nudges, the number escalates
+  // gently. Agents are partners we write to like friends; their 2nd note is
+  // deliberately tiny and must NOT repeat the "hold a yacht" line.
   let tone: string;
-  if (isAgent) {
+  if (f.kind === "bye") {
+    tone = isAgent
+      ? "THE COURTEOUS CLOSE to the agent: a warm, graceful goodbye in 2-3 sentences. Thank them sincerely for considering the options, say you understand their client may have gone another way or the timing was not right, and that the door is always open - you are at their disposal for this client or the next one. Zero pressure, zero guilt, genuinely warm."
+      : "THE COURTEOUS CLOSE: a warm, graceful goodbye. Thank them sincerely for letting you prepare the selection, acknowledge softly that perhaps the timing was not right or plans changed - which is completely fine - and leave the door genuinely open: you remain at their disposal whenever Greece calls again. No pressure, no guilt trip, no last sales push. This is the note that makes them remember you fondly in a year.";
+  } else if (f.kind === "reopen") {
+    tone = isAgent
+      ? "THE RE-OPEN to the agent, months after the last note: their client's charter window is now getting close. Friendly and fresh - acknowledge lightly that some time has passed, say the season for those dates is now taking shape, and offer to re-check availability and pricing so their client has current options. One easy next step."
+      : "THE RE-OPEN, months after the last note: their charter dates are now getting close enough to decide on. Open by acknowledging the quiet naturally (seasons turned, no reproach), say their week has been on your mind now that the season is approaching, and offer to refresh the selection with current availability - some yachts will have booked, others will have opened. Warm, genuinely useful, one easy next step.";
+  } else if (isAgent) {
     tone = n <= 1
       ? "FIRST follow-up to the agent: friendly and light. Reference the options you sent and offer to answer anything or to place a gentle hold on a yacht for their client. Easy, zero pressure."
       : "SECOND (or later) follow-up to the agent: keep it TINY - about two sentences, done. Not pushy at all, and do NOT repeat the 'hold a yacht' offer from the first note. Just a casual line that you are reaching out again, that you will be releasing the held options shortly, and that you are here if anything changes or they want you to re-check availability for their client.";
   } else {
     tone = n <= 1
-      ? "FIRST follow-up to the client: a warm, light touch. Do NOT ask whether the proposal arrived or was received (the client is told separately). Add ONE human, specific touch and an open, easy invitation to ask anything."
+      ? "FIRST follow-up to the client: a warm, PERSONAL touch - the note of someone who has genuinely been picturing their trip (a moment aboard, an evening at anchor, tied to something real from their brief). Do NOT ask whether the proposal arrived or was received (the client is told separately). One human, specific touch and an open, easy invitation to ask anything."
       : n === 2
-        ? "SECOND follow-up to the client: warm, with a little gentle, real urgency (the best yachts for these dates get booked ahead) and one easy next step such as offering a quick call."
-        : "LATER follow-up to the client: warm, brief, low-key - a final soft check-in that leaves the door open without pestering.";
+        ? "SECOND follow-up to the client: a QUICK, light check-in - shorter than the first. Warm, with a little gentle, real urgency (the best yachts for these dates get booked ahead) and one easy next step such as offering a quick call."
+        : "LATER follow-up to the client (the continuous flow): brief, warm, low-key - and each one must bring ONE fresh angle the previous notes did not use (a season note, a practical thought about their dates, a small genuine observation). Never the same shape twice, never pestering. Leaves the door open.";
   }
   const who = isAgent
     ? `You are writing to a TRAVEL ADVISOR / AGENT you work with regularly - a partner, almost a friend. FRIENDLY, casual, first-name, collegial. You may refer to "your client" / "your clients". NEVER use "Dear", "Mr.", "Mrs." or "Dr." - the salutation provided is already friendly (e.g. "Hey Dimitar,"). Do NOT assume the day or time of week (no "I hope your week...", no "happy Friday") - it may be sent on any day.`
@@ -441,13 +459,19 @@ export async function composeFollowUp(f: {
 TASK: Write a SHORT follow-up email to a charter proposal that was ALREADY sent (this is a reply in the same email thread). ${who}
 ${tone}
 - It must read like a real person dashed it off in the moment - NOT a template, NOT a recap of the proposal, NOT broker-speak. Do NOT relist the yachts or repeat what the first email said. Reference the proposal lightly ("the options I sent", "the shortlist").
+- CONTINUITY (hard): this is one thread written by one person over time. Read the earlier notes provided below and CONTINUE from them - never reuse their opening move, their imagery, or their closing line, and never repeat an offer already made. If an earlier note mentioned a call, do not offer a call again the same way. Each note must feel like the natural next sentence of the same relationship.
 - Begin with the EXACT salutation provided. END the body at "Warmly," with NOTHING after it - never write George's name; the signature is appended automatically.
 - No em dash. No hype, no exclamation spam, and NEVER the cliches "just circling back" / "touching base" / "following up". Output JSON {"body":"<plain text with line breaks>"} only.`;
+  const priors = (f.prior_followups ?? []).filter(Boolean);
   const user = [
     `Salutation to use verbatim: ${f.salutation}`,
     f.occasion ? `Occasion: ${f.occasion}` : "",
     f.brief ? `Charter context (requirements ONLY - never a person's name): ${f.brief}` : "",
-    f.original_email ? `The email you already sent (do NOT repeat its content - this is only so you avoid repeating yourself):\n${f.original_email}` : "",
+    f.charter_when ? `Their charter is in: ${f.charter_when}` : "",
+    f.original_email ? `The proposal email you already sent (do NOT repeat its content - this is only so you avoid repeating yourself):\n${f.original_email}` : "",
+    priors.length
+      ? `Follow-up notes ALREADY sent in this thread, oldest first (continue from these; never repeat their angles, imagery, offers, or closing lines):\n${priors.map((p, i) => `--- note ${i + 1} ---\n${p}`).join("\n")}`
+      : "",
     `Follow-up number: ${n}`,
   ].filter(Boolean).join("\n");
   // gemini is a thinking model and spends tokens before the JSON, so keep ample

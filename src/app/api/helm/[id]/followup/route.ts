@@ -202,6 +202,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // ---- GENERATE: compose an editable draft (no send, no DB write) ----
   if (action === "generate") {
     try {
+      // 2026-08-05 continuity: the plan knows WHAT this step is (a nudge, the
+      // re-open after a long park, or the goodbye) - the tone follows the step,
+      // not just a counter. And the notes already sent in this thread ride
+      // along so each new one continues the conversation instead of restarting
+      // it: same person, same thread, never the same angle twice.
+      const pipeline = readPipeline(r.extraction);
+      const currentStep = (pipeline.fu ?? []).find((s) => !s.done_at);
+      const priorBodies = msgs
+        .filter((m) => m.direction === "outbound" && (m.body ?? "").startsWith(FOLLOWUP_TAG) && m.channel === "email")
+        .map((m) => (m.body ?? "").replace(/^\[Follow-up \d+\]\s*/, "").trim())
+        .filter(Boolean)
+        .slice(-3); // the last three are plenty of memory; keeps the prompt lean
+      const charterWhen = r.dates_from
+        ? new Date(r.dates_from + "T00:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })
+        : undefined;
       const draft = await composeFollowUp({
         salutation,
         agent: isAgent,
@@ -209,6 +224,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         occasion: r.occasion || undefined,
         brief: r.brief || undefined,
         original_email: r.email_intro || undefined,
+        kind: currentStep?.kind,
+        charter_when: charterWhen,
+        prior_followups: priorBodies,
       });
       return NextResponse.json({ ok: true, body: draft.body, followupNumber });
     } catch (e) {

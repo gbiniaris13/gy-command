@@ -47,7 +47,6 @@ export type CrmRow = {
   // 2026-07-24 pipeline upgrade
   sentAt: string | null; // when the proposal email left for the client
   fu: FuStepRow[] | null;
-  fuSuggested?: FuStepRow[] | null; // what the cadence recommends today (null = no plan yet)
   notes: string; // George's own hand-written state of play
   yachts: string[]; // "M/Y ALTEA", "S/CAT LUCKY CLOVER", ...
   wantedNights: number | null; // what the client wants inside a flexible window
@@ -95,7 +94,7 @@ function fmtSent(iso: string | null) {
 // editable in place and each step tickable "I did it" from WhatsApp, a call,
 // anywhere. A summary line on top answers the only question that matters at a
 // glance: is this client due today. follow_up_at stays mirrored server-side.
-function FollowUpsCell({ id, fu, fuSuggested, status }: { id: string; fu: FuStepRow[] | null; fuSuggested?: FuStepRow[] | null; status: string }) {
+function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null; status: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const canPlan = ["sent", "in_conversation", "negotiating"].includes(status);
@@ -137,9 +136,6 @@ function FollowUpsCell({ id, fu, fuSuggested, status }: { id: string; fu: FuStep
 
   const today = new Date().toISOString().slice(0, 10);
   const plannedFor = fu.length;
-  // Steps the cadence recommends on top of the saved plan. Drawn dashed and
-  // grey: this is what the tool WOULD do, shown without George having to ask.
-  const extra = (fuSuggested ?? []).slice(fu.length);
   const doneCount = fu.filter((s) => s.done_at).length;
   const pending = fu.filter((s) => !s.done_at);
   const overdue = pending.filter((s) => s.due < today).length;
@@ -158,7 +154,7 @@ function FollowUpsCell({ id, fu, fuSuggested, status }: { id: string; fu: FuStep
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <div style={{ fontSize: 9.5, letterSpacing: 0.4, color: summaryColour, fontWeight: 700, marginBottom: 1 }}>
-        {doneCount}/{plannedFor} sent · {summaryText}{extra.length ? ` · +${extra.length} suggested` : ""}
+        {doneCount}/{plannedFor} sent · {summaryText}
       </div>
       {fu.map((s, i) => {
         const done = !!s.done_at;
@@ -210,38 +206,6 @@ function FollowUpsCell({ id, fu, fuSuggested, status }: { id: string; fu: FuStep
           </div>
         );
       })}
-      {extra.map((s, i) => (
-        <div key={`x${i}`} title="Suggested by the cadence for this charter date. Not saved yet." style={{ display: "flex", alignItems: "center", gap: 5, opacity: 0.62 }}>
-          <span style={{ fontSize: 9, fontWeight: 700, width: 24, letterSpacing: 0.5, color: "#9CA3AF" }}>
-            ＋{s.kind === "bye" ? "Bye" : s.kind === "reopen" ? "Re" : `F${fu.length + i + 1}`}
-          </span>
-          <span style={{
-            fontSize: 11, color: "#6b7280", border: "1px dashed rgba(13,27,42,0.22)",
-            padding: "1px 6px", borderRadius: 3, fontVariantNumeric: "tabular-nums",
-          }}>
-            {fmt(s.due)}
-          </span>
-        </div>
-      ))}
-      <button
-        type="button"
-        disabled={busy !== null}
-        title={extra.length
-          ? "Accept the suggested dates. Everything already ticked stays exactly as it is."
-          : "Rebuild the remaining dates from today. Ticked steps are never touched."}
-        onClick={(e) => { e.stopPropagation(); post({ action: "plan-replan" }, "replan"); }}
-        style={{
-          alignSelf: "flex-start", marginTop: 3, padding: extra.length ? "2px 8px" : 0,
-          background: extra.length ? "rgba(201,168,76,0.12)" : "none",
-          border: extra.length ? "1px solid rgba(201,168,76,0.5)" : "none",
-          borderRadius: 3, cursor: "pointer", fontSize: 9.5, letterSpacing: 0.4,
-          color: extra.length ? "#A8873B" : "#9CA3AF",
-          fontWeight: extra.length ? 700 : 400,
-          textDecoration: extra.length ? "none" : "underline",
-        }}
-      >
-        {busy === "replan" ? "..." : extra.length ? `accept +${extra.length}` : `re-plan (${plannedFor})`}
-      </button>
     </div>
   );
 }
@@ -603,7 +567,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
 
                 {/* Follow-ups - the 3-step plan, dates editable, steps tickable */}
                 <td style={td} onClick={(e) => e.stopPropagation()}>
-                  <FollowUpsCell id={r.id} fu={r.fu} fuSuggested={r.fuSuggested} status={r.status} />
+                  <FollowUpsCell id={r.id} fu={r.fu} status={r.status} />
                 </td>
 
                 {/* Signals — engagement (the buying signal) + waiting/next hints */}

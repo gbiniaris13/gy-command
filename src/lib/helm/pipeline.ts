@@ -194,6 +194,37 @@ export function isFlexibleWindow(nights: number | null): boolean {
   return nights !== null && nights >= 10;
 }
 
+/** Bring a short plan up to full strength by APPENDING what is missing —
+ *  never touching a single existing step, done or not.
+ *
+ *  2026-08-05, George: "δεν τα θέλω θολά... αντί για 3 ας έχω όσα πρέπει".
+ *  He does not want a dashed "suggestion" beside the plan and a button to
+ *  accept it; he wants the plan itself to simply BE the right length, live,
+ *  the way he already works it every morning. So the pipeline page calls this
+ *  on render: if the cadence says a 2027 request deserves six steps and the
+ *  saved plan has three, the missing tail (F4, the re-open, the goodbye) is
+ *  appended with real dates and saved. His edited dates, his ticks, his order
+ *  — untouched, because we only ever ADD past the end.
+ *
+ *  Returns the extended plan, or null when nothing needs adding (which is the
+ *  everyday case, so the page writes nothing on a normal visit). */
+export function extendPlan(
+  existing: FuStep[] | undefined,
+  charterFromIso: string | null | undefined,
+  nowIso: string = new Date().toISOString(),
+): FuStep[] | null {
+  const cur = existing ?? [];
+  if (cur.length === 0) return null; // no plan at all → that is plan-init's job
+  const fresh = replanKeepingHistory(cur, charterFromIso, nowIso);
+  if (fresh.length <= cur.length) return null;
+  // Only the steps BEYOND the saved plan, and only ones that land after every
+  // date already in the book — appending must never reorder what George sees.
+  const lastDue = cur.map((s) => s.due).sort().at(-1)!;
+  const tail = fresh.slice(cur.length).filter((s) => s.due > lastDue);
+  if (tail.length === 0) return null;
+  return [...cur, ...tail];
+}
+
 /** Re-plan an EXISTING request without losing a day of the work already done.
  *
  *  Two rules, both learned the hard way (2026-08-04):
