@@ -80,8 +80,12 @@ export default async function HelmListPage() {
       waitingDays,
       onNewsletter: r.on_newsletter,
       sentAt: p.sent_at ?? null,
-      fu: Array.isArray(p.fu) && p.fu.length === 3
-        ? p.fu.map((s) => ({ due: s.due, done_at: s.done_at ?? null, how: s.how ?? null }))
+      // Any length, not just three (2026-08-04): plans are now scaled to how far
+      // away the charter is, so a long-lead request legitimately carries five or
+      // six steps. The old `=== 3` test threw those away and the cell drew the
+      // "Suggest dates" button instead of the plan George had just made.
+      fu: Array.isArray(p.fu) && p.fu.length > 0
+        ? p.fu.map((s) => ({ due: s.due, done_at: s.done_at ?? null, how: s.how ?? null, kind: s.kind }))
         : null,
       notes: p.notes ?? "",
       yachts: r.yacht_labels,

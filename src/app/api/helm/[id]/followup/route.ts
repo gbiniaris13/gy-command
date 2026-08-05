@@ -67,11 +67,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   // PLAN-INIT: lay the 3 suggested dates on a request sent before this
   // feature existed (one click from the list).
-  if (action === "plan-init") {
+  // PLAN-INIT builds a plan only when there is none. (Until 2026-08-04 the
+  // guard was `length !== 3`, which silently rebuilt any plan that was not
+  // exactly three steps long. Plans are now 1 to 6 steps, so that test would
+  // have regenerated a healthy plan on every visit and thrown away George's
+  // hand-edited dates.) Use plan-replan to rebuild on purpose.
+  if (action === "plan-init" || action === "plan-replan") {
     const pipeline = readPipeline(r.extraction);
-    if (!pipeline.fu || pipeline.fu.length !== 3) {
+    const needsPlan = !pipeline.fu || pipeline.fu.length === 0;
+    if (needsPlan || action === "plan-replan") {
+      // Re-planning keeps the ticks already earned: a step George has marked
+      // done stays done, so a refresh never asks him to repeat himself.
+      const doneCount = (pipeline.fu ?? []).filter((s) => s.done_at).length;
       const sentAt = pipeline.sent_at || r.last_activity_at || new Date().toISOString();
-      pipeline.fu = suggestFollowUps(sentAt, r.dates_from ?? null);
+      const fresh = suggestFollowUps(sentAt, r.dates_from ?? null);
+      pipeline.fu = fresh.map((s, i) => {
+        const prior = (pipeline.fu ?? [])[i];
+        return i < doneCount && prior?.done_at
+          ? { ...s, done_at: prior.done_at, how: prior.how }
+          : s;
+      });
       if (!pipeline.sent_at) pipeline.sent_at = sentAt;
       await mergePipeline(id, { fu: pipeline.fu, sent_at: pipeline.sent_at }, { syncFollowUpAt: true });
     }
@@ -83,7 +98,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (action === "plan-set") {
     const step = Number(body?.step);
     const date = (body?.date ?? "").toString();
-    if (![0, 1, 2].includes(step) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    if (!Number.isInteger(step) || step < 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return NextResponse.json({ error: "bad step/date" }, { status: 400 });
     }
     const pipeline = readPipeline(r.extraction);
@@ -102,13 +117,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const step = Number(body?.step);
     const how = (body?.how ?? "").toString().slice(0, 40) || null;
     const pipeline = readPipeline(r.extraction);
-    if (![0, 1, 2].includes(step) || !pipeline.fu || !pipeline.fu[step]) {
+    if (!Number.isInteger(step) || step < 0 || !pipeline.fu || !pipeline.fu[step]) {
       return NextResponse.json({ error: "no plan/step" }, { status: 400 });
     }
     if (!pipeline.fu[step].done_at) {
       pipeline.fu[step] = { ...pipeline.fu[step], done_at: new Date().toISOString(), how };
       await mergePipeline(id, { fu: pipeline.fu }, { syncFollowUpAt: true });
-      const label = step === 2 ? "final courtesy note" : `follow-up ${step + 1}`;
+      const label = pipeline.fu[step].kind === "bye"
+        ? "final courtesy note"
+        : pipeline.fu[step].kind === "reopen"
+          ? "re-opening near the charter"
+          : `follow-up ${step + 1}`;
       try {
         await logHelmMessage(id, {
           direction: "outbound",
@@ -154,12 +173,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const line = `[Follow-up ${followupNumber}] (logged by hand · ${how})${note ? `\n\n${note}` : ""}`;
     try {
       await logHelmMessage(id, { direction: "outbound", channel: "note", body: line });
-      // Plan-aware (2026-07-24): when the 3-step plan exists, a hand-logged
+      // Plan-aware (2026-07-24, generalised 2026-08-04): when a plan exists of
+      // ANY length, a hand-logged
       // follow-up ticks the first not-done step and the reminder moves to
       // the next planned date. Without a plan, the old flat +5 days stands.
       const pipeline = readPipeline(r.extraction);
       let nextDue: string | null;
-      if (pipeline.fu?.length === 3 && pipeline.fu.some((s) => !s.done_at)) {
+      if (pipeline.fu?.length && pipeline.fu.some((s) => !s.done_at)) {
         const idx = pipeline.fu.findIndex((s) => !s.done_at);
         pipeline.fu[idx] = { ...pipeline.fu[idx], done_at: new Date().toISOString(), how };
         await mergePipeline(id, { fu: pipeline.fu }, { syncFollowUpAt: true });
@@ -226,7 +246,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // reminder moves to the next planned date; without a plan, +5 days.
       const pipeline = readPipeline(r.extraction);
       let nextFollowUp: string | null;
-      if (pipeline.fu?.length === 3 && pipeline.fu.some((s) => !s.done_at)) {
+      if (pipeline.fu?.length && pipeline.fu.some((s) => !s.done_at)) {
         const idx = pipeline.fu.findIndex((s) => !s.done_at);
         pipeline.fu[idx] = { ...pipeline.fu[idx], done_at: new Date().toISOString(), how: "email" };
         await mergePipeline(id, { fu: pipeline.fu });

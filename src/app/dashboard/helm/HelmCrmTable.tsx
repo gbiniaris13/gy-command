@@ -1,5 +1,7 @@
 "use client";
 
+import { followUpLabels } from "@/lib/helm/pipeline";
+
 // The Helm — the CRM table (2026-07-17, George's spec: "μπαίνω και έχω πλήρη
 // εικόνα και δεν μπερδεύομαι"). One clean row per request, and every fact he
 // asked to see AT A GLANCE is its own column: when it came in, who (with the
@@ -14,7 +16,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-export type FuStepRow = { due: string; done_at: string | null; how: string | null };
+export type FuStepRow = { due: string; done_at: string | null; how: string | null; kind?: "nudge" | "reopen" | "bye" };
 
 export type CrmRow = {
   id: string;
@@ -87,9 +89,11 @@ function fmtSent(iso: string | null) {
   return `${date} · ${time}`;
 }
 
-// ── Follow-ups cell: the 3-step plan, each date editable in place, each
-// step tickable "I did it" (from WhatsApp, a call, anywhere). The final
-// step is the courteous close. follow_up_at stays mirrored server-side.
+// ── Follow-ups cell: the WHOLE suggested plan, however long it is (2026-08-04
+// it became 1 to 6 steps, scaled to how far away the charter is). Each date is
+// editable in place and each step tickable "I did it" from WhatsApp, a call,
+// anywhere. A summary line on top answers the only question that matters at a
+// glance: is this client due today. follow_up_at stays mirrored server-side.
 function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null; status: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -112,7 +116,7 @@ function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null;
     }
   }
 
-  if (!fu || fu.length !== 3) {
+  if (!fu || fu.length === 0) {
     if (!canPlan) return <span style={{ color: "#cbd5e1" }}>-</span>;
     return (
       <button
@@ -131,21 +135,37 @@ function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null;
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const labels = ["F1", "F2", "Bye"];
-  const titles = ["Follow-up 1", "Follow-up 2", "Final courtesy note (thank you, at your disposal)"];
+  const plannedFor = fu.length;
+  const doneCount = fu.filter((s) => s.done_at).length;
+  const pending = fu.filter((s) => !s.done_at);
+  const overdue = pending.filter((s) => s.due < today).length;
+  const dueToday = pending.some((s) => s.due === today);
+  const nextDue = pending[0]?.due ?? null;
+  const summaryColour = overdue > 0 ? "#b91c1c" : dueToday ? "#b45309" : doneCount === plannedFor ? "#0d6e5a" : "#6b7280";
+  const summaryText =
+    doneCount === plannedFor ? "all done"
+    : overdue > 0 ? `${overdue} overdue`
+    : dueToday ? "due TODAY"
+    : nextDue ? `next ${fmt(nextDue)}` : "";
+  // Labels come off the plan itself now: it can be 1 to 6 steps long and the
+  // goodbye is not always the third one (2026-08-04).
+  const marks = followUpLabels(fu);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <div style={{ fontSize: 9.5, letterSpacing: 0.4, color: summaryColour, fontWeight: 700, marginBottom: 1 }}>
+        {doneCount}/{plannedFor} sent · {summaryText}
+      </div>
       {fu.map((s, i) => {
         const done = !!s.done_at;
         const isDue = !done && s.due <= today;
         return (
-          <div key={i} title={titles[i]} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div key={i} title={marks[i]?.title} style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{
               fontSize: 9, fontWeight: 700, width: 24, letterSpacing: 0.5,
               color: done ? "#0d6e5a" : isDue ? "#b45309" : "#9CA3AF",
             }}>
-              {done ? "✓" : isDue ? "●" : "○"} {labels[i]}
+              {done ? "✓" : isDue ? "●" : "○"} {marks[i]?.short}
             </span>
             {done ? (
               <span style={{ fontSize: 11, color: "#0d6e5a" }}>
@@ -186,6 +206,19 @@ function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null;
           </div>
         );
       })}
+      <button
+        type="button"
+        disabled={busy !== null}
+        title="Rebuild the plan from today using the current cadence. Steps already ticked stay ticked."
+        onClick={(e) => { e.stopPropagation(); post({ action: "plan-replan" }, "replan"); }}
+        style={{
+          alignSelf: "flex-start", marginTop: 2, background: "none", border: "none",
+          padding: 0, cursor: "pointer", fontSize: 9.5, letterSpacing: 0.4,
+          color: "#9CA3AF", textDecoration: "underline",
+        }}
+      >
+        {busy === "replan" ? "..." : `re-plan (${plannedFor})`}
+      </button>
     </div>
   );
 }
