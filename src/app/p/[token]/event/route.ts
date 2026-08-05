@@ -26,6 +26,12 @@ export const dynamic = "force-dynamic";
 async function isAdminViewer(): Promise<boolean> {
   try {
     const jar = await cookies();
+    // Fast path (2026-08-05): the durable house marker set by the middleware
+    // on any device George has signed in on. A live session is not required,
+    // which is the whole point: he opens his own links from his phone and out
+    // of his own inbox, with no session on that request, and those were being
+    // counted as client opens.
+    if (jar.get("gy_staff")?.value === "1") return true;
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

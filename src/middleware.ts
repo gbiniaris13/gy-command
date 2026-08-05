@@ -28,6 +28,24 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // 2026-08-05 — a durable "this browser belongs to the house" marker.
+  // The Salon open counter used to ask only "is there a live dashboard
+  // session right now?". George opening his own proposal link from his
+  // iPhone, or from a second window, or straight out of his email, has no
+  // session on that request, so his own previews were counted as client
+  // opens and inflated "Opened 14x". Once he has signed in on a device, we
+  // stamp a year-long cookie there; the Salon beacon reads it and stays
+  // silent. Not a secret, so no httpOnly: it must survive and be readable
+  // on any later request from that browser.
+  if (user) {
+    supabaseResponse.cookies.set("gy_staff", "1", {
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: "lax",
+      path: "/",
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
+
   if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

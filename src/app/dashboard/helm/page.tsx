@@ -6,7 +6,7 @@ import Link from "next/link";
 import { listHelmCrm } from "@/lib/helm-admin";
 import { refCode } from "@/lib/helm/refcode";
 import { phoneCountry } from "@/lib/phone-country";
-import { isFlexibleWindow } from "@/lib/helm/pipeline";
+import { isFlexibleWindow, replanKeepingHistory } from "@/lib/helm/pipeline";
 import HelmCrmTable, { type CrmRow } from "./HelmCrmTable";
 
 export const dynamic = "force-dynamic";
@@ -23,11 +23,31 @@ function nightsBetween(from: string | null, to: string | null): number | null {
 export default async function HelmListPage() {
   const requests = await listHelmCrm();
 
-  // Lost sinks to the bottom (George 2026-07-08); alive stays on top, newest first.
+  // Order of the list (2026-08-05, George: "πάνω πάνω να είναι οι
+  // ενδιαφερόμενοι"). Lost still sinks to the bottom. Above it, the list is
+  // sorted by how much the client has actually shown us, not by date:
+  //
+  //   1. In conversation. They answered. Nothing outranks a live thread.
+  //   2. Read it repeatedly and went quiet. Five or more opens with no reply
+  //      is the strongest unanswered signal there is: they want it and
+  //      something is in the way. These are the calls worth making today.
+  //   3. Opened at least once.
+  //   4. Everyone else, newest first, as before.
+  //
+  // Within each band, the most recent open wins, then the newest request.
+  const bandOf = (r: (typeof requests)[number]) => {
+    if (r.status === "lost") return 9;
+    if (r.status === "in_conversation" || r.status === "negotiating") return 0;
+    const views = r.salon?.views ?? 0;
+    if (views >= 5) return 1;
+    if (views >= 1) return 2;
+    return 3;
+  };
   const sorted = [...requests].sort((a, b) => {
-    const aLost = a.status === "lost" ? 1 : 0;
-    const bLost = b.status === "lost" ? 1 : 0;
-    if (aLost !== bLost) return aLost - bLost;
+    const ba = bandOf(a), bb = bandOf(b);
+    if (ba !== bb) return ba - bb;
+    const la = a.salon?.last_at ?? "", lb = b.salon?.last_at ?? "";
+    if (la !== lb) return String(lb).localeCompare(String(la));
     return String(b.created_at || "").localeCompare(String(a.created_at || ""));
   });
 
@@ -86,6 +106,17 @@ export default async function HelmListPage() {
       // "Suggest dates" button instead of the plan George had just made.
       fu: Array.isArray(p.fu) && p.fu.length > 0
         ? p.fu.map((s) => ({ due: s.due, done_at: s.done_at ?? null, how: s.how ?? null, kind: s.kind }))
+        : null,
+      // 2026-08-05 — the plan the cadence WOULD lay for this request today,
+      // computed on every render. George asked to SEE the recommendation in
+      // the column, not to press a button on seven rows to discover it. The
+      // cell draws whatever this adds beyond the saved plan in a lighter,
+      // dashed style: a suggestion, not a commitment. Nothing is written to
+      // the database until he accepts it.
+      fuSuggested: Array.isArray(p.fu) && p.fu.length > 0
+        ? replanKeepingHistory(p.fu, r.dates_from ?? null).map((s) => ({
+            due: s.due, done_at: s.done_at ?? null, how: s.how ?? null, kind: s.kind,
+          }))
         : null,
       notes: p.notes ?? "",
       yachts: r.yacht_labels,
