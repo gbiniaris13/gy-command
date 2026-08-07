@@ -230,6 +230,12 @@ function imageAspect(buf: Buffer): number | null {
 const PDF_IMG_MAX_PX = 1600;
 const PDF_IMG_QUALITY = 82;
 
+// Diagnostics for the size problem: if sharp is ever unavailable in the lambda
+// the resize silently no-ops and the PDF balloons again, which is exactly the
+// failure that is hard to see from outside. Counted per request and logged once
+// with the finished PDF size.
+const imgStats = { in: 0, out: 0, shrunk: 0, failed: 0 };
+
 async function fitForPdf(buf: Buffer, contentType: string): Promise<{ buf: Buffer; ct: string }> {
   try {
     const sharp = (await import("sharp")).default;
@@ -249,11 +255,28 @@ async function fitForPdf(buf: Buffer, contentType: string): Promise<{ buf: Buffe
       ? await img.png({ compressionLevel: 9, palette: true }).toBuffer()
       : await img.jpeg({ quality: PDF_IMG_QUALITY, progressive: true, mozjpeg: true }).toBuffer();
     // Only take the re-encode when it actually helps (an already-tiny image can grow).
-    if (out.length >= buf.length) return { buf, ct: contentType };
+    imgStats.in += buf.length;
+    if (out.length >= buf.length) { imgStats.out += buf.length; return { buf, ct: contentType }; }
+    imgStats.out += out.length; imgStats.shrunk++;
     return { buf: out, ct: hasAlpha ? "image/png" : "image/jpeg" };
-  } catch {
+  } catch (e) {
+    // Never fail the generate over a photo - but make the reason visible, since
+    // a silent no-op here is what puts an unsendable PDF in front of George.
+    imgStats.failed++; imgStats.in += buf.length; imgStats.out += buf.length;
+    console.warn("[helm/generate] image not normalised:", (e as Error).message);
     return { buf, ct: contentType };
   }
+}
+
+/** One line per generate: how much the photos weighed before/after and how big
+ *  the finished PDF is, so an oversize proposal is diagnosable from the logs
+ *  alone (Gmail refuses to DELIVER over 25MB, base64 included). */
+function logPdfSize(kind: string, pdfBytes: number): void {
+  const mb = (n: number) => (n / 1024 / 1024).toFixed(2);
+  console.log(
+    `[helm/generate] ${kind} pdf=${mb(pdfBytes)}MB (on the wire ~${mb(pdfBytes * 1.37)}MB) ` +
+    `images ${mb(imgStats.in)}MB->${mb(imgStats.out)}MB shrunk=${imgStats.shrunk} failed=${imgStats.failed}`,
+  );
 }
 
 // Fetch an image and return BOTH the data URI and its aspect ratio, so the
@@ -799,6 +822,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // HARD WHITE-LABEL GUARD — abort if any George Yachts token survives.
       if (whiteLabel) assertWhiteLabelClean({ html, title: "Charter Proposal", filename: "Charter_Proposal.pdf" });
       const pdf = await renderProposalPdf(html);
+    logPdfSize("single", pdf.byteLength);
+      logPdfSize("combined", pdf.byteLength);
       const path = await uploadProposalPdf(id, pdf);
       const combinedSubject = subjectWithRef(email_draft.subject, r.created_at);
       stripBakedImages(proposal as unknown as Record<string, unknown>); // PDF is rendered+uploaded; base64 no longer needed

@@ -62,6 +62,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const pdf = await downloadProposalPdf(r.proposal_pdf_path);
       attachments.push({ filename: "Charter_Proposal.pdf", mimeType: "application/pdf", base64: Buffer.from(pdf).toString("base64") });
       attachments.push({ filename: PARTNERSHIP_PDF_FILENAME, mimeType: "application/pdf", base64: PARTNERSHIP_PDF_BASE64 });
+
+      // SIZE GUARD (2026-08-07). Gmail ACCEPTS an oversized message over the
+      // API - messages/send returned 200 with a real messageId - and only then
+      // fails DELIVERY, bouncing "An error occurred. Your message was not sent."
+      // to George. The request had already been marked sent, a follow-up was
+      // scheduled and the advisor was added to the newsletter, so the CRM said
+      // "sent" while nothing ever reached her. That silent failure is far worse
+      // than a refusal, so we now weigh the message BEFORE handing it to Gmail
+      // and stop while the status is still untouched.
+      // Gmail's delivery ceiling is 25MB for the ENCODED message; base64 costs
+      // ~37% on top of the raw bytes, so we measure what actually goes on the
+      // wire and keep headroom for headers, the body and the signature.
+      const wireBytes = attachments.reduce((n, a) => n + a.base64.length, 0);
+      const MAX_WIRE = 23 * 1024 * 1024;
+      if (wireBytes > MAX_WIRE) {
+        const proposalMb = (attachments[0].base64.length / 1024 / 1024).toFixed(1);
+        return NextResponse.json({
+          error:
+            `Not sent - the email would be ${(wireBytes / 1024 / 1024).toFixed(1)} MB and Gmail refuses anything over 25 MB. ` +
+            `The proposal PDF alone is ${proposalMb} MB. Nothing has been sent and nothing was lost: the request is untouched and the draft is intact. ` +
+            `Open the review, exclude a few yachts (or replace the heaviest photos), press Generate again, then Send.`,
+        }, { status: 413 });
+      }
     } else {
       // Direct client: NO PDF, ever (George 2026-07-18 — "το PDF το βγάζεις
       // τελείως"). The private online magazine is the whole deliverable and it
