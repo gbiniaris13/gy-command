@@ -268,6 +268,67 @@ async function fitForPdf(buf: Buffer, contentType: string): Promise<{ buf: Buffe
   }
 }
 
+// A proposal is only useful if it can actually be EMAILED. Gmail refuses to
+// deliver over 25MB and attachments are base64 (+37%), so the PDF itself has
+// to stay comfortably under ~16MB. Photo weight inside a PDF is decided by
+// chromium, not by us, and the lambda's build compresses far less generously
+// than a desktop Chrome - so rather than trust one setting, we WEIGH the
+// finished PDF and, if it is too heavy, re-render it once with the inlined
+// photos squeezed harder. Costs a second render only in the rare heavy case.
+const PDF_SOFT_LIMIT = 16 * 1024 * 1024;
+const RETRY_IMG_MAX_PX = 1100;
+const RETRY_IMG_QUALITY = 70;
+
+/** Re-encode every base64 photo already inlined in the HTML. Works on the
+ *  finished document, so it is independent of how the proposal was assembled
+ *  (cover, hero, gallery strip - all of them are just data URIs by now). */
+async function shrinkInlinedPhotos(html: string): Promise<string> {
+  const sharp = (await import("sharp")).default;
+  const re = /data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=]+)/g;
+  const seen = new Map<string, string>();
+  const jobs: Promise<void>[] = [];
+  for (const m of html.matchAll(re)) {
+    const whole = m[0], b64 = m[2];
+    if (seen.has(whole)) continue;
+    seen.set(whole, whole); // placeholder keeps identical photos deduped
+    jobs.push((async () => {
+      try {
+        const src = Buffer.from(b64, "base64");
+        const meta = await sharp(src, { failOn: "none" }).metadata();
+        if (meta.hasAlpha) return; // transparency: leave it alone
+        const out = await sharp(src, { failOn: "none" })
+          .resize({ width: RETRY_IMG_MAX_PX, height: RETRY_IMG_MAX_PX, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: RETRY_IMG_QUALITY, progressive: true, mozjpeg: true })
+          .toBuffer();
+        if (out.length < src.length) seen.set(whole, `data:image/jpeg;base64,${out.toString("base64")}`);
+      } catch { /* keep the original */ }
+    })());
+  }
+  await Promise.all(jobs);
+  let out = html;
+  for (const [from, to] of seen) if (from !== to) out = out.split(from).join(to);
+  return out;
+}
+
+/** Render, and if the result is too heavy to email, render once more with the
+ *  photos squeezed. Returns the PDF actually worth uploading. */
+async function renderWithinEmailLimit(html: string, kind: string): Promise<Uint8Array> {
+  let pdf = await renderProposalPdf(html);
+  logPdfSize(kind, pdf.byteLength);
+  if (pdf.byteLength > PDF_SOFT_LIMIT) {
+    console.warn(`[helm/generate] ${kind} pdf over the email limit - re-rendering with tighter photos`);
+    try {
+      const lighter = await shrinkInlinedPhotos(html);
+      const retry = await renderProposalPdf(lighter);
+      logPdfSize(`${kind} (retry)`, retry.byteLength);
+      if (retry.byteLength < pdf.byteLength) pdf = retry;
+    } catch (e) {
+      console.warn("[helm/generate] retry render failed, keeping the first:", (e as Error).message);
+    }
+  }
+  return pdf;
+}
+
 /** One line per generate: how much the photos weighed before/after and how big
  *  the finished PDF is, so an oversize proposal is diagnosable from the logs
  *  alone (Gmail refuses to DELIVER over 25MB, base64 included). */
@@ -821,9 +882,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const html = buildProposalHtml(proposal);
       // HARD WHITE-LABEL GUARD — abort if any George Yachts token survives.
       if (whiteLabel) assertWhiteLabelClean({ html, title: "Charter Proposal", filename: "Charter_Proposal.pdf" });
-      const pdf = await renderProposalPdf(html);
-    logPdfSize("single", pdf.byteLength);
-      logPdfSize("combined", pdf.byteLength);
+      const pdf = await renderWithinEmailLimit(html, "combined");
       const path = await uploadProposalPdf(id, pdf);
       const combinedSubject = subjectWithRef(email_draft.subject, r.created_at);
       stripBakedImages(proposal as unknown as Record<string, unknown>); // PDF is rendered+uploaded; base64 no longer needed
@@ -980,7 +1039,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const html = buildProposalHtml(proposal);
     // HARD WHITE-LABEL GUARD — abort if any George Yachts token survives.
     if (whiteLabel) assertWhiteLabelClean({ html, title: yacht.name, filename: "Charter_Proposal.pdf" });
-    const pdf = await renderProposalPdf(html);
+    const pdf = await renderWithinEmailLimit(html, "single");
     const path = await uploadProposalPdf(id, pdf);
 
     const singleSubject = subjectWithRef(email_draft.subject, r.created_at);

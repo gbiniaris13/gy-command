@@ -26,7 +26,17 @@ export async function renderProposalPdf(html: string): Promise<Uint8Array> {
   try {
     browser = await puppeteer.launch({
       args: chromium.args,
-      defaultViewport: { width: 1240, height: 1754, deviceScaleFactor: 2 },
+      // deviceScaleFactor 1, not 2. The PDF's TEXT is vector either way - two
+      // renders of the same page at 2 and at 1 are pixel-identical on screen,
+      // verified side by side - so the only thing the factor changes is how
+      // many pixels every PHOTO is rasterised to before being written into the
+      // file. At 2 the lambda's chromium was writing each photo at roughly
+      // 300dpi and barely compressing it: a nine-yacht proposal whose inlined
+      // photos totalled 7.5MB came out as a 37.8MB PDF, which Gmail then
+      // refused to deliver. At 1 the photos land at ~150dpi, which is the
+      // right density for a document that is read on a screen, and the file
+      // drops by roughly a factor of four with nothing visibly lost.
+      defaultViewport: { width: 1240, height: 1754, deviceScaleFactor: 1 },
       executablePath: await chromium.executablePath(packUrl),
       headless: true,
     });
