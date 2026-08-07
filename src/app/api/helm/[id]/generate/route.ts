@@ -230,20 +230,36 @@ function imageAspect(buf: Buffer): number | null {
 const PDF_IMG_MAX_PX = 1600;
 const PDF_IMG_QUALITY = 82;
 
+// How hard to squeeze each photo, chosen from how many yachts share the file.
+// Measured on the live nine-yacht proposal: at 1600/82 the lambda's chromium
+// produced a 37.8MB PDF from 7.5MB of photos, which then had to be rendered a
+// SECOND time to become sendable - and the wait was long enough that George's
+// browser gave up on the request ("Failed to fetch") even though the server
+// finished fine. So a long shortlist now starts at the tighter setting that
+// the retry proved sufficient (it produced 4.92MB), and one render is enough.
+// A short proposal keeps the most generous setting; the retry below stays as
+// the safety net for anything unusual.
+type ImgBudget = { maxPx: number; quality: number };
+function photoBudget(yachtCount: number): ImgBudget {
+  if (yachtCount >= 8) return { maxPx: 1100, quality: 70 };
+  if (yachtCount >= 4) return { maxPx: 1300, quality: 76 };
+  return { maxPx: PDF_IMG_MAX_PX, quality: PDF_IMG_QUALITY };
+}
+
 // Diagnostics for the size problem: if sharp is ever unavailable in the lambda
 // the resize silently no-ops and the PDF balloons again, which is exactly the
 // failure that is hard to see from outside. Counted per request and logged once
 // with the finished PDF size.
 const imgStats = { in: 0, out: 0, shrunk: 0, failed: 0 };
 
-async function fitForPdf(buf: Buffer, contentType: string): Promise<{ buf: Buffer; ct: string }> {
+async function fitForPdf(buf: Buffer, contentType: string, budget: ImgBudget): Promise<{ buf: Buffer; ct: string }> {
   try {
     const sharp = (await import("sharp")).default;
     const img = sharp(buf, { failOn: "none" })
       .rotate() // honour EXIF orientation before we drop the metadata
       .resize({
-        width: PDF_IMG_MAX_PX,
-        height: PDF_IMG_MAX_PX,
+        width: budget.maxPx,
+        height: budget.maxPx,
         fit: "inside",
         withoutEnlargement: true, // never upscale a small photo
       });
@@ -253,7 +269,7 @@ async function fitForPdf(buf: Buffer, contentType: string): Promise<{ buf: Buffe
     const hasAlpha = (await sharp(buf, { failOn: "none" }).metadata()).hasAlpha === true;
     const out = hasAlpha
       ? await img.png({ compressionLevel: 9, palette: true }).toBuffer()
-      : await img.jpeg({ quality: PDF_IMG_QUALITY, progressive: true, mozjpeg: true }).toBuffer();
+      : await img.jpeg({ quality: budget.quality, progressive: true, mozjpeg: true }).toBuffer();
     // Only take the re-encode when it actually helps (an already-tiny image can grow).
     imgStats.in += buf.length;
     if (out.length >= buf.length) { imgStats.out += buf.length; return { buf, ct: contentType }; }
@@ -344,27 +360,27 @@ function logPdfSize(kind: string, pdfBytes: number): void {
 // template can choose letterbox-over-blur for portrait shots. Same fetch,
 // zero extra cost. Aspect is read from the ORIGINAL bytes (resizing preserves
 // the ratio, so the letterbox decision is unchanged).
-async function toDataUriWithAspect(url: string): Promise<{ uri: string; aspect: number | null } | null> {
+async function toDataUriWithAspect(url: string, budget: ImgBudget = photoBudget(1)): Promise<{ uri: string; aspect: number | null } | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) return null;
     const ct0 = res.headers.get("content-type") || "image/jpeg";
     const raw = Buffer.from(await res.arrayBuffer());
     const aspect = imageAspect(raw);
-    const { buf, ct } = await fitForPdf(raw, ct0);
+    const { buf, ct } = await fitForPdf(raw, ct0, budget);
     return { uri: `data:${ct};base64,${buf.toString("base64")}`, aspect };
   } catch {
     return null;
   }
 }
 
-async function toDataUri(url: string): Promise<string | null> {
+async function toDataUri(url: string, budget: ImgBudget = photoBudget(1)): Promise<string | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) return null;
     const ct0 = res.headers.get("content-type") || "image/jpeg";
     const raw = Buffer.from(await res.arrayBuffer());
-    const { buf, ct } = await fitForPdf(raw, ct0);
+    const { buf, ct } = await fitForPdf(raw, ct0, budget);
     return `data:${ct};base64,${buf.toString("base64")}`;
   } catch {
     return null;
@@ -610,6 +626,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         ? {}
         : await fleetPhotosForNames(inYachts.map((iy) => iy.vessel?.name || ""));
 
+      // Every yacht adds a full-page photo (and up to three strip photos), so
+      // the squeeze is chosen from how many share the file - a long shortlist
+      // starts tight enough to render ONCE. See photoBudget.
+      const budget = photoBudget(inYachts.length);
+
       // Build each yacht (compute pricing + compose copy + embed its photo) in
       // parallel, then sort. allInNumber is the deterministic sort key.
       const built = await Promise.all(inYachts.map(async (iy, i) => {
@@ -668,7 +689,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // when this yacht is one of our own (exact-name match; [] otherwise).
         const fleetMain = media.main_url ? "" : (fleetPhotos[v.name || ""]?.[0] || "");
         const mainSrc = media.main_url || fleetMain;
-        const mainFetched = mainSrc ? await toDataUriWithAspect(optimizedUrl(mainSrc)) : null;
+        const mainFetched = mainSrc ? await toDataUriWithAspect(optimizedUrl(mainSrc), budget) : null;
         const mainImg = mainFetched?.uri ?? null;
         const mainAspect = mainFetched?.aspect ?? null;
         // Gallery strip (Helm v2): up to 3 extra photos under the hero. Manual
@@ -680,7 +701,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           : [];
         const gallerySrcs = (extraUrls.length ? extraUrls : (fleetPhotos[v.name || ""] || []).slice(1, 4)).slice(0, 3);
         const galleryImgs = (
-          await Promise.all(gallerySrcs.map((u) => toDataUri(optimizedUrl(u))))
+          await Promise.all(gallerySrcs.map((u) => toDataUri(optimizedUrl(u), budget)))
         ).filter((g): g is string => !!g);
         // Date-deviation note (Helm v2): when this yacht's window starts 2+
         // days off the requested embarkation, say so plainly instead of
