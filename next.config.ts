@@ -10,7 +10,10 @@ const nextConfig: NextConfig = {
   // from node_modules (the chromium binary itself is fetched at cold
   // start from CHROMIUM_PACK_URL, never bundled — keeps us under the
   // 250MB function limit).
-  serverExternalPackages: ["@sparticuz/chromium-min", "puppeteer-core"],
+  // sharp ships prebuilt native binaries, so it must be required at runtime
+  // rather than bundled. The proposal generator uses it to normalise every
+  // inlined photo before the PDF render (see generate/route.ts fitForPdf).
+  serverExternalPackages: ["@sparticuz/chromium-min", "puppeteer-core", "sharp"],
 };
 
 export default nextConfig;

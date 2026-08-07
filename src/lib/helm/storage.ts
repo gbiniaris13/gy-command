@@ -7,6 +7,25 @@ import { createServiceClient } from "../supabase-server";
 
 export const PROPOSALS_BUCKET = "helm-proposals";
 
+/** The bucket was created with a modest per-file cap, so a rich multi-yacht
+ *  proposal (every photo inlined) hit "The object exceeded the maximum allowed
+ *  size" at the very last step, AFTER the render - all of the broker's work
+ *  still safe in the draft, but no PDF. The service role can widen the bucket
+ *  itself, so we do that here instead of asking anyone to open a dashboard.
+ *  Fail-open: if the update is rejected we still attempt the upload. */
+const PROPOSAL_MAX_BYTES = 50 * 1024 * 1024; // 50 MB, the platform per-file cap
+
+async function widenBucketLimit(db: ReturnType<typeof createServiceClient>): Promise<void> {
+  try {
+    // public:false is REQUIRED and deliberate - updateBucket rewrites the whole
+    // config, and proposals are confidential. Never flip this to true.
+    await db.storage.updateBucket(PROPOSALS_BUCKET, {
+      public: false,
+      fileSizeLimit: PROPOSAL_MAX_BYTES,
+    });
+  } catch { /* fail-open — the upload below reports the real outcome */ }
+}
+
 /** Upload (or overwrite) the proposal PDF for a request. Returns the path. */
 export async function uploadProposalPdf(
   requestId: string,
@@ -14,10 +33,28 @@ export async function uploadProposalPdf(
 ): Promise<string> {
   const db = createServiceClient();
   const path = `${requestId}.pdf`;
-  const { error } = await db.storage
-    .from(PROPOSALS_BUCKET)
-    .upload(path, bytes, { contentType: "application/pdf", upsert: true });
-  if (error) throw new Error(`storage upload failed: ${error.message}`);
+  const put = () =>
+    db.storage
+      .from(PROPOSALS_BUCKET)
+      .upload(path, bytes, { contentType: "application/pdf", upsert: true });
+
+  let { error } = await put();
+  // Size rejection => widen the bucket once and retry the same bytes.
+  if (error && /maximum allowed size|exceeded|too large|413/i.test(error.message)) {
+    await widenBucketLimit(db);
+    ({ error } = await put());
+  }
+  if (error) {
+    const mb = (bytes.byteLength / 1024 / 1024).toFixed(1);
+    if (/maximum allowed size|exceeded|too large|413/i.test(error.message)) {
+      throw new Error(
+        `The generated PDF is ${mb} MB, which is over the storage limit for this project. ` +
+        `Nothing was lost - your saved draft, yachts and photos are intact. ` +
+        `Remove or exclude a few yachts (or replace the heaviest photos) and press Generate again.`,
+      );
+    }
+    throw new Error(`storage upload failed (${mb} MB): ${error.message}`);
+  }
   return path;
 }
 

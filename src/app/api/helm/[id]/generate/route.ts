@@ -213,16 +213,62 @@ function imageAspect(buf: Buffer): number | null {
   return null;
 }
 
+// Every photo is inlined as base64, so the PDF weighs roughly the sum of its
+// images. optimizedUrl() only transforms CLOUDINARY urls - a supplier link, a
+// Sanity fleet photo or one of our own Supabase files came through at FULL
+// resolution, and a shortlist with many yachts then produced a PDF too large
+// for Storage ("The object exceeded the maximum allowed size" - George, live
+// travel-advisor request). So every image is normalised HERE, whatever its
+// source: capped at PDF_IMG_MAX_PX on the long edge and re-encoded as quality
+// 82 progressive JPEG.
+//
+// Quality is NOT sacrificed: a full-bleed photo is ~180mm wide, so 1600px is
+// ~225 dpi (well above the 150 dpi that reads as crisp in print, and the render
+// itself rasterises at deviceScaleFactor 2). Typical saving is 5-10x.
+// Fail-open: if sharp cannot read the buffer we embed the original bytes, so
+// behaviour is never worse than before.
+const PDF_IMG_MAX_PX = 1600;
+const PDF_IMG_QUALITY = 82;
+
+async function fitForPdf(buf: Buffer, contentType: string): Promise<{ buf: Buffer; ct: string }> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const img = sharp(buf, { failOn: "none" })
+      .rotate() // honour EXIF orientation before we drop the metadata
+      .resize({
+        width: PDF_IMG_MAX_PX,
+        height: PDF_IMG_MAX_PX,
+        fit: "inside",
+        withoutEnlargement: true, // never upscale a small photo
+      });
+    // A transparent PNG (a logo, a cut-out) must NOT become JPEG - JPEG has no
+    // alpha, so the transparent area would render as a black box on the navy
+    // page. Those stay PNG (still resized, which is where the weight is).
+    const hasAlpha = (await sharp(buf, { failOn: "none" }).metadata()).hasAlpha === true;
+    const out = hasAlpha
+      ? await img.png({ compressionLevel: 9, palette: true }).toBuffer()
+      : await img.jpeg({ quality: PDF_IMG_QUALITY, progressive: true, mozjpeg: true }).toBuffer();
+    // Only take the re-encode when it actually helps (an already-tiny image can grow).
+    if (out.length >= buf.length) return { buf, ct: contentType };
+    return { buf: out, ct: hasAlpha ? "image/png" : "image/jpeg" };
+  } catch {
+    return { buf, ct: contentType };
+  }
+}
+
 // Fetch an image and return BOTH the data URI and its aspect ratio, so the
 // template can choose letterbox-over-blur for portrait shots. Same fetch,
-// zero extra cost.
+// zero extra cost. Aspect is read from the ORIGINAL bytes (resizing preserves
+// the ratio, so the letterbox decision is unchanged).
 async function toDataUriWithAspect(url: string): Promise<{ uri: string; aspect: number | null } | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) return null;
-    const ct = res.headers.get("content-type") || "image/jpeg";
-    const buf = Buffer.from(await res.arrayBuffer());
-    return { uri: `data:${ct};base64,${buf.toString("base64")}`, aspect: imageAspect(buf) };
+    const ct0 = res.headers.get("content-type") || "image/jpeg";
+    const raw = Buffer.from(await res.arrayBuffer());
+    const aspect = imageAspect(raw);
+    const { buf, ct } = await fitForPdf(raw, ct0);
+    return { uri: `data:${ct};base64,${buf.toString("base64")}`, aspect };
   } catch {
     return null;
   }
@@ -232,8 +278,9 @@ async function toDataUri(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) return null;
-    const ct = res.headers.get("content-type") || "image/jpeg";
-    const buf = Buffer.from(await res.arrayBuffer());
+    const ct0 = res.headers.get("content-type") || "image/jpeg";
+    const raw = Buffer.from(await res.arrayBuffer());
+    const { buf, ct } = await fitForPdf(raw, ct0);
     return `data:${ct};base64,${buf.toString("base64")}`;
   } catch {
     return null;
