@@ -203,6 +203,14 @@
     {
       "path": "/api/cron/media-requests",
       "schedule": "40 7 * * *"
+    },
+    {
+      "path": "/api/cron/clarity-collect",
+      "schedule": "40 5 * * *"
+    },
+    {
+      "path": "/api/cron/clarity-weekly",
+      "schedule": "10 7 * * 1"
     }
   ]
 }
