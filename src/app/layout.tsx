@@ -33,6 +33,20 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "GY Command",
   },
+  // 2026-08-08 - Google had indexed command.georgeyachts.com/login. It turned
+  // up in Search Console as the domain's only "duplicate without user-selected
+  // canonical", which is how we found it: an internal CRM sign-in page sitting
+  // in public search results.
+  //
+  // noindex rather than a robots.txt disallow, deliberately. Blocking the
+  // crawler would stop Google reading the very instruction that removes the
+  // page, so an already-indexed URL would simply stay indexed with no snippet.
+  // Letting it crawl and telling it not to index is what actually clears it.
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
 };
 
 export const viewport: Viewport = {
