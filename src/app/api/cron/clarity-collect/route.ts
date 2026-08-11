@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
+import { getSetting, setSetting } from "@/lib/google-api";
 import {
   DIMENSIONS,
   fetchDimension,
@@ -23,6 +24,34 @@ import {
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+const ZERO_STREAK_KEY = "clarity_zero_streak";
+const ZERO_DAYS_BEFORE_ALERT = 3;
+
+/** Total sessions in the day, read from the Device breakdown only so the
+ *  three dimensions do not triple-count the same traffic. */
+function countSessions(
+  byDimension: Partial<Record<Dimension, ClarityMetric[]>>,
+): number {
+  const traffic = byDimension.Device?.find(
+    (m) => m.metricName.toLowerCase() === "traffic",
+  );
+  if (!traffic) return 0;
+  return traffic.information.reduce((sum, row) => {
+    const n = Number(row.totalSessionCount);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+}
+
+async function getStreak(): Promise<number> {
+  const raw = await getSetting(ZERO_STREAK_KEY);
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+async function setStreak(n: number): Promise<void> {
+  await setSetting(ZERO_STREAK_KEY, String(n));
+}
 
 async function _observedImpl(request: NextRequest): Promise<Response> {
   const authHeader = request.headers.get("authorization");
@@ -64,11 +93,42 @@ async function _observedImpl(request: NextRequest): Promise<Response> {
   const day: DaySnapshot = { date, byDimension, failed };
   await writeDay(day);
 
+  // The silent-zero watchdog.
+  //
+  // 2026-08-11. Clarity spent a day looking broken and being right to: the
+  // tag was installed correctly, but the consentv2 signal was missing and the
+  // EEA has required it since 31 October 2025, so nothing was recorded. The
+  // API answered 200 the whole time. A pull that succeeds and returns nothing
+  // is indistinguishable from a pull that succeeds and returns a quiet day,
+  // which is exactly how an install stays broken for a week without anyone
+  // noticing.
+  //
+  // So: count sessions. One quiet day says nothing. Three consecutive days of
+  // absolute zero on a site with daily traffic says the pipe is cut, and that
+  // is worth one message. It resets itself the moment a session appears, and
+  // it never repeats while the streak continues.
+  const sessions = countSessions(byDimension);
+  const streakRaw = await getStreak();
+  const streak = sessions > 0 ? 0 : streakRaw + 1;
+  await setStreak(streak);
+
+  if (sessions === 0 && streak === ZERO_DAYS_BEFORE_ALERT) {
+    await sendTelegram(
+      `⚠️ Clarity has recorded <b>zero sessions for ${streak} days running</b>.\n\n` +
+        `The API is answering, so this is not the token. Most likely the tag stopped ` +
+        `loading, or the consent signal stopped firing.\n\n` +
+        `Check: open georgeyachts.com, accept analytics, and confirm the page requests ` +
+        `clarity.ms/tag and that the inline script still carries the consentv2 call.`,
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     date,
     collected: Object.keys(byDimension),
     failed,
+    sessions,
+    zeroStreak: streak,
   });
 }
 
