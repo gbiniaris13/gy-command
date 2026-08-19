@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { verifyClick, emailGeorgeReport, athensTime, classifyClick } from "@/lib/email-tracking";
+import { verifyClick, emailGeorgeReport, athensTime, classifyClick, selfFooter } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,6 +112,7 @@ export async function GET(req: NextRequest) {
             `Via:     ${row.source}`,
             ``,
             `Scanner and prefetch clicks are filtered out - this one classified as a real reader.`,
+            ...selfFooter(token, "click"),
           ].join("\n");
           await emailGeorgeReport(
             `\u{1F517} Clicked: ${(row.subject || "(no subject)").slice(0, 60)} - ${row.recipient || ""}`,

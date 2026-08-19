@@ -52,6 +52,30 @@ export function verifyClick(token: string, url: string, sig: string): boolean {
   );
 }
 
+// "That was me" correction link (2026-08-18). Signed with the same key as
+// the click redirect so only someone holding a notification can use it.
+export function signSelf(token: string, kind: string): string {
+  return hmac(`self|${token}|${kind}`);
+}
+
+export function selfLink(token: string, kind: "open" | "click"): string {
+  return `${trackingBaseUrl()}/api/t/self?t=${encodeURIComponent(token)}&k=${kind}&s=${signSelf(token, kind)}`;
+}
+
+// The honest footer under every open/click alert. Gmail proxies images
+// identically for a recipient's inbox and for George's own Sent copy, so a
+// self-open cannot be detected; it can only be corrected in one click, and
+// correcting it re-arms the alert.
+export function selfFooter(token: string, kind: "open" | "click"): string[] {
+  const noun = kind === "click" ? "click" : "open";
+  return [
+    ``,
+    `Was that you, re-reading your own copy? Correct it here and this ${noun} stops counting.`,
+    `The alert re-arms itself, so the client's real first ${noun} still reaches you:`,
+    selfLink(token, kind),
+  ];
+}
+
 export function newToken(): string {
   return crypto.randomBytes(9).toString("base64url");
 }
@@ -134,7 +158,7 @@ export const DELIVERY_GRACE_MS = 120_000;
 //              the grace window, which is how a real Gmail display fetches.
 //
 // Only `human` updates counts and triggers notifications.
-export type HitVerdict = "human" | "prefetch" | "bot" | "apple-mpp";
+export type HitVerdict = "human" | "prefetch" | "bot" | "apple-mpp" | "self";
 
 const BOT_UA = new RegExp(
   [

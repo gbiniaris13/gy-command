@@ -120,12 +120,43 @@ export async function POST(
       });
     }
 
+    // 2026-08-18, George: "θέλω όλα να μου έρχονται με mail, κάποιες έρχονται
+    // μόνο στο Telegram". The Salon was Telegram-only since July, which is why
+    // a client reading a live proposal was a message he could scroll past.
+    // Both channels now, and the email carries the fuller picture.
     if (ping) {
+      const plain = ping.replace(/<[^>]+>/g, "");
       try {
         const { sendTelegram } = await import("@/lib/telegram");
         await sendTelegram(ping);
       } catch (e) {
         console.error("[salon-event] telegram failed", e);
+      }
+      try {
+        const { emailGeorgeReport, athensTime } = await import("@/lib/email-tracking");
+        const subject =
+          t === "yacht" ? `Interest marked: ${yacht}` : `${client} is reading the proposal`;
+        const lines = [
+          plain,
+          ``,
+          `Client:   ${client}`,
+          `Contact:  ${r.client_email || "no email on file"}`,
+          `At:       ${athensTime(now)} (Athens)`,
+          `Views:    ${s.views ?? 0}`,
+        ];
+        if (s.first_at) lines.push(`First:    ${athensTime(s.first_at)} (Athens)`);
+        if (s.yachts && Object.keys(s.yachts).length) {
+          lines.push(``, `Yachts opened:`);
+          for (const [name, n] of Object.entries(s.yachts)) lines.push(`  ${name}  x${n}`);
+        }
+        if (s.pdf) lines.push(`PDF downloads: ${s.pdf}`);
+        lines.push(
+          ``,
+          `Your own previews never reach here - the dashboard cookie filters them out before anything is counted.`,
+        );
+        await emailGeorgeReport(subject, lines.join("\n"));
+      } catch (e) {
+        console.error("[salon-event] email failed", e);
       }
     }
   } catch (e) {

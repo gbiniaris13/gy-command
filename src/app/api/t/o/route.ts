@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { emailGeorgeReport, athensTime, classifyOpen } from "@/lib/email-tracking";
+import { emailGeorgeReport, athensTime, classifyOpen, selfFooter } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
         ``,
         `Machine fetches (Gmail prefetch, scanners, Apple proxy) are filtered out - this one classified as a real reader.`,
         `Further opens and clicks are counted silently - the evening digest has the totals.`,
+        ...selfFooter(token, "open"),
       ].join("\n");
       await emailGeorgeReport(
         `\u{1F4EC} Opened: ${(row.subject || "(no subject)").slice(0, 60)} - ${row.recipient || ""}`,
