@@ -13,7 +13,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import SeasonProration from "./SeasonProration";
 import PricingExtras from "./PricingExtras";
 import TermsEditor, { type TermsState, EMPTY_TERMS, termsStateFromObject, termsObjectFromState } from "./TermsEditor";
-import type { PricingInput } from "@/lib/helm/pricing";
+import { allInNumber, type PricingInput } from "@/lib/helm/pricing";
 
 // Never crash on a non-JSON response (e.g. Vercel's plain-text 413 "Request
 // Entity Too Large"). Returns a friendly { error } message instead of throwing
@@ -180,7 +180,21 @@ type YState = {
    *  the PDF verbatim and the AI text is discarded for this yacht. Hard-capped
    *  at 240 chars — the exact budget the page renders. */
   manual_note?: string;
+  /** GEORGE'S OWN tier eyebrow. "" / absent => the automatic price-tercile
+   *  label the proposal would choose on its own. */
+  tier?: string;
 };
+
+/** The eyebrow above each yacht ("OUR RECOMMENDATION", "THE CONSIDERED VALUE",
+ *  ...). The proposal picks one from the price ladder; George overrides it per
+ *  yacht from this list. "" means "leave it to the proposal". */
+const TIER_OPTIONS: string[] = [
+  "Our Recommendation",
+  "The Considered Value",
+  "The Balanced Choice",
+  "The Statement",
+  "The Considered Choice",
+];
 
 /** GEORGE-WRITTEN itinerary page (max 2). Replaces the retired auto sample
  *  weeks — a canned route can never cover "the client wants Syros". Limits
@@ -526,6 +540,34 @@ export default function CombinedPanel({
   const allReady = includedCount > 0 && ys.every((s, i) => s.excluded || yachtReady(i));
   const canGenerate = !!ex && allReady && !!surname && busy === null;
 
+  // What the proposal WOULD choose on its own, so the picker can show it as the
+  // default instead of making George guess. Mirrors the generate route exactly:
+  // included yachts only, ordered by all-in (falling back to the charter fee),
+  // a pinned cover taking "Our Recommendation" and the rest split into price
+  // terciles. Recomputed on each render, so editing a fee updates the hints.
+  const autoTiers: Record<number, string> = (() => {
+    const out: Record<number, string> = {};
+    const inc = ys.map((s, i) => ({ s, i })).filter(({ s }) => s && !s.excluded);
+    if (!inc.length) return out;
+    const keyOf = ({ s }: { s: YState }) => {
+      const pi = pricingOf(s.px, s.priceMode);
+      const ain = allInNumber(pi);
+      if (ain != null) return ain;
+      const fee = Number(s.px.charter_fee);
+      return Number.isFinite(fee) && fee > 0 ? fee : Number.POSITIVE_INFINITY;
+    };
+    const pinned = inc.find(({ i }) => i === featuredIdx);
+    const rest = inc.filter(({ i }) => i !== featuredIdx).sort((a, b) => keyOf(a) - keyOf(b));
+    if (pinned) out[pinned.i] = "Our Recommendation";
+    const n = rest.length;
+    rest.forEach(({ i }, k) => {
+      if (n === 1) { out[i] = "The Considered Choice"; return; }
+      const t = k / (n - 1);
+      out[i] = t <= 1 / 3 ? "The Considered Value" : t >= 2 / 3 ? "The Statement" : "The Balanced Choice";
+    });
+    return out;
+  })();
+
   async function runExtract() {
     // A full re-extract reseeds every card from scratch (confirmed prices,
     // resolved flags, edits are replaced). Warn when work already exists —
@@ -573,6 +615,7 @@ export default function CombinedPanel({
             media_index: i,
             // George's own Inside Info — rendered verbatim, AI text discarded.
             ...(s.manual_note?.trim() ? { manual_note: s.manual_note.trim().slice(0, 240) } : {}),
+            ...(s.tier?.trim() ? { tier_label: s.tier.trim() } : {}),
             vessel: { name: s.vessel.name, type: s.vessel.type, spec_line: s.vessel.spec_line, embarkation: s.vessel.embarkation, disembarkation: s.vessel.disembarkation, date_from: s.vessel.date_from, date_to: s.vessel.date_to },
             pricing: pricingOf(s.px, s.priceMode),
             content: y.content || {},
@@ -936,6 +979,32 @@ export default function CombinedPanel({
                   <Labeled label="Disembarkation"><input value={s.vessel.disembarkation} onChange={(e) => patchY(i, { vessel: { ...s.vessel, disembarkation: e.target.value } })} placeholder="e.g. Mykonos" style={txt} /></Labeled>
                   <Labeled label="Dates from"><input value={s.vessel.date_from} onChange={(e) => patchY(i, { vessel: { ...s.vessel, date_from: e.target.value } })} placeholder="25 June" style={txt} /></Labeled>
                   <Labeled label="Dates to"><input value={s.vessel.date_to} onChange={(e) => patchY(i, { vessel: { ...s.vessel, date_to: e.target.value } })} placeholder="3 July" style={txt} /></Labeled>
+                </div>
+
+                {/* The eyebrow above this yacht in the PDF and the magazine.
+                    Defaults to whatever the price ladder would pick; George
+                    overrides it here per yacht. */}
+                <div style={{ marginTop: 10 }}>
+                  <div style={fieldLabel}>
+                    Headline above this yacht{!s.tier && autoTiers[i] ? ` · now: ${autoTiers[i]}` : ""}
+                  </div>
+                  <select
+                    value={s.tier ?? ""}
+                    onChange={(e) => patchY(i, { tier: e.target.value })}
+                    style={{ ...txt, width: "100%" }}
+                  >
+                    <option value="">
+                      {autoTiers[i] ? `Let the proposal choose (${autoTiers[i]})` : "Let the proposal choose"}
+                    </option>
+                    {TIER_OPTIONS.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  {s.tier ? (
+                    <div style={{ fontSize: 11, color: "#0d6e5a", marginTop: 3 }}>
+                      Your choice, kept exactly{autoTiers[i] && autoTiers[i] !== s.tier ? ` (it would otherwise say ${autoTiers[i]})` : ""}.
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* George's own Inside Info — his words verbatim, AI text discarded */}

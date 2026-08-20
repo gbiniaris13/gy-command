@@ -90,6 +90,10 @@ type CombinedInputYacht = {
    *  rendered VERBATIM (em dashes normalised, clamped to the 240-char page
    *  budget) and the AI text is discarded for this yacht. */
   manual_note?: string;
+  /** GEORGE'S OWN tier eyebrow ("Our Recommendation", "The Considered Value",
+   *  ...). Empty/absent => the automatic price-tercile label. Set here it wins
+   *  over both the automatic label AND the cover pin's default. */
+  tier_label?: string;
   vessel?: { name?: string; type?: string; spec_line?: string; embarkation?: string; disembarkation?: string; date_from?: string; date_to?: string };
   pricing?: {
     mode?: PricingInput["mode"];
@@ -731,6 +735,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         const yacht: CombinedYacht = {
           name: v.name || "Yacht",
           type: v.type || undefined,
+          // George's explicit choice, if he made one. assignTierLabels never
+          // overwrites an existing label, so setting it here is enough to win.
+          ...(iy.tier_label && iy.tier_label.trim()
+            ? { tier_label: iy.tier_label.trim().slice(0, 40) } : {}),
           spec_line: v.spec_line || undefined,
           voyage_line: voyageLine(v.embarkation, v.disembarkation, v.date_from, v.date_to),
           spec_strip: specStrip.length ? specStrip : undefined,
@@ -807,11 +815,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const featuredIndex: number | null =
         typeof exForWL.featured_index === "number" ? (exForWL.featured_index as number) : null;
 
+      // featured_index is the ORIGINAL CARD index - the panel stores it the
+      // moment George presses "Set as cover", before any exclusion. `built`,
+      // however, only holds the INCLUDED yachts, so as soon as one card is
+      // excluded the positions no longer line up and built[featured_index]
+      // picked a DIFFERENT yacht ("it chooses whatever it likes" - George).
+      // Same class of bug that media_index already fixes for the photos, so
+      // resolve it the same way: match on media_index, and only fall back to
+      // the positional reading for older payloads that carry no media_index.
+      // A featured yacht that is now excluded simply finds nothing and the
+      // proposal falls back to the plain price ladder, which is correct.
+      const featuredPos: number = (() => {
+        if (featuredIndex === null) return -1;
+        const byMedia = inYachts.findIndex((iy) => iy.media_index === featuredIndex);
+        if (byMedia >= 0) return byMedia;
+        const hasMediaIndex = inYachts.some((iy) => typeof iy.media_index === "number");
+        return hasMediaIndex ? -1 : featuredIndex;
+      })();
+
       let sorted: CombinedYacht[];
-      if (featuredIndex !== null && featuredIndex >= 0 && featuredIndex < built.length) {
-        const feat = built[featuredIndex];
-        const rest = built.filter((_, i) => i !== featuredIndex).sort((a, b) => a.sortKey - b.sortKey);
-        feat.yacht.tier_label = "Our Recommendation";
+      if (featuredPos >= 0 && featuredPos < built.length) {
+        const feat = built[featuredPos];
+        const rest = built.filter((_, i) => i !== featuredPos).sort((a, b) => a.sortKey - b.sortKey);
+        // George's own label wins; the pin only supplies the default.
+        if (!feat.yacht.tier_label) feat.yacht.tier_label = "Our Recommendation";
         assignTierLabels(rest.map((b) => b.yacht));
         sorted = [feat.yacht, ...rest.map((b) => b.yacht)];
       } else {
