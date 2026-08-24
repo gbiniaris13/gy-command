@@ -140,6 +140,36 @@ const metric = (day: DaySnapshot, dim: Dimension, name: string): ClarityRow[] =>
     (m) => m.metricName.toLowerCase() === name.toLowerCase(),
   )?.information ?? [];
 
+/**
+ * Turn one raw Clarity URL value into the label the report prints.
+ *
+ * Three things happen to it. Null and empty values are dropped, because
+ * Clarity emits a row for traffic it could not attribute to a page. Our own
+ * origin is stripped so the column reads as paths rather than fifty repeated
+ * characters of domain. The query string goes too, which is what folds
+ * `/glossary/gratuity?utm_source=chatgpt.com` back into `/glossary/gratuity`
+ * where it belongs; the Source breakdown already reports where people came
+ * from, so keeping it here would only split one page across several lines.
+ *
+ * Anything that is not ours is left exactly as it arrived rather than hidden.
+ * Clarity does record oddities such as `https://Electron`, and a page list
+ * that quietly discards what it does not recognise is worse than one that
+ * shows it.
+ */
+export function pageLabel(raw: string | number | undefined | null): string {
+  const value = String(raw ?? "").trim();
+  if (!value || value === "null" || value === "undefined") return "";
+  try {
+    const u = new URL(value);
+    if (u.hostname.replace(/^www\./, "") === "georgeyachts.com") {
+      return u.pathname || "/";
+    }
+  } catch {
+    // Not a parseable URL, fall through and show it as it came.
+  }
+  return value.split("?")[0];
+}
+
 export interface PageLine {
   url: string;
   sessions: number;
@@ -195,12 +225,20 @@ export function buildWeek(days: DaySnapshot[]): WeekReport {
     }
 
     for (const row of metric(day, "Source", "Traffic")) {
-      const name = String(row.Source ?? "Direct / unknown");
+      // Clarity sends an EMPTY STRING for direct traffic, not a missing key,
+      // and ?? only catches null and undefined. The report shipped for weeks
+      // with its largest referrer row wearing a blank label (78 sessions in
+      // the week to 2026-08-23). Trim first, then fall back.
+      const name = String(row.Source ?? "").trim() || "Direct / unknown";
       sourcesBy.set(name, (sourcesBy.get(name) ?? 0) + num(row.totalSessionCount));
     }
 
     const bump = (row: ClarityRow, field: keyof PageLine, value: number) => {
-      const url = String(row.URL ?? "").trim();
+      // The URL dimension returns its value under `Url`, not `URL`. Reading
+      // the wrong casing silently dropped EVERY page row, which is why the
+      // MOST VISITED section of the weekly email was empty from the start.
+      // Both spellings are accepted so a future API rename cannot repeat it.
+      const url = pageLabel(row.Url ?? row.URL);
       if (!url) return;
       const line =
         pages.get(url) ??
