@@ -23,8 +23,10 @@ const POSTING_CRONS = [
   "tiktok-mirror",
   "facebook-mirror",
   "blog-to-social",
-  "linkedin-blog-digest",
-  "linkedin-company-amplify",
+  // The two LinkedIn crons were deleted on 2026-08-27. George posts to
+  // LinkedIn by hand and asked for the automation to go; leaving their
+  // names here would have this diagnostic hunt for traces that can no
+  // longer exist and report them as silent forever.
   "instagram-health-check",
 ];
 
