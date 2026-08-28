@@ -211,6 +211,10 @@
     {
       "path": "/api/cron/clarity-weekly",
       "schedule": "10 7 * * 1"
+    },
+    {
+      "path": "/api/cron/backlink-send",
+      "schedule": "15 8 * * 1-5"
     }
   ]
 }

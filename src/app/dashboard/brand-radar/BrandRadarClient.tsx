@@ -696,6 +696,7 @@ function GooglePanel({ live }: { live: LiveIntel | null }) {
   const t = gsc.totals!;
   return (
     <div className="space-y-4">
+      <TruthPanel />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="glass-card p-4">
           <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-electric-cyan/60 uppercase">
@@ -958,6 +959,195 @@ function Sparkline({ data }: { data: WeeklySummary[] }) {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── Truth panel (fixed-cohort GSC check — same queries, both weeks) ───────
+//
+// Why this exists (2026-08-28): the headline average position mixes brand,
+// guides and commercial queries, and it DROPS every time Google starts
+// showing the site for brand-new queries (they enter at position 30-60).
+// George read one of those dips as "we are falling to page two". The fix
+// is methodological, not cosmetic: compare only the queries present in
+// BOTH weeks, weighted by impressions, and group them into topic clusters
+// so a real event (all Sporades queries dropping together) is separated
+// from noise (one query wobbling) and from expansion (new queries at 35+).
+interface TruthData {
+  connected: boolean;
+  reason?: string;
+  window?: { current: string; previous: string };
+  last_data_date?: string;
+  totals?: {
+    current: { clicks: number; impressions: number; position: number };
+    previous: { clicks: number; impressions: number; position: number };
+  };
+  cohort?: {
+    queries: number;
+    position: number;
+    prev_position: number;
+    up: number;
+    down: number;
+    flat: number;
+    movers: {
+      query: string;
+      position: number;
+      prev_position: number;
+      impressions: number;
+      prev_impressions: number;
+    }[];
+  };
+  cluster_alerts?: { token: string; queries: number; impressions: number; position: number; prev_position: number; delta: number }[];
+  cluster_winners?: { token: string; queries: number; impressions: number; position: number; prev_position: number; delta: number }[];
+  new_queries?: { query: string; impressions: number; position: number }[];
+}
+
+function TruthPanel() {
+  const [truth, setTruth] = useState<TruthData | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/brand-radar/truth", { cache: "no-store" });
+      setTruth(await r.json());
+    } catch (e) {
+      setTruth({ connected: false, reason: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!truth) {
+    return <div className="glass-card p-4 animate-pulse h-32" />;
+  }
+  if (!truth.connected) {
+    return (
+      <div className="glass-card p-4 text-center">
+        <p className="font-[family-name:var(--font-mono)] text-xs text-hot-red">
+          TRUTH CHECK UNAVAILABLE — {truth.reason ?? "unknown"}
+        </p>
+      </div>
+    );
+  }
+
+  const c = truth.cohort!;
+  const cohortDelta = Math.round((c.position - c.prev_position) * 10) / 10;
+  const alerts = truth.cluster_alerts ?? [];
+  const winners = truth.cluster_winners ?? [];
+  const fresh = truth.new_queries ?? [];
+
+  return (
+    <div className="glass-card p-4 border border-electric-cyan/25">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-electric-cyan animate-pulse" />
+        <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+          TRUTH CHECK — SAME QUERIES, BOTH WEEKS
+        </h2>
+        <button
+          onClick={refresh}
+          disabled={busy}
+          className="ml-auto rounded border border-electric-cyan/30 bg-electric-cyan/10 px-3 py-1.5 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-electric-cyan uppercase hover:bg-electric-cyan/20 disabled:opacity-50"
+        >
+          {busy ? "CHECKING…" : "REFRESH"}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <div>
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-electric-cyan/60 uppercase">
+            FIXED-COHORT POSITION
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-3xl font-black text-soft-white">
+            {c.position}
+            <span
+              className={`ml-2 text-xs font-bold ${
+                cohortDelta < 0 ? "text-emerald" : cohortDelta > 0 ? "text-hot-red" : "text-muted-blue"
+              }`}
+            >
+              {cohortDelta === 0 ? "flat" : `${cohortDelta > 0 ? "▼" : "▲"} ${Math.abs(cohortDelta)}`}
+            </span>
+          </p>
+          <p className="text-[10px] text-muted-blue/60">
+            was {c.prev_position} last week · {c.queries} identical queries · the ONLY number
+            comparable week to week
+          </p>
+        </div>
+        <div>
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-emerald/60 uppercase">
+            QUERY MOVEMENT
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-lg font-black">
+            <span className="text-emerald">▲ {c.up}</span>
+            <span className="text-hot-red ml-3">▼ {c.down}</span>
+            <span className="text-muted-blue ml-3">· {c.flat} flat</span>
+          </p>
+          <p className="text-[10px] text-muted-blue/60">of the same {c.queries} queries</p>
+        </div>
+        <div>
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-amber/60 uppercase">
+            EXPANSION (drags the average, is GOOD)
+          </p>
+          <p className="mt-1 font-[family-name:var(--font-mono)] text-lg font-black text-soft-white">
+            {fresh.length} new queries
+          </p>
+          <p className="text-[10px] text-muted-blue/60">
+            Google started showing us for these this week — they enter deep and pull the
+            headline average down while the site expands
+          </p>
+        </div>
+      </div>
+
+      {alerts.length > 0 && (
+        <div className="mb-3 rounded-lg border border-hot-red/30 bg-hot-red/10 p-3">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-hot-red uppercase mb-2">
+            ⚠ REAL DROPS — WHOLE TOPIC MOVED TOGETHER
+          </p>
+          {alerts.map((a) => (
+            <div key={a.token} className="flex items-center gap-3 text-[11px] py-0.5">
+              <span className="font-[family-name:var(--font-mono)] font-bold text-soft-white uppercase">{a.token}</span>
+              <span className="text-muted-blue">{a.queries} queries · {a.impressions} impr</span>
+              <span className="ml-auto font-[family-name:var(--font-mono)] text-hot-red font-bold">
+                {a.prev_position} → {a.position}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {alerts.length === 0 && (
+        <p className="mb-3 text-[11px] text-emerald/80 font-[family-name:var(--font-mono)]">
+          ✓ No topic cluster dropped this week. Single-query wobbles are noise, not events.
+        </p>
+      )}
+
+      {winners.length > 0 && (
+        <div className="mb-3 rounded-lg border border-emerald/20 bg-emerald/5 p-3">
+          <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-emerald uppercase mb-2">
+            CLUSTERS RISING
+          </p>
+          {winners.map((a) => (
+            <div key={a.token} className="flex items-center gap-3 text-[11px] py-0.5">
+              <span className="font-[family-name:var(--font-mono)] font-bold text-soft-white uppercase">{a.token}</span>
+              <span className="text-muted-blue">{a.queries} queries · {a.impressions} impr</span>
+              <span className="ml-auto font-[family-name:var(--font-mono)] text-emerald font-bold">
+                {a.prev_position} → {a.position}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-blue/50">
+        Windows: {truth.window?.current} vs {truth.window?.previous} · Search Console data runs
+        ~2 days behind, latest day available {truth.last_data_date}. The big “Avg Google
+        Position” above mixes brand + guides + commercial queries and shifts whenever the query
+        mix changes — judge the trend HERE, on identical queries.
+      </p>
     </div>
   );
 }
