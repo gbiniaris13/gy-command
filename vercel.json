@@ -215,6 +215,10 @@
     {
       "path": "/api/cron/backlink-send",
       "schedule": "15 8 * * 1-5"
+    },
+    {
+      "path": "/api/cron/serp-snapshot",
+      "schedule": "45 5 * * 1-5"
     }
   ]
 }

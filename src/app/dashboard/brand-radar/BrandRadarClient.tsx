@@ -697,6 +697,7 @@ function GooglePanel({ live }: { live: LiveIntel | null }) {
   return (
     <div className="space-y-4">
       <TruthPanel />
+      <SerpPanel />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="glass-card p-4">
           <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-electric-cyan/60 uppercase">
@@ -1148,6 +1149,154 @@ function TruthPanel() {
         Position” above mixes brand + guides + commercial queries and shifts whenever the query
         mix changes — judge the trend HERE, on identical queries.
       </p>
+    </div>
+  );
+}
+
+// ─── SERP tracker panel (DataForSEO — live positions with rivals named) ────
+//
+// 2026-08-28: bought with George's $50 DataForSEO deposit. Search Console
+// shows only our own rows, two days late, and goes blind on queries where
+// Google never shows us at all. This panel asks the live US-desktop SERP
+// (our buyers are ~90% American) and names every domain above us, so
+// "who overtook us on Rhodes" stops being a guess. REFRESH costs ~$0.08;
+// a weekday cron keeps the history moving even if nobody presses it.
+interface SerpResult {
+  query: string;
+  position: number | null;
+  prev_position?: number | null;
+  above: string[];
+  top3: { rank: number; domain: string }[];
+}
+
+interface SerpSnapshot {
+  generated_at: string;
+  location: string;
+  queries: number;
+  found_in_top30: number;
+  avg_position_when_found: number | null;
+  cost_usd: number | null;
+  results: SerpResult[];
+}
+
+function SerpPanel() {
+  const [snap, setSnap] = useState<SerpSnapshot | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/brand-radar/serp")
+      .then((r) => r.json())
+      .then((d) => setSnap(d.latest))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
+
+  async function refresh() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/brand-radar/serp", { method: "POST" });
+      const d = await r.json();
+      if (d.error) setErr(d.error);
+      else setSnap(d);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!loaded) return <div className="glass-card p-4 animate-pulse h-32" />;
+
+  return (
+    <div className="glass-card p-4 border border-neon-purple/25">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-neon-purple" />
+        <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-neon-purple uppercase">
+          LIVE SERP — WHO SITS ABOVE US, BY NAME
+        </h2>
+        <button
+          onClick={refresh}
+          disabled={busy}
+          className="ml-auto rounded border border-neon-purple/30 bg-neon-purple/10 px-3 py-1.5 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-neon-purple uppercase hover:bg-neon-purple/20 disabled:opacity-50"
+        >
+          {busy ? "SCANNING GOOGLE…" : "REFRESH (~$0.08)"}
+        </button>
+      </div>
+
+      {err && (
+        <p className="mb-3 text-[11px] text-hot-red font-[family-name:var(--font-mono)]">✗ {err}</p>
+      )}
+
+      {!snap ? (
+        <p className="text-[11px] text-muted-blue">
+          No scan stored yet. Press REFRESH for the first live look at the US Google results
+          for our money queries.
+        </p>
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-blue">
+            <span>
+              In top 30:{" "}
+              <span className="font-bold text-soft-white">
+                {snap.found_in_top30}/{snap.queries}
+              </span>
+            </span>
+            <span>
+              Avg position when present:{" "}
+              <span className="font-bold text-soft-white">{snap.avg_position_when_found ?? "n/a"}</span>
+            </span>
+            <span>{snap.location}</span>
+            <span>{new Date(snap.generated_at).toLocaleString()}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-[10px] text-muted-blue/60 uppercase tracking-wider">
+                <tr className="border-b border-white/5">
+                  <th className="py-2 pr-3 text-left">Query</th>
+                  <th className="py-2 pr-3 text-right">Us</th>
+                  <th className="py-2 text-left">Ahead of us (SERP order)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snap.results.map((r) => (
+                  <tr key={r.query} className="border-b border-white/5 last:border-0 align-top">
+                    <td className="py-2 pr-3 font-[family-name:var(--font-mono)] text-soft-white max-w-[220px]">
+                      {r.query}
+                    </td>
+                    <td className="py-2 pr-3 text-right whitespace-nowrap">
+                      <span
+                        className={`font-[family-name:var(--font-mono)] font-bold ${
+                          r.position === null
+                            ? "text-hot-red"
+                            : r.position <= 10
+                              ? "text-emerald"
+                              : r.position <= 20
+                                ? "text-amber"
+                                : "text-muted-blue"
+                        }`}
+                      >
+                        {r.position ?? "30+"}
+                      </span>
+                      <DeltaBadge cur={r.position ?? 31} prev={r.prev_position ?? null} invert />
+                    </td>
+                    <td className="py-2 text-muted-blue/80 text-[11px] leading-relaxed">
+                      {r.above.length ? r.above.join(" · ") : <span className="text-emerald">nobody</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-[10px] text-muted-blue/50">
+            Live Google, United States, desktop, top 30 organic. "30+" means we are not in the
+            first three pages for that query there. A weekday morning snapshot runs automatically;
+            REFRESH any time for the current picture.
+          </p>
+        </>
+      )}
     </div>
   );
 }
