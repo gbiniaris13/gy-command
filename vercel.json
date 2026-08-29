@@ -219,6 +219,18 @@
     {
       "path": "/api/cron/serp-snapshot",
       "schedule": "45 5 * * 1-5"
+    },
+    {
+      "path": "/api/cron/llm-mentions-weekly",
+      "schedule": "30 6 * * 0"
+    },
+    {
+      "path": "/api/cron/backlink-gap-weekly",
+      "schedule": "0 5 * * 1"
+    },
+    {
+      "path": "/api/cron/web-mentions-weekly",
+      "schedule": "0 5 * * 3"
     }
   ]
 }

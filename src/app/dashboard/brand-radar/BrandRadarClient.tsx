@@ -73,7 +73,7 @@ interface LiveIntel {
   };
 }
 
-type Tab = "overview" | "mentions" | "competitors" | "google" | "traffic" | "history";
+type Tab = "overview" | "mentions" | "competitors" | "google" | "authority" | "traffic" | "history";
 
 export default function BrandRadarClient() {
   const [data, setData] = useState<BrandRadarData | null>(null);
@@ -263,6 +263,7 @@ export default function BrandRadarClient() {
                 { key: "mentions", label: "Mentions", count: allMentions.length },
                 { key: "competitors", label: "Competitors", count: competitorEntries.length },
                 { key: "google", label: "Google" },
+                { key: "authority", label: "Authority" },
                 { key: "traffic", label: "AI Traffic" },
                 { key: "history", label: "History", count: history.length },
               ] as const
@@ -411,6 +412,8 @@ export default function BrandRadarClient() {
           )}
 
           {/* MENTIONS */}
+          {tab === "mentions" && <LlmMentionsPanel />}
+
           {tab === "mentions" && (
             <div className="space-y-4">
               <div className="glass-card p-4">
@@ -580,6 +583,8 @@ export default function BrandRadarClient() {
           {tab === "google" && <GooglePanel live={live} />}
 
           {/* AI TRAFFIC (real visitors from AI assistants) */}
+          {tab === "authority" && <AuthorityTab />}
+
           {tab === "traffic" && <TrafficPanel live={live} />}
 
           {/* HISTORY */}
@@ -1297,6 +1302,252 @@ function SerpPanel() {
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── LLM Mentions panel (DataForSEO prompt database, 29/8) ─────────────────
+//
+// Which AI-answer prompts cite each of us, measured. The rival prompts
+// we are absent from are the GEO to-do list, sorted by how many rivals
+// share them. Weekly Sunday cron; REFRESH ~$0.55 (Google platform).
+function LlmMentionsPanel() {
+  const [snap, setSnap] = useState<any>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/brand-radar/llm-mentions")
+      .then((r) => r.json())
+      .then((d) => setSnap(d.latest))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
+
+  async function refresh() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/brand-radar/llm-mentions", { method: "POST" });
+      const d = await r.json();
+      if (d.error) setErr(d.error);
+      else setSnap(d);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!loaded) return <div className="glass-card p-4 animate-pulse h-24 mb-4" />;
+
+  return (
+    <div className="glass-card p-4 border border-electric-cyan/25 mb-6">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-electric-cyan" />
+        <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-electric-cyan uppercase">
+          LLM MENTIONS — MEASURED, ALL PLATFORMS DB
+        </h2>
+        <button
+          onClick={refresh}
+          disabled={busy}
+          className="ml-auto rounded border border-electric-cyan/30 bg-electric-cyan/10 px-3 py-1.5 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-electric-cyan uppercase hover:bg-electric-cyan/20 disabled:opacity-50"
+        >
+          {busy ? "SCANNING…" : "REFRESH (~$0.55)"}
+        </button>
+      </div>
+      {err && <p className="mb-3 text-[11px] text-hot-red font-[family-name:var(--font-mono)]">✗ {err}</p>}
+      {!snap ? (
+        <p className="text-[11px] text-muted-blue">
+          No scan yet. REFRESH pulls the prompts whose Google AI answers cite us and each rival,
+          from DataForSEO's prompt database.
+        </p>
+      ) : (
+        <>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {(snap.domains ?? []).map((d: any) => (
+              <span
+                key={d.domain}
+                className={`rounded px-2.5 py-1 text-[11px] font-[family-name:var(--font-mono)] border ${
+                  d.domain === "georgeyachts.com"
+                    ? "border-electric-cyan/40 bg-electric-cyan/10 text-electric-cyan font-bold"
+                    : "border-white/10 text-muted-blue"
+                }`}
+              >
+                {d.domain} · {d.total ?? "err"}
+              </span>
+            ))}
+          </div>
+          {(snap.our_prompts ?? []).length > 0 && (
+            <div className="mb-3">
+              <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-emerald/70 uppercase mb-1">
+                PROMPTS THAT CITE US
+              </p>
+              {(snap.our_prompts ?? []).slice(0, 10).map((p: any) => (
+                <div key={p.question} className="text-[11px] text-soft-white py-0.5">
+                  <span className="text-muted-blue/60 font-[family-name:var(--font-mono)] mr-2">{p.volume}</span>
+                  {p.question}
+                </div>
+              ))}
+            </div>
+          )}
+          {(snap.opportunities ?? []).length > 0 && (
+            <div>
+              <p className="font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-[2px] text-amber/70 uppercase mb-1">
+                THEY ARE CITED, WE ARE NOT — THE GEO TO-DO LIST
+              </p>
+              {(snap.opportunities ?? []).slice(0, 12).map((o: any) => (
+                <div key={o.question} className="text-[11px] py-0.5">
+                  <span className="text-muted-blue/60 font-[family-name:var(--font-mono)] mr-2">{o.volume}</span>
+                  <span className="text-soft-white">{o.question}</span>
+                  <span className="text-muted-blue/50 ml-2">({o.cited.join(", ")})</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-[10px] text-muted-blue/50">
+            Platform: {snap.platform} · {new Date(snap.generated_at).toLocaleString()} · Sunday cron
+            keeps it fresh
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Authority tab (backlink gap + web mentions, 29/8) ─────────────────────
+//
+// The two halves of the authority problem: who links to the rivals and
+// not to us (the pitch target list, paid networks filtered), and who
+// already wrote about us (the unlinked-mention easy yes).
+function AuthorityTab() {
+  const [gap, setGap] = useState<any>(null);
+  const [men, setMen] = useState<any>(null);
+  const [busyGap, setBusyGap] = useState(false);
+  const [busyMen, setBusyMen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/brand-radar/backlink-gap").then((r) => r.json()).then((d) => setGap(d.latest)).catch(() => {});
+    fetch("/api/brand-radar/web-mentions").then((r) => r.json()).then((d) => setMen(d.latest)).catch(() => {});
+  }, []);
+
+  async function run(kind: "gap" | "men") {
+    setErr(null);
+    const set = kind === "gap" ? setBusyGap : setBusyMen;
+    set(true);
+    try {
+      const r = await fetch(`/api/brand-radar/${kind === "gap" ? "backlink-gap" : "web-mentions"}`, { method: "POST" });
+      const d = await r.json();
+      if (d.error) setErr(d.error);
+      else if (kind === "gap") setGap(d);
+      else setMen(d);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      set(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {err && <p className="text-[11px] text-hot-red font-[family-name:var(--font-mono)]">✗ {err}</p>}
+
+      <div className="glass-card p-4 border border-neon-purple/25">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-neon-purple" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-neon-purple uppercase">
+            BACKLINK GAP — THEY LINK TO RIVALS, NOT TO US
+          </h2>
+          <button
+            onClick={() => run("gap")}
+            disabled={busyGap}
+            className="ml-auto rounded border border-neon-purple/30 bg-neon-purple/10 px-3 py-1.5 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-neon-purple uppercase hover:bg-neon-purple/20 disabled:opacity-50"
+          >
+            {busyGap ? "SCANNING…" : "REFRESH (~$0.12)"}
+          </button>
+        </div>
+        {!gap ? (
+          <p className="text-[11px] text-muted-blue">No scan yet. Monday cron fills this weekly.</p>
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap gap-2 text-[11px] font-[family-name:var(--font-mono)]">
+              <span className="rounded px-2.5 py-1 border border-electric-cyan/40 bg-electric-cyan/10 text-electric-cyan font-bold">
+                {gap.ours?.domain} · {gap.ours?.referring_domains} domains
+              </span>
+              {(gap.rivals ?? []).map((r: any) => (
+                <span key={r.domain} className="rounded px-2.5 py-1 border border-white/10 text-muted-blue">
+                  {r.domain} · {r.referring_domains ?? "err"}
+                </span>
+              ))}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-[10px] text-muted-blue/60 uppercase tracking-wider">
+                  <tr className="border-b border-white/5">
+                    <th className="py-2 pr-3 text-left">Domain</th>
+                    <th className="py-2 pr-3 text-right">Rank</th>
+                    <th className="py-2 text-left">Links to</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(gap.candidates ?? []).slice(0, 25).map((c: any) => (
+                    <tr key={c.domain} className="border-b border-white/5 last:border-0">
+                      <td className="py-1.5 pr-3 font-[family-name:var(--font-mono)] text-soft-white">{c.domain}</td>
+                      <td className="py-1.5 pr-3 text-right text-muted-blue">{c.rank}</td>
+                      <td className="py-1.5 text-muted-blue/70 text-[11px]">{c.links_to.join(" · ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-[10px] text-muted-blue/50">
+              Paid press-release networks filtered out. The full list feeds the backlink writer,
+              which still verifies every address by eye before a pitch is written.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="glass-card p-4 border border-emerald/25">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-emerald" />
+          <h2 className="font-[family-name:var(--font-mono)] text-xs font-bold tracking-[2px] text-emerald uppercase">
+            WEB MENTIONS — WHO ALREADY WROTE ABOUT US
+          </h2>
+          <button
+            onClick={() => run("men")}
+            disabled={busyMen}
+            className="ml-auto rounded border border-emerald/30 bg-emerald/10 px-3 py-1.5 font-[family-name:var(--font-mono)] text-[10px] font-bold tracking-wider text-emerald uppercase hover:bg-emerald/20 disabled:opacity-50"
+          >
+            {busyMen ? "SCANNING…" : "REFRESH (~$0.07)"}
+          </button>
+        </div>
+        {!men ? (
+          <p className="text-[11px] text-muted-blue">No scan yet. Wednesday cron fills this weekly.</p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {(men.mentions ?? []).slice(0, 20).map((m: any) => (
+                <div key={m.url} className="text-[11px]">
+                  <a href={m.url} target="_blank" rel="noreferrer" className="text-soft-white hover:text-electric-cyan font-[family-name:var(--font-mono)]">
+                    {m.domain}
+                  </a>
+                  <span className="text-muted-blue/70 ml-2">{m.title ?? m.url}</span>
+                </div>
+              ))}
+              {(men.mentions ?? []).length === 0 && (
+                <p className="text-[11px] text-muted-blue">Nothing found on the tracked phrases this week.</p>
+              )}
+            </div>
+            <p className="mt-2 text-[10px] text-muted-blue/50">
+              Phrases: {(men.phrases ?? []).join(" · ")} · a mention without a link is the easiest
+              pitch in the queue
+            </p>
+          </>
+        )}
+      </div>
     </div>
   );
 }
