@@ -110,8 +110,12 @@ export async function loadPeople() {
     await Promise.all([
       sb
         .from("helm_requests")
+        // proposal_json whole weighs megabytes per row (itineraries,
+        // photo arrays) and 56 of them hit the statement timeout - the
+        // 29/8 "where are my Helm clients" bug. Pull ONLY the yachts
+        // array out of the JSONB.
         .select(
-          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, proposal_json, contact_id",
+          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, contact_id, yachts_discussed:proposal_json->yachts",
         )
         .limit(1000),
       sb
@@ -173,9 +177,8 @@ export async function loadPeople() {
       first && last && !first.toLowerCase().includes(last.toLowerCase())
         ? `${first} ${last}`
         : first || last || email;
-    const pj = r.proposal_json || {};
-    const discussed = Array.isArray(pj.yachts)
-      ? pj.yachts.map((y) => (y && typeof y === "object" ? y.name : String(y))).filter(Boolean).slice(0, 4)
+    const discussed = Array.isArray(r.yachts_discussed)
+      ? r.yachts_discussed.map((y) => (y && typeof y === "object" ? y.name : String(y))).filter(Boolean).slice(0, 4)
       : [];
     const won = r.status === "won";
     const existing = people.get(key);

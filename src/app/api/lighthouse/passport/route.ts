@@ -74,7 +74,10 @@ export async function POST(request) {
       },
     ],
     temperature: 0,
-    max_tokens: 200,
+    // Gemini 2.5 spends "thinking" tokens from this same budget via the
+    // OpenAI-compat layer; 200 died mid-thought and produced five words
+    // of JSON (finish_reason: length) - George's "δεν διαβάστηκε".
+    max_tokens: 3000,
   });
 
   const text = response.choices[0]?.message?.content || "";
