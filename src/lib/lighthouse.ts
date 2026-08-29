@@ -552,13 +552,21 @@ function firstNameOf(full: string): string {
 export function draftFor(o): { subject: string; body: string } {
   const first = firstNameOf(o.person?.name);
   if (o.kind === "birthday") {
+    // The Hong rule (audit 29/8): a vessel is mentioned in the PAST
+    // tense only for a charter that already happened. A future
+    // charter gets anticipation, never memory.
+    const today = new Date().toISOString().slice(0, 10);
+    const sailed = o.person?.charter_vessel && o.person?.travel_from && String(o.person.travel_from).slice(0, 10) < today;
+    const willSail = o.person?.charter_vessel && o.person?.travel_from && String(o.person.travel_from).slice(0, 10) >= today;
     return {
       subject: `Happy birthday, ${first}!`,
       body:
         `Dear ${first},\n\nHappy birthday! I hope your day is filled with the people you love and a glass of something good.` +
-        (o.person?.charter_vessel
+        (sailed
           ? ` Every year this date reminds me of the pleasure of hosting you aboard ${o.person.charter_vessel}, and I hope Greek waters see you again soon.`
-          : ` And whenever you feel like celebrating a year of life properly, the Aegean is always here.`) +
+          : willSail
+            ? ` And this year comes with something to look forward to: ${o.person.charter_vessel} and Greek waters are waiting for you.`
+            : ` And whenever you feel like celebrating a year of life properly, the Aegean is always here.`) +
         SIGN,
     };
   }

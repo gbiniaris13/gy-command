@@ -45,12 +45,7 @@ function rawEmail(to, subject, textBody, htmlBody) {
 function occasionCard(o, when) {
   const d = o.draft;
   const who = o.person?.name ?? "";
-  const detail =
-    o.kind === "charter_anniversary" && o.vessel
-      ? ` · ${o.vessel}`
-      : o.person?.vessel
-        ? ` · πελάτης ${o.person.vessel}`
-        : "";
+  const detail = o.person?.vessel ? ` · πελάτης ${o.person.vessel}` : "";
   return `
   <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${G.gold};border-radius:6px;padding:14px 16px;margin:0 0 12px;">
     <p style="margin:0;font-family:Georgia,serif;font-size:15px;color:${G.navy};"><strong>${esc(who)}</strong> · ${esc(o.label)} ${when === "today" ? "ΣΗΜΕΡΑ" : "αύριο"}${esc(detail)}</p>

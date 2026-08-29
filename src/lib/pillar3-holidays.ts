@@ -54,8 +54,11 @@ function orthodoxEaster(year: number): { month: number; day: number } {
   const c = year % 4;
   const d = (19 * a + 16) % 30;
   const e = (2 * c + 4 * b + 6 * d) % 7;
-  // Julian Easter offset from March 22
-  const julianDay = 22 + d + e;
+  // Julian Easter offset. Was "22 + d + e", which ran one day late
+  // for EVERY year (audit 29/8/2026: 2026-2032 all off by +1 against
+  // published Pascha dates - we would have wished Christos Anesti on
+  // Easter Monday). Verified 21 + d + e against 2025-2032: 8/8 exact.
+  const julianDay = 21 + d + e;
   // Convert to Gregorian: add 13 days (correct for years 1900-2099)
   const gregorianOffset = 13;
   let month = 3;
