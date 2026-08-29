@@ -56,7 +56,21 @@ const SPAM_HINTS = [
   "einpresswire", "benzinga", "streetinsider", "guestpost", "articlebiz",
   "apnews.com/press-release",
 ];
+// Auto-generated stats directories (sitejson, statshow…) build a
+// profile page for every domain on earth and link out from it. Nobody
+// earned those links and Google passes no weight through them — the
+// reason 12knots can hold 1,091 referring domains and still fight
+// istion's 84 on the same SERPs. George spotted sitejson (rank 51)
+// slipping past the rank floor on 29/8; named here so the Monday gap
+// list stays a list of humans.
+const AUTO_DIRECTORY_HINTS = [
+  "sitejson", "statshow", "siteprice", "websiteoutlook", "siteworthtraffic",
+  "hypestat", "getwebsiteworth", "websiteworth", "similarsites", "sitelike",
+  "urlrating", "webstatsdomain", "statscrop", "siteindices", "sitelinks",
+  "whoisology", "domaintools", "spyfu", "alexa", "rankchart",
+];
+
 export function looksLikePaidNetwork(domain: string): boolean {
   const d = (domain || "").toLowerCase();
-  return SPAM_HINTS.some((h) => d.includes(h));
+  return SPAM_HINTS.some((h) => d.includes(h)) || AUTO_DIRECTORY_HINTS.some((h) => d.includes(h));
 }
