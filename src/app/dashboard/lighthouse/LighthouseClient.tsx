@@ -257,12 +257,41 @@ export default function LighthouseClient() {
   async function readContract(rawFile) {
     setCtReading(true);
     setCtFields(null);
-    const file = rawFile.type.startsWith("image/") ? await shrinkImage(rawFile) : rawFile;
+    // Vercel rejects bodies over 4.5MB BEFORE our code runs - George's
+    // signed 10-page MYBA (5.4MB) never arrived and the screen showed
+    // nothing (29/8). So the trim happens right here in the browser:
+    // only page one leaves the machine (~460KB), which is also the
+    // only page we read.
+    let file = rawFile;
+    try {
+      if ((rawFile.type || "").includes("pdf") || rawFile.name?.toLowerCase().endsWith(".pdf")) {
+        const { PDFDocument } = await import("pdf-lib");
+        const src = await PDFDocument.load(await rawFile.arrayBuffer(), { ignoreEncryption: true });
+        if (src.getPageCount() > 1) {
+          const out = await PDFDocument.create();
+          const [p1] = await out.copyPages(src, [0]);
+          out.addPage(p1);
+          file = new File([await out.save()], rawFile.name, { type: "application/pdf" });
+        }
+      } else if (rawFile.type.startsWith("image/")) {
+        file = await shrinkImage(rawFile);
+      }
+    } catch {}
+    if (file.size > 4 * 1024 * 1024) {
+      setCtReading(false);
+      return say("Το αρχείο είναι πολύ μεγάλο, στείλε φωτογραφία της πρώτης σελίδας");
+    }
     setCtFile(file);
     const fd = new FormData();
     fd.append("file", file);
     const r = await fetch("/api/lighthouse/contract", { method: "POST", body: fd });
-    const d = await r.json();
+    let d;
+    try {
+      d = await r.json();
+    } catch {
+      setCtReading(false);
+      return say(`Δεν διαβάστηκε (σφάλμα ${r.status}), δοκίμασε φωτογραφία της πρώτης σελίδας`);
+    }
     setCtReading(false);
     if (d.error) return say(`Συμβόλαιο: ${d.error}`);
     if (!d.fields?.charterer_name && !d.fields?.vessel && !d.fields?.date_from) {
