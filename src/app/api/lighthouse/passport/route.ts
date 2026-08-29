@@ -29,11 +29,29 @@ export async function POST(request) {
   if (!file || typeof file === "string") {
     return NextResponse.json({ error: "no file" }, { status: 400 });
   }
-  const buf = Buffer.from(await file.arrayBuffer());
-  if (buf.length > 8 * 1024 * 1024) {
-    return NextResponse.json({ error: "file too large (8MB max)" }, { status: 400 });
+  let buf = Buffer.from(await file.arrayBuffer());
+  if (buf.length > 15 * 1024 * 1024) {
+    return NextResponse.json({ error: "file too large (15MB max)" }, { status: 400 });
   }
-  const mime = file.type || "image/jpeg";
+  let mime = file.type || "image/jpeg";
+  // Server-side belt to the client-side braces (the 3-minute passport,
+  // 29/8): whatever arrives, normalise to a small JPEG before Gemini.
+  // sharp ships with Next; a phone photo drops from 8MB to ~150KB and
+  // the whole read lands in seconds. HEIC and exotic formats that
+  // sharp cannot decode fall through with a clear error instead of a
+  // silent crawl.
+  if (!mime.includes("pdf")) {
+    try {
+      const sharp = (await import("sharp")).default;
+      buf = await sharp(buf).rotate().resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+      mime = "image/jpeg";
+    } catch {
+      return NextResponse.json(
+        { error: "δεν διαβάζεται αυτή η μορφή αρχείου, στείλε το ως JPEG ή PNG (ένα screenshot της σελίδας του διαβατηρίου αρκεί)" },
+        { status: 422 },
+      );
+    }
+  }
 
   const response = await ai.chat.completions.create({
     model: MODEL,

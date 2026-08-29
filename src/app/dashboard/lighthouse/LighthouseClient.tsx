@@ -230,7 +230,7 @@ export default function LighthouseClient() {
       <div className="mb-6 flex gap-2">
         {[
           ["upcoming", "Επερχόμενα"],
-          ["people", "Άνθρωποι"],
+          ["people", "Πελάτες"],
           ["documents", "Έγγραφα"],
         ].map(([k, label]) => (
           <button
@@ -360,6 +360,12 @@ export default function LighthouseClient() {
           {tab === "people" && (
             <div>
               <div className="mb-4 flex items-center gap-3">
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Αναζήτηση πελάτη…"
+                  className="flex-1 rounded-2xl border border-white/10 bg-deep-space/60 px-5 py-3 text-sm text-soft-white placeholder:text-muted-blue/60 focus:outline-none focus:ring-2 focus:ring-[#DAA110]/40"
+                />
                 <button
                   onClick={async () => {
                     say("Σαρώνω τις σημειώσεις του Helm…");
@@ -367,42 +373,12 @@ export default function LighthouseClient() {
                     setSuggestions(d.suggestions ?? []);
                     say(d.suggestions?.length ? `${d.suggestions.length} πιθανές ημερομηνίες βρέθηκαν` : "Δεν βρέθηκαν ημερομηνίες στις σημειώσεις");
                   }}
-                  className="rounded-full bg-white/10 px-5 py-2 text-sm font-semibold text-soft-white hover:bg-white/15"
+                  className="whitespace-nowrap rounded-full bg-white/10 px-5 py-3 text-sm font-semibold text-soft-white hover:bg-white/15"
                 >
-                  Σάρωσε τις σημειώσεις του Helm
+                  Σάρωση σημειώσεων
                 </button>
               </div>
-              {(() => {
-                const withB = (data?.people ?? [])
-                  .filter((p) => p.birthday)
-                  .map((p) => {
-                    const md = String(p.birthday).slice(5, 10);
-                    const now = new Date();
-                    const y = now.getFullYear();
-                    let next = new Date(`${y}-${md}T00:00:00`);
-                    if (next < now) next = new Date(`${y + 1}-${md}T00:00:00`);
-                    return { ...p, md, next };
-                  })
-                  .sort((a, b) => a.next - b.next);
-                if (!withB.length) return null;
-                return (
-                  <div className="mb-5">
-                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[3px] text-muted-blue">
-                      Με γενέθλια · {withB.length}
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {withB.map((p) => (
-                        <div key={p.key} className="rounded-xl border border-white/10 bg-deep-space/60 px-3 py-2.5">
-                          <p className="truncate text-sm font-semibold text-soft-white">{p.name}</p>
-                          <p className="text-xs" style={{ color: GOLD }}>
-                            {p.next.toLocaleDateString("el-GR", { day: "numeric", month: "long" })}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
+
               {suggestions.length > 0 && (
                 <div className="mb-4 space-y-2">
                   {suggestions.map((sg, i) => (
@@ -439,22 +415,35 @@ export default function LighthouseClient() {
                   ))}
                 </div>
               )}
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Αναζήτηση ονόματος ή email…"
-                className="mb-4 w-full rounded-2xl border border-white/10 bg-deep-space/60 px-5 py-3 text-sm text-soft-white placeholder:text-muted-blue/60 focus:outline-none focus:ring-2 focus:ring-[#DAA110]/40"
-              />
-              <div className="space-y-2">
-                {people.slice(0, 80).map((p) => (
-                  <PersonRow key={p.key} p={p} onSave={act} onSaved={load} say={say} />
-                ))}
-              </div>
-              {people.length > 80 && (
-                <p className="mt-3 text-center text-xs text-muted-blue">
-                  {people.length - 80} ακόμα, ψάξε με το όνομα για να τους βρεις
-                </p>
-              )}
+
+              {/* Ζώνη Α: με ημερομηνίες. Ζώνη Β: μόνο email (γιορτές). */}
+              {(() => {
+                const withDates = people.filter((p) => p.birthday || p.anniversary || p.charter_date);
+                const emailOnly = people.filter((p) => !p.birthday && !p.anniversary && !p.charter_date);
+                return (
+                  <>
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[3px]" style={{ color: GOLD }}>
+                      Με ημερομηνίες · {withDates.length}
+                    </p>
+                    <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {withDates.map((p) => (
+                        <ClientCard key={p.key} p={p} onSave={act} onSaved={load} say={say} full />
+                      ))}
+                      {withDates.length === 0 && (
+                        <p className="text-sm text-muted-blue">Κανείς ακόμα. Ανέβασε έγγραφα ή συμπλήρωσε από τις κάρτες κάτω.</p>
+                      )}
+                    </div>
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[3px] text-muted-blue">
+                      Μόνο email, για τις γιορτές · {emailOnly.length}
+                    </p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {emailOnly.slice(0, 60).map((p) => (
+                        <ClientCard key={p.key} p={p} onSave={act} onSaved={load} say={say} />
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
@@ -520,6 +509,108 @@ export default function LighthouseClient() {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+function ClientCard({ p, onSave, onSaved, say, full = false }) {
+  const [editing, setEditing] = useState(false);
+  const [bday, setBday] = useState(p.birthday ? String(p.birthday).slice(0, 10) : "");
+  const [country, setCountry] = useState(p.country ?? "");
+  const [anniv, setAnniv] = useState(p.anniversary ? String(p.anniversary).slice(0, 10) : "");
+
+  async function save() {
+    if (p.contact_id) {
+      await onSave({
+        action: "save_person",
+        contact_id: p.contact_id,
+        fields: { birthday: bday || null, country: country || null, anniversary_date: anniv || null },
+      });
+    } else {
+      if (bday) await onSave({ action: "add_date", person_key: p.key, kind: "birthday", date: bday, label: "Birthday" });
+      if (anniv) await onSave({ action: "add_date", person_key: p.key, kind: "anniversary", date: anniv, label: "Anniversary" });
+    }
+    setEditing(false);
+    say(`Αποθηκεύτηκε: ${p.name}`);
+    onSaved();
+  }
+
+  const md = (d) => {
+    if (!d) return null;
+    const x = new Date(String(d).slice(0, 10) + "T00:00:00");
+    return x.toLocaleDateString("el-GR", { day: "numeric", month: "short" });
+  };
+  const statusChip =
+    p.helm_status === "won" || p.won
+      ? ["ΠΕΛΑΤΗΣ", "text-deep-space", GOLD]
+      : p.helm_status === "lost"
+        ? ["lost", "text-muted-blue", "rgba(255,255,255,0.08)"]
+        : ["σε συζήτηση", "text-soft-white", "rgba(255,255,255,0.12)"];
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-deep-space/60 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-semibold text-soft-white">{p.name}</p>
+          <p className="mt-0.5 truncate text-xs text-muted-blue">
+            {p.country ?? "χωρίς εθνικότητα"}{p.email ? ` · ${p.email}` : " · χωρίς email"}
+          </p>
+        </div>
+        <span className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: statusChip[1] === "text-deep-space" ? "#0D1B2A" : undefined, background: statusChip[2] }}>
+          <span className={statusChip[1]}>{statusChip[0]}</span>
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+        {p.birthday && (
+          <span className="rounded-full bg-white/10 px-2.5 py-1 text-soft-white">🎂 {md(p.birthday)}</span>
+        )}
+        {p.anniversary && (
+          <span className="rounded-full bg-white/10 px-2.5 py-1 text-soft-white">💍 {md(p.anniversary)}</span>
+        )}
+        {p.charter_vessel && (
+          <span className="rounded-full px-2.5 py-1 font-semibold" style={{ background: "rgba(218,161,16,0.15)", color: GOLD }}>
+            ⛵ {p.charter_vessel}
+          </span>
+        )}
+        {p.charter_date && (
+          <span className="rounded-full bg-white/10 px-2.5 py-1 text-soft-white">σάλπαρε {md(p.charter_date)}</span>
+        )}
+        {(p.discussed ?? []).filter((y) => y !== p.charter_vessel).slice(0, 2).map((y) => (
+          <span key={y} className="rounded-full bg-white/5 px-2.5 py-1 text-muted-blue">συζητήθηκε: {y}</span>
+        ))}
+        {!p.birthday && !p.anniversary && (
+          <span className="rounded-full bg-white/5 px-2.5 py-1 text-muted-blue/70">χωρίς ημερομηνίες ακόμα</span>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <button
+          onClick={() => setEditing(!editing)}
+          className="rounded-full bg-white/10 px-4 py-1.5 text-xs font-semibold text-soft-white hover:bg-white/15"
+        >
+          {editing ? "Κλείσε" : "Συμπλήρωσε"}
+        </button>
+      </div>
+      {editing && (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <label className="text-xs text-muted-blue">
+            Γενέθλια
+            <input type="date" value={bday} onChange={(e) => setBday(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-deep-space px-2 py-1.5 text-xs text-soft-white" />
+          </label>
+          <label className="text-xs text-muted-blue">
+            Εθνικότητα / χώρα
+            <input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="United States" className="mt-1 w-full rounded-lg border border-white/10 bg-deep-space px-2 py-1.5 text-xs text-soft-white" />
+          </label>
+          <label className="text-xs text-muted-blue">
+            Επέτειος
+            <input type="date" value={anniv} onChange={(e) => setAnniv(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-deep-space px-2 py-1.5 text-xs text-soft-white" />
+          </label>
+          <button onClick={save} className="self-end rounded-full px-4 py-2 text-xs font-bold text-deep-space" style={{ background: GOLD }}>
+            Αποθήκευση
+          </button>
+        </div>
       )}
     </div>
   );

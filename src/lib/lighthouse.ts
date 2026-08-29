@@ -98,56 +98,41 @@ export function kindsForPerson(p: { country?: string; religion?: string; religio
 // ─── People, from every source the house has ──────────────────────
 
 export async function loadPeople() {
+  // THE HELM IS THE DOOR (George, 29/8 second round): "Sto The Helm
+  // einai oi pelates mou. Sto inbox einai ola mou ta email." The first
+  // Lighthouse swept the whole contacts table and dragged in every
+  // test submission and newsletter address. Now the universe is:
+  // helm_requests (won, lost, open, all real charter conversations)
+  // plus Cabin guests, who by definition have sailed with the house.
+  // A contacts row is only used to ENRICH a person already inside.
   const sb = createServiceClient();
-  const [{ data: contacts }, { data: guests }, { data: members }, manualRaw] = await Promise.all([
-    sb
-      .from("contacts")
-      .select(
-        "id, first_name, last_name, email, phone, country, nationality, religion, religion_overridden, birthday, date_of_birth, anniversary_date, charter_vessel, charter_embarkation, charter_start_date, charter_end_date, greetings_opt_out, lifecycle_state, contact_type, notes, charter_notes, vip",
-      )
-      .or("email.not.is.null,phone.not.is.null")
-      .limit(2000),
-    sb
-      .from("cabin_guests_manifest")
-      .select("id, cabin_id, full_name, date_of_birth, nationality, email, mobile, is_minor")
-      .limit(2000),
-    // The SECOND Cabin source, and the richer one: what each guest
-    // filled in THEMSELVES via the brief (29/8: the Stevens party of
-    // six lived here and the Lighthouse only read the manifest).
-    sb
-      .from("cabin_members")
-      .select("id, display_name, email, mobile, personal_details, deleted_at")
-      .is("deleted_at", null)
-      .limit(2000),
-    getSetting("lighthouse_manual_dates"),
-  ]);
+  const [{ data: requests }, { data: contacts }, { data: guests }, { data: members }, manualRaw] =
+    await Promise.all([
+      sb
+        .from("helm_requests")
+        .select(
+          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, proposal_json, contact_id",
+        )
+        .limit(1000),
+      sb
+        .from("contacts")
+        .select(
+          "id, first_name, last_name, email, phone, country, nationality, religion, religion_overridden, birthday, date_of_birth, anniversary_date, charter_vessel, charter_embarkation, charter_start_date, greetings_opt_out, vip",
+        )
+        .limit(2000),
+      sb
+        .from("cabin_guests_manifest")
+        .select("id, cabin_id, full_name, date_of_birth, nationality, email, mobile, is_minor")
+        .limit(2000),
+      sb
+        .from("cabin_members")
+        .select("id, display_name, email, mobile, personal_details, deleted_at")
+        .is("deleted_at", null)
+        .limit(2000),
+      getSetting("lighthouse_manual_dates"),
+    ]);
   const manual = manualRaw ? JSON.parse(manualRaw) : [];
 
-  const people = new Map();
-  for (const c of contacts ?? []) {
-    const name = [c.first_name, c.last_name].filter(Boolean).join(" ") || c.email || "Unknown";
-    people.set(`contact:${c.id}`, {
-      key: `contact:${c.id}`,
-      contact_id: c.id,
-      name,
-      email: c.email,
-      phone: c.phone,
-      country: c.country || c.nationality || null,
-      religion: c.religion,
-      religion_overridden: c.religion_overridden,
-      birthday: c.birthday || c.date_of_birth || null,
-      anniversary: c.anniversary_date || null,
-      charter_vessel: c.charter_vessel || null,
-      charter_date: c.charter_embarkation || c.charter_start_date || null,
-      won: !!(c.charter_vessel || c.charter_start_date),
-      opt_out: !!c.greetings_opt_out,
-      vip: !!c.vip,
-      is_minor: false,
-      source: "helm",
-    });
-  }
-  // Cabin guests: merge into the matching contact by email, else stand
-  // alone. Their DOB is the most reliable in the house (off passports).
   const nameKey = (n) =>
     String(n || "")
       .toLowerCase()
@@ -156,78 +141,109 @@ export async function loadPeople() {
       .filter(Boolean)
       .sort()
       .join(" ");
-  for (const g of guests ?? []) {
-    const em = (g.email || "").toLowerCase();
-    const gk = nameKey(g.full_name);
-    // Merge by email first; failing that, by normalised name — the
-    // manifest writes "STEVENS, PATRICIA" where Helm has "Patricia
-    // Stevens", and one person must never get two birthday cards.
+  const contactByEmail = new Map();
+  const contactById = new Map();
+  for (const c of contacts ?? []) {
+    if (c.email) contactByEmail.set(c.email.toLowerCase(), c);
+    contactById.set(c.id, c);
+  }
+
+  const people = new Map();
+
+  // 1. Helm requests: the clients themselves, with the yachts we
+  //    actually discussed pulled from the proposal.
+  for (const r of requests ?? []) {
+    const email = (r.client_email || "").toLowerCase();
+    if (!email && !r.client_whatsapp) continue;
+    const key = email ? `helm:${email}` : `helm:${r.id}`;
+    const first = (r.client_name || "").trim();
+    const last = (r.client_surname || "").trim();
+    // The pipeline sometimes stores "Debbie"/"Debbie" or "Mrs.
+    // Williams"/"Williams"; collapse the duplication.
+    const name =
+      first && last && !first.toLowerCase().includes(last.toLowerCase())
+        ? `${first} ${last}`
+        : first || last || email;
+    const pj = r.proposal_json || {};
+    const discussed = Array.isArray(pj.yachts)
+      ? pj.yachts.map((y) => (y && typeof y === "object" ? y.name : String(y))).filter(Boolean).slice(0, 4)
+      : [];
+    const won = r.status === "won";
+    const existing = people.get(key);
+    if (existing) {
+      existing.discussed = [...new Set([...(existing.discussed ?? []), ...discussed])].slice(0, 5);
+      existing.won = existing.won || won;
+      if (won && r.dates_from && !existing.charter_date) existing.charter_date = r.dates_from;
+      continue;
+    }
+    const c = (r.contact_id && contactById.get(r.contact_id)) || contactByEmail.get(email) || {};
+    people.set(key, {
+      key,
+      contact_id: c.id ?? r.contact_id ?? null,
+      name: [c.first_name, c.last_name].filter(Boolean).join(" ") || name,
+      email: email || c.email || null,
+      phone: r.client_whatsapp || c.phone || null,
+      country: c.country || c.nationality || null,
+      religion: c.religion ?? null,
+      religion_overridden: c.religion_overridden ?? false,
+      birthday: c.birthday || c.date_of_birth || null,
+      anniversary: c.anniversary_date || null,
+      charter_vessel: c.charter_vessel || (won ? discussed[0] : null) || null,
+      charter_date: c.charter_embarkation || c.charter_start_date || (won ? r.dates_from : null) || null,
+      discussed,
+      helm_status: r.status,
+      won: won || !!c.charter_vessel,
+      opt_out: !!c.greetings_opt_out,
+      vip: !!c.vip,
+      is_minor: false,
+      source: "helm",
+    });
+  }
+
+  // 2. Cabin guests and members: they sailed, they are clients.
+  const addOrMerge = (key, entry) => {
+    const em = (entry.email || "").toLowerCase();
+    const ek = nameKey(entry.name);
     const match =
       (em && [...people.values()].find((p) => (p.email || "").toLowerCase() === em)) ||
-      (gk && [...people.values()].find((p) => nameKey(p.name) === gk)) ||
+      (ek && [...people.values()].find((p) => nameKey(p.name) === ek)) ||
       null;
     if (match) {
-      if (!match.birthday && g.date_of_birth) match.birthday = g.date_of_birth;
-      if (!match.country && g.nationality) match.country = g.nationality;
-      match.source = "helm+cabin";
-    } else if (g.full_name) {
-      people.set(`guest:${g.id}`, {
-        key: `guest:${g.id}`,
-        contact_id: null,
-        name: g.full_name,
-        email: g.email || null,
-        phone: g.mobile || null,
-        country: g.nationality || null,
-        religion: null,
-        birthday: g.date_of_birth || null,
-        anniversary: null,
-        charter_vessel: null,
-        charter_date: null,
-        won: true, // a manifest guest has sailed with us
-        opt_out: false,
-        vip: false,
-        is_minor: !!g.is_minor,
-        source: "cabin",
-      });
+      if (!match.birthday && entry.birthday) match.birthday = entry.birthday;
+      if (!match.country && entry.country) match.country = entry.country;
+      if (!match.email && entry.email) match.email = entry.email;
+      match.source = match.source === "helm" ? "helm+cabin" : match.source;
+    } else {
+      people.set(key, entry);
     }
+  };
+  for (const g of guests ?? []) {
+    if (!g.full_name) continue;
+    addOrMerge(`guest:${g.id}`, {
+      key: `guest:${g.id}`, contact_id: null, name: g.full_name,
+      email: g.email || null, phone: g.mobile || null,
+      country: g.nationality || null, religion: null, religion_overridden: false,
+      birthday: g.date_of_birth || null, anniversary: null,
+      charter_vessel: null, charter_date: null, discussed: [],
+      helm_status: "guest", won: true, opt_out: false, vip: false,
+      is_minor: !!g.is_minor, source: "cabin",
+    });
   }
-  // Brief-filled members: same merge ladder (email, then name).
   for (const m of members ?? []) {
     const pd = m.personal_details || {};
     if (!m.display_name && !m.email) continue;
-    const em = (m.email || "").toLowerCase();
-    const mk = nameKey(m.display_name);
-    const match =
-      (em && [...people.values()].find((p) => (p.email || "").toLowerCase() === em)) ||
-      (mk && [...people.values()].find((p) => nameKey(p.name) === mk)) ||
-      null;
-    if (match) {
-      if (!match.birthday && pd.date_of_birth) match.birthday = pd.date_of_birth;
-      if (!match.country && pd.nationality) match.country = pd.nationality;
-      if (!match.email && m.email) match.email = m.email;
-      match.source = match.source === "helm" ? "helm+cabin" : match.source;
-    } else {
-      people.set(`member:${m.id}`, {
-        key: `member:${m.id}`,
-        contact_id: null,
-        name: m.display_name || m.email,
-        email: m.email || null,
-        phone: m.mobile || pd.mobile || null,
-        country: pd.nationality || null,
-        religion: null,
-        birthday: pd.date_of_birth || null,
-        anniversary: null,
-        charter_vessel: null,
-        charter_date: null,
-        won: true, // a cabin member has chartered with the house
-        opt_out: false,
-        is_minor: false,
-        vip: false,
-        source: "cabin",
-      });
-    }
+    addOrMerge(`member:${m.id}`, {
+      key: `member:${m.id}`, contact_id: null, name: m.display_name || m.email,
+      email: m.email || null, phone: m.mobile || pd.mobile || null,
+      country: pd.nationality || null, religion: null, religion_overridden: false,
+      birthday: pd.date_of_birth || null, anniversary: null,
+      charter_vessel: null, charter_date: null, discussed: [],
+      helm_status: "guest", won: true, opt_out: false, vip: false,
+      is_minor: false, source: "cabin",
+    });
   }
-  // Manual dates (from the dashboard or passport uploads).
+
+  // 3. Manual dates.
   for (const m of manual) {
     const p = people.get(m.person_key);
     if (!p) continue;
@@ -235,6 +251,7 @@ export async function loadPeople() {
     if (m.kind === "anniversary" && !p.anniversary) p.anniversary = m.date;
     (p.custom ??= []).push(m);
   }
+
   // Final pass: fold CRM duplicates. "Tricia Stevens" and "Patricia
   // Rhodes Stevens" are two contact rows for one woman; the identical
   // birthday plus a shared surname token is proof enough, and one
@@ -261,6 +278,7 @@ export async function loadPeople() {
           keep.email = keep.email || drop.email;
           keep.phone = keep.phone || drop.phone;
           keep.country = keep.country || drop.country;
+          keep.discussed = [...new Set([...(keep.discussed ?? []), ...(drop.discussed ?? [])])];
           keep.source = "helm+cabin";
           (keep.aliases ??= []).push(drop.name);
           hidden.add(drop.key);

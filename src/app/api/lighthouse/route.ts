@@ -44,6 +44,8 @@ export async function GET(request) {
       anniversary: p.anniversary,
       charter_date: p.charter_date,
       charter_vessel: p.charter_vessel,
+      discussed: p.discussed ?? [],
+      helm_status: p.helm_status ?? null,
       won: p.won,
       vip: p.vip,
       source: p.source,
