@@ -29,7 +29,7 @@ const ENGINES = [
   { cron: "web-mentions-weekly", label: "Web mentions (ποιος μας γράφει)", days: [3], where: `${RADAR} -> Authority` },
 ];
 
-function rawEmail(to, subject, body) {
+function rawEmail(to, subject, textBody, htmlBody) {
   const boundary = "boundary_" + Date.now();
   const lines = [
     `To: ${to}`,
@@ -40,16 +40,55 @@ function rawEmail(to, subject, body) {
     `--${boundary}`,
     "Content-Type: text/plain; charset=UTF-8",
     "",
-    body,
+    textBody,
     `--${boundary}`,
     "Content-Type: text/html; charset=UTF-8",
     "",
-    `<div style="font-family:monospace;white-space:pre-wrap;">${body
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")}</div>`,
+    htmlBody,
     `--${boundary}--`,
   ];
   return Buffer.from(lines.join("\r\n")).toString("base64url");
+}
+
+// ── HTML rendering, George's brief 29/8: "όχι σημείωμα φαρμακοποιού,
+// να το διαβάζω με όρεξη". House palette: navy, ivory, the true gold.
+const G = { navy: "#0D1B2A", gold: "#DAA110", ink: "#26313D", soft: "#5A6874", line: "#E4E0D5", bg: "#FAF8F3" };
+const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+function pill(text, tone) {
+  const c = tone === "bad" ? "#A33526" : tone === "good" ? "#1F6B4F" : G.soft;
+  const bgc = tone === "bad" ? "#FBEDEB" : tone === "good" ? "#EAF4EF" : "#EFECE4";
+  return `<span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:bold;letter-spacing:.4px;color:${c};background:${bgc};">${esc(text)}</span>`;
+}
+
+function card(sec) {
+  const rows = sec.lines
+    .map((l) => `<p style="margin:5px 0;font-size:14px;line-height:1.55;color:${G.ink};">${esc(l)}</p>`)
+    .join("");
+  return `
+  <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${sec.accent || G.gold};border-radius:6px;padding:16px 18px;margin:0 0 14px;">
+    <div style="margin:0 0 8px;">
+      <span style="font-family:Georgia,serif;font-size:16px;color:${G.navy};font-weight:bold;">${esc(sec.title)}</span>
+      ${sec.status ? `&nbsp;&nbsp;${pill(sec.status, sec.tone)}` : ""}
+    </div>
+    ${sec.meta ? `<p style="margin:0 0 8px;font-size:12px;color:${G.soft};">${esc(sec.meta)}</p>` : ""}
+    ${rows}
+    ${sec.link ? `<p style="margin:10px 0 0;font-size:12px;"><a href="${sec.href || "https://command.georgeyachts.com/dashboard/brand-radar"}" style="color:${G.gold};text-decoration:none;font-weight:bold;">${esc(sec.link)} &rarr;</a></p>` : ""}
+  </div>`;
+}
+
+function renderHtml(dstr, headline, cards) {
+  return `
+  <div style="background:${G.bg};padding:28px 12px;">
+    <div style="max-width:640px;margin:0 auto;">
+      <p style="font-family:Georgia,serif;font-size:13px;letter-spacing:3px;color:${G.gold};text-transform:uppercase;margin:0 0 2px;">George Yachts</p>
+      <h1 style="font-family:Georgia,serif;font-size:24px;color:${G.navy};margin:0 0 4px;">Οι μηχανές σήμερα</h1>
+      <p style="font-size:13px;color:${G.soft};margin:0 0 20px;">${esc(dstr)} &middot; 11:45 ώρα Αθήνας</p>
+      ${headline}
+      ${cards.map(card).join("")}
+      <p style="font-size:12px;color:${G.soft};margin:16px 0 0;">Κάθε panel στο Brand Radar έχει κουμπί REFRESH για φρέσκια εικόνα όποτε τη θελήσεις.</p>
+    </div>
+  </div>`;
 }
 
 function ago(iso, now) {
@@ -189,79 +228,96 @@ async function handler() {
   const GRDAYS = ["Κυριακή", "Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο"];
 
   let problems = 0;
-  const sections = [];
+  const cards = [];
+  const textParts = [];
 
-  // ── Opening: the comparable Google number, live ──
+  // ── Opening headline: BOTH Google numbers (George 29/8: "θέλω να
+  // ξέρω και στην Google τι γίνεται, το αληθινό νούμερο").
+  //   1. Ο επίσημος μέσος όρος του Search Console (7 ημέρες) — το
+  //      νούμερο που αλλάζει και με το μείγμα ερωτημάτων.
+  //   2. Η σταθμισμένη θέση στα ΙΔΙΑ ερωτήματα — το συγκρίσιμο.
   const t = await cohort();
+  let headlineHtml = "";
   if (t?.cohort) {
     const c = t.cohort;
     const delta = Math.round((c.position - c.prev_position) * 10) / 10;
-    const arrow = delta < 0 ? `ανεβαίνουμε ${Math.abs(delta)}` : delta > 0 ? `υποχωρούμε ${delta}` : "σταθεροί";
-    sections.push(
-      [
-        "Η GOOGLE ΣΗΜΕΡΑ (ίδια ερωτήματα, εβδομάδα προς εβδομάδα):",
-        `  σταθμισμένη θέση ${c.position} (ήταν ${c.prev_position}), ${arrow} · ${c.up} ερωτήματα πάνω, ${c.down} κάτω`,
-        ...(t.cluster_alerts?.length
-          ? [`  ΠΡΟΣΟΧΗ, θέματα που έπεσαν μαζί: ${t.cluster_alerts.map((a) => a.token).join(", ")}`]
-          : []),
-        ...(t.cluster_winners?.length
-          ? [`  ανεβαίνουν: ${t.cluster_winners.slice(0, 4).map((a) => `${a.token} (${a.prev_position}->${a.position})`).join(", ")}`]
-          : []),
-        `  -> δες το: ${RADAR} -> Google -> TRUTH CHECK`,
-      ].join("\n"),
-    );
+    const arrow = delta < 0 ? `ανεβαίνουμε ${Math.abs(delta)} θέσεις` : delta > 0 ? `υποχωρούμε ${delta} θέσεις` : "σταθεροί";
+    const off = t.totals?.current?.position;
+    const offPrev = t.totals?.previous?.position;
+    const clicks = t.totals?.current?.clicks;
+    headlineHtml = `
+    <div style="background:${G.navy};border-radius:8px;padding:20px 22px;margin:0 0 18px;">
+      <p style="margin:0 0 12px;font-size:11px;letter-spacing:2px;color:${G.gold};text-transform:uppercase;font-weight:bold;">Η Google σημερα</p>
+      <table role="presentation" style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="vertical-align:top;padding-right:16px;">
+            <p style="margin:0;font-family:Georgia,serif;font-size:34px;color:#ffffff;line-height:1;">${off ?? "-"}</p>
+            <p style="margin:6px 0 0;font-size:12px;color:#97A5B2;line-height:1.5;">Μέσος όρος Search Console, 7 ημέρες (ήταν ${offPrev ?? "-"}). Αλλάζει και όταν μπαίνουμε σε νέα ερωτήματα, μην τον κρίνεις μόνο του.</p>
+          </td>
+          <td style="vertical-align:top;">
+            <p style="margin:0;font-family:Georgia,serif;font-size:34px;color:${G.gold};line-height:1;">${c.position}</p>
+            <p style="margin:6px 0 0;font-size:12px;color:#97A5B2;line-height:1.5;">Ίδια ερωτήματα με πέρσι την εβδομάδα (ήταν ${c.prev_position}): <strong style="color:#ffffff;">${arrow}</strong>. ${c.up} πάνω, ${c.down} κάτω. Κλικ 7ημέρου: ${clicks ?? "-"}.</p>
+          </td>
+        </tr>
+      </table>
+      ${t.cluster_alerts?.length ? `<p style="margin:12px 0 0;font-size:12px;color:#E8836F;">Θέματα που έπεσαν μαζί: ${esc(t.cluster_alerts.map((a) => `${a.token} (${a.prev_position}→${a.position})`).join(", "))}</p>` : ""}
+      ${t.cluster_winners?.length ? `<p style="margin:6px 0 0;font-size:12px;color:#63B792;">Ανεβαίνουν: ${esc(t.cluster_winners.slice(0, 4).map((a) => `${a.token} (${a.prev_position}→${a.position})`).join(", "))}</p>` : ""}
+    </div>`;
+    textParts.push(`Η GOOGLE ΣΗΜΕΡΑ: επίσημος μέσος όρος ${off} (ήταν ${offPrev}) · ίδια ερωτήματα ${c.position} (ήταν ${c.prev_position}), ${arrow}, ${c.up} πάνω / ${c.down} κάτω.`);
   }
 
-  // ── Per-engine sections ──
+  const GRDAYS2 = GRDAYS;
   for (const e of ENGINES) {
     const rep = await engineReport(e.cron, now);
     const scheduledToday = e.days.includes(todayDow);
-    let status = "";
+    let status, tone;
     if (scheduledToday) {
       const runs = todayRuns.get(e.cron) ?? [];
-      if (runs.some((r) => r.outcome === "success")) status = "ΕΤΡΕΞΕ ΣΗΜΕΡΑ";
-      else if (runs.some((r) => r.outcome === "skipped")) status = "ΣΗΜΕΡΑ: παραλείφθηκε με λόγο";
-      else if (runs.some((r) => r.outcome === "error")) {
-        status = `ΣΦΑΛΜΑ ΣΗΜΕΡΑ: ${runs.find((r) => r.outcome === "error")?.detail ?? "-"}`;
-        problems++;
-      } else {
-        status = "ΔΕΝ ΕΤΡΕΞΕ ΣΗΜΕΡΑ ενώ ήταν προγραμματισμένο";
-        problems++;
-      }
+      if (runs.some((r) => r.outcome === "success")) { status = "έτρεξε σήμερα"; tone = "good"; }
+      else if (runs.some((r) => r.outcome === "skipped")) { status = "παραλείφθηκε με λόγο"; tone = "neutral"; }
+      else if (runs.some((r) => r.outcome === "error")) { status = "σφάλμα σήμερα"; tone = "bad"; problems++; }
+      else { status = "ΔΕΝ έτρεξε ενώ έπρεπε"; tone = "bad"; problems++; }
     } else {
-      status = `εκτός προγράμματος σήμερα (τρέχει: ${e.days.map((d) => GRDAYS[d].slice(0, 3)).join("/")})`;
+      status = `τρέχει ${e.days.map((d) => GRDAYS2[d].slice(0, 3)).join("/")}`;
+      tone = "neutral";
     }
-    sections.push(
-      [
-        `${e.label.toUpperCase()}`,
-        `  ${status} · τελευταία εκτέλεση: ${ago(rep.at, now)}`,
-        ...rep.lines.map((l) => `  ${l}`),
-        `  -> δες το: ${e.where}`,
-      ].join("\n"),
-    );
+    cards.push({
+      title: e.label,
+      status,
+      tone,
+      meta: `τελευταία εκτέλεση: ${ago(rep.at, now)}`,
+      lines: rep.lines.map((l) => l.trim()),
+      link: e.where.replace("command.georgeyachts.com -> ", ""),
+    });
+    textParts.push(`${e.label}: ${status} · ${rep.lines.join(" · ")}`);
   }
 
-  // ── Articles (local engine, verified from the live blog itself) ──
   const post = await latestArticle();
   const isArticleDay = [2, 4, 6].includes(todayDow);
   if (post) {
     const postDate = String(post.publishedAt).slice(0, 10);
     const todayStr = athensNow.toISOString().slice(0, 10);
     const publishedToday = postDate === todayStr;
-    let artStatus = `τελευταίο άρθρο ${postDate}: «${post.title}»`;
-    if (isArticleDay && !publishedToday) {
-      artStatus += " — ΣΗΜΕΡΑ ΕΙΝΑΙ ΜΕΡΑ ΑΡΘΡΟΥ ΚΑΙ ΔΕΝ ΕΧΕΙ ΒΓΕΙ ΑΚΟΜΑ (ο φύλακας ελέγχει 13:00)";
-      problems++;
-    } else if (publishedToday) {
-      artStatus = `ΒΓΗΚΕ ΣΗΜΕΡΑ: «${post.title}»`;
+    let status, tone, line;
+    if (publishedToday) {
+      status = "βγήκε σήμερα"; tone = "good";
+      line = `«${post.title}»`;
+    } else if (isArticleDay) {
+      status = "δεν έχει βγει ακόμα"; tone = "bad"; problems++;
+      line = `Σήμερα είναι μέρα άρθρου. Τελευταίο: «${post.title}» (${postDate}). Ο φύλακας των 13:00 θα το γράψει αν δεν προλάβει το πρωινό.`;
+    } else {
+      status = "εκτός προγράμματος σήμερα"; tone = "neutral";
+      line = `Τελευταίο: «${post.title}» (${postDate})`;
     }
-    sections.push(
-      [
-        "ΜΗΧΑΝΗ ΑΡΘΡΩΝ (τοπική, Τρ/Πεμ/Σαβ 10:00)",
-        `  ${artStatus}`,
-        `  -> δες το: georgeyachts.com/blog/${post.slug}`,
-      ].join("\n"),
-    );
+    cards.push({
+      title: "Μηχανή άρθρων (Τρίτη / Πέμπτη / Σάββατο, 10:00)",
+      status,
+      tone,
+      lines: [line],
+      link: "Διάβασέ το στο blog",
+      href: `https://georgeyachts.com/blog/${post.slug}`,
+    });
+    textParts.push(`ΑΡΘΡΑ: ${status} · ${line}`);
   }
 
   const dstr = `${GRDAYS[todayDow]} ${athensNow.getDate()}/${athensNow.getMonth() + 1}`;
@@ -269,20 +325,15 @@ async function handler() {
     ? `Μηχανές GY: ${problems} πρόβλημα(τα) — ${dstr}`
     : `Μηχανές GY: αναφορά ημέρας — ${dstr}`;
 
-  const body = [
-    `Ημερήσια ανάλυση μηχανών, ${dstr}, 11:45 ώρα Αθήνας.`,
-    "",
-    sections.join("\n\n"),
-    "",
-    "Κάθε panel στο Brand Radar έχει κουμπί REFRESH για φρέσκια εικόνα όποτε τη θες.",
-  ].join("\n");
+  const textBody = [`Ημερήσια ανάλυση μηχανών, ${dstr}.`, "", ...textParts].join("\n\n");
+  const htmlBody = renderHtml(dstr, headlineHtml, cards);
 
   const res = await gmailFetch("/messages/send", {
     method: "POST",
-    body: JSON.stringify({ raw: rawEmail(GEORGE, subject, body) }),
+    body: JSON.stringify({ raw: rawEmail(GEORGE, subject, textBody, htmlBody) }),
   });
   if (!res.ok) return NextResponse.json({ error: `gmail ${res.status}` });
-  return NextResponse.json({ ok: true, problems, sections: sections.length });
+  return NextResponse.json({ ok: true, problems, sections: cards.length, v: 3 });
 }
 
 export async function GET() {
