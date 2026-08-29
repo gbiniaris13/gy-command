@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting } from "@/lib/google-api";
 import { upcomingOccasions, loadPeople, markSent, draftFor } from "@/lib/lighthouse";
@@ -30,18 +30,48 @@ export async function GET(request) {
   // όλου του έτους, με σειρά χρόνου"), so the window is fixed at 365.
   const days = 365;
   const fresh = url.searchParams.get("fresh") === "1";
+  // George's law of speed (29/8): "τα τραβάει ΜΙΑ φορά, τα έχει και
+  // έτοιμα". Whatever snapshot exists is served instantly - even a
+  // stale or action-busted one - and the recompute runs AFTER the
+  // response (next/server after()), storing a fresh snapshot for the
+  // next request. Nobody ever stares at a skeleton while Supabase
+  // thinks. A 60s refreshing_at latch stops polling clients from
+  // stacking duplicate recomputes (his cost worry).
   if (!fresh) {
     try {
       const raw = await getSetting(CACHE_KEY);
       if (raw) {
         const cached = JSON.parse(raw);
-        if (cached.days === days && Date.now() - cached.at < CACHE_TTL_MS) {
-          return NextResponse.json({ ...cached.payload, cached_at: new Date(cached.at).toISOString() });
+        if (cached?.payload) {
+          const isFresh = !cached.stale && Date.now() - cached.at < CACHE_TTL_MS;
+          if (isFresh) {
+            return NextResponse.json({ ...cached.payload, cached_at: new Date(cached.at).toISOString() });
+          }
+          const refreshing = cached.refreshing_at && Date.now() - cached.refreshing_at < 60 * 1000;
+          if (!refreshing) {
+            try {
+              await setSetting(CACHE_KEY, JSON.stringify({ ...cached, refreshing_at: Date.now() }));
+            } catch {}
+            after(async () => {
+              try {
+                await recomputeCache();
+              } catch {}
+            });
+          }
+          return NextResponse.json({ ...cached.payload, stale: true, cached_at: new Date(cached.at).toISOString() });
         }
       }
     } catch {}
   }
   const { occ, ppl } = await computePayload(days);
+  const responseBody = buildResponseBody(occ, ppl);
+  try {
+    await setSetting(CACHE_KEY, JSON.stringify({ at: Date.now(), days, payload: responseBody }));
+  } catch {}
+  return NextResponse.json(responseBody);
+}
+
+function buildResponseBody(occ, ppl) {
   const withDrafts = {
     ...occ,
     personal: occ.personal.map((o) => ({
@@ -60,7 +90,7 @@ export async function GET(request) {
       },
     })),
   };
-  const responseBody = {
+  return {
     ...withDrafts,
     source_errors: ppl.errors ?? null,
     no_country: ppl.people.filter((p) => p.email && !p.country).length,
@@ -85,14 +115,33 @@ export async function GET(request) {
       custom: p.custom ?? [],
     })),
   };
-  try {
-    await setSetting(CACHE_KEY, JSON.stringify({ at: Date.now(), days, payload: responseBody }));
-  } catch {}
-  return NextResponse.json(responseBody);
 }
 
+async function recomputeCache() {
+  const { occ, ppl } = await computePayload(365);
+  const body = buildResponseBody(occ, ppl);
+  await setSetting(CACHE_KEY, JSON.stringify({ at: Date.now(), days: 365, payload: body }));
+  return body;
+}
+
+// After a mutation the snapshot is WRONG but not WORTHLESS: mark it
+// stale so the next GET still answers instantly, and refresh it in
+// the background right now so the truth is ready in seconds.
 async function bustCache() {
   try {
+    const raw = await getSetting(CACHE_KEY);
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (cached?.payload) {
+        await setSetting(CACHE_KEY, JSON.stringify({ ...cached, stale: true, refreshing_at: Date.now() }));
+        after(async () => {
+          try {
+            await recomputeCache();
+          } catch {}
+        });
+        return;
+      }
+    }
     await setSetting(CACHE_KEY, "");
   } catch {}
 }

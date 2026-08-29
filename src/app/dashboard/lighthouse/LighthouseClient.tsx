@@ -1,7 +1,7 @@
 // @ts-nocheck
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // THE LIGHTHOUSE — George's brief (29/8): "σαν iPhone, σαν Apple:
 // απλό, όμορφο, και να κάνει όλες τις δουλειές". So: one column,
@@ -74,15 +74,42 @@ export default function LighthouseClient() {
   const [ctFile, setCtFile] = useState(null);
   const [ctTarget, setCtTarget] = useState("");
 
-  async function load() {
-    setLoading(true);
+  // George's law of speed (29/8): the screen NEVER goes blank once it
+  // has data. First mount hydrates instantly from the last snapshot in
+  // this browser; every load() keeps showing what it has and swaps in
+  // the fresh payload when it lands. If the server answered with a
+  // stale (just-mutated) snapshot, we quietly poll a few times until
+  // the background recompute lands - no skeleton, no spinner.
+  async function load(attempt = 0) {
+    if (!dataRef.current) setLoading(true);
     try {
-      const d = await fetch("/api/lighthouse?days=30").then((r) => r.json());
-      setData(d);
+      const d = await fetch("/api/lighthouse").then((r) => r.json());
+      if (d?.people) {
+        setData(d);
+        dataRef.current = d;
+        try {
+          sessionStorage.setItem("lighthouse_snap", JSON.stringify(d));
+        } catch {}
+        if (d.stale && attempt < 6) setTimeout(() => load(attempt + 1), 7000);
+      }
     } finally {
       setLoading(false);
     }
   }
+  const dataRef = useRef(null);
+  useEffect(() => {
+    try {
+      const snap = sessionStorage.getItem("lighthouse_snap");
+      if (snap) {
+        const d = JSON.parse(snap);
+        if (d?.people) {
+          setData(d);
+          dataRef.current = d;
+          setLoading(false);
+        }
+      }
+    } catch {}
+  }, []);
   useEffect(() => {
     load();
   }, []);
@@ -407,7 +434,7 @@ export default function LighthouseClient() {
         ))}
       </div>
 
-      {loading ? (
+      {loading && !data ? (
         <div className="space-y-3">
           <div className="h-24 animate-pulse rounded-2xl bg-white/5" />
           <div className="h-24 animate-pulse rounded-2xl bg-white/5" />
