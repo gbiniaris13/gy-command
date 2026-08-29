@@ -116,7 +116,7 @@ export async function loadPeople() {
         // list must never depend on it; the yachts come afterwards in
         // small chunks that cannot take the list down with them.
         .select(
-          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, contact_id",
+          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, dates_to, contact_id",
         )
         .limit(1000),
       sb
@@ -231,6 +231,11 @@ export async function loadPeople() {
       existing.discussed = [...new Set([...(existing.discussed ?? []), ...discussed])].slice(0, 5);
       existing.won = existing.won || won;
       if (won && r.dates_from && !existing.charter_date) existing.charter_date = r.dates_from;
+      if (r.dates_from && (!existing.travel_from || r.dates_from > existing.travel_from)) {
+        existing.travel_from = r.dates_from;
+        existing.travel_to = r.dates_to || existing.travel_to;
+        existing.area = r.area || existing.area;
+      }
       continue;
     }
     const c = (r.contact_id && contactById.get(r.contact_id)) || contactByEmail.get(email) || {};
@@ -252,6 +257,9 @@ export async function loadPeople() {
       anniversary: c.anniversary_date || null,
       charter_vessel: c.charter_vessel || (won ? discussed[0] : null) || null,
       charter_date: c.charter_embarkation || c.charter_start_date || (won ? r.dates_from : null) || null,
+      travel_from: r.dates_from || null,
+      travel_to: r.dates_to || null,
+      area: r.area || null,
       discussed,
       helm_status: r.status,
       won: won || !!c.charter_vessel,
@@ -319,6 +327,24 @@ export async function loadPeople() {
       helm_status: "prospect", won: false, opt_out: false, vip: false,
       is_minor: false, source: "passport",
     });
+  }
+
+  // 2c. Overrides: what George attached by hand (a passport means a
+  // contract; a MYBA upload carries vessel and dates). They sit on
+  // top of whatever the sources said, and they are how a person with
+  // no contacts row still remembers his birthday.
+  const ovRaw = await getSetting("lighthouse_overrides");
+  const overrides = ovRaw ? JSON.parse(ovRaw) : {};
+  for (const [pk, ov] of Object.entries(overrides)) {
+    const p = people.get(pk) || [...people.values()].find((x) => x.email && x.email === ov.email);
+    if (!p) continue;
+    if (ov.birthday) p.birthday = ov.birthday;
+    if (ov.anniversary) p.anniversary = ov.anniversary;
+    if (ov.country) p.country = ov.country;
+    if (ov.vessel) p.charter_vessel = ov.vessel;
+    if (ov.charter_from) { p.charter_date = ov.charter_from; p.travel_from = ov.charter_from; }
+    if (ov.charter_to) p.travel_to = ov.charter_to;
+    if (ov.won) { p.won = true; p.helm_status = p.helm_status === "lost" ? p.helm_status : "won"; }
   }
 
   // 3. Manual dates.
@@ -396,9 +422,15 @@ export async function upcomingOccasions(days = 30) {
         personal.push({ ...extra, kind, label, date: iso(occ), person: p });
       }
     };
-    if (p.birthday) add("birthday", p.birthday, "Birthday");
-    if (p.anniversary) add("anniversary", p.anniversary, "Anniversary");
-    if (p.charter_date) {
+    // George's status law (29/8): lost clients get seasonal holidays
+    // only; personal wishes are for people with a relationship.
+    const lost = p.helm_status === "lost";
+    if (!lost && p.birthday) add("birthday", p.birthday, "Birthday");
+    if (!lost && p.anniversary) add("anniversary", p.anniversary, "Anniversary");
+    // A charter anniversary exists only for a charter that HAPPENED.
+    // Bruce Mead holds a 2027 contract; congratulating him on "a year
+    // ago you were sailing" would have been the house's ridicule.
+    if (!lost && p.charter_date && String(p.charter_date).slice(0, 10) < iso(from)) {
       add("charter_anniversary", p.charter_date, "Charter anniversary", {
         vessel: p.charter_vessel,
         first_date: p.charter_date,

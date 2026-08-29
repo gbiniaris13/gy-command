@@ -71,6 +71,9 @@ export async function GET(request) {
       anniversary: p.anniversary,
       charter_date: p.charter_date,
       charter_vessel: p.charter_vessel,
+      travel_from: p.travel_from ?? null,
+      travel_to: p.travel_to ?? null,
+      area: p.area ?? null,
       discussed: p.discussed ?? [],
       helm_status: p.helm_status ?? null,
       won: p.won,
@@ -95,6 +98,35 @@ export async function POST(request) {
   const body = await request.json();
   const sb = createServiceClient();
 
+  if (body.action === "apply_document") {
+    // A passport or a MYBA contract lands on an EXISTING Helm card
+    // ("πάει και το ψάχνει στο Helm... α, να τος"). Writes overrides:
+    // birthday/country from a passport, vessel/dates/won from a
+    // contract. Never spawns a duplicate card.
+    const { person_key, fields } = body;
+    if (!person_key) return NextResponse.json({ error: "no person_key" }, { status: 400 });
+    const raw = await getSetting("lighthouse_overrides");
+    const ov = raw ? JSON.parse(raw) : {};
+    const cur = ov[person_key] ?? {};
+    for (const k of ["birthday", "anniversary", "country", "vessel", "charter_from", "charter_to", "won", "email"]) {
+      if (fields?.[k] !== undefined && fields[k] !== null && fields[k] !== "") cur[k] = fields[k];
+    }
+    // A passport in George's hands means a contract exists.
+    if (fields?.birthday) cur.won = true;
+    ov[person_key] = cur;
+    await setSetting("lighthouse_overrides", JSON.stringify(ov));
+    // Mirror to the CRM row too when one exists.
+    if (body.contact_id) {
+      const allowed = {};
+      if (cur.birthday) allowed.birthday = cur.birthday;
+      if (cur.country) allowed.country = cur.country;
+      if (cur.anniversary) allowed.anniversary_date = cur.anniversary;
+      if (Object.keys(allowed).length) await sb.from("contacts").update(allowed).eq("id", body.contact_id);
+    }
+    await bustCache();
+    return NextResponse.json({ ok: true });
+  }
+
   if (body.action === "add_person") {
     // A NEW client from a passport: the reason the Documents tab
     // exists (George, 29/8: "σε καινούριο πελάτη ανήκει, γι αυτό δεν
@@ -113,6 +145,18 @@ export async function POST(request) {
       added_at: new Date().toISOString(),
     };
     if (!entry.name) return NextResponse.json({ error: "χρειάζεται όνομα" }, { status: 400 });
+    // One person, one card: an email that already exists means ATTACH,
+    // not a twin.
+    if (entry.email) {
+      const { people } = await (await import("@/lib/lighthouse")).loadPeople();
+      const twin = people.find((pp) => (pp.email || "").toLowerCase() === entry.email.toLowerCase());
+      if (twin) {
+        return NextResponse.json(
+          { error: `υπάρχει ήδη καρτέλα: ${twin.name} — διάλεξε «Υπάρχων πελάτης»`, existing_key: twin.key },
+          { status: 409 },
+        );
+      }
+    }
     list.push(entry);
     await setSetting("lighthouse_people", JSON.stringify(list));
     await bustCache();
