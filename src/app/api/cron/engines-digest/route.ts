@@ -22,6 +22,7 @@ const RADAR = "command.georgeyachts.com -> Brand Radar";
 
 // Mirrors vercel.json — change them TOGETHER. days: 0=Sunday…6=Saturday.
 const ENGINES = [
+  { cron: "lighthouse-daily", label: "The Lighthouse (ευχές ημέρας)", days: [0, 1, 2, 3, 4, 5, 6], where: `command.georgeyachts.com -> The Lighthouse` },
   { cron: "serp-snapshot", label: "SERP tracker (θέσεις + αντίπαλοι, ΗΠΑ)", days: [1, 2, 3, 4, 5], where: `${RADAR} -> Google -> LIVE SERP` },
   { cron: "backlink-send", label: "Backlink pitch (cloud αποστολέας)", days: [1, 2, 3, 4, 5], where: "Gmail -> Απεσταλμένα" },
   { cron: "llm-mentions-weekly", label: "LLM Mentions (ποιον παραθέτουν τα AI)", days: [0], where: `${RADAR} -> Mentions` },

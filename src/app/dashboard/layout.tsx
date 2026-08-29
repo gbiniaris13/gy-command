@@ -142,6 +142,18 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: "The Lighthouse",
+    href: "/dashboard/lighthouse",
+    group: "operate",
+    // The lighthouse — after the voyage, the light that keeps every
+    // client in sight: birthdays, anniversaries, holidays (29/8/2026).
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 21h6M10 21l1-13h2l1 13M9.5 8h5L14 4h-4l-.5 4zM12 2v2M4 10l2.5 1.5M20 10l-2.5 1.5M3 21h18" />
+      </svg>
+    ),
+  },
+  {
     label: "Outreach",
     href: "/dashboard/outreach",
     group: "operate",

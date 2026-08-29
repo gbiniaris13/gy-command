@@ -57,14 +57,6 @@
       "schedule": "30 5 * * *"
     },
     {
-      "path": "/api/cron/birthdays",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/holidays",
-      "schedule": "0 8 * * *"
-    },
-    {
       "path": "/api/cron/competitor-scan",
       "schedule": "0 10 * * 0"
     },
@@ -235,6 +227,10 @@
     {
       "path": "/api/cron/engines-digest",
       "schedule": "45 8 * * *"
+    },
+    {
+      "path": "/api/cron/lighthouse-daily",
+      "schedule": "30 4 * * *"
     }
   ]
 }
