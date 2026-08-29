@@ -231,6 +231,10 @@
     {
       "path": "/api/cron/web-mentions-weekly",
       "schedule": "0 5 * * 3"
+    },
+    {
+      "path": "/api/cron/engines-digest",
+      "schedule": "45 8 * * *"
     }
   ]
 }
