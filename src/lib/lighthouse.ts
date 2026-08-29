@@ -30,12 +30,12 @@ import {
 // country fills the silence. Kinds reference pillar3 holiday kinds.
 const WESTERN = ["western_christmas", "western_easter", "new_year"];
 const COUNTRY_POLICY = [
-  { match: ["united states", "usa", "us", "america"], kinds: [...WESTERN, "us_independence_day", "thanksgiving"] },
+  { match: ["united states", "usa", "us", "america"], kinds: [...WESTERN, "us_independence_day", "thanksgiving", "memorial_day", "labor_day"] },
   { match: ["united kingdom", "uk", "gb", "england", "scotland", "britain"], kinds: WESTERN },
   { match: ["canada", "australia", "new zealand", "ireland", "germany", "france", "italy", "spain", "netherlands", "austria", "switzerland", "belgium", "sweden", "norway", "denmark", "poland", "portugal", "mexico", "brazil", "argentina"], kinds: WESTERN },
   { match: ["greece", "gr", "cyprus"], kinds: ["western_christmas", "orthodox_easter", "new_year", "greek_independence_day"] },
   { match: ["russia", "serbia", "ukraine", "georgia", "romania", "bulgaria"], kinds: ["orthodox_christmas", "orthodox_easter", "new_year"] },
-  { match: ["israel", "il"], kinds: ["hanukkah_first_night", "new_year"] },
+  { match: ["israel", "il"], kinds: ["hanukkah_first_night", "rosh_hashanah", "new_year"] },
   { match: ["saudi", "uae", "emirates", "qatar", "kuwait", "bahrain", "oman", "egypt", "turkey", "jordan", "lebanon", "morocco"], kinds: ["eid_al_fitr", "eid_al_adha", "new_year"] },
   { match: ["india"], kinds: ["diwali", "new_year"] },
 ];
@@ -43,7 +43,7 @@ const RELIGION_KINDS: Record<string, string[]> = {
   orthodox: ["western_christmas", "orthodox_easter", "new_year"],
   catholic: WESTERN,
   protestant: WESTERN,
-  jewish: ["hanukkah_first_night", "new_year"],
+  jewish: ["hanukkah_first_night", "rosh_hashanah", "new_year"],
   muslim: ["eid_al_fitr", "eid_al_adha", "new_year"],
   hindu: ["diwali", "new_year"],
 };
@@ -61,6 +61,9 @@ export const HOLIDAY_LABELS: Record<string, string> = {
   eid_al_adha: "Eid al-Adha",
   diwali: "Diwali",
   hanukkah_first_night: "Hanukkah",
+  memorial_day: "Memorial Day",
+  labor_day: "Labor Day",
+  rosh_hashanah: "Rosh Hashanah",
 };
 
 function thanksgivingDate(year: number): string {
@@ -78,6 +81,24 @@ export function holidayDatesForYear(year: number): Record<string, string> {
   }
   map.new_year = `${year}-01-01`;
   map.thanksgiving = thanksgivingDate(year);
+  // Memorial Day: last Monday of May. The American start of summer -
+  // for a yachting clientele, arguably the most on-brand day of the
+  // year (George 29/8: research the US holidays, send to all).
+  {
+    const d = new Date(Date.UTC(year, 4, 31));
+    while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() - 1);
+    map.memorial_day = d.toISOString().slice(0, 10);
+  }
+  // Labor Day: first Monday of September.
+  {
+    const d = new Date(Date.UTC(year, 8, 1));
+    while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
+    map.labor_day = d.toISOString().slice(0, 10);
+  }
+  // Rosh Hashanah eve (erev, when Shana Tova is wished), published
+  // Hebrew-calendar dates - hebcal/chabad, verified 29/8/2026.
+  const ROSH: Record<number, string> = { 2026: "2026-09-11", 2027: "2027-10-01", 2028: "2028-09-20", 2029: "2029-09-09" };
+  if (ROSH[year]) map.rosh_hashanah = ROSH[year];
   return map;
 }
 
@@ -430,12 +451,6 @@ export async function upcomingOccasions(days = 30) {
     // A charter anniversary exists only for a charter that HAPPENED.
     // Bruce Mead holds a 2027 contract; congratulating him on "a year
     // ago you were sailing" would have been the house's ridicule.
-    if (!lost && p.charter_date && String(p.charter_date).slice(0, 10) < iso(from)) {
-      add("charter_anniversary", p.charter_date, "Charter anniversary", {
-        vessel: p.charter_vessel,
-        first_date: p.charter_date,
-      });
-    }
     for (const m of p.custom ?? []) {
       if (m.kind === "custom") add("custom", m.date, m.label || "Occasion", { note: m.note });
     }
@@ -458,7 +473,7 @@ export async function upcomingOccasions(days = 30) {
           label: HOLIDAY_LABELS[kind] ?? kind,
           date,
           recipients: audience.length,
-          sample: audience.slice(0, 5).map((p) => p.name),
+          names: audience.map((p) => p.name),
         });
       }
     }
@@ -483,16 +498,27 @@ export async function upcomingOccasions(days = 30) {
           label: HOLIDAY_LABELS[kind] ?? kind,
           date,
           recipients: audience.length,
-          sample: audience.slice(0, 5).map((p) => p.name),
+          names: audience.map((p) => p.name),
         });
       }
     }
   }
   yearHolidays.sort((a, b) => (a.date < b.date ? -1 : 1));
 
+  // Travel departures: when George marks a request WON in The Helm the
+  // calendar must show when that client sails (29/8). Info entries, no
+  // email attached.
+  const departures = [];
+  for (const p of people) {
+    if (p.won && p.travel_from && String(p.travel_from) >= iso(from)) {
+      departures.push({ date: String(p.travel_from).slice(0, 10), person: { key: p.key, name: p.name }, area: p.area ?? null, to: p.travel_to ? String(p.travel_to).slice(0, 10) : null });
+    }
+  }
+  departures.sort((a, b) => (a.date < b.date ? -1 : 1));
+
   const sentRaw = await getSetting("lighthouse_sent");
   const sent = sentRaw ? JSON.parse(sentRaw) : {};
-  return { personal, holidays, holidays_year: yearHolidays, sent, generated_at: new Date().toISOString() };
+  return { personal, holidays, holidays_year: yearHolidays, departures, sent, generated_at: new Date().toISOString() };
 }
 
 export function occasionKey(o) {
@@ -542,13 +568,6 @@ export function draftFor(o): { subject: string; body: string } {
       body: `Dear ${first},\n\nHappy anniversary to you both! Wishing you a beautiful day and many more years of adventures together. If one of those adventures should ever involve a quiet bay in Greece, you know where to find me.${SIGN}`,
     };
   }
-  if (o.kind === "charter_anniversary") {
-    const vessel = o.vessel ? ` aboard ${o.vessel}` : " in Greek waters";
-    return {
-      subject: `A year ago today, you were sailing`,
-      body: `Dear ${first},\n\nA year ago today you were${vessel}, and I still think of that charter with great pleasure. Anniversaries like this are my favourite excuse to say hello. If the sea is calling again, the ${new Date().getFullYear() + 1} calendar is open and the best weeks always go first.${SIGN}`,
-    };
-  }
   // Holidays.
   const H: Record<string, [string, string]> = {
     western_christmas: ["Merry Christmas from Greece", "Merry Christmas! May your holidays be warm, bright and full of joy."],
@@ -563,6 +582,9 @@ export function draftFor(o): { subject: string; body: string } {
     eid_al_adha: ["Eid Mubarak", "Eid Mubarak! May the celebration bring you and your loved ones peace and happiness."],
     diwali: ["Happy Diwali", "Happy Diwali! Wishing you a festival full of light, warmth and sweetness."],
     hanukkah_first_night: ["Happy Hanukkah", "Happy Hanukkah! Wishing you eight nights of light and warmth with your family."],
+    memorial_day: ["Happy Memorial Day weekend", "Wishing you a wonderful Memorial Day weekend with your family, and a summer full of good days on the water."],
+    labor_day: ["Happy Labor Day", "Happy Labor Day! I hope you are closing out the summer with the people you love, somewhere near the water."],
+    rosh_hashanah: ["Shana Tova!", "Shana Tova! Wishing you and your family a sweet, healthy and happy new year."],
   };
   const [subject, line] = H[o.kind] ?? ["Warm wishes", "Warm wishes for the day!"];
   return { subject, body: `Dear ${first},\n\n${line}${SIGN}` };

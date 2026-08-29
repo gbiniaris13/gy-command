@@ -308,6 +308,17 @@ export default function LighthouseClient() {
     [data],
   );
 
+  // One chronological year: the nearest thing first, whatever it is
+  // (George 29/8: "ημερολόγιο όλου του έτους... ποια κίνηση γίνεται
+  // πιο νωρίς... με σειρά χρόνου, και δίπλα τα άτομα").
+  const timeline = useMemo(() => {
+    const evs = [];
+    for (const h of data?.holidays_year ?? []) evs.push({ type: "holiday", date: h.date, h });
+    for (const o of personal) evs.push({ type: "personal", date: o.date, o });
+    for (const dep of data?.departures ?? []) evs.push({ type: "departure", date: dep.date, dep });
+    return evs.sort((a, b) => (a.date < b.date ? -1 : 1));
+  }, [data, personal]);
+
   return (
     <div className="mx-auto max-w-3xl p-6 sm:p-10">
       {/* Header — calm, spacious, Apple-like */}
@@ -357,107 +368,140 @@ export default function LighthouseClient() {
       ) : (
         <>
           {tab === "upcoming" && (
-            <div className="space-y-3">
-              {(data?.holidays_year ?? data?.holidays ?? []).map((h) => {
-                const done = !!data?.sent?.[`all:${h.kind}:${h.date.slice(0, 4)}`];
-                return (
-                  <div key={h.kind + h.date} className="rounded-2xl border border-white/10 bg-deep-space/60 p-5">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="flex-1">
-                        <p className="text-base font-semibold text-soft-white">{h.label}</p>
-                        <p className="mt-0.5 text-sm text-muted-blue">
-                          {fmtDay(h.date)} · {h.recipients} παραλήπτες · {h.sample.join(", ")}
-                          {h.recipients > 5 ? "…" : ""}
-                        </p>
+            <div className="space-y-2.5">
+              {(data?.no_country ?? 0) > 0 && (
+                <button onClick={() => setTab("people")} className="block w-full rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-left text-sm text-soft-white hover:bg-amber-400/15">
+                  ⚠️ {data.no_country} πελάτες χωρίς χώρα, δεν θα πάρουν εθνικές γιορτές. Πάτα εδώ και συμπλήρωσέ τους.
+                </button>
+              )}
+
+              {timeline.map((ev) => {
+                const d = new Date(ev.date + "T00:00:00");
+                const thisYear = d.getFullYear() === new Date().getFullYear();
+                const dateBlock = (
+                  <div className="w-16 shrink-0 text-center">
+                    <p className="text-2xl font-bold leading-none text-soft-white">{d.getDate()}</p>
+                    <p className="mt-0.5 text-[11px] font-bold uppercase tracking-wider text-muted-blue">
+                      {d.toLocaleDateString("el-GR", { month: "short" }).replace(".", "")}
+                    </p>
+                    {!thisYear && <p className="text-[10px] text-muted-blue/70">{d.getFullYear()}</p>}
+                  </div>
+                );
+
+                if (ev.type === "holiday") {
+                  const h = ev.h;
+                  const done = !!data?.sent?.[`all:${h.kind}:${h.date.slice(0, 4)}`];
+                  const open = (new Date(h.date) - new Date()) / 86400000 <= 3.5;
+                  const namesOpen = openDraft === `names:${h.kind}:${h.date}`;
+                  return (
+                    <div key={"h" + h.kind + h.date} className="rounded-2xl border border-white/10 bg-deep-space/60 p-4">
+                      <div className="flex items-center gap-4">
+                        {dateBlock}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[15px] font-semibold text-soft-white">{h.label}</p>
+                          <button onClick={() => setOpenDraft(namesOpen ? null : `names:${h.kind}:${h.date}`)} className="mt-0.5 text-sm text-muted-blue underline decoration-white/20 underline-offset-2 hover:text-soft-white">
+                            {h.recipients} άτομα {namesOpen ? "▴" : "▾"}
+                          </button>
+                        </div>
+                        {done ? (
+                          <Chip tone="good">Εστάλησαν</Chip>
+                        ) : !open ? (
+                          <Chip tone="neutral">Ανοίγει 3 μέρες πριν</Chip>
+                        ) : (
+                          <button onClick={() => approveBatch(h)} disabled={busyKey === `${h.kind}:${h.date}`}
+                            className="rounded-full px-5 py-2.5 text-sm font-bold text-deep-space disabled:opacity-50" style={{ background: GOLD }}>
+                            {busyKey === `${h.kind}:${h.date}` ? "Στέλνονται…" : "Έγκριση και αποστολή"}
+                          </button>
+                        )}
                       </div>
-                      {done ? (
-                        <Chip tone="good">Εστάλησαν</Chip>
-                      ) : (new Date(h.date) - new Date()) / 86400000 > 3.5 ? (
-                        <Chip tone="neutral">Ανοίγει 3 μέρες πριν</Chip>
-                      ) : (
-                        <button
-                          onClick={() => approveBatch(h)}
-                          disabled={busyKey === `${h.kind}:${h.date}`}
-                          className="rounded-full px-5 py-2.5 text-sm font-bold text-deep-space disabled:opacity-50"
-                          style={{ background: GOLD }}
-                        >
-                          {busyKey === `${h.kind}:${h.date}` ? "Στέλνονται…" : "Έγκριση και αποστολή"}
-                        </button>
+                      {namesOpen && (
+                        <p className="mt-3 border-t border-white/10 pt-3 text-xs leading-relaxed text-muted-blue">
+                          {(h.names ?? h.sample ?? []).join(" · ")}
+                        </p>
                       )}
                     </div>
+                  );
+                }
+
+                if (ev.type === "departure") {
+                  const dep = ev.dep;
+                  return (
+                    <div key={"d" + dep.person.key + dep.date} className="rounded-2xl border border-white/10 bg-deep-space/40 p-4">
+                      <div className="flex items-center gap-4">
+                        {dateBlock}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[15px] font-semibold text-soft-white">⛵ {dep.person.name} σαλπάρει</p>
+                          <p className="mt-0.5 truncate text-sm text-muted-blue">
+                            {dep.to && dep.to > dep.date ? `έως ${fmtDay(dep.to)}` : ""}
+                            {dep.area ? `${dep.to && dep.to > dep.date ? " · " : ""}${String(dep.area).split(/[.,·]/)[0].trim().slice(0, 48)}` : ""}
+                          </p>
+                        </div>
+                        <Chip tone="neutral">Ναύλος</Chip>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const o = ev.o;
+                return (
+                  <div key={o.key} className="rounded-2xl border border-white/10 bg-deep-space/60 p-4">
+                    <div className="flex flex-wrap items-center gap-4">
+                      {dateBlock}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[15px] font-semibold text-soft-white">
+                          {o.person.name}
+                          {o.person.vip && <span className="ml-2 text-xs" style={{ color: GOLD }}>VIP</span>}
+                        </p>
+                        <p className="mt-0.5 text-sm text-muted-blue">
+                          {KIND_GR[o.kind] ?? o.label}
+                          {o.vessel ? ` · ${o.vessel}` : o.person.vessel ? ` · ${o.person.vessel}` : ""}
+                        </p>
+                      </div>
+                      {o.done ? (
+                        <Chip tone="good">Το έστειλες</Chip>
+                      ) : (
+                        <>
+                          <button onClick={() => setOpenDraft(openDraft === o.key ? null : o.key)}
+                            className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-soft-white hover:bg-white/15">
+                            {openDraft === o.key ? "Κλείσε" : "Δες το draft"}
+                          </button>
+                          <button onClick={() => markSent(o)} disabled={busyKey === o.key}
+                            className="rounded-full px-4 py-2 text-sm font-bold text-deep-space disabled:opacity-50" style={{ background: GOLD }}>
+                            Το έστειλα
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {openDraft === o.key && (
+                      <div className="mt-4 rounded-xl bg-white/5 p-4">
+                        <p className="text-xs text-muted-blue">Θέμα: <span className="font-semibold text-soft-white">{o.draft.subject}</span></p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-soft-white/90">{o.draft.body}</p>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${o.draft.subject}\n\n${o.draft.body}`);
+                            say("Αντιγράφηκε, επικόλλησέ το στο mail σου");
+                          }}
+                          className="mt-3 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-soft-white hover:bg-white/15">
+                          Αντιγραφή draft
+                        </button>
+                        {o.person.email && (
+                          <a href={`mailto:${o.person.email}?subject=${encodeURIComponent(o.draft.subject)}&body=${encodeURIComponent(o.draft.body)}`}
+                            className="ml-2 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-soft-white hover:bg-white/15">
+                            Άνοιξε στο mail
+                          </a>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
 
-              {personal.length === 0 && (data?.holidays ?? []).length === 0 && (
+              {timeline.length === 0 && (
                 <div className="rounded-2xl border border-white/10 bg-deep-space/60 p-8 text-center">
-                  <p className="text-base text-soft-white">Ήσυχος μήνας.</p>
-                  <p className="mt-1 text-sm text-muted-blue">
-                    Καμία γιορτή τις επόμενες 30 μέρες. Πρόσθεσε γενέθλια στους Ανθρώπους ή ανέβασε
-                    έγγραφα για να γεμίσει ο φάρος.
-                  </p>
+                  <p className="text-base text-soft-white">Το ημερολόγιο είναι άδειο.</p>
+                  <p className="mt-1 text-sm text-muted-blue">Πρόσθεσε γενέθλια στους Πελάτες ή ανέβασε έγγραφα.</p>
                 </div>
               )}
-
-              {personal.map((o) => (
-                <div key={o.key} className="rounded-2xl border border-white/10 bg-deep-space/60 p-5">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex-1">
-                      <p className="text-base font-semibold text-soft-white">
-                        {o.person.name}
-                        {o.person.vip && <span className="ml-2 text-xs" style={{ color: GOLD }}>VIP</span>}
-                      </p>
-                      <p className="mt-0.5 text-sm text-muted-blue">
-                        {KIND_GR[o.kind] ?? o.label} · {fmtDay(o.date)}
-                        {o.vessel ? ` · ${o.vessel}` : o.person.vessel ? ` · ${o.person.vessel}` : ""}
-                      </p>
-                    </div>
-                    {o.done ? (
-                      <Chip tone="good">Το έστειλες</Chip>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => setOpenDraft(openDraft === o.key ? null : o.key)}
-                          className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-soft-white hover:bg-white/15"
-                        >
-                          {openDraft === o.key ? "Κλείσε" : "Δες το draft"}
-                        </button>
-                        <button
-                          onClick={() => markSent(o)}
-                          disabled={busyKey === o.key}
-                          className="rounded-full px-4 py-2 text-sm font-bold text-deep-space disabled:opacity-50"
-                          style={{ background: GOLD }}
-                        >
-                          Το έστειλα
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  {openDraft === o.key && (
-                    <div className="mt-4 rounded-xl bg-white/5 p-4">
-                      <p className="text-xs text-muted-blue">Θέμα: <span className="font-semibold text-soft-white">{o.draft.subject}</span></p>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-soft-white/90">{o.draft.body}</p>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${o.draft.subject}\n\n${o.draft.body}`);
-                          say("Αντιγράφηκε, επικόλλησέ το στο mail σου");
-                        }}
-                        className="mt-3 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-soft-white hover:bg-white/15"
-                      >
-                        Αντιγραφή draft
-                      </button>
-                      {o.person.email && (
-                        <a
-                          href={`mailto:${o.person.email}?subject=${encodeURIComponent(o.draft.subject)}&body=${encodeURIComponent(o.draft.body)}`}
-                          className="ml-2 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-soft-white hover:bg-white/15"
-                        >
-                          Άνοιξε στο mail
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
             </div>
           )}
 
@@ -707,7 +751,6 @@ function ClientCard({ p, onSave, onSaved, say, full = false }) {
   };
   const today = new Date().toISOString().slice(0, 10);
   const futureTrip = p.travel_from && String(p.travel_from) > today;
-  const pastCharter = p.charter_date && String(p.charter_date).slice(0, 10) < today;
 
   const status =
     p.won ? { label: "ΠΕΛΑΤΗΣ", style: { background: GOLD, color: "#0D1B2A" } }
@@ -753,7 +796,6 @@ function ClientCard({ p, onSave, onSaved, say, full = false }) {
         )}
         {p.birthday && <Row label="Γενέθλια">🎂 {md(p.birthday)}</Row>}
         {p.anniversary && <Row label="Επέτειος">💍 {md(p.anniversary)}</Row>}
-        {pastCharter && p.charter_date && <Row label="Επέτ. ναύλου">σάλπαρε {md(p.charter_date, true)}</Row>}
       </div>
 
       <div className="mt-3 flex gap-2">

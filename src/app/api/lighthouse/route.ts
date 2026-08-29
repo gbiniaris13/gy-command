@@ -26,7 +26,9 @@ async function computePayload(days) {
 
 export async function GET(request) {
   const url = new URL(request.url);
-  const days = Math.min(90, Number(url.searchParams.get("days")) || 30);
+  // The calendar shows the whole year ahead (George 29/8: "ημερολόγιο
+  // όλου του έτους, με σειρά χρόνου"), so the window is fixed at 365.
+  const days = 365;
   const fresh = url.searchParams.get("fresh") === "1";
   if (!fresh) {
     try {
@@ -61,6 +63,7 @@ export async function GET(request) {
   const responseBody = {
     ...withDrafts,
     source_errors: ppl.errors ?? null,
+    no_country: ppl.people.filter((p) => p.email && !p.country).length,
     people: ppl.people.map((p) => ({
       key: p.key,
       contact_id: p.contact_id,
