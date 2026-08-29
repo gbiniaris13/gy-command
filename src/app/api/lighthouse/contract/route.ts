@@ -26,7 +26,26 @@ export async function POST(request) {
     return NextResponse.json({ error: "file too large (15MB max)" }, { status: 400 });
   }
   let mime = file.type || "application/pdf";
-  if (!mime.includes("pdf")) {
+  if (mime.includes("pdf")) {
+    // George's spec (29/8, tested on his own signed Pi2 contract): a
+    // MYBA runs 10+ pages and megabytes, but everything we want -
+    // charterer, vessel, dates - sits in the top half of page ONE.
+    // Send only that page: 5.4MB became 466KB and the read dropped
+    // from a stall to ~4 seconds.
+    try {
+      const { PDFDocument } = await import("pdf-lib");
+      const src = await PDFDocument.load(buf, { ignoreEncryption: true });
+      if (src.getPageCount() > 1) {
+        const out = await PDFDocument.create();
+        const [p1] = await out.copyPages(src, [0]);
+        out.addPage(p1);
+        buf = Buffer.from(await out.save());
+      }
+    } catch {
+      // Unparseable PDF: fall through with the original, Gemini may
+      // still manage it.
+    }
+  } else {
     try {
       const sharp = (await import("sharp")).default;
       buf = await sharp(buf).rotate().resize({ width: 1800, height: 1800, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
@@ -48,7 +67,7 @@ export async function POST(request) {
           {
             type: "text",
             text:
-              "This is a yacht charter agreement (MYBA form). Extract EXACTLY these fields as JSON and NOTHING else: " +
+              "This is the first page of a yacht charter agreement (MYBA form). Extract EXACTLY these fields as JSON and NOTHING else: " +
               '{"charterer_name": "the charterer/client full name", "vessel": "the yacht name", "date_from": "YYYY-MM-DD charter start/delivery date", "date_to": "YYYY-MM-DD charter end/redelivery date"}. ' +
               "Do NOT extract fees, addresses, signatures or any other detail. If a field is unreadable use null. Reply with the JSON only.",
           },

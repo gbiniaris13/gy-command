@@ -69,6 +69,7 @@ export default function LighthouseClient() {
   const [ppForm, setPpForm] = useState({ name: "", date_of_birth: "", nationality: "", email: "", phone: "" });
   const [suggestions, setSuggestions] = useState([]);
   const [ctReading, setCtReading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [ctFields, setCtFields] = useState(null);
   const [ctFile, setCtFile] = useState(null);
   const [ctTarget, setCtTarget] = useState("");
@@ -195,51 +196,62 @@ export default function LighthouseClient() {
     if (best) say(`Α, να τος: ${best.name} από το Helm`);
   }
 
+  // George pressed save three times and nothing on screen answered
+  // him (29/8 screenshot). The rule now: the button says what it is
+  // doing, the form closes THE MOMENT the save lands, the file copy
+  // to the private box happens quietly afterwards, and any error
+  // speaks up instead of dying silently.
+  function stashFile(file, personName) {
+    if (!keepFile || !file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("person", personName);
+    fetch("/api/lighthouse/upload", { method: "POST", body: fd }).catch(() => {});
+  }
+
   async function confirmPassport() {
-    if (!extracted) return;
-    if (ppMode === "new") {
+    if (!extracted || saving) return;
+    setSaving(true);
+    try {
+      if (ppMode === "new") {
+        const d = await act({
+          action: "add_person",
+          name: ppForm.name,
+          date_of_birth: ppForm.date_of_birth || null,
+          nationality: ppForm.nationality || null,
+          email: ppForm.email || null,
+          phone: ppForm.phone || null,
+        });
+        if (d.error) return;
+        stashFile(passportFile, ppForm.name);
+        say(`Αποθηκεύτηκε: νέος πελάτης ${ppForm.name} ✓`);
+        setExtracted(null);
+        setPassportFile(null);
+        load();
+        return;
+      }
+      const person = (data?.people ?? []).find((p) => p.key === targetKey);
+      if (!person) return say("Διάλεξε σε ποιον ανήκει το έγγραφο");
       const d = await act({
-        action: "add_person",
-        name: ppForm.name,
-        date_of_birth: ppForm.date_of_birth || null,
-        nationality: ppForm.nationality || null,
-        email: ppForm.email || null,
-        phone: ppForm.phone || null,
+        action: "apply_document",
+        person_key: person.key,
+        contact_id: person.contact_id,
+        fields: {
+          birthday: ppForm.date_of_birth || extracted.date_of_birth,
+          country: person.country || ppForm.nationality || extracted.nationality,
+        },
       });
       if (d.error) return;
-      if (keepFile && passportFile) {
-        const fd = new FormData();
-        fd.append("file", passportFile);
-        fd.append("person", ppForm.name);
-        await fetch("/api/lighthouse/upload", { method: "POST", body: fd });
-      }
-      say(`Νέος πελάτης: ${ppForm.name}`);
+      stashFile(passportFile, person.name);
+      say(`Αποθηκεύτηκε στον ${person.name} ✓ (γενέθλια + χώρα)`);
       setExtracted(null);
       setPassportFile(null);
       load();
-      return;
+    } catch (e) {
+      say(`Δεν αποθηκεύτηκε: ${String(e?.message ?? e).slice(0, 80)}`);
+    } finally {
+      setSaving(false);
     }
-    const person = (data?.people ?? []).find((p) => p.key === targetKey);
-    if (!person) return say("Διάλεξε σε ποιον ανήκει το έγγραφο");
-    await act({
-      action: "apply_document",
-      person_key: person.key,
-      contact_id: person.contact_id,
-      fields: {
-        birthday: ppForm.date_of_birth || extracted.date_of_birth,
-        country: person.country || ppForm.nationality || extracted.nationality,
-      },
-    });
-    if (keepFile && passportFile) {
-      const fd = new FormData();
-      fd.append("file", passportFile);
-      fd.append("person", person.name);
-      await fetch("/api/lighthouse/upload", { method: "POST", body: fd });
-    }
-    say(`Αποθηκεύτηκε: ${extracted.full_name}`);
-    setExtracted(null);
-    setPassportFile(null);
-    load();
   }
 
   async function readContract(rawFile) {
@@ -253,6 +265,9 @@ export default function LighthouseClient() {
     const d = await r.json();
     setCtReading(false);
     if (d.error) return say(`Συμβόλαιο: ${d.error}`);
+    if (!d.fields?.charterer_name && !d.fields?.vessel && !d.fields?.date_from) {
+      return say("Δεν διαβάστηκαν στοιχεία, δοκίμασε φωτογραφία της πρώτης σελίδας");
+    }
     setCtFields(d.fields);
     const tokens = (d.fields.charterer_name || "").toLowerCase().split(/[^a-zα-ω]+/).filter((t) => t.length > 2);
     const best = (data?.people ?? [])
@@ -264,30 +279,33 @@ export default function LighthouseClient() {
   }
 
   async function confirmContract() {
-    if (!ctFields) return;
+    if (!ctFields || saving) return;
     const person = (data?.people ?? []).find((p) => p.key === ctTarget);
     if (!person) return say("Διάλεξε σε ποιον ανήκει το συμβόλαιο");
-    await act({
-      action: "apply_document",
-      person_key: person.key,
-      contact_id: person.contact_id,
-      fields: {
-        vessel: ctFields.vessel,
-        charter_from: ctFields.date_from,
-        charter_to: ctFields.date_to,
-        won: true,
-      },
-    });
-    if (keepFile && ctFile) {
-      const fd = new FormData();
-      fd.append("file", ctFile);
-      fd.append("person", person.name);
-      await fetch("/api/lighthouse/upload", { method: "POST", body: fd });
+    setSaving(true);
+    try {
+      const d = await act({
+        action: "apply_document",
+        person_key: person.key,
+        contact_id: person.contact_id,
+        fields: {
+          vessel: ctFields.vessel,
+          charter_from: ctFields.date_from,
+          charter_to: ctFields.date_to,
+          won: true,
+        },
+      });
+      if (d.error) return;
+      stashFile(ctFile, person.name);
+      say(`Αποθηκεύτηκε στον ${person.name} ✓ (${ctFields.vessel ?? "σκάφος"} + ημερομηνίες)`);
+      setCtFields(null);
+      setCtFile(null);
+      load();
+    } catch (e) {
+      say(`Δεν αποθηκεύτηκε: ${String(e?.message ?? e).slice(0, 80)}`);
+    } finally {
+      setSaving(false);
     }
-    say(`Ενημερώθηκε: ${person.name} · ${ctFields.vessel ?? ""}`);
-    setCtFields(null);
-    setCtFile(null);
-    load();
   }
 
   const people = useMemo(() => {
@@ -611,7 +629,7 @@ export default function LighthouseClient() {
                     accept="image/*,.pdf"
                     className="hidden"
                     disabled={reading}
-                    onChange={(e) => e.target.files?.[0] && readPassport(e.target.files[0])}
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) readPassport(f); }}
                   />
                 </label>
               </div>
@@ -675,10 +693,11 @@ export default function LighthouseClient() {
                   </label>
                   <button
                     onClick={confirmPassport}
-                    className="mt-4 rounded-full px-6 py-2.5 text-sm font-bold text-deep-space"
+                    disabled={saving}
+                    className="mt-4 rounded-full px-6 py-2.5 text-sm font-bold text-deep-space disabled:opacity-60"
                     style={{ background: GOLD }}
                   >
-                    Αποθήκευση
+                    {saving ? "Αποθηκεύεται…" : "Αποθήκευση"}
                   </button>
                 </div>
               )}
@@ -691,7 +710,7 @@ export default function LighthouseClient() {
                 <label className="mt-4 inline-block cursor-pointer rounded-full bg-white/10 px-6 py-3 text-sm font-bold text-soft-white hover:bg-white/15">
                   {ctReading ? "Διαβάζω…" : "Διάλεξε συμβόλαιο"}
                   <input type="file" accept="image/*,.pdf" className="hidden" disabled={ctReading}
-                    onChange={(e) => e.target.files?.[0] && readContract(e.target.files[0])} />
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) readContract(f); }} />
                 </label>
               </div>
 
@@ -713,8 +732,8 @@ export default function LighthouseClient() {
                       ))}
                     </select>
                   </div>
-                  <button onClick={confirmContract} className="mt-4 rounded-full px-6 py-2.5 text-sm font-bold text-deep-space" style={{ background: GOLD }}>
-                    Ενημέρωσε την καρτέλα
+                  <button onClick={confirmContract} disabled={saving} className="mt-4 rounded-full px-6 py-2.5 text-sm font-bold text-deep-space disabled:opacity-60" style={{ background: GOLD }}>
+                    {saving ? "Αποθηκεύεται…" : "Ενημέρωσε την καρτέλα"}
                   </button>
                 </div>
               )}
