@@ -34,6 +34,7 @@ export async function GET(request) {
   };
   return NextResponse.json({
     ...withDrafts,
+    source_errors: ppl.errors ?? null,
     people: ppl.people.map((p) => ({
       key: p.key,
       contact_id: p.contact_id,

@@ -106,7 +106,7 @@ export async function loadPeople() {
   // plus Cabin guests, who by definition have sailed with the house.
   // A contacts row is only used to ENRICH a person already inside.
   const sb = createServiceClient();
-  const [{ data: requests }, { data: contacts }, { data: guests }, { data: members }, manualRaw] =
+  const [reqRes, conRes, gueRes, memRes, manualRaw] =
     await Promise.all([
       sb
         .from("helm_requests")
@@ -131,6 +131,15 @@ export async function loadPeople() {
         .limit(2000),
       getSetting("lighthouse_manual_dates"),
     ]);
+  const requests = reqRes.data, contacts = conRes.data, guests = gueRes.data, members = memRes.data;
+  // Silent-empty is the enemy: keep each query's error for the API to
+  // surface (the 29/8 prod mystery: Helm empty while REST worked).
+  const _errors = {
+    helm: reqRes.error?.message ?? null,
+    contacts: conRes.error?.message ?? null,
+    guests: gueRes.error?.message ?? null,
+    members: memRes.error?.message ?? null,
+  };
   const manual = manualRaw ? JSON.parse(manualRaw) : [];
 
   const nameKey = (n) =>
@@ -286,7 +295,7 @@ export async function loadPeople() {
       }
     }
   }
-  return { people: out.filter((p) => !hidden.has(p.key)), manual };
+  return { people: out.filter((p) => !hidden.has(p.key)), manual, errors: _errors };
 }
 
 // ─── Occasions in a window ────────────────────────────────────────
