@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting } from "@/lib/google-api";
 import { upcomingOccasions, loadPeople, markSent, draftFor } from "@/lib/lighthouse";
@@ -46,17 +46,6 @@ export async function GET(request) {
           const isFresh = !cached.stale && Date.now() - cached.at < CACHE_TTL_MS;
           if (isFresh) {
             return NextResponse.json({ ...cached.payload, cached_at: new Date(cached.at).toISOString() });
-          }
-          const refreshing = cached.refreshing_at && Date.now() - cached.refreshing_at < 60 * 1000;
-          if (!refreshing) {
-            try {
-              await setSetting(CACHE_KEY, JSON.stringify({ ...cached, refreshing_at: Date.now() }));
-            } catch {}
-            after(async () => {
-              try {
-                await recomputeCache();
-              } catch {}
-            });
           }
           return NextResponse.json({ ...cached.payload, stale: true, cached_at: new Date(cached.at).toISOString() });
         }
@@ -117,7 +106,7 @@ function buildResponseBody(occ, ppl) {
   };
 }
 
-async function recomputeCache() {
+export async function recomputeCache() {
   const { occ, ppl } = await computePayload(365);
   const body = buildResponseBody(occ, ppl);
   await setSetting(CACHE_KEY, JSON.stringify({ at: Date.now(), days: 365, payload: body }));
@@ -133,12 +122,10 @@ async function bustCache() {
     if (raw) {
       const cached = JSON.parse(raw);
       if (cached?.payload) {
-        await setSetting(CACHE_KEY, JSON.stringify({ ...cached, stale: true, refreshing_at: Date.now() }));
-        after(async () => {
-          try {
-            await recomputeCache();
-          } catch {}
-        });
+        // Keep the payload, flag it stale. The dashboard that made the
+        // mutation immediately fires /api/lighthouse/refresh, so the
+        // truth lands in the background while George keeps working.
+        await setSetting(CACHE_KEY, JSON.stringify({ ...cached, stale: true }));
         return;
       }
     }

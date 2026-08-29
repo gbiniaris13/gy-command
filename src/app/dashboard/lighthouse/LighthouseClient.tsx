@@ -90,7 +90,13 @@ export default function LighthouseClient() {
         try {
           sessionStorage.setItem("lighthouse_snap", JSON.stringify(d));
         } catch {}
-        if (d.stale && attempt < 6) setTimeout(() => load(attempt + 1), 7000);
+        if (d.stale && attempt < 8) {
+          // Kick the background recompute ourselves (fire and forget)
+          // and poll until the fresh snapshot lands. The server never
+          // computes in front of George.
+          if (attempt === 0) fetch("/api/lighthouse/refresh", { method: "POST" }).catch(() => {});
+          setTimeout(() => load(attempt + 1), 6000);
+        }
       }
     } finally {
       setLoading(false);
