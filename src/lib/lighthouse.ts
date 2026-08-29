@@ -99,7 +99,7 @@ export function kindsForPerson(p: { country?: string; religion?: string; religio
 
 export async function loadPeople() {
   const sb = createServiceClient();
-  const [{ data: contacts }, { data: guests }, manualRaw] = await Promise.all([
+  const [{ data: contacts }, { data: guests }, { data: members }, manualRaw] = await Promise.all([
     sb
       .from("contacts")
       .select(
@@ -110,6 +110,14 @@ export async function loadPeople() {
     sb
       .from("cabin_guests_manifest")
       .select("id, cabin_id, full_name, date_of_birth, nationality, email, mobile, is_minor")
+      .limit(2000),
+    // The SECOND Cabin source, and the richer one: what each guest
+    // filled in THEMSELVES via the brief (29/8: the Stevens party of
+    // six lived here and the Lighthouse only read the manifest).
+    sb
+      .from("cabin_members")
+      .select("id, display_name, email, mobile, personal_details, deleted_at")
+      .is("deleted_at", null)
       .limit(2000),
     getSetting("lighthouse_manual_dates"),
   ]);
@@ -183,6 +191,42 @@ export async function loadPeople() {
       });
     }
   }
+  // Brief-filled members: same merge ladder (email, then name).
+  for (const m of members ?? []) {
+    const pd = m.personal_details || {};
+    if (!m.display_name && !m.email) continue;
+    const em = (m.email || "").toLowerCase();
+    const mk = nameKey(m.display_name);
+    const match =
+      (em && [...people.values()].find((p) => (p.email || "").toLowerCase() === em)) ||
+      (mk && [...people.values()].find((p) => nameKey(p.name) === mk)) ||
+      null;
+    if (match) {
+      if (!match.birthday && pd.date_of_birth) match.birthday = pd.date_of_birth;
+      if (!match.country && pd.nationality) match.country = pd.nationality;
+      if (!match.email && m.email) match.email = m.email;
+      match.source = match.source === "helm" ? "helm+cabin" : match.source;
+    } else {
+      people.set(`member:${m.id}`, {
+        key: `member:${m.id}`,
+        contact_id: null,
+        name: m.display_name || m.email,
+        email: m.email || null,
+        phone: m.mobile || pd.mobile || null,
+        country: pd.nationality || null,
+        religion: null,
+        birthday: pd.date_of_birth || null,
+        anniversary: null,
+        charter_vessel: null,
+        charter_date: null,
+        won: true, // a cabin member has chartered with the house
+        opt_out: false,
+        is_minor: false,
+        vip: false,
+        source: "cabin",
+      });
+    }
+  }
   // Manual dates (from the dashboard or passport uploads).
   for (const m of manual) {
     const p = people.get(m.person_key);
@@ -191,7 +235,40 @@ export async function loadPeople() {
     if (m.kind === "anniversary" && !p.anniversary) p.anniversary = m.date;
     (p.custom ??= []).push(m);
   }
-  return { people: [...people.values()], manual };
+  // Final pass: fold CRM duplicates. "Tricia Stevens" and "Patricia
+  // Rhodes Stevens" are two contact rows for one woman; the identical
+  // birthday plus a shared surname token is proof enough, and one
+  // person must never get two cards.
+  const out = [...people.values()];
+  const byBday = new Map();
+  for (const p of out) {
+    if (!p.birthday) continue;
+    const k = String(p.birthday).slice(0, 10);
+    (byBday.get(k) ?? byBday.set(k, []).get(k)).push(p);
+  }
+  const hidden = new Set();
+  for (const group of byBday.values()) {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        const a = group[i], b = group[j];
+        const ta = new Set(nameKey(a.name).split(" "));
+        const common = nameKey(b.name).split(" ").filter((t) => ta.has(t));
+        if (common.length >= 1 && common.some((t) => t.length > 3)) {
+          // Keep the row with the most substance (contact beats guest,
+          // more fields beats fewer); the other is absorbed.
+          const score = (p) => (p.contact_id ? 4 : 0) + (p.email ? 2 : 0) + (p.charter_vessel ? 1 : 0);
+          const [keep, drop] = score(a) >= score(b) ? [a, b] : [b, a];
+          keep.email = keep.email || drop.email;
+          keep.phone = keep.phone || drop.phone;
+          keep.country = keep.country || drop.country;
+          keep.source = "helm+cabin";
+          (keep.aliases ??= []).push(drop.name);
+          hidden.add(drop.key);
+        }
+      }
+    }
+  }
+  return { people: out.filter((p) => !hidden.has(p.key)), manual };
 }
 
 // ─── Occasions in a window ────────────────────────────────────────
@@ -260,9 +337,34 @@ export async function upcomingOccasions(days = 30) {
   }
   holidays.sort((a, b) => (a.date < b.date ? -1 : 1));
 
+  // The full year of holidays, independent of the personal window —
+  // George (29/8): "δεν βρήκα κανένα κουμπί για Χριστούγεννα". Now the
+  // whole year is always on the board; the send button unlocks near
+  // the day.
+  const yearHolidays = [];
+  for (const y of [from.getUTCFullYear(), from.getUTCFullYear() + 1]) {
+    const map = holidayDatesForYear(y);
+    for (const [kind, date] of Object.entries(map)) {
+      if (date < iso(from) || date > iso(new Date(from.getTime() + 365 * 86400000))) continue;
+      const audience = people.filter(
+        (p) => !p.opt_out && !p.is_minor && p.email && kindsForPerson(p).includes(kind),
+      );
+      if (audience.length) {
+        yearHolidays.push({
+          kind,
+          label: HOLIDAY_LABELS[kind] ?? kind,
+          date,
+          recipients: audience.length,
+          sample: audience.slice(0, 5).map((p) => p.name),
+        });
+      }
+    }
+  }
+  yearHolidays.sort((a, b) => (a.date < b.date ? -1 : 1));
+
   const sentRaw = await getSetting("lighthouse_sent");
   const sent = sentRaw ? JSON.parse(sentRaw) : {};
-  return { personal, holidays, sent, generated_at: new Date().toISOString() };
+  return { personal, holidays, holidays_year: yearHolidays, sent, generated_at: new Date().toISOString() };
 }
 
 export function occasionKey(o) {

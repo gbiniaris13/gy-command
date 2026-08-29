@@ -116,10 +116,31 @@ export default function LighthouseClient() {
     load();
   }
 
-  async function readPassport(file) {
-    setPassportFile(file);
+  // A raw phone photo is 8MB of pixels Gemini does not need; 1600px
+  // JPEG reads identically and uploads in a breath (George 29/8: "το
+  // διαβάζει τρία λεπτά, δεν έχει λογική").
+  async function shrinkImage(file) {
+    if (!file.type.startsWith("image/")) return file;
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      if (scale === 1 && file.size < 1_500_000) return file;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bmp.width * scale);
+      canvas.height = Math.round(bmp.height * scale);
+      canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.82));
+      return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+    } catch {
+      return file;
+    }
+  }
+
+  async function readPassport(rawFile) {
     setReading(true);
     setExtracted(null);
+    const file = await shrinkImage(rawFile);
+    setPassportFile(file);
     const fd = new FormData();
     fd.append("file", file);
     const r = await fetch("/api/lighthouse/passport", { method: "POST", body: fd });
@@ -233,7 +254,7 @@ export default function LighthouseClient() {
         <>
           {tab === "upcoming" && (
             <div className="space-y-3">
-              {(data?.holidays ?? []).map((h) => {
+              {(data?.holidays_year ?? data?.holidays ?? []).map((h) => {
                 const done = !!data?.sent?.[`all:${h.kind}:${h.date.slice(0, 4)}`];
                 return (
                   <div key={h.kind + h.date} className="rounded-2xl border border-white/10 bg-deep-space/60 p-5">
@@ -247,6 +268,8 @@ export default function LighthouseClient() {
                       </div>
                       {done ? (
                         <Chip tone="good">Εστάλησαν</Chip>
+                      ) : (new Date(h.date) - new Date()) / 86400000 > 3.5 ? (
+                        <Chip tone="neutral">Ανοίγει 3 μέρες πριν</Chip>
                       ) : (
                         <button
                           onClick={() => approveBatch(h)}
@@ -349,6 +372,37 @@ export default function LighthouseClient() {
                   Σάρωσε τις σημειώσεις του Helm
                 </button>
               </div>
+              {(() => {
+                const withB = (data?.people ?? [])
+                  .filter((p) => p.birthday)
+                  .map((p) => {
+                    const md = String(p.birthday).slice(5, 10);
+                    const now = new Date();
+                    const y = now.getFullYear();
+                    let next = new Date(`${y}-${md}T00:00:00`);
+                    if (next < now) next = new Date(`${y + 1}-${md}T00:00:00`);
+                    return { ...p, md, next };
+                  })
+                  .sort((a, b) => a.next - b.next);
+                if (!withB.length) return null;
+                return (
+                  <div className="mb-5">
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[3px] text-muted-blue">
+                      Με γενέθλια · {withB.length}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {withB.map((p) => (
+                        <div key={p.key} className="rounded-xl border border-white/10 bg-deep-space/60 px-3 py-2.5">
+                          <p className="truncate text-sm font-semibold text-soft-white">{p.name}</p>
+                          <p className="text-xs" style={{ color: GOLD }}>
+                            {p.next.toLocaleDateString("el-GR", { day: "numeric", month: "long" })}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               {suggestions.length > 0 && (
                 <div className="mb-4 space-y-2">
                   {suggestions.map((sg, i) => (

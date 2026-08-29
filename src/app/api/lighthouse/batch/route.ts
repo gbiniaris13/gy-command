@@ -36,6 +36,18 @@ export async function POST(request) {
     return NextResponse.json({ error: `το ${kind} δεν πέφτει ${date}` }, { status: 400 });
   }
 
+  // Wishes leave near the day they belong to, never in August for
+  // Christmas: the button unlocks 3 days before and locks 2 after.
+  const today = new Date(new Date().toLocaleDateString("en-US", { timeZone: "Europe/Athens" }));
+  const target = new Date(date + "T00:00:00");
+  const diff = Math.round((target - today) / 86400000);
+  if (diff > 3 || diff < -2) {
+    return NextResponse.json(
+      { error: `το κουμπί ανοίγει 3 μέρες πριν τη γιορτή (απέχει ${diff} μέρες)` },
+      { status: 400 },
+    );
+  }
+
   const sb = createServiceClient();
   const { people } = await loadPeople();
   const batchKey = `all:${kind}:${year}`;
