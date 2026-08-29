@@ -175,6 +175,29 @@ export async function loadPeople() {
       .filter(Boolean)
       .sort()
       .join(" ");
+  // The Helm's flag trick, inherited: when nobody typed a country,
+  // the WhatsApp dial code knows it. +1 defaults to the United States
+  // (George's clientele is ~90% American); he can correct any card.
+  const DIAL = [
+    ["1", "United States"], ["44", "United Kingdom"], ["30", "Greece"],
+    ["49", "Germany"], ["33", "France"], ["39", "Italy"], ["34", "Spain"],
+    ["31", "Netherlands"], ["61", "Australia"], ["64", "New Zealand"],
+    ["353", "Ireland"], ["41", "Switzerland"], ["43", "Austria"],
+    ["32", "Belgium"], ["46", "Sweden"], ["47", "Norway"], ["45", "Denmark"],
+    ["48", "Poland"], ["351", "Portugal"], ["52", "Mexico"], ["55", "Brazil"],
+    ["972", "Israel"], ["971", "United Arab Emirates"], ["966", "Saudi Arabia"],
+    ["974", "Qatar"], ["965", "Kuwait"], ["973", "Bahrain"], ["968", "Oman"],
+    ["20", "Egypt"], ["90", "Turkey"], ["91", "India"], ["7", "Russia"],
+    ["81", "Japan"], ["65", "Singapore"], ["27", "South Africa"],
+  ].sort((a, b) => b[0].length - a[0].length);
+  const countryFromPhone = (phone) => {
+    const digits = String(phone || "").replace(/[^\d+]/g, "");
+    if (!digits.startsWith("+")) return null;
+    const n = digits.slice(1);
+    for (const [code, country] of DIAL) if (n.startsWith(code)) return country;
+    return null;
+  };
+
   const contactByEmail = new Map();
   const contactById = new Map();
   for (const c of contacts ?? []) {
@@ -211,13 +234,18 @@ export async function loadPeople() {
       continue;
     }
     const c = (r.contact_id && contactById.get(r.contact_id)) || contactByEmail.get(email) || {};
+    // Fullest name wins: the contact said "Scott", the Helm said
+    // "Mr. Burk"; the man is Scott Burk.
+    const contactName = [c.first_name, c.last_name].filter(Boolean).join(" ");
+    const surname = last && !contactName.toLowerCase().includes(last.toLowerCase()) ? last : "";
+    const fullName = contactName ? `${contactName} ${surname}`.trim() : name;
     people.set(key, {
       key,
       contact_id: c.id ?? r.contact_id ?? null,
-      name: [c.first_name, c.last_name].filter(Boolean).join(" ") || name,
+      name: fullName,
       email: email || c.email || null,
       phone: r.client_whatsapp || c.phone || null,
-      country: c.country || c.nationality || null,
+      country: c.country || c.nationality || countryFromPhone(r.client_whatsapp || c.phone) || null,
       religion: c.religion ?? null,
       religion_overridden: c.religion_overridden ?? false,
       birthday: c.birthday || c.date_of_birth || null,
