@@ -10,10 +10,36 @@ import { upcomingOccasions, loadPeople, markSent, draftFor } from "@/lib/lightho
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
+// The Helm opens instantly because it renders plain rows; the first
+// Lighthouse recomputed four tables and every draft on every load and
+// George felt it ("αργεί πάρα πολύ"). Snapshot cache in settings:
+// fresh within 10 minutes serves in one read; any POST action busts
+// it; a new Helm request therefore appears within 10 minutes on its
+// own, or instantly after any action.
+const CACHE_KEY = "lighthouse_cache_v1";
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+async function computePayload(days) {
+  const [occ, ppl] = await Promise.all([upcomingOccasions(days), loadPeople()]);
+  return { occ, ppl };
+}
+
 export async function GET(request) {
   const url = new URL(request.url);
   const days = Math.min(90, Number(url.searchParams.get("days")) || 30);
-  const [occ, ppl] = await Promise.all([upcomingOccasions(days), loadPeople()]);
+  const fresh = url.searchParams.get("fresh") === "1";
+  if (!fresh) {
+    try {
+      const raw = await getSetting(CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached.days === days && Date.now() - cached.at < CACHE_TTL_MS) {
+          return NextResponse.json({ ...cached.payload, cached_at: new Date(cached.at).toISOString() });
+        }
+      }
+    } catch {}
+  }
+  const { occ, ppl } = await computePayload(days);
   const withDrafts = {
     ...occ,
     personal: occ.personal.map((o) => ({
@@ -32,7 +58,7 @@ export async function GET(request) {
       },
     })),
   };
-  return NextResponse.json({
+  const responseBody = {
     ...withDrafts,
     source_errors: ppl.errors ?? null,
     people: ppl.people.map((p) => ({
@@ -52,12 +78,46 @@ export async function GET(request) {
       source: p.source,
       custom: p.custom ?? [],
     })),
-  });
+  };
+  try {
+    await setSetting(CACHE_KEY, JSON.stringify({ at: Date.now(), days, payload: responseBody }));
+  } catch {}
+  return NextResponse.json(responseBody);
+}
+
+async function bustCache() {
+  try {
+    await setSetting(CACHE_KEY, "");
+  } catch {}
 }
 
 export async function POST(request) {
   const body = await request.json();
   const sb = createServiceClient();
+
+  if (body.action === "add_person") {
+    // A NEW client from a passport: the reason the Documents tab
+    // exists (George, 29/8: "σε καινούριο πελάτη ανήκει, γι αυτό δεν
+    // το κάναμε αυτό;"). Lives in settings until The Helm meets them,
+    // then folds into the Helm person by email or name.
+    const raw = await getSetting("lighthouse_people");
+    const list = raw ? JSON.parse(raw) : [];
+    const entry = {
+      id: Math.random().toString(36).slice(2, 10),
+      name: String(body.name || "").slice(0, 120),
+      date_of_birth: body.date_of_birth || null,
+      nationality: String(body.nationality || "").slice(0, 60) || null,
+      email: String(body.email || "").slice(0, 160) || null,
+      phone: String(body.phone || "").slice(0, 40) || null,
+      anniversary: body.anniversary || null,
+      added_at: new Date().toISOString(),
+    };
+    if (!entry.name) return NextResponse.json({ error: "χρειάζεται όνομα" }, { status: 400 });
+    list.push(entry);
+    await setSetting("lighthouse_people", JSON.stringify(list));
+    await bustCache();
+    return NextResponse.json({ ok: true, id: entry.id });
+  }
 
   if (body.action === "save_person") {
     // Update the contact's own fields — birthday, country, anniversary.
@@ -69,6 +129,7 @@ export async function POST(request) {
     }
     const { error } = await sb.from("contacts").update(allowed).eq("id", contact_id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await bustCache();
     return NextResponse.json({ ok: true });
   }
 
@@ -86,6 +147,7 @@ export async function POST(request) {
       added_at: new Date().toISOString(),
     });
     await setSetting("lighthouse_manual_dates", JSON.stringify(list));
+    await bustCache();
     return NextResponse.json({ ok: true, count: list.length });
   }
 
@@ -96,6 +158,7 @@ export async function POST(request) {
       (m) => !(m.person_key === body.person_key && m.date === body.date && m.kind === body.kind),
     );
     await setSetting("lighthouse_manual_dates", JSON.stringify(next));
+    await bustCache();
     return NextResponse.json({ ok: true, count: next.length });
   }
 
@@ -111,6 +174,7 @@ export async function POST(request) {
       });
       await sb.from("contacts").update({ last_activity_at: new Date().toISOString() }).eq("id", body.contact_id);
     }
+    await bustCache();
     return NextResponse.json({ ok: true });
   }
 

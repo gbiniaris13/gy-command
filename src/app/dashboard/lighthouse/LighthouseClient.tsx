@@ -53,6 +53,8 @@ export default function LighthouseClient() {
   const [passportFile, setPassportFile] = useState(null);
   const [keepFile, setKeepFile] = useState(true);
   const [targetKey, setTargetKey] = useState("");
+  const [ppMode, setPpMode] = useState("new"); // "new" client or attach to "existing"
+  const [ppForm, setPpForm] = useState({ name: "", date_of_birth: "", nationality: "", email: "", phone: "" });
   const [suggestions, setSuggestions] = useState([]);
 
   async function load() {
@@ -148,14 +150,46 @@ export default function LighthouseClient() {
     setReading(false);
     if (d.error) return say(`Δεν διαβάστηκε: ${d.error}`);
     setExtracted(d.fields);
-    // Best-guess match by surname.
+    setPpForm({
+      name: d.fields.full_name ?? "",
+      date_of_birth: d.fields.date_of_birth ?? "",
+      nationality: d.fields.nationality ?? "",
+      email: "",
+      phone: "",
+    });
+    // Passports are usually for NEW clients (the whole reason this tab
+    // exists). Suggest an existing person only on a surname hit, and
+    // even then leave the choice to George.
     const sur = (d.fields.full_name || "").trim().split(/\s+/).pop()?.toLowerCase();
-    const hit = (data?.people ?? []).find((p) => sur && p.name.toLowerCase().includes(sur));
+    const hit = (data?.people ?? []).find((p) => sur && sur.length > 2 && p.name.toLowerCase().includes(sur));
     setTargetKey(hit?.key ?? "");
+    setPpMode(hit ? "existing" : "new");
   }
 
   async function confirmPassport() {
     if (!extracted) return;
+    if (ppMode === "new") {
+      const d = await act({
+        action: "add_person",
+        name: ppForm.name,
+        date_of_birth: ppForm.date_of_birth || null,
+        nationality: ppForm.nationality || null,
+        email: ppForm.email || null,
+        phone: ppForm.phone || null,
+      });
+      if (d.error) return;
+      if (keepFile && passportFile) {
+        const fd = new FormData();
+        fd.append("file", passportFile);
+        fd.append("person", ppForm.name);
+        await fetch("/api/lighthouse/upload", { method: "POST", body: fd });
+      }
+      say(`Νέος πελάτης: ${ppForm.name}`);
+      setExtracted(null);
+      setPassportFile(null);
+      load();
+      return;
+    }
     const person = (data?.people ?? []).find((p) => p.key === targetKey);
     if (person?.contact_id) {
       await act({
@@ -471,28 +505,56 @@ export default function LighthouseClient() {
               {extracted && (
                 <div className="rounded-2xl border border-white/10 bg-deep-space/60 p-6">
                   <p className="text-sm font-bold uppercase tracking-wider" style={{ color: GOLD }}>
-                    Επιβεβαίωσε
+                    Επιβεβαίωσε και αποθήκευσε
                   </p>
-                  <div className="mt-3 space-y-2 text-sm text-soft-white">
-                    <p>Όνομα: <strong>{extracted.full_name ?? "δεν διαβάστηκε"}</strong></p>
-                    <p>Γέννηση: <strong>{extracted.date_of_birth ?? "δεν διαβάστηκε"}</strong></p>
-                    <p>Εθνικότητα: <strong>{extracted.nationality ?? "δεν διαβάστηκε"}</strong></p>
-                  </div>
-                  <div className="mt-4">
-                    <label className="text-xs text-muted-blue">Σε ποιον ανήκει;</label>
-                    <select
-                      value={targetKey}
-                      onChange={(e) => setTargetKey(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-white/10 bg-deep-space px-4 py-2.5 text-sm text-soft-white"
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => setPpMode("new")}
+                      className={`rounded-full px-4 py-2 text-xs font-bold ${ppMode === "new" ? "text-deep-space" : "bg-white/10 text-soft-white"}`}
+                      style={ppMode === "new" ? { background: GOLD } : {}}
                     >
-                      <option value="">Διάλεξε…</option>
-                      {(data?.people ?? []).map((p) => (
-                        <option key={p.key} value={p.key}>
-                          {p.name} {p.email ? `(${p.email})` : ""}
-                        </option>
-                      ))}
-                    </select>
+                      Νέος πελάτης
+                    </button>
+                    <button
+                      onClick={() => setPpMode("existing")}
+                      className={`rounded-full px-4 py-2 text-xs font-bold ${ppMode === "existing" ? "text-deep-space" : "bg-white/10 text-soft-white"}`}
+                      style={ppMode === "existing" ? { background: GOLD } : {}}
+                    >
+                      Υπάρχων πελάτης
+                    </button>
                   </div>
+                  {ppMode === "new" ? (
+                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <label className="text-xs text-muted-blue">Όνομα
+                        <input value={ppForm.name} onChange={(e) => setPpForm({ ...ppForm, name: e.target.value })} className="mt-1 w-full rounded-lg border border-white/10 bg-deep-space px-3 py-2 text-sm text-soft-white" />
+                      </label>
+                      <label className="text-xs text-muted-blue">Γέννηση
+                        <input type="date" value={ppForm.date_of_birth} onChange={(e) => setPpForm({ ...ppForm, date_of_birth: e.target.value })} className="mt-1 w-full rounded-lg border border-white/10 bg-deep-space px-3 py-2 text-sm text-soft-white" />
+                      </label>
+                      <label className="text-xs text-muted-blue">Εθνικότητα
+                        <input value={ppForm.nationality} onChange={(e) => setPpForm({ ...ppForm, nationality: e.target.value })} className="mt-1 w-full rounded-lg border border-white/10 bg-deep-space px-3 py-2 text-sm text-soft-white" />
+                      </label>
+                      <label className="text-xs text-muted-blue">Email (για τις ευχές, προαιρετικό)
+                        <input value={ppForm.email} onChange={(e) => setPpForm({ ...ppForm, email: e.target.value })} className="mt-1 w-full rounded-lg border border-white/10 bg-deep-space px-3 py-2 text-sm text-soft-white" />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <label className="text-xs text-muted-blue">Σε ποιον;</label>
+                      <select
+                        value={targetKey}
+                        onChange={(e) => setTargetKey(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-white/10 bg-deep-space px-4 py-2.5 text-sm text-soft-white"
+                      >
+                        <option value="">Διάλεξε…</option>
+                        {(data?.people ?? []).map((p) => (
+                          <option key={p.key} value={p.key}>
+                            {p.name} {p.email ? `(${p.email})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <label className="mt-3 flex items-center gap-2 text-sm text-muted-blue">
                     <input type="checkbox" checked={keepFile} onChange={(e) => setKeepFile(e.target.checked)} />
                     Φύλαξε και το αρχείο στο ιδιωτικό κουτί (για τα χαρτιά του ναύλου)

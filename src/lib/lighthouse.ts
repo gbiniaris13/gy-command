@@ -110,12 +110,13 @@ export async function loadPeople() {
     await Promise.all([
       sb
         .from("helm_requests")
-        // proposal_json whole weighs megabytes per row (itineraries,
-        // photo arrays) and 56 of them hit the statement timeout - the
-        // 29/8 "where are my Helm clients" bug. Pull ONLY the yachts
-        // array out of the JSONB.
+        // NO JSON here, ever. proposal_json weighs megabytes per row
+        // and even a ->yachts extraction detoasts the whole blob, so
+        // 56 rows blew the statement timeout TWICE (29/8). The client
+        // list must never depend on it; the yachts come afterwards in
+        // small chunks that cannot take the list down with them.
         .select(
-          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, contact_id, yachts_discussed:proposal_json->yachts",
+          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, contact_id",
         )
         .limit(1000),
       sb
@@ -136,6 +137,26 @@ export async function loadPeople() {
       getSetting("lighthouse_manual_dates"),
     ]);
   const requests = reqRes.data, contacts = conRes.data, guests = gueRes.data, members = memRes.data;
+
+  // Yachts discussed, fetched in chunks of 6 so each statement stays
+  // tiny; a chunk that still times out loses only its own labels.
+  const yachtsByRequest = new Map();
+  if (requests?.length) {
+    const ids = requests.map((r) => r.id);
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += 6) chunks.push(ids.slice(i, i + 6));
+    await Promise.all(
+      chunks.map(async (chunk) => {
+        try {
+          const { data } = await sb
+            .from("helm_requests")
+            .select("id, y:proposal_json->yachts")
+            .in("id", chunk);
+          for (const row of data ?? []) yachtsByRequest.set(row.id, row.y);
+        } catch {}
+      }),
+    );
+  }
   // Silent-empty is the enemy: keep each query's error for the API to
   // surface (the 29/8 prod mystery: Helm empty while REST worked).
   const _errors = {
@@ -177,8 +198,9 @@ export async function loadPeople() {
       first && last && !first.toLowerCase().includes(last.toLowerCase())
         ? `${first} ${last}`
         : first || last || email;
-    const discussed = Array.isArray(r.yachts_discussed)
-      ? r.yachts_discussed.map((y) => (y && typeof y === "object" ? y.name : String(y))).filter(Boolean).slice(0, 4)
+    const rawY = yachtsByRequest.get(r.id);
+    const discussed = Array.isArray(rawY)
+      ? rawY.map((y) => (y && typeof y === "object" ? y.name : String(y))).filter(Boolean).slice(0, 4)
       : [];
     const won = r.status === "won";
     const existing = people.get(key);
@@ -252,6 +274,22 @@ export async function loadPeople() {
       charter_vessel: null, charter_date: null, discussed: [],
       helm_status: "guest", won: true, opt_out: false, vip: false,
       is_minor: false, source: "cabin",
+    });
+  }
+
+  // 2b. Passport-created clients (George uploads a NEW client's
+  // passport before any Helm request exists). They live in settings
+  // and fold into the Helm person automatically once he arrives.
+  const newRaw = await getSetting("lighthouse_people");
+  for (const np of newRaw ? JSON.parse(newRaw) : []) {
+    addOrMerge(`new:${np.id}`, {
+      key: `new:${np.id}`, contact_id: null, name: np.name,
+      email: np.email || null, phone: np.phone || null,
+      country: np.nationality || null, religion: null, religion_overridden: false,
+      birthday: np.date_of_birth || null, anniversary: np.anniversary || null,
+      charter_vessel: null, charter_date: null, discussed: [],
+      helm_status: "prospect", won: false, opt_out: false, vip: false,
+      is_minor: false, source: "passport",
     });
   }
 
