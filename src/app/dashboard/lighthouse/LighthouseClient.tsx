@@ -738,7 +738,9 @@ function ClientCard({ p, onSave, onSaved, say, full = false }) {
         {p.country && <Row label="Εθνικότητα">{p.country}</Row>}
         {p.travel_from && (
           <Row label={futureTrip ? "Ταξιδεύει" : "Ταξίδεψε"}>
-            {md(p.travel_from, true)}{p.travel_to ? ` έως ${md(p.travel_to, true)}` : ""}{p.area ? ` · ${p.area}` : ""}
+            {md(p.travel_from, true)}
+            {p.travel_to && String(p.travel_to) > String(p.travel_from) ? ` έως ${md(p.travel_to, true)}` : ""}
+            {p.area ? ` · ${String(p.area).split(/[.,·]/)[0].trim().slice(0, 42)}` : ""}
           </Row>
         )}
         {p.charter_vessel && (
