@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { loadPeople, kindsForPerson, holidayDatesForYear, draftFor, markSent, HOLIDAY_LABELS } from "@/lib/lighthouse";
+import { greetingCard } from "@/lib/lighthouse-card";
 
 // Mass holiday send — the ONE place The Lighthouse sends to clients,
 // and only after George presses approve in the dashboard (design
@@ -12,15 +13,24 @@ import { loadPeople, kindsForPerson, holidayDatesForYear, draftFor, markSent, HO
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-function raw(to, subject, body) {
+function raw(to, subject, body, html) {
+  const boundary = "boundary_gy_" + Math.abs(subject.length * 7919 + to.length);
   const lines = [
     `From: George Yachts <george@georgeyachts.com>`,
     `To: ${to}`,
     `Subject: =?UTF-8?B?${Buffer.from(subject).toString("base64")}?=`,
     "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
     "Content-Type: text/plain; charset=UTF-8",
     "",
     body,
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "",
+    html,
+    `--${boundary}--`,
   ];
   return Buffer.from(lines.join("\r\n")).toString("base64url");
 }
@@ -76,10 +86,13 @@ export async function POST(request) {
   const failures = [];
   for (const p of finalList) {
     const d = draftFor({ kind, person: p, date });
+    // Η κάρτα The Edition (George 29/8): κάθε ευχή φεύγει ντυμένη
+    // στο ύφος του house - navy, χρυσό, Georgia serif.
+    const html = greetingCard({ kind, subject: d.subject, body: d.body });
     try {
       const res = await gmailFetch("/messages/send", {
         method: "POST",
-        body: JSON.stringify({ raw: raw(p.email, d.subject, d.body) }),
+        body: JSON.stringify({ raw: raw(p.email, d.subject, d.body, html) }),
       });
       if (!res.ok) throw new Error(`gmail ${res.status}`);
       sent++;

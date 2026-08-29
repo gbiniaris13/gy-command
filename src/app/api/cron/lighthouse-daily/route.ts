@@ -58,7 +58,10 @@ function occasionCard(o, when) {
 }
 
 async function handler() {
-  const occ = await upcomingOccasions(2);
+  // 8-day window: today + tomorrow for action, day 3 for holiday
+  // unlocks, day 7 for the birthday heads-up, and the whole week for
+  // the Sunday review (George's picks 1, 2 and 7, 29/8).
+  const occ = await upcomingOccasions(8);
   const athens = new Date(new Date().toLocaleDateString("en-US", { timeZone: "Europe/Athens" }));
   const todayIso = new Date(Date.UTC(athens.getFullYear(), athens.getMonth(), athens.getDate()))
     .toISOString()
@@ -71,8 +74,20 @@ async function handler() {
   const todayH = occ.holidays.filter((h) => h.date === todayIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
   const tomorrowH = occ.holidays.filter((h) => h.date === tomorrowIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
 
-  const total = todayP.length + tomorrowP.length + todayH.length + tomorrowH.length;
-  if (total === 0) {
+  // Κουμπιά που ξεκλειδώνουν σήμερα (γιορτή σε ακριβώς 3 μέρες)
+  const unlockIso = new Date(Date.parse(todayIso) + 3 * 86400000).toISOString().slice(0, 10);
+  const unlocksH = occ.holidays.filter((h) => h.date === unlockIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
+  // Προσωπικά σε ακριβώς 7 μέρες: χρόνος για κάτι παραπάνω από ευχή
+  const weekIso = new Date(Date.parse(todayIso) + 7 * 86400000).toISOString().slice(0, 10);
+  const headsUpP = occ.personal.filter((o) => o.date === weekIso && fresh(o));
+  // Κυριακή: σύνοψη ολόκληρης της εβδομάδας, στέλνεται ακόμα κι αν
+  // σήμερα/αύριο είναι ήσυχα
+  const isSunday = athens.getDay() === 0;
+  const weekAllP = occ.personal.filter((o) => o.date > todayIso && fresh(o));
+  const weekAllH = occ.holidays.filter((h) => h.date > todayIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
+
+  const total = todayP.length + tomorrowP.length + todayH.length + tomorrowH.length + unlocksH.length + headsUpP.length;
+  if (total === 0 && !(isSunday && (weekAllP.length + weekAllH.length))) {
     return NextResponse.json({ skipped: "no occasions today or tomorrow" });
   }
 
@@ -92,6 +107,38 @@ async function handler() {
   };
   sec("Σήμερα", [...todayP.map((o) => occasionCard(o, "today")), ...todayH.map((h) => holidayCard(h, "today"))], (x) => x);
   sec("Αύριο, για να προλάβεις", [...tomorrowP.map((o) => occasionCard(o, "tomorrow")), ...tomorrowH.map((h) => holidayCard(h, "tomorrow"))], (x) => x);
+  sec(
+    "Ανοίγει σήμερα το κουμπί",
+    unlocksH.map((h) => `
+  <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${G.gold};border-radius:6px;padding:12px 16px;margin:0 0 10px;">
+    <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong style="color:${G.gold};">${esc(h.label)}</strong> σε 3 μέρες (${esc(h.date)}) · ${h.recipients} άτομα · <a href="https://command.georgeyachts.com/dashboard/lighthouse" style="color:${G.gold};font-weight:bold;text-decoration:none;">έγκριση εδώ &rarr;</a></p>
+  </div>`),
+    (x) => x,
+  );
+  sec(
+    "Σε μία εβδομάδα, για να προλάβεις κάτι καλό",
+    headsUpP.map((o) => `
+  <div style="background:#ffffff;border:1px solid ${G.line};border-radius:6px;padding:12px 16px;margin:0 0 10px;">
+    <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong>${esc(o.person?.name ?? "")}</strong> · ${esc(o.label)} στις ${esc(o.date)}${o.person?.vessel ? ` · πελάτης ${esc(o.person.vessel)}` : ""}</p>
+  </div>`),
+    (x) => x,
+  );
+  if (isSunday && (weekAllP.length || weekAllH.length)) {
+    sec(
+      "Η εβδομάδα μπροστά σου",
+      [
+        ...weekAllP.map((o) => `
+  <div style="background:#ffffff;border:1px solid ${G.line};border-radius:6px;padding:10px 16px;margin:0 0 8px;">
+    <p style="margin:0;font-size:13px;color:${G.ink};"><strong style="color:${G.navy};">${esc(o.date.slice(5))}</strong> · ${esc(o.person?.name ?? "")} · ${esc(o.label)}</p>
+  </div>`),
+        ...weekAllH.map((h) => `
+  <div style="background:#ffffff;border:1px solid ${G.line};border-radius:6px;padding:10px 16px;margin:0 0 8px;">
+    <p style="margin:0;font-size:13px;color:${G.ink};"><strong style="color:${G.navy};">${esc(h.date.slice(5))}</strong> · ${esc(h.label)} · ${h.recipients} άτομα</p>
+  </div>`),
+      ],
+      (x) => x,
+    );
+  }
 
   for (const o of [...todayP, ...tomorrowP]) {
     textParts.push(`${o.date === todayIso ? "ΣΗΜΕΡΑ" : "Αύριο"}: ${o.person.name}, ${o.label}. Θέμα: ${o.draft.subject}\n${o.draft.body}`);
@@ -102,7 +149,13 @@ async function handler() {
 
   const subject = todayP.length + todayH.length
     ? `Lighthouse: ${todayP.length + todayH.length} ευχές σήμερα`
-    : `Lighthouse: ετοιμάσου για αύριο (${tomorrowP.length + tomorrowH.length})`;
+    : tomorrowP.length + tomorrowH.length
+      ? `Lighthouse: ετοιμάσου για αύριο (${tomorrowP.length + tomorrowH.length})`
+      : unlocksH.length
+        ? `Lighthouse: άνοιξε το κουμπί για ${unlocksH[0].label}`
+        : isSunday
+          ? `Lighthouse: η εβδομάδα μπροστά σου (${weekAllP.length + weekAllH.length})`
+          : `Lighthouse: σε μία εβδομάδα`;
 
   const html = `
   <div style="background:${G.bg};padding:28px 12px;">

@@ -44,9 +44,9 @@ function flagOf(country) {
 }
 
 const KIND_GR = {
+  name_day: "Γιορτή",
   birthday: "Γενέθλια",
   anniversary: "Επέτειος",
-  charter_anniversary: "Επέτειος ναύλου",
   custom: "Ημερομηνία",
 };
 
@@ -556,6 +556,26 @@ export default function LighthouseClient() {
                       <div className="mt-4 rounded-xl bg-white/5 p-4">
                         <p className="text-xs text-muted-blue">Θέμα: <span className="font-semibold text-soft-white">{o.draft.subject}</span></p>
                         <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-soft-white/90">{o.draft.body}</p>
+                        {o.person.email && (
+                          <button
+                            onClick={async () => {
+                              if (busyKey) return;
+                              setBusyKey(o.key);
+                              const d = await act({ action: "send_wish", person_key: o.person.key, kind: o.kind, date: o.date });
+                              setBusyKey(null);
+                              if (!d.error) {
+                                say(`Η κάρτα στάλθηκε στον ${o.person.name} ✓`);
+                                setOpenDraft(null);
+                                load();
+                              }
+                            }}
+                            disabled={busyKey === o.key}
+                            className="mt-3 mr-2 rounded-full px-4 py-2 text-xs font-bold text-deep-space disabled:opacity-60"
+                            style={{ background: GOLD }}
+                          >
+                            {busyKey === o.key ? "Στέλνεται…" : "Στείλε την κάρτα ✉"}
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             navigator.clipboard.writeText(`${o.draft.subject}\n\n${o.draft.body}`);
@@ -655,7 +675,7 @@ export default function LighthouseClient() {
                     </p>
                     <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {withDates.map((p) => (
-                        <ClientCard key={p.key} p={p} onSave={act} onSaved={load} say={say} full />
+                        <ClientCard key={p.key} p={p} sent={data?.sent} onSave={act} onSaved={load} say={say} full />
                       ))}
                       {withDates.length === 0 && (
                         <p className="text-sm text-muted-blue">Κανείς ακόμα. Ανέβασε έγγραφα ή συμπλήρωσε από τις κάρτες κάτω.</p>
@@ -666,7 +686,7 @@ export default function LighthouseClient() {
                     </p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {emailOnly.slice(0, 60).map((p) => (
-                        <ClientCard key={p.key} p={p} onSave={act} onSaved={load} say={say} />
+                        <ClientCard key={p.key} p={p} sent={data?.sent} onSave={act} onSaved={load} say={say} />
                       ))}
                     </div>
                   </>
@@ -807,7 +827,7 @@ export default function LighthouseClient() {
   );
 }
 
-function ClientCard({ p, onSave, onSaved, say, full = false }) {
+function ClientCard({ p, sent, onSave, onSaved, say, full = false }) {
   const [editing, setEditing] = useState(false);
   const [bday, setBday] = useState(p.birthday ? String(p.birthday).slice(0, 10) : "");
   const [country, setCountry] = useState(p.country ?? "");
@@ -879,6 +899,18 @@ function ClientCard({ p, onSave, onSaved, say, full = false }) {
         {p.anniversary && <Row label="Επέτειος">💍 {md(p.anniversary)}</Row>}
       </div>
 
+      {(() => {
+        const KG = { birthday: "Γενέθλια", anniversary: "Επέτειος", name_day: "Γιορτή", custom: "Ευχή" };
+        const hist = Object.keys(sent ?? {})
+          .filter((k) => k.startsWith(p.key + ":"))
+          .map((k) => {
+            const [kind, year] = k.slice(p.key.length + 1).split(":");
+            return `${KG[kind] ?? kind} ${year ?? ""}`.trim();
+          });
+        return hist.length ? (
+          <p className="mt-2 text-[11px] text-muted-blue/80">Ευχήθηκες: {hist.join(" · ")} ✓</p>
+        ) : null;
+      })()}
       <div className="mt-3 flex gap-2">
         <button onClick={() => setEditing(!editing)} className="rounded-full bg-white/10 px-4 py-1.5 text-xs font-semibold text-soft-white hover:bg-white/15">
           {editing ? "Κλείσε" : "Συμπλήρωσε"}

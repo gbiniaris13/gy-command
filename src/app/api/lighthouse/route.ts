@@ -137,6 +137,58 @@ export async function POST(request) {
   const body = await request.json();
   const sb = createServiceClient();
 
+  if (body.action === "send_wish") {
+    // Personal wish AS the Edition card. Fires only from George's own
+    // button press on a specific occasion - the Lighthouse never
+    // sends personal wishes on its own (design law, 29/8).
+    const { person_key, kind, date } = body;
+    const { people } = await loadPeople();
+    const person = people.find((p) => p.key === person_key);
+    if (!person?.email) return NextResponse.json({ error: "χωρίς email" }, { status: 400 });
+    const yearKey = `${person_key}:${kind}:${String(date).slice(0, 4)}`;
+    const sentRaw0 = await getSetting("lighthouse_sent");
+    const sentMap0 = sentRaw0 ? JSON.parse(sentRaw0) : {};
+    if (sentMap0[yearKey]) return NextResponse.json({ error: "έχει ήδη σταλεί φέτος" }, { status: 409 });
+    const d = draftFor({ kind, person, date });
+    const { greetingCard } = await import("@/lib/lighthouse-card");
+    const html = greetingCard({ kind, subject: d.subject, body: d.body });
+    const boundary = "boundary_gy_wish";
+    const raw = Buffer.from(
+      [
+        `From: George Yachts <george@georgeyachts.com>`,
+        `To: ${person.email}`,
+        `Subject: =?UTF-8?B?${Buffer.from(d.subject).toString("base64")}?=`,
+        "MIME-Version: 1.0",
+        `Content-Type: multipart/alternative; boundary="${boundary}"`,
+        "",
+        `--${boundary}`,
+        "Content-Type: text/plain; charset=UTF-8",
+        "",
+        d.body,
+        `--${boundary}`,
+        "Content-Type: text/html; charset=UTF-8",
+        "",
+        html,
+        `--${boundary}--`,
+      ].join("\r\n"),
+    ).toString("base64url");
+    const { gmailFetch } = await import("@/lib/google-api");
+    const res = await gmailFetch("/messages/send", { method: "POST", body: JSON.stringify({ raw }) });
+    if (!res.ok) return NextResponse.json({ error: `gmail ${res.status}` }, { status: 502 });
+    const { markSent } = await import("@/lib/lighthouse");
+    await markSent(yearKey);
+    if (person.contact_id) {
+      await sb.from("activities").insert({
+        contact_id: person.contact_id,
+        type: "email_sent",
+        description: `Lighthouse ${kind}: ${d.subject}`.slice(0, 500),
+        metadata: { lighthouse: true, kind, card: true },
+      });
+    }
+    await bustCache();
+    return NextResponse.json({ ok: true, sent_to: person.email });
+  }
+
   if (body.action === "apply_document") {
     // A passport or a MYBA contract lands on an EXISTING Helm card
     // ("πάει και το ψάχνει στο Helm... α, να τος"). Writes overrides:

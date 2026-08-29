@@ -48,7 +48,7 @@ function gregorianEaster(year: number): { month: number; day: number } {
 }
 
 // ─── Orthodox Easter (Julian computus → Gregorian conversion) ─────
-function orthodoxEaster(year: number): { month: number; day: number } {
+export function orthodoxEaster(year: number): { month: number; day: number } {
   const a = year % 19;
   const b = year % 7;
   const c = year % 4;

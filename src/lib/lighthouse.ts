@@ -22,6 +22,7 @@ import { getSetting, setSetting } from "@/lib/google-api";
 import {
   variableHolidaysForYear,
   FIXED_GREETING_HOLIDAYS,
+  orthodoxEaster,
 } from "@/lib/pillar3-holidays";
 
 // ─── Country policy (George's ruling 29/8: "η θρησκεία δεν θα είναι
@@ -100,6 +101,78 @@ export function holidayDatesForYear(year: number): Record<string, string> {
   const ROSH: Record<number, string> = { 2026: "2026-09-11", 2027: "2027-10-01", 2028: "2028-09-20", 2029: "2029-09-09" };
   if (ROSH[year]) map.rosh_hashanah = ROSH[year];
   return map;
+}
+
+// ─── Ονομαστικές γιορτές (Greek name days) ────────────────────────
+// George (29/8): "δεν γίνεται να μην ξέρουμε τη γιορτή ούτε ενός
+// πελάτη... αν δεν είμαστε 100% σίγουροι μην το βάλεις". The truth:
+// name days exist only in Orthodox (and some Catholic-European)
+// tradition - Americans, Britons and Israelis do not have them, so
+// they apply ONLY to clients whose country is Greece or Cyprus, and
+// only for names on this curated, unambiguous list. Movable feasts
+// (St George, Anastasios, Thomas) follow the Orthodox Pascha.
+const NAME_DAYS_FIXED: Record<string, [number, number]> = {
+  vasilis: [1, 1], vasileios: [1, 1], vasiliki: [1, 1],
+  ioannis: [1, 7], giannis: [1, 7], yannis: [1, 7], ioanna: [1, 7], gianna: [1, 7],
+  antonis: [1, 17], antonios: [1, 17], antonia: [1, 17],
+  athanasios: [1, 18], thanasis: [1, 18], athanasia: [1, 18],
+  evangelos: [3, 25], vangelis: [3, 25], evangelia: [3, 25],
+  eirini: [5, 5], irene: [5, 5],
+  konstantinos: [5, 21], kostas: [5, 21], constantine: [5, 21],
+  eleni: [5, 21], elena: [5, 21], helen: [5, 21], helena: [5, 21],
+  petros: [6, 29], pavlos: [6, 29], pavlina: [6, 29],
+  kyriakos: [7, 7], kyriaki: [7, 7],
+  marina: [7, 17],
+  ilias: [7, 20], elias: [7, 20],
+  paraskevi: [7, 26],
+  maria: [8, 15], panagiotis: [8, 15], panos: [8, 15], panagiota: [8, 15], despina: [8, 15],
+  alexandros: [8, 30], alexandra: [8, 30],
+  stavros: [9, 14], stavroula: [9, 14],
+  sofia: [9, 17], sophia: [9, 17],
+  dimitris: [10, 26], dimitrios: [10, 26], dimitra: [10, 26],
+  michalis: [11, 8], michail: [11, 8], michael: [11, 8], angelos: [11, 8], angeliki: [11, 8], gavriil: [11, 8],
+  filippos: [11, 14],
+  aikaterini: [11, 25], katerina: [11, 25],
+  stylianos: [11, 26], stelios: [11, 26],
+  andreas: [11, 30],
+  nikolaos: [12, 6], nikos: [12, 6], nikoletta: [12, 6],
+  spyros: [12, 12], spyridon: [12, 12],
+  eleftherios: [12, 15], lefteris: [12, 15], eleftheria: [12, 15],
+  christos: [12, 25], christina: [12, 25],
+  stefanos: [12, 27], stefania: [12, 27],
+};
+
+function isGreekWorld(country?: string | null): boolean {
+  const c = String(country || "").toLowerCase();
+  return c.includes("greece") || c.includes("greek") || c.includes("cyprus");
+}
+
+function deaccent(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+export function nameDayFor(name: string, country: string | null | undefined, year: number): string | null {
+  if (!isGreekWorld(country)) return null;
+  const tokens = deaccent(String(name || "").toLowerCase()).split(/[^a-z]+/).filter(Boolean);
+  const iso2 = (m: number, d: number) => `${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const oe = orthodoxEaster(year);
+  const pascha = new Date(Date.UTC(year, oe.month - 1, oe.day));
+  for (const t of tokens) {
+    // St George: Apr 23, unless Pascha falls on/after it - then the
+    // feast transfers to Bright Monday (Pascha + 1).
+    if (["georgios", "george", "giorgos", "georgia"].includes(t)) {
+      const apr23 = Date.UTC(year, 3, 23);
+      if (pascha.getTime() >= apr23) {
+        const bm = new Date(pascha.getTime() + 86400000);
+        return bm.toISOString().slice(0, 10);
+      }
+      return iso2(4, 23);
+    }
+    if (["anastasios", "anastasia", "tasos"].includes(t)) return pascha.toISOString().slice(0, 10);
+    if (t === "thomas") return new Date(pascha.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+    if (NAME_DAYS_FIXED[t]) return iso2(...NAME_DAYS_FIXED[t]);
+  }
+  return null;
 }
 
 export function kindsForPerson(p: { country?: string; religion?: string; religion_overridden?: boolean }): string[] {
@@ -448,6 +521,15 @@ export async function upcomingOccasions(days = 30) {
     const lost = p.helm_status === "lost";
     if (!lost && p.birthday) add("birthday", p.birthday, "Birthday");
     if (!lost && p.anniversary) add("anniversary", p.anniversary, "Anniversary");
+    if (!lost) {
+      for (const y of [from.getUTCFullYear(), from.getUTCFullYear() + 1]) {
+        const nd = nameDayFor(p.name, p.country, y);
+        if (nd && nd >= iso(from) && nd <= iso(until)) {
+          personal.push({ kind: "name_day", date: nd, label: "Name day", person: p });
+          break;
+        }
+      }
+    }
     // A charter anniversary exists only for a charter that HAPPENED.
     // Bruce Mead holds a 2027 contract; congratulating him on "a year
     // ago you were sailing" would have been the house's ridicule.
@@ -568,6 +650,12 @@ export function draftFor(o): { subject: string; body: string } {
             ? ` And this year comes with something to look forward to: ${o.person.charter_vessel} and Greek waters are waiting for you.`
             : ` And whenever you feel like celebrating a year of life properly, the Aegean is always here.`) +
         SIGN,
+    };
+  }
+  if (o.kind === "name_day") {
+    return {
+      subject: `Χρόνια πολλά, ${first}!`,
+      body: `${first} μου, χρόνια πολλά για τη γιορτή σου! Να τη χαίρεσαι με υγεία, με τους δικούς σου ανθρώπους. Κι όποτε τραβήξει η καρδιά σου Αιγαίο, εδώ είμαι.\n\nΜε εκτίμηση,\nΓιώργος Π. Μπινιάρης\nGeorge Yachts Brokerage House`,
     };
   }
   if (o.kind === "anniversary") {
