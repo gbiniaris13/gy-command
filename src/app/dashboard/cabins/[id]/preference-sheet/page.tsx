@@ -75,6 +75,57 @@ function fmtMaybe(v: unknown): string {
   return String(v);
 }
 
+
+// 2026-09-02 — the frequency pickers store a record ({ whisky:
+// "often", gin: "rarely" }) and the children step stores an array
+// of profile objects. Both fell through fmtMaybe's String(v) and
+// printed "[object Object]" on the sheet the hostess provisions
+// from. Render them as readable lines instead.
+const FREQ_LABEL: Record<string, string> = {
+  often: "Often",
+  sometimes: "Sometimes",
+  rarely: "Rarely",
+  skip: "Skip",
+};
+
+function fmtFrequencyRecord(v: unknown): string {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return "\u2014";
+  const entries = Object.entries(v as Record<string, unknown>).filter(
+    ([, verdict]) =>
+      typeof verdict === "string" && verdict.length > 0 && verdict !== "skip",
+  );
+  if (entries.length === 0) return "\u2014";
+  return entries
+    .map(
+      ([k, verdict]) =>
+        `${titleCase(k)} - ${FREQ_LABEL[String(verdict)] || titleCase(String(verdict))}`,
+    )
+    .join(" \u00b7 ");
+}
+
+type ChildProfile = {
+  name?: string;
+  age?: string | number;
+  allergies_repeat?: string;
+  favourite_foods?: string;
+  foods_avoid?: string;
+  sleeps_with_parent?: boolean | string;
+  bedtime?: string;
+};
+
+function fmtChildProfile(c: ChildProfile): string {
+  const bits: string[] = [];
+  if (c.name) bits.push(String(c.name));
+  if (c.age !== undefined && c.age !== "") bits.push(`age ${c.age}`);
+  if (c.allergies_repeat) bits.push(`allergies: ${c.allergies_repeat}`);
+  if (c.favourite_foods) bits.push(`loves: ${c.favourite_foods}`);
+  if (c.foods_avoid) bits.push(`avoid: ${c.foods_avoid}`);
+  if (c.bedtime) bits.push(`bedtime: ${c.bedtime}`);
+  if (c.sleeps_with_parent === true || c.sleeps_with_parent === "true")
+    bits.push("sleeps with parents");
+  return bits.join(" \u00b7 ");
+}
+
 // =================== SECTION RULES ===========================
 // Pull only the fields we want to surface on the sheet. PII like
 // emergency_contact.email/mobile is intentionally redacted — the
@@ -888,7 +939,18 @@ export default async function PreferenceSheetPage({
 
           {Object.keys(children).length > 0 && (
             <SubBlock label="Children on board (legacy)">
-              <Row k="Children profiles" v={fmtMaybe(children.children)} />
+              {Array.isArray(children.children) &&
+              children.children.length > 0 ? (
+                children.children.map((c: ChildProfile, i: number) => (
+                  <Row
+                    key={i}
+                    k={`Child ${i + 1}`}
+                    v={fmtChildProfile(c) || "\u2014"}
+                  />
+                ))
+              ) : (
+                <Row k="Children profiles" v={fmtMaybe(children.children)} />
+              )}
               <Row k="Equipment requested" v={fmtMaybe(children.equipment)} />
               <Row k="Other equipment" v={fmtMaybe(children.equipment_other)} />
             </SubBlock>
@@ -954,7 +1016,7 @@ export default async function PreferenceSheetPage({
             <SubBlock label="Spirits — how often, which brands">
               <Row
                 k="Frequency by spirit"
-                v={fmtMaybe(beverages.spirits_frequency)}
+                v={fmtFrequencyRecord(beverages.spirits_frequency)}
               />
               <Row k="Brands the bar should carry" v={fmtMaybe(beverages.spirits_brands)} />
               <Row k="Notes" v={fmtMaybe(beverages.spirits_notes)} />
@@ -982,7 +1044,7 @@ export default async function PreferenceSheetPage({
             <SubBlock label="Soft drinks — frequency & brands">
               <Row
                 k="Frequency by drink"
-                v={fmtMaybe(beverages.soft_drinks_frequency)}
+                v={fmtFrequencyRecord(beverages.soft_drinks_frequency)}
               />
               <Row k="Brands" v={fmtMaybe(beverages.soft_drinks_brands)} />
             </SubBlock>

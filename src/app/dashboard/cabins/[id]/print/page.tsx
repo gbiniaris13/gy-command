@@ -177,12 +177,22 @@ export default async function PrintCabinPage({
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
+          /* 2026-09-02 — the width half of the 2026-06-02 crew-list
+             fix (b66345b6) never reached this page: the real DOM is
+             body > div.flex.h-screen > main.flex-1, so without
+             display:block + full width the <main> keeps its desktop
+             flex width in print and the A4 page clips the right
+             edge of every row. */
           [class*="h-screen"] {
+            display: block !important;
             height: auto !important;
             max-height: none !important;
             min-height: 0 !important;
             overflow: visible !important;
+            width: 100% !important;
+            max-width: 100% !important;
           }
+          body { display: block !important; }
           [class*="overflow-hidden"] { overflow: visible !important; }
           [class*="overflow-y-auto"],
           [class*="overflow-auto"] {
@@ -194,7 +204,14 @@ export default async function PrintCabinPage({
           nav.fixed,
           a.fixed,
           div.fixed { display: none !important; }
-          main { overflow: visible !important; padding-bottom: 0 !important; flex: none !important; }
+          main {
+            display: block !important;
+            overflow: visible !important;
+            padding-bottom: 0 !important;
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
           .no-print { display: none !important; }
           .page-break-before { page-break-before: always; }
           .avoid-break { page-break-inside: avoid; }

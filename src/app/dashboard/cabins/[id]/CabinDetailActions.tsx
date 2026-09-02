@@ -42,6 +42,8 @@ export default function CabinDetailActions({
   // is null — a refresh or re-render never resurrects it.
   useEffect(() => {
     if (!msg) return;
+    // Errors persist; only success confirmations auto-dismiss.
+    if (msg.startsWith("✕")) return;
     const t = setTimeout(() => setMsg(null), 6000);
     return () => clearTimeout(t);
   }, [msg]);
@@ -80,6 +82,9 @@ export default function CabinDetailActions({
   }
 
   async function call(action: string, label: string, body?: unknown) {
+    // Re-entrancy guard — the disabled attribute alone can miss a
+    // very fast double click; two invites in flight = two emails.
+    if (busyKey) return;
     setBusyKey(action);
     setMsg(null);
     try {
@@ -92,8 +97,17 @@ export default function CabinDetailActions({
       if (!r.ok) throw new Error(j.error || "failed");
       setMsg(`✓ ${label}`);
       if (action === "concierge") setConcierge((s) => !s);
+      // 2026-09-02 — a successful invite promotes draft → invited
+      // server-side; without a refresh the Lifecycle row kept
+      // showing DRAFT until a manual reload and the operator
+      // wondered whether the click took.
+      if (action === "invite") router.refresh();
     } catch (e) {
-      setMsg(`✕ ${label}: ${(e as Error).message}`);
+      // 2026-09-02 — failures used to render as "✕ Magic link sent
+      // to X: <error>" (the success label reused) and vanished with
+      // the 6s auto-dismiss. Failures now say what FAILED and stay
+      // until the operator acts.
+      setMsg(`✕ FAILED - ${label}: ${(e as Error).message}`);
     } finally {
       setBusyKey(null);
     }
