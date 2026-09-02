@@ -167,7 +167,8 @@ export default async function NetworkPage() {
                       </Link>
                     )}
                   </div>
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[560px]">
                     <thead className="text-left text-gray-500 border-b">
                       <tr>
                         <th className="py-1">Name</th>
@@ -214,6 +215,7 @@ export default async function NetworkPage() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               );
             })}

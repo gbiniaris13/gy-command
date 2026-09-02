@@ -368,7 +368,7 @@ export default function UploadClient(props: {
 
       {/* Existing documents */}
       {documents.length > 0 && (
-        <section className="rounded border p-4">
+        <section className="rounded border p-4 overflow-x-auto">
           <h2 className="font-semibold mb-3">Documents on file</h2>
           <table className="w-full text-sm">
             <thead className="text-left text-gray-500 border-b">

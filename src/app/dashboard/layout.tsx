@@ -513,8 +513,13 @@ function QuickActionsFAB() {
   );
 }
 
-function MobileMenu() {
-  const [open, setOpen] = useState(false);
+function MobileMenu({
+  open,
+  setOpen,
+}: {
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
   const pathname = usePathname();
 
   return (
@@ -528,10 +533,37 @@ function MobileMenu() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
         </svg>
       </button>
+      {/* The drawer itself renders in DashboardLayout, OUTSIDE the
+          sticky top bar — see MobileDrawer below. The trigger stays
+          here so the bar keeps its compact look. */}
+    </>
+  );
+}
+
+function MobileDrawer({
+  open,
+  setOpen,
+}: {
+  open: boolean;
+  setOpen: (v: boolean) => void;
+}) {
+  const pathname = usePathname();
+  return (
+    <>
+      {/* 2026-09-02 (George, iPhone pass) — the drawer used to render
+          inside the sticky top bar, whose backdrop-blur creates a CSS
+          containing block: the fixed overlay was trapped inside the
+          48px-tall bar and painted as an unreadable sliver, which is
+          why nothing on mobile was reachable. It now renders at the
+          layout root (no filtered ancestor), with a SOLID ground and
+          its own scrolling list. */}
       {open && (
         <div className="fixed inset-0 z-[100] lg:hidden">
-          <div className="absolute inset-0 bg-deep-space/95 backdrop-blur-lg" onClick={() => setOpen(false)} />
-          <div className="relative z-10 flex flex-col h-full p-6">
+          {/* 2026-09-02 (George, iPhone pass) — the old backdrop was
+              bg-deep-space/95 over the ivory page: 5% of the cockpit
+              bled through and the drawer read as soup. Solid ground. */}
+          <div className="absolute inset-0 bg-deep-space" onClick={() => setOpen(false)} />
+          <div className="relative z-10 flex flex-col h-full p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center justify-between mb-8">
               <span className="font-[family-name:var(--font-display)] text-lg font-bold text-electric-cyan tracking-wider">GY COMMAND</span>
               <button
@@ -543,7 +575,12 @@ function MobileMenu() {
                 </svg>
               </button>
             </div>
-            <nav className="space-y-1">
+            {/* 2026-09-02 — 19 items plus group headers stand ~1000px
+                tall; without its own scroll the list was clipped at the
+                fold and The Cabin, The Lighthouse, Brand Radar and
+                everything below simply could not be reached on a phone.
+                That was the whole "I can't get anywhere on mobile". */}
+            <nav className="space-y-1 flex-1 overflow-y-auto overscroll-contain -mx-2 px-2">
               {/* Dashboard home anchor */}
               {(() => {
                 const home = navItems.find((i) => i.href === "/dashboard");
@@ -602,7 +639,7 @@ function MobileMenu() {
                 );
               })}
             </nav>
-            <div className="mt-auto pt-6 border-t border-border-glow">
+            <div className="pt-4 border-t border-border-glow shrink-0">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-electric-cyan/10 border border-electric-cyan/20 text-electric-cyan">
                   <span className="font-[family-name:var(--font-display)] text-xs font-semibold">GP</span>
@@ -657,6 +694,7 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
@@ -844,7 +882,7 @@ export default function DashboardLayout({
             <SoundToggle />
             <NotificationBell />
             {/* Mobile hamburger */}
-            <MobileMenu />
+            <MobileMenu open={mobileMenuOpen} setOpen={setMobileMenuOpen} />
           </div>
           <PullToRefresh>
             <div className="animate-page-enter">{children}</div>
@@ -878,6 +916,10 @@ export default function DashboardLayout({
         </main>
 
         {/* ─── Mobile Bottom Tab Bar ──────────────────────────────────── */}
+        {/* Mobile drawer lives at the layout root, outside any
+            backdrop-filter ancestor - see MobileDrawer's comment. */}
+        <MobileDrawer open={mobileMenuOpen} setOpen={setMobileMenuOpen} />
+
         <nav className="fixed bottom-0 left-0 right-0 z-50 flex lg:hidden h-16 items-stretch border-t border-border-glow bg-glass-dark/95 backdrop-blur-lg safe-area-bottom">
           {bottomBarItems.map((item) => {
             const active = isActive(item.href);

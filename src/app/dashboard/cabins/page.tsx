@@ -55,7 +55,10 @@ export default async function CabinsListPage() {
         </Link>
       </header>
 
-      <div style={{ background: "#fff", border: "1px solid rgba(13,27,42,0.08)" }}>
+      {/* 2026-09-02 (iPhone pass) - the row set is ~670px wide; without
+          its own horizontal scroll the Dates / Status / Brief columns
+          were simply cut off on a phone. */}
+      <div style={{ background: "#fff", border: "1px solid rgba(13,27,42,0.08)", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
           <thead>
             <tr style={{ background: "rgba(13,27,42,0.04)", textAlign: "left" }}>

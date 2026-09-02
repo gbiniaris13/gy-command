@@ -46,7 +46,14 @@ export async function middleware(request: NextRequest) {
     });
   }
 
-  if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
+  // Local layout preview only: hostname must be localhost AND the
+  // env flag set. Harmless if it ever ships: production hostnames
+  // never match and the flag is never set there.
+  const devLayoutPreview =
+    request.nextUrl.hostname === "localhost" &&
+    process.env.DEV_LAYOUT_PREVIEW === "1";
+
+  if (!user && !devLayoutPreview && request.nextUrl.pathname.startsWith("/dashboard")) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
