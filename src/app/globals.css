@@ -260,6 +260,13 @@ hr {
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+/* 2026-09-02 (George, iPhone pass 2) - the app runs standalone with
+   viewport-fit: cover, so the webview extends UNDER the status bar.
+   Without this, the sticky top bar (and its hamburger) sat beneath
+   the clock and the battery and could not be tapped. */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
 
 /* ── Kanban scrollbar (horizontal) ──────────── */
 .kanban-scroll::-webkit-scrollbar { height: 8px; }

@@ -476,7 +476,7 @@ function QuickActionsFAB() {
   ];
 
   return (
-    <div className="fixed bottom-20 right-4 z-50 lg:hidden">
+    <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] right-4 z-50 lg:hidden">
       {/* Expanded actions */}
       {open && (
         <div className="mb-3 flex flex-col gap-2 animate-fade-in-up">
@@ -563,7 +563,7 @@ function MobileDrawer({
               bg-deep-space/95 over the ivory page: 5% of the cockpit
               bled through and the drawer read as soup. Solid ground. */}
           <div className="absolute inset-0 bg-deep-space" onClick={() => setOpen(false)} />
-          <div className="relative z-10 flex flex-col h-full p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <div className="relative z-10 flex flex-col h-full p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center justify-between mb-8">
               <span className="font-[family-name:var(--font-display)] text-lg font-bold text-electric-cyan tracking-wider">GY COMMAND</span>
               <button
@@ -867,9 +867,12 @@ export default function DashboardLayout({
         </aside>
 
         {/* ─── Main content ───────────────────────────────────────────── */}
-        <main className="relative flex-1 overflow-y-auto pb-16 lg:pb-0">
+        <main className="relative flex-1 overflow-y-auto pb-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:pb-0">
           {/* Top bar — compact on mobile with logo + hamburger */}
-          <div className="sticky top-0 z-40 flex items-center border-b border-border-glow bg-deep-space/95 backdrop-blur-lg px-3 sm:px-6 h-12">
+          {/* safe-area-top: on notched iPhones running standalone the
+              bar otherwise slides under the status bar - the hamburger
+              was living inside the battery indicator. */}
+          <div className="sticky top-0 z-40 flex items-center border-b border-border-glow bg-deep-space/95 backdrop-blur-lg px-3 sm:px-6 min-h-[3rem] safe-area-top">
             {/* Mobile: logo + GY CMD */}
             <div className="flex items-center gap-2 lg:hidden">
               <div className="flex h-7 w-7 items-center justify-center rounded-md bg-electric-cyan/10 border border-electric-cyan/20">
