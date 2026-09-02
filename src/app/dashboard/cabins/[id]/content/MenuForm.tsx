@@ -10,13 +10,18 @@ import { useState } from "react";
 
 type Section = { name: string; dishes: string[] };
 
-function normaliseInitial(initial: unknown): { tagline: string; sections: Section[] } {
+function normaliseInitial(initial: unknown): { title: string; tagline: string; sections: Section[] } {
   const init = (initial && typeof initial === "object" ? (initial as Record<string, unknown>) : {});
+  // 2026-09-02 — title carried through. The form used to save only
+  // {tagline, sections}; one Save silently erased the stored title
+  // and the client's menu page lost its heading.
+  const title = typeof init.title === "string" ? init.title : "";
   const tagline = typeof init.tagline === "string" ? init.tagline : "";
 
   // New shape (Gemini extraction): sections[]
   if (Array.isArray(init.sections) && init.sections.length > 0) {
     return {
+      title,
       tagline,
       sections: (init.sections as Array<Record<string, unknown>>).map((s) => ({
         name: typeof s.name === "string" ? s.name : "",
@@ -28,6 +33,7 @@ function normaliseInitial(initial: unknown): { tagline: string; sections: Sectio
   // Legacy shape: days[] with title + body or courses
   if (Array.isArray(init.days) && init.days.length > 0) {
     return {
+      title,
       tagline,
       sections: (init.days as Array<Record<string, unknown>>).map((d) => {
         const dishes: string[] = [];
@@ -44,7 +50,7 @@ function normaliseInitial(initial: unknown): { tagline: string; sections: Sectio
     };
   }
 
-  return { tagline, sections: [] };
+  return { title, tagline, sections: [] };
 }
 
 export default function MenuForm({
@@ -55,6 +61,7 @@ export default function MenuForm({
   initial: unknown;
 }) {
   const init = normaliseInitial(initial);
+  const [title, setTitle] = useState<string>(init.title);
   const [tagline, setTagline] = useState<string>(init.tagline);
   const [sections, setSections] = useState<Section[]>(init.sections);
   const [busy, setBusy] = useState(false);
@@ -84,6 +91,7 @@ export default function MenuForm({
     setBusy(true);
     setMsg(null);
     const cleaned = {
+      title: title.trim() || undefined,
       tagline: tagline.trim() || undefined,
       sections: sections
         .map((s) => ({ name: s.name.trim(), dishes: s.dishes.filter(Boolean) }))
@@ -116,6 +124,16 @@ export default function MenuForm({
           a typographic list.
         </p>
       </header>
+
+      <label style={field}>
+        <span>Menu title</span>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="SEABARIT LX SAMPLE MENU"
+        />
+      </label>
 
       <label style={field}>
         <span>Tagline (optional)</span>
