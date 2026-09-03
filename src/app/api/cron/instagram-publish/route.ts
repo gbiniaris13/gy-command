@@ -24,6 +24,7 @@ import {
   markHashtagsUsed,
 } from "@/lib/meta-stealth";
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
+import { sanitizeCaption } from "@/lib/caption-sanitizer";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
@@ -247,6 +248,15 @@ async function _observedImpl() {
 
   for (const post of posts ?? []) {
     try {
+      // 2026-09-03 — brand sanitizer at the publish chokepoint: dash
+      // scrub + incomplete-sentence trim. Covers rows scheduled before
+      // the generator learned these rules, and every future path.
+      const sanitized = sanitizeCaption(post.caption ?? "");
+      if (sanitized !== post.caption) {
+        post.caption = sanitized;
+        await sb.from("ig_posts").update({ caption: sanitized }).eq("id", post.id);
+      }
+
       // Feature #9 — quality guard. Block anything that doesn't meet
       // the brand floor. Flip back to draft + Telegram alert so George
       // can fix it or cut it before the next tick.

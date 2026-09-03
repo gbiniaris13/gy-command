@@ -19,6 +19,7 @@
  */
 
 import { aiChat } from "./ai";
+import { sanitizeCaption } from "./caption-sanitizer";
 import type { FleetYacht } from "./sanity-fleet";
 import type { FleetAngle } from "./fleet-rotation";
 import {
@@ -43,30 +44,26 @@ FLEET-CAPTION-SPECIFIC RULES:
    - "Know someone planning Greek summer? Send them this."
    - "Save for when you're ready to plan your voyage."
 
-3. Editorial, insider, warm. Return ONLY the caption text — no preface, no hashtag block (the caller appends).`;
+3. Editorial, insider, warm. Return ONLY the caption text — no preface, no hashtag block (the caller appends).
 
-// Parse the weeklyRatePrice string into an optional per-person line.
-// Format the prompt will use: "from €X/week (≈€Y/person for N guests)".
-// When pricing is missing or hard to parse, returns the original string
-// as a fallback so the prompt never ends up empty.
+4. PRICING: quote the weekly rate for the WHOLE yacht only ("from €28,500 per week"). NEVER divide it per person or per guest — this house sells one product, the crewed yacht by the week.
+
+5. PUNCTUATION: never use an em dash or en dash. Use commas, full stops, or a colon. Short sentences over long ones.
+
+6. Every sentence must be COMPLETE. Never trail off. If you run short of room, end one sentence earlier.
+
+7. TRUTH: only facts present in the data provided. Never invent guests, stories, awards, or numbers.`;
+
+// Weekly rate line for the prompt. ONE PRICE, ONE PRODUCT (George,
+// 2026-08): the rate is quoted per yacht per week, crewed. The old
+// per-person arithmetic ("≈€490/person") shipped in the 2026-09-01
+// Perseids post and is exactly the framing this house forbids — never
+// reintroduce it.
 function describePricing(yacht: FleetYacht): string {
   const raw = (yacht.weeklyRatePrice ?? "").trim();
   if (!raw) return "Price on request.";
   if (/on\s+request/i.test(raw)) return raw;
-
-  // Try to extract the lowest € figure and the guest count for per-person math.
-  const priceMatch = raw.replace(/[.,]/g, "").match(/€\s*([0-9]+)/);
-  const priceNum = priceMatch ? parseInt(priceMatch[1], 10) : null;
-  const sleepsMatch = (yacht.sleeps ?? "").match(/\d+/);
-  const guests = sleepsMatch ? parseInt(sleepsMatch[0], 10) : null;
-
-  if (priceNum && priceNum >= 1000 && guests && guests >= 2) {
-    const perPerson = Math.round(priceNum / guests);
-    const eur = (n: number) => `€${n.toLocaleString("en-US")}`;
-    return `Weekly rate: from ${eur(priceNum)}/week (≈${eur(perPerson)}/person for ${guests} guests). Source text: "${raw}".`;
-  }
-
-  return `Weekly rate: ${raw}`;
+  return `Weekly rate (whole yacht, crewed): ${raw}. Quote it per week only, never per person.`;
 }
 
 function yachtSpecsLine(yacht: FleetYacht): string {
@@ -107,7 +104,7 @@ ${(y.georgeInsiderTip ?? "").trim()}
 Write a 3–5 sentence caption:
 - Open with "${y.name}" + a spec or the most striking inside-info detail (first ~125 chars matter — preview cutoff).
 - Weave the Inside Info angle into the second or third sentence.
-- Mention pricing once in passing (the rate line above, including the per-person figure if provided).
+- Mention pricing once in passing (the weekly rate for the whole yacht, never per person).
 - End with a save CTA variant from the system prompt.
 - At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
 - No hashtags.`,
@@ -128,7 +125,7 @@ Write a 3–5 sentence caption:
 - Open with "${y.name}" + yacht type + one concrete spec (e.g. "${y.name} — ${y.subtitle ?? y.category ?? "private charter yacht"}, ${y.sleeps ?? ""} guests"). Do NOT start with "If" or "Imagine".
 - Address the ideal guest profile directly in the second sentence.
 - Paint one scene that fits that guest (morning deck, sunset anchorage, children's cabin, etc.).
-- Pricing once in passing, including the per-person figure if provided.
+- Pricing once in passing, weekly rate for the whole yacht only, never per person.
 - Save CTA variant near the end.
 - At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
 - No hashtags.`,
@@ -145,7 +142,7 @@ ${(y.toys ?? []).map((t) => `- ${t}`).join("\n")}
 Write a 3–5 sentence caption:
 - Open with "${y.name}" + the single most striking toy/tender on board (e.g. "${y.name} carries [toy] plus a full swim-platform arsenal...").
 - Weave 3–4 of the actual toys into flowing prose (NOT a bullet list).
-- Pricing once in passing, with per-person figure if provided.
+- Pricing once in passing, weekly rate for the whole yacht only, never per person.
 - Save CTA variant — strongly favor "Save this for your summer planning." for toy-heavy posts.
 - At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
 - No hashtags.`,
@@ -190,7 +187,7 @@ Write a 3–5 sentence caption celebrating the craftsmanship.
 OPENER PATTERN FOR THIS POST: ${tpl}
 
 - After the opener, place her in Greek waters in one sentence.
-- Pricing once in passing, with per-person figure if provided.
+- Pricing once in passing, weekly rate for the whole yacht only, never per person.
 - Save CTA variant near the end.
 - At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
 - No hashtags.`,
@@ -207,7 +204,7 @@ Category: ${y.category ?? "motor yacht"}
 Write a 3–5 sentence caption about the cruising canvas:
 - Open with "${y.name}" + the region + one spec (e.g. "${y.name} cruises ${y.cruisingRegion ?? "the Aegean"} at ${y.cabins ?? "multiple"} cabins..."). Do NOT start with "A week in" or "Imagine".
 - Suggest 1–2 island / coast ideas that could be strung together — keep general, no fake specific itineraries.
-- Pricing once in passing with per-person figure if provided.
+- Pricing once in passing, weekly rate for the whole yacht only, never per person.
 - Save CTA variant.
 - At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
 - No hashtags.`,
@@ -227,7 +224,7 @@ Write a 3–5 sentence caption that spotlights the crew:
 - Open with the yacht name and the most noteworthy crew member (e.g. "${y.name} is run by Captain [name], [role/credential from source]..."). Do NOT start with a hypothetical.
 - Add one sentence on what makes the crew stand out (from source only).
 - Scene-setting sentence placing them on the yacht.
-- Pricing once in passing, with per-person figure if provided.
+- Pricing once in passing, weekly rate for the whole yacht only, never per person.
 - Save CTA variant near the end.
 - At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
 - No hashtags.`,
@@ -254,7 +251,10 @@ export async function generateFleetCaption(
   }
   const { prompt } = builder(yacht);
 
-  let raw = await aiChat(BRAND_SYSTEM, prompt);
+  // 4000 output tokens: the 2026-09-02 SEA U caption shipped cut off
+  // mid-sentence because the model's reasoning ate into the default
+  // 2000-token budget. The sanitizer below is the second net.
+  let raw = await aiChat(BRAND_SYSTEM, prompt, { maxTokens: 4000 });
   let cleaned = raw.replace(/^["']|["']$/g, "").trim();
 
   const banned = detectBannedPhrases(cleaned);
@@ -262,14 +262,16 @@ export async function generateFleetCaption(
     // One retry with an explicit callout of what to avoid.
     const retryPrompt = `${prompt}\n\nAVOID these filler words that slipped into the previous attempt: ${banned.join(", ")}. Replace each with a concrete specific.`;
     try {
-      raw = await aiChat(BRAND_SYSTEM, retryPrompt);
+      raw = await aiChat(BRAND_SYSTEM, retryPrompt, { maxTokens: 4000 });
       cleaned = raw.replace(/^["']|["']$/g, "").trim();
     } catch {
       // Retry failed — keep the first attempt; banned phrases logged by caller.
     }
   }
 
-  return cleaned;
+  // Dash scrub + incomplete-sentence trim (brand rules, enforced in
+  // code because prompts alone kept leaking both).
+  return sanitizeCaption(cleaned);
 }
 
 /**
@@ -303,12 +305,14 @@ export function fallbackFleetCaption(
       : angle === "ideal_guest" && yacht.idealFor
         ? `For ${yacht.idealFor.split(/[,.]/)[0].trim().toLowerCase()}.`
         : `${yacht.name} — one of our private charter yachts in ${yacht.cruisingRegion ?? "Greece"}.`;
-  return [
-    opener,
-    specs ? `${yacht.name}${yacht.subtitle ? ` · ${yacht.subtitle}` : ""}: ${specs}.` : yacht.name,
-    describePricing(yacht),
-    "DM us or tap the link in bio to plan your week.",
-  ].join("\n\n");
+  return sanitizeCaption(
+    [
+      opener,
+      specs ? `${yacht.name}${yacht.subtitle ? ` · ${yacht.subtitle}` : ""}: ${specs}.` : yacht.name,
+      (yacht.weeklyRatePrice ?? "").trim() || "Price on request.",
+      "DM us or tap the link in bio to plan your week.",
+    ].join("\n\n"),
+  );
 }
 
 /**
@@ -361,18 +365,35 @@ function yachtSpecificHashtags(yacht: FleetYacht): string[] {
  * highest-intent tags.
  */
 export function fleetHashtagBlock(yacht: FleetYacht): string {
-  // Trimmed from 10 to 8 to leave room for the yacht-specific tags
-  // without exceeding 12 total (George's cap).
+  // 2026-09-03 — swapped the three most generic tags (#greece,
+  // #luxurytravel, #mediterranean fight millions of posts) for
+  // higher-intent charter tags, and added a cruising-region tag so
+  // each post gets a discovery path in its actual waters.
   const core = [
     "#yachtcharter",
-    "#greece",
+    "#yachtchartergreece",
     "#greekislands",
-    "#luxurytravel",
+    "#crewedyacht",
     "#aegean",
     "#charterlife",
     "#georgeyachts",
-    "#mediterranean",
+    "#luxuryyachtcharter",
   ];
+  const region = (yacht.cruisingRegion ?? "").toLowerCase();
+  const regionTag = region.includes("ionian")
+    ? "#ioniansea"
+    : region.includes("cyclad")
+      ? "#cyclades"
+      : region.includes("saronic")
+        ? "#saronicgulf"
+        : region.includes("dodecan")
+          ? "#dodecanese"
+          : region.includes("sporad")
+            ? "#sporades"
+            : region.includes("crete")
+              ? "#crete"
+              : null;
+  if (regionTag) core.push(regionTag);
   const catTag =
     yacht.category === "sailing-catamarans"
       ? "#sailingcatamaran"

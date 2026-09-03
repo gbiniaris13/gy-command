@@ -16,6 +16,7 @@ import {
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
+import { sanitizeCaption } from "@/lib/caption-sanitizer";
 import { observeCron } from "@/lib/cron-observer";
 import { getIgTokenOptional, getIgGraphRoot, getIgMediaUrl } from "@/lib/ig-token";
 
@@ -137,13 +138,17 @@ Rules:
 - 80-150 words prose
 - 1 clear question to drive comments
 - End with CTA: "DM us" or "link in bio"
-- Include 12-18 hashtags at the end (mix: #yachtcharter, geo, niche)
+- Include 10-14 hashtags at the end (mix: #yachtcharter, geo, niche)
 - George Yachts voice: warm, insider, authoritative, never salesy
-- NEVER use "I" / "my" / years of experience`,
+- NEVER use "I" / "my" / years of experience
+- NEVER use an em dash or en dash; commas and full stops only
+- Every sentence complete, never trail off
+- No invented clients, stories, or numbers`,
+      { maxTokens: 4000 },
     );
-    caption = raw.replace(/^["']|["']$/g, "").trim();
+    caption = sanitizeCaption(raw.replace(/^["']|["']$/g, "").trim());
   } catch {
-    caption = `Quiet morning on deck. The engine hums, coffee cools, and the Aegean opens ahead.\n\nA week on a private yacht isn't just travel — it's the difference between seeing Greece and living it.\n\nWhich island would you start with?\n\nDM us to plan yours → link in bio\n\n#yachtcharter #greekislands #greece #luxurytravel #aegean #cyclades #charterlife #georgeyachts #yachtlife #mediterranean #summer2026 #privatecharter`;
+    caption = `Quiet morning on deck. The engine hums, coffee cools, and the Aegean opens ahead.\n\nA week on a private crewed yacht is not just travel. It is the difference between seeing Greece and living it.\n\nWhich island would you start with?\n\nDM us to plan yours → link in bio\n\n#yachtcharter #greekislands #yachtchartergreece #crewedyacht #aegean #cyclades #charterlife #georgeyachts #yachtlife #luxuryyachtcharter #privatecharter`;
   }
 
   // Phase A banned hashtag guard.

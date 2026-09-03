@@ -16,6 +16,24 @@ const SANITY_PROJECT = "ecqr94ey";
 const SANITY_DATASET = "production";
 const SANITY_API_VERSION = "2024-01-01";
 
+// Yachts George withdrew from every public surface on 2026-08-21
+// (bareboat hulls with a skipper bolted on — this house sells crewed
+// weeks). The public site excludes them at its lib/sanity.js chokepoint;
+// this repo queries Sanity directly, so the same list is enforced here.
+// 2026-09-01 the bot posted S/CAT Perseids, retired eleven days earlier
+// — that incident is why this filter exists. Keep in sync with the site
+// repo's lib/retiredYachts.js.
+const RETIRED_YACHT_SLUGS = [
+  "alia",
+  "angelika",
+  "helidoni",
+  "madicon",
+  "my-angel",
+  "odyssey",
+  "perseids",
+];
+const NOT_RETIRED = `&& !(slug.current in [${RETIRED_YACHT_SLUGS.map((s) => JSON.stringify(s)).join(",")}])`;
+
 // CDN endpoint is fine for read-only fleet queries (fresher than raw
 // API for our 2026 latency profile, public dataset, no auth needed).
 const SANITY_CDN = `https://${SANITY_PROJECT}.apicdn.sanity.io/v${SANITY_API_VERSION}/data/query/${SANITY_DATASET}`;
@@ -47,7 +65,7 @@ export type FleetYacht = {
   images: Array<{ url: string; alt: string | null }>;
 };
 
-const FLEET_QUERY = `*[_type == "yacht" && count(images) >= 6]{
+const FLEET_QUERY = `*[_type == "yacht" && count(images) >= 6 ${NOT_RETIRED}]{
   _id,
   name,
   "slug": slug.current,
@@ -101,7 +119,7 @@ export async function fetchFleetPool(): Promise<FleetYacht[]> {
  */
 export async function fetchFleetForStories(): Promise<FleetYacht[]> {
   try {
-    const STORY_QUERY = `*[_type == "yacht" && count(images) >= 1 && defined(slug.current)]{
+    const STORY_QUERY = `*[_type == "yacht" && count(images) >= 1 && defined(slug.current) ${NOT_RETIRED}]{
       _id, name, "slug": slug.current, subtitle, category, fleetTier,
       length, sleeps, cabins,
       "images": images[0..3]{ "url": asset->url, alt }

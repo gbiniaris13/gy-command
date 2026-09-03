@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { sanitizeCaption } from "@/lib/caption-sanitizer";
 import { observeCron } from "@/lib/cron-observer";
 
 // Cron: every Sunday at 07:00 UTC (10:00 Athens) Gemini generates 7
@@ -18,12 +19,15 @@ import { observeCron } from "@/lib/cron-observer";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 
-// 2026-05-07 — Boss directive: yacht-first feed (4 yacht posts/week min,
-// scenery secondary). Mon-Thu are now reserved for instagram-fleet-post
-// (yacht rotation, see fleet-rotation.ts). This generator only fills the
-// non-fleet days (Fri/Sat/Sun). Day indices: Mon=0, Tue=1, Wed=2, Thu=3,
-// Fri=4, Sat=5, Sun=6.
-const FLEET_DAY_INDICES = new Set<number>([0, 1, 2, 3]);
+// 2026-09-03 audit — the generator used to fill Fri/Sat/Sun, but the
+// window guard BLOCKS weekend feed posts (story-only policy) and on
+// Friday the reel cron (18:15) wins the 1/day limit before this queue
+// is read (18:30). Result: 12 zombie "scheduled" rows piled up since
+// 7/8 and the only day these captions ever published was Monday, weeks
+// late. The schedule truth is: Tue/Wed/Thu = fleet post, Wed/Fri =
+// reel, Sat/Sun = stories only. So the ONLY day this generator can
+// actually serve is Monday. Day indices: Mon=0 ... Sun=6.
+const RESERVED_DAY_INDICES = new Set<number>([1, 2, 3, 4, 5, 6]);
 
 // 15:00 UTC = 18:00 Athens summer (DST Mar–Oct).
 // In winter (Nov–Mar) 15:00 UTC = 17:00 Athens, which falls outside
@@ -33,7 +37,16 @@ const FLEET_DAY_INDICES = new Set<number>([0, 1, 2, 3]);
 // 18:00 Athens sharp.
 const PUBLISH_HOUR_UTC = 15;
 
-const SYSTEM_PROMPT = `You write Instagram captions for George Yachts, a luxury yacht charter brokerage in Greece. Write as the BRAND, not as a person. NEVER use first person ("I", "my experience", "I've been"). NEVER claim years of experience or personal history. Be knowledgeable, warm, and authoritative — but as a brand voice, not a personal diary. You return only valid JSON in the requested shape. No markdown fences, no preamble, no trailing commentary.`;
+const SYSTEM_PROMPT = `You write Instagram captions for George Yachts, a boutique luxury yacht charter brokerage in Greece (crewed yachts, by the week, Greek waters only). Write as the BRAND, not as a person. NEVER use first person ("I", "my experience", "I've been"). NEVER claim years of experience or personal history.
+
+HARD RULES (violating any of these makes the caption unusable):
+- NEVER invent facts: no made-up clients, stories, itineraries-we-ran, numbers, or awards. If a caption needs an example, describe what a week CAN look like, never what "we recently did" for a named-or-anonymous client.
+- NEVER use an em dash or en dash. Commas, full stops, colons only.
+- Every sentence must be complete. Never trail off.
+- Prices, if any, are in EUR, per yacht per week, crewed. Never per person, never day rates, never bareboat.
+- The romance is real but grounded: concrete places, light, water, food, seamanship. Name real islands and real practices, not vague luxury filler.
+
+You return only valid JSON in the requested shape. No markdown fences, no preamble, no trailing commentary.`;
 
 const STYLES = [
   "story",
@@ -63,21 +76,21 @@ VOICE:
 - Like a trusted luxury brand speaking to its audience
 
 TOPICS (vary across the week, don't repeat angles):
-- Yacht lifestyle moments (sunrise on deck, aperitivo, anchor drop)
-- Greek island secrets (Hydra, Amorgos, Cyclades, Ionian, Saronic)
-- Behind-the-scenes of charter brokerage (broker day, crew briefings)
-- Client experience stories (anonymized — "a family from London", "a couple from Dubai" — write as "we helped" not "I helped")
-- Industry tips & yacht knowledge (APA, MYBA, VAT quirks, charter process)
-- Personal reflections on the sea and the work
+- Yacht lifestyle moments (sunrise on deck, aperitivo, anchor drop) — described as what a charter week holds, never as a story about a specific past client
+- Greek island knowledge (Hydra, Amorgos, Sifnos, Folegandros, the Ionian, the Saronic): a real anchorage, a real taverna habit, how the Meltemi shapes a route
+- How a crewed charter actually works (what the captain decides, what the chef asks before you board, why the APA exists, what the base rate includes)
+- Industry knowledge (APA, MYBA-standard contracts, Greece's certification-based VAT tiers, why any departure day works on a crewed charter)
+- The sea itself: light, wind, water, the difference between seeing Greece and living it from the deck
 
 RULES:
-- Length: 150-300 words each
+- Length: 120-250 words each
+- The FIRST sentence must say something concrete (a place, a fact, a moment) — the first 125 characters are the preview before "…more"
 - Include 1 engagement question per caption at the end (e.g. "What would your first stop be?")
 - NO hashtags (handled separately at publish time)
 - NO emojis except occasional 🇬🇷 or ⚓
 - Vary tone: some inspirational, some educational, some conversational
 - NEVER repeat openings ("Last July...", "Most charterers skip...") — each caption must feel like a different voice moment
-- NEVER name specific clients, yacht brands unless educational
+- NEVER invent client stories or past charters. NEVER name specific clients. Yacht brands only when educational
 
 STYLE TAG — every caption must be tagged with ONE of these exact
 values so the A/B engagement tracker can correlate style to reach:
@@ -166,9 +179,9 @@ async function _observedImpl(req?: any) {
   );
   const emptyDays: number[] = [];
   for (let i = 0; i < 7; i++) {
-    // Skip days reserved for instagram-fleet-post (Mon-Thu). Boss
-    // directive 2026-05-07 — yacht-first feed.
-    if (FLEET_DAY_INDICES.has(i)) continue;
+    // Skip days served by other crons (fleet Tue-Thu, reel Fri) and
+    // the weekend blackout (Sat/Sun are story-only per policy).
+    if (RESERVED_DAY_INDICES.has(i)) continue;
     const d = new Date(startMonday.getTime() + i * 86400000);
     const key = d.toISOString().slice(0, 10);
     if (!takenDayKeys.has(key)) emptyDays.push(i);
@@ -265,7 +278,7 @@ async function _observedImpl(req?: any) {
       ? rawStyle
       : "personal";
     byDay.set(String(item.day).toLowerCase(), {
-      caption: String(item.caption).trim(),
+      caption: sanitizeCaption(String(item.caption).trim()),
       style,
     });
   }
