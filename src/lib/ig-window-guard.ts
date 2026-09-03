@@ -25,7 +25,9 @@ const WINDOW_END_HOUR = 19; // last legal full hour
 const WINDOW_END_MINUTE = 30; // + up to this minute
 const MIN_GAP_MS = 18 * 60 * 60 * 1000; // 18h between feed posts
 const FLEET_YACHT_DAYS = new Set([2, 3, 4]); // Tue, Wed, Thu (JS Date: 0=Sun)
-const FEED_WEEKDAYS = new Set([1, 2, 3, 4, 5]); // Mon-Fri per Roberto's brief
+// 2026-09-03 — George opened Saturday for feed posts (holiday audience
+// scrolls on weekends; we were dark Sat+Sun). Sunday stays story-only.
+const FEED_WEEKDAYS = new Set([1, 2, 3, 4, 5, 6]); // Mon-Sat
 const CAROUSEL_DAYS = new Set([1, 4]); // Mon + Thu
 
 export type PostType = "feed" | "fleet_yacht" | "reel" | "carousel";

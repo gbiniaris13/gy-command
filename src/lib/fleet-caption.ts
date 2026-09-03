@@ -210,6 +210,25 @@ Write a 3–5 sentence caption about the cruising canvas:
 - No hashtags.`,
   }),
 
+  award_winner: (y) => ({
+    prompt: `Yacht: ${y.name}${y.subtitle ? ` (${y.subtitle})` : ""}
+Specs: ${yachtSpecsLine(y) || "n/a"}
+Region: ${y.cruisingRegion ?? "Greece"}
+${describePricing(y)}
+
+Documented awards (from official show results — use ONLY these, exactly as written, never embellish or add "award-winning" beyond them):
+${(y.awardLines ?? []).map((a) => `- ${a}`).join("\n")}
+
+Write a 3-5 sentence caption:
+- Open with "${y.name}" + her single strongest award from the list (name, organiser and year stated plainly).
+- IMPORTANT: a line marked [crew award] belongs to the crew of that YEAR. State the year and never imply the current crew won it. A vessel award belongs to the hull and needs no such caveat.
+- One sentence on what the award actually recognises, grounded in the specs or region provided.
+- Pricing once in passing, weekly rate for the whole yacht only, never per person.
+- Save CTA variant near the end.
+- At most ONE allowed emoji (⛵ 🌊 ⚓ ✨) at the very end, or none.
+- No hashtags.`,
+  }),
+
   crew_spotlight: (y) => ({
     prompt: `Yacht: ${y.name}${y.subtitle ? ` (${y.subtitle})` : ""}
 Specs: ${yachtSpecsLine(y) || "n/a"}

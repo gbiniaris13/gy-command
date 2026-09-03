@@ -34,6 +34,7 @@ export const FLEET_ANGLES = [
   "builder_heritage",
   "cruising_canvas",
   "crew_spotlight",
+  "award_winner",
 ] as const;
 export type FleetAngle = (typeof FLEET_ANGLES)[number];
 
@@ -115,6 +116,17 @@ export function angleEligibleForYacht(
             eligible: false,
             reason: "crew string lacks a named captain / bio",
           };
+    }
+    case "award_winner": {
+      // awardLines are attached by the fleet-post route from the
+      // settings snapshot `fleet_awards_v1` — an export of the site
+      // repo's guarded lib/yachtAwards.js registry (only entries that
+      // name award + organiser + year survive that guard). No lines
+      // attached = the yacht has no documented award = not eligible.
+      const count = (yacht.awardLines ?? []).length;
+      return count > 0
+        ? { eligible: true }
+        : { eligible: false, reason: "no documented awards" };
     }
     default:
       return { eligible: false, reason: "unknown angle" };

@@ -159,6 +159,23 @@ async function _observedImpl() {
     return NextResponse.json({ error: "empty pool" });
   }
 
+  // Attach documented awards (settings `fleet_awards_v1` — an export
+  // of the site repo's guarded lib/yachtAwards.js registry) so the
+  // award_winner angle becomes eligible for the hulls that earned it.
+  // Missing/broken snapshot = the angle simply never fires.
+  try {
+    const awardsRaw = await readSetting(sb, "fleet_awards_v1");
+    if (awardsRaw) {
+      const awardsMap = JSON.parse(awardsRaw);
+      for (const y of pool) {
+        const lines = y.slug ? awardsMap?.[y.slug] : null;
+        if (Array.isArray(lines) && lines.length > 0) {
+          y.awardLines = lines.filter((l: any) => typeof l === "string");
+        }
+      }
+    }
+  } catch {}
+
   // Rotation select.
   const state = await loadRotationState();
   const yacht = selectNextYacht(pool, state);
@@ -408,6 +425,30 @@ async function _observedImpl() {
     // ── Success path ──
     const utmUrl = buildFleetUTM(yacht, angle);
 
+    // First comment with the yacht's page (2026-09-03, George's call —
+    // same pattern as the LinkedIn first-comment rule). IG doesn't
+    // hyperlink comment URLs, but the address is copyable and the
+    // comment bumps early engagement signals. Fail-open: a comment
+    // failure must never mark the publish as failed.
+    let firstCommentOk = false;
+    if (yacht.slug) {
+      try {
+        const commentRes = await fetch(
+          `https://graph.facebook.com/v21.0/${publishData.id}/comments`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: `Full specifications, weekly rate and availability: georgeyachts.com/yachts/${yacht.slug} (also linked in our bio)`,
+              access_token: igToken,
+            }),
+          },
+        );
+        const commentData = await commentRes.json();
+        firstCommentOk = Boolean(commentData?.id);
+      } catch {}
+    }
+
     // Log into ig_posts for analytics coverage. PostgREST builder
     // doesn't expose .catch(), so we swallow errors with try/catch.
     try {
@@ -480,6 +521,7 @@ async function _observedImpl() {
         `Caption preview: "${captionBody.slice(0, 160).replace(/\n/g, " ")}..."`,
         `Link: https://instagram.com/p/${publishData.id}`,
         `UTM: boat_${(yacht.slug ?? "").toLowerCase()} · angle_${angle}`,
+        `First comment (yacht page): ${firstCommentOk ? "✅ posted" : "⚠ failed"}`,
         ``,
         `📱 Story followup auto-queued for +48h.`,
       ].join("\n"),

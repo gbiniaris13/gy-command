@@ -25,9 +25,10 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 // is read (18:30). Result: 12 zombie "scheduled" rows piled up since
 // 7/8 and the only day these captions ever published was Monday, weeks
 // late. The schedule truth is: Tue/Wed/Thu = fleet post, Wed/Fri =
-// reel, Sat/Sun = stories only. So the ONLY day this generator can
-// actually serve is Monday. Day indices: Mon=0 ... Sun=6.
-const RESERVED_DAY_INDICES = new Set<number>([1, 2, 3, 4, 5, 6]);
+// reel, Sunday = stories only. This generator serves Monday and
+// Saturday (Saturday opened by George 2026-09-03; the window guard's
+// FEED_WEEKDAYS now includes it). Day indices: Mon=0 ... Sun=6.
+const RESERVED_DAY_INDICES = new Set<number>([1, 2, 3, 4, 6]);
 
 // 15:00 UTC = 18:00 Athens summer (DST Mar–Oct).
 // In winter (Nov–Mar) 15:00 UTC = 17:00 Athens, which falls outside

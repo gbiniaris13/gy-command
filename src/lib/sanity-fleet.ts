@@ -63,6 +63,10 @@ export type FleetYacht = {
   toys: string[];
   idealFor: string | null;
   images: Array<{ url: string; alt: string | null }>;
+  // Attached at runtime by the fleet-post route from the settings
+  // snapshot `fleet_awards_v1` (export of the site's yachtAwards.js
+  // registry). Not a Sanity field.
+  awardLines?: string[];
 };
 
 const FLEET_QUERY = `*[_type == "yacht" && count(images) >= 6 ${NOT_RETIRED}]{
