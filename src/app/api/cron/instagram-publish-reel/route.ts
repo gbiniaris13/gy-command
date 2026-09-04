@@ -223,8 +223,13 @@ Rules:
     }
 
     // Step 2 — Wait for processing (reels take longer than photos).
+    // 2026-09-04: the Friday 4/9 reel died at "Reel processing timeout
+    // (100s)" while the 28/8 reel needed 188s end to end. Instagram's
+    // video processing routinely runs past 100s; 30 polls of 5s give
+    // 150s, which with the jitter (up to 120s) and the upload still sits
+    // inside the 300s function budget.
     let ready = false;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 5000));
       const statusRes = await fetch(
         `${getIgMediaUrl(createData.id)}?fields=status_code&access_token=${encodeURIComponent(igToken)}`,
@@ -237,7 +242,8 @@ Rules:
       if (statusData.status_code === "ERROR") break;
     }
     if (!ready) {
-      return NextResponse.json({ error: "Reel processing timeout (100s)" });
+      await sendTelegram("❌ Reel skipped: Instagram had not finished processing the video after 150s. It will try again on the next reel day.");
+      return NextResponse.json({ error: "Reel processing timeout (150s)" });
     }
 
     // Step 3 — Publish

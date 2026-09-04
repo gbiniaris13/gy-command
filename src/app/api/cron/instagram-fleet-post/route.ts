@@ -304,9 +304,20 @@ async function _observedImpl() {
   }
 
   // Build carousel from Sanity photos. Instagram max: 10.
+  // 2026-09-04: Instagram accepts carousel images between 4:5 (0.8) and
+  // 1.91:1. Sanity image URLs carry the pixel size (…-1615x566.jpg);
+  // panoramic hull shots outside that window are dropped here instead
+  // of failing as carousel children.
+  const igFriendly = (u: string) => {
+    const m = u.match(/-(\d+)x(\d+)\.(?:jpg|jpeg|png|webp)(?:\?|$)/i);
+    if (!m) return true;
+    const ratio = Number(m[1]) / Number(m[2]);
+    return ratio >= 0.8 && ratio <= 1.91;
+  };
   const photos = (yacht.images ?? [])
     .map((img) => img.url)
     .filter((u) => typeof u === "string" && u.length > 10)
+    .filter(igFriendly)
     .slice(0, 8);
   if (photos.length < 4) {
     await sendTelegram(

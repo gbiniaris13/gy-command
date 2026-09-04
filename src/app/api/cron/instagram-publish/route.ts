@@ -146,6 +146,27 @@ async function swapImageFromLibrary(sb, post) {
     // Nothing in the library — keep whatever URL the post already had.
     return post.image_url;
   }
+  // 2026-09-04: Instagram accepts feed images between 4:5 (0.8) and
+  // 1.91:1. The Sanity fleet photos added on 3/9 carry their pixel size
+  // in the URL (…-1615x566.jpg) and 18 of 146 were panoramic; one took
+  // the 31/8 slot down with "The aspect ratio is not supported". Skip
+  // anything whose known size falls outside the window; unknown sizes
+  // pass as before.
+  const igFriendly = (p: { public_url?: string | null; width?: number | null; height?: number | null }) => {
+    let w = p.width ?? null;
+    let h = p.height ?? null;
+    if (!w || !h) {
+      const m = String(p.public_url ?? "").match(/-(\d+)x(\d+)\.(?:jpg|jpeg|png|webp)(?:\?|$)/i);
+      if (m) { w = Number(m[1]); h = Number(m[2]); }
+    }
+    if (!w || !h) return true;
+    const ratio = w / h;
+    return ratio >= 0.8 && ratio <= 1.91;
+  };
+  const usable = photos.filter(igFriendly);
+  if (usable.length === 0) return post.image_url;
+  photos.length = 0;
+  photos.push(...usable);
 
   // Gemini match — same contract as /api/instagram/pick-local-image
   let pickedId: string | null = null;
