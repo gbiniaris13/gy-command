@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch, getSetting } from "@/lib/google-api";
 import { observeCron } from "@/lib/cron-observer";
+import { pageForPrompt, isOutOfMarket, pageHasAnswerUnit } from "@/lib/geo-prompt-map";
 
 // ENGINES DIGEST v2 — George's daily analysis email, 11:45 Athens.
 //
@@ -145,6 +146,30 @@ async function engineReport(cron, now) {
         `τα AI μάς παραθέτουν σε ${tot["georgeyachts.com"] ?? "?"} prompts (mygreekcharter ${tot["mygreekcharter.com"] ?? "?"}, ionian-charter ${tot["ionian-charter.com"] ?? "?"}, istion ${tot["istionluxuryyachts.com"] ?? "?"}, 12knots ${tot["12knots.com"] ?? "?"})`,
         `  ${(s.opportunities || []).length} prompts στη GEO λίστα (αυτοί ναι, εμείς όχι)${topOpp ? `, κορυφαίο: «${topOpp.question}»` : ""}`,
       ];
+      // Plan item 15 (George 4/9): the closed loop. Every opportunity is
+      // mapped to the ONE page that should win it, and that page is
+      // checked for its answer unit. The line says what to fix.
+      const opps: Array<{ question: string; volume: number }> = s.opportunities || [];
+      const grouped = new Map<string, { volume: number; prompts: string[] }>();
+      let outOfMarket = 0;
+      let unmapped: string[] = [];
+      for (const o of opps) {
+        if (isOutOfMarket(o.question)) { outOfMarket++; continue; }
+        const t = pageForPrompt(o.question);
+        if (!t) { unmapped.push(o.question); continue; }
+        const g = grouped.get(t.page) || { volume: 0, prompts: [] };
+        g.volume += Number(o.volume) || 0;
+        g.prompts.push(o.question);
+        grouped.set(t.page, g);
+      }
+      const pages = [...grouped.entries()].sort((a, b) => b[1].volume - a[1].volume).slice(0, 10);
+      const checks = await Promise.all(pages.map(([page]) => pageHasAnswerUnit(page)));
+      pages.forEach(([page, g], i) => {
+        const mark = checks[i] === true ? "✓ answer unit" : checks[i] === false ? "✗ ΧΩΡΙΣ answer unit, φτιάξε το" : "? δεν διαβάστηκε";
+        lines.push(`  ${page} ← ${g.prompts.length} prompt${g.prompts.length === 1 ? "" : "s"}, όγκος ${g.volume} (${mark})`);
+      });
+      if (unmapped.length) lines.push(`  χωρίς σελίδα: ${unmapped.slice(0, 4).map((q) => `«${q}»`).join(", ")}${unmapped.length > 4 ? ` +${unmapped.length - 4}` : ""}`);
+      if (outOfMarket) lines.push(`  εκτός αγοράς (BVI/Bahamas/Croatia): ${outOfMarket}, αγνοούνται`);
       return { at: s.generated_at, lines };
     }
     if (cron === "backlink-gap-weekly") {
