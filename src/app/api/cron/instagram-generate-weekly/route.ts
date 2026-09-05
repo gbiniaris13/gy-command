@@ -179,11 +179,22 @@ async function _observedImpl(req?: any) {
     (existing ?? []).map((p) => p.schedule_time.slice(0, 10))
   );
   const emptyDays: number[] = [];
+  const nowMs = Date.now();
   for (let i = 0; i < 7; i++) {
     // Skip days served by other crons (fleet Tue-Thu, reel Fri) and
     // the weekend blackout (Sat/Sun are story-only per policy).
     if (RESERVED_DAY_INDICES.has(i)) continue;
     const d = new Date(startMonday.getTime() + i * 86400000);
+    // 2026-09-05 — never fill a slot that has already passed. The
+    // watchdog calls this with ?week=current every morning; on Saturday
+    // 5/9 it found the Monday 31/8 slot empty (that row had been parked
+    // in the 3/9 audit) and wrote a row dated 31/8 15:00. The publisher
+    // takes the OLDEST scheduled row, so that stale row went out at
+    // 18:33 and Saturday's own post never did. A past slot is not a
+    // hole to fill; it is history.
+    const slot = new Date(d.getTime());
+    slot.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
+    if (slot.getTime() < nowMs) continue;
     const key = d.toISOString().slice(0, 10);
     if (!takenDayKeys.has(key)) emptyDays.push(i);
   }
