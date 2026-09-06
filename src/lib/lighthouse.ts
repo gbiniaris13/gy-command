@@ -682,6 +682,15 @@ export function draftFor(o): { subject: string; body: string } {
     labor_day: ["Happy Labor Day", "Happy Labor Day! I hope you are closing out the summer with the people you love, somewhere near the water."],
     rosh_hashanah: ["Shana Tova!", "Shana Tova! Wishing you and your family a sweet, healthy and happy new year."],
   };
-  const [subject, line] = H[o.kind] ?? ["Warm wishes", "Warm wishes for the day!"];
+  const [defaultSubject, defaultLine] = H[o.kind] ?? ["Warm wishes", "Warm wishes for the day!"];
+  // 2026-09-06 (George: "θα ήθελα να δω τι στέλνει"): a holiday's
+  // subject and greeting line can be overridden from the preview page
+  // (settings key lighthouse_holiday_overrides, per kind). The salutation
+  // and the signature stay the house's.
+  const subject = String(o.override?.subject || "").trim() || defaultSubject;
+  const line = String(o.override?.line || "").trim() || defaultLine;
   return { subject, body: `Dear ${first},\n\n${line}${SIGN}` };
 }
+
+// The settings key the preview page writes and the batch send reads.
+export const HOLIDAY_OVERRIDES_KEY = "lighthouse_holiday_overrides";

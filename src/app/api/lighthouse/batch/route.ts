@@ -2,7 +2,9 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
-import { loadPeople, kindsForPerson, holidayDatesForYear, draftFor, markSent, HOLIDAY_LABELS } from "@/lib/lighthouse";
+import { loadPeople, kindsForPerson, holidayDatesForYear, draftFor, markSent, HOLIDAY_LABELS, HOLIDAY_OVERRIDES_KEY } from "@/lib/lighthouse";
+
+const GEORGE = "george@georgeyachts.com";
 import { greetingCard } from "@/lib/lighthouse-card";
 
 // Mass holiday send — the ONE place The Lighthouse sends to clients,
@@ -36,7 +38,7 @@ function raw(to, subject, body, html) {
 }
 
 export async function POST(request) {
-  const { kind, date, confirm } = await request.json();
+  const { kind, date, confirm, test } = await request.json();
   if (!kind || !date || confirm !== true) {
     return NextResponse.json({ error: "kind, date και confirm: true απαιτούνται" }, { status: 400 });
   }
@@ -44,6 +46,31 @@ export async function POST(request) {
   const valid = holidayDatesForYear(Number(year));
   if (valid[kind] !== date) {
     return NextResponse.json({ error: `το ${kind} δεν πέφτει ${date}` }, { status: 400 });
+  }
+
+  const { getSetting } = await import("@/lib/google-api");
+  // 2026-09-06 (George: "θα ήθελα να δω τι στέλνει"): the greeting
+  // line and subject he saved on the preview page, if any.
+  let override = null;
+  try {
+    const ovRaw = await getSetting(HOLIDAY_OVERRIDES_KEY);
+    override = ovRaw ? JSON.parse(ovRaw)?.[kind] ?? null : null;
+  } catch {}
+
+  // Test send: the exact card, addressed to George alone, with the
+  // first recipient's name in the salutation. No window, no sent mark,
+  // no CRM activity. This is how he sees what the button sends.
+  if (test === true) {
+    const { people: ppl } = await loadPeople();
+    const sample = ppl.find((p) => !p.opt_out && !p.is_minor && p.email && kindsForPerson(p).includes(kind)) || { name: "George" };
+    const d = draftFor({ kind, person: sample, date, override });
+    const html = greetingCard({ kind, subject: d.subject, body: d.body });
+    const res = await gmailFetch("/messages/send", {
+      method: "POST",
+      body: JSON.stringify({ raw: raw(GEORGE, `[ΔΟΚΙΜΗ] ${d.subject}`, d.body, html) }),
+    });
+    if (!res.ok) return NextResponse.json({ error: `gmail ${res.status}` }, { status: 502 });
+    return NextResponse.json({ ok: true, test: true, sent_to: GEORGE, as: sample.name });
   }
 
   // Wishes leave near the day they belong to, never in August for
@@ -63,7 +90,6 @@ export async function POST(request) {
   const batchKey = `all:${kind}:${year}`;
 
   // Double-send guard: the whole batch runs once per holiday per year.
-  const { getSetting } = await import("@/lib/google-api");
   const sentRaw = await getSetting("lighthouse_sent");
   const sentMap = sentRaw ? JSON.parse(sentRaw) : {};
   if (sentMap[batchKey]) {
@@ -85,7 +111,7 @@ export async function POST(request) {
   let sent = 0;
   const failures = [];
   for (const p of finalList) {
-    const d = draftFor({ kind, person: p, date });
+    const d = draftFor({ kind, person: p, date, override });
     // Η κάρτα The Edition (George 29/8): κάθε ευχή φεύγει ντυμένη
     // στο ύφος του house - navy, χρυσό, Georgia serif.
     const html = greetingCard({ kind, subject: d.subject, body: d.body });

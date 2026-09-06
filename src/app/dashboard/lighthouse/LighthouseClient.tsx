@@ -483,6 +483,16 @@ export default function LighthouseClient() {
                             {h.recipients} άτομα {namesOpen ? "▴" : "▾"}
                           </button>
                         </div>
+                        {/* 2026-09-06 (George, the day before Labor Day: "θα ήθελα
+                            να δω τι στέλνει"): the preview page shows the card, the
+                            text, the recipients, lets him edit the greeting and send
+                            a test to himself. The gold button stays the only real send. */}
+                        {!done && (
+                          <a href={`/api/lighthouse/preview?kind=${encodeURIComponent(h.kind)}&date=${h.date}`} target="_blank" rel="noreferrer"
+                            className="rounded-full border border-white/25 px-4 py-2.5 text-sm font-semibold text-soft-white hover:border-white/50">
+                            Δες την κάρτα
+                          </a>
+                        )}
                         {done ? (
                           <Chip tone="good">Εστάλησαν</Chip>
                         ) : !open ? (
