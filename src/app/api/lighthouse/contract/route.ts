@@ -16,6 +16,9 @@ const ai = new OpenAI({
 const MODEL = process.env.AI_MODEL || "gemini-2.5-flash";
 
 export async function POST(request) {
+  const { requireUser } = await import("@/lib/require-user");
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const form = await request.formData();
   const file = form.get("file");
   if (!file || typeof file === "string") {

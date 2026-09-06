@@ -15,7 +15,10 @@ export const dynamic = "force-dynamic";
 
 const CACHE_KEY = "lighthouse_cache_v1";
 
-export async function POST() {
+export async function POST(request) {
+  const { requireUser } = await import("@/lib/require-user");
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const raw = await getSetting(CACHE_KEY);
     if (raw) {

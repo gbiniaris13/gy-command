@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting } from "@/lib/google-api";
 import { upcomingOccasions, loadPeople, markSent, draftFor } from "@/lib/lighthouse";
+import { requireUser } from "@/lib/require-user";
 
 // The Lighthouse API. GET = everything the dashboard needs. POST =
 // George's actions: save a date, add a custom occasion, mark a
@@ -25,6 +26,8 @@ async function computePayload(days) {
 }
 
 export async function GET(request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const url = new URL(request.url);
   // The calendar shows the whole year ahead (George 29/8: "ημερολόγιο
   // όλου του έτους, με σειρά χρόνου"), so the window is fixed at 365.
@@ -134,6 +137,8 @@ async function bustCache() {
 }
 
 export async function POST(request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const body = await request.json();
   const sb = createServiceClient();
 

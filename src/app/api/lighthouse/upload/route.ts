@@ -31,6 +31,9 @@ async function ensureBucket() {
 }
 
 export async function POST(request) {
+  const { requireUser } = await import("@/lib/require-user");
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const form = await request.formData();
   const file = form.get("file");
   const person = String(form.get("person") || "unfiled").replace(/[^a-z0-9-]/gi, "_").slice(0, 60);
@@ -61,7 +64,10 @@ export async function POST(request) {
   return NextResponse.json({ ok: true, path, bucket: BUCKET, private: true });
 }
 
-export async function GET() {
+export async function GET(request) {
+  const { requireUser } = await import("@/lib/require-user");
+  const denied = await requireUser(request);
+  if (denied) return denied;
   // List the box, grouped by person folder.
   const { url, key } = sb();
   const res = await fetch(`${url}/storage/v1/object/list/${BUCKET}`, {

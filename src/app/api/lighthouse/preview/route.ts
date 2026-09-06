@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getSetting, setSetting } from "@/lib/google-api";
 import { loadPeople, kindsForPerson, holidayDatesForYear, draftFor, HOLIDAY_LABELS, HOLIDAY_OVERRIDES_KEY } from "@/lib/lighthouse";
 import { greetingCard } from "@/lib/lighthouse-card";
+import { requireUser } from "@/lib/require-user";
 
 // The Lighthouse preview page (George, 6/9/2026, the day before Labor
 // Day: "θα ήθελα να δω τι στέλνει. Να δω πώς το έχει γράψει, πώς είναι
@@ -31,6 +32,8 @@ async function readOverrides() {
 }
 
 export async function GET(request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const url = new URL(request.url);
   const kind = url.searchParams.get("kind") || "";
   const date = url.searchParams.get("date") || "";
@@ -140,6 +143,8 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const body = await request.json();
   const { action, kind } = body;
   if (!kind || !HOLIDAY_LABELS[kind]) return NextResponse.json({ error: "άγνωστη γιορτή" }, { status: 400 });

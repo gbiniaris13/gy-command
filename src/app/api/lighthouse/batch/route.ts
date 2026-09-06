@@ -6,6 +6,7 @@ import { loadPeople, kindsForPerson, holidayDatesForYear, draftFor, markSent, HO
 
 const GEORGE = "george@georgeyachts.com";
 import { greetingCard } from "@/lib/lighthouse-card";
+import { requireUser } from "@/lib/require-user";
 
 // Mass holiday send — the ONE place The Lighthouse sends to clients,
 // and only after George presses approve in the dashboard (design
@@ -38,6 +39,8 @@ function raw(to, subject, body, html) {
 }
 
 export async function POST(request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const { kind, date, confirm, test } = await request.json();
   if (!kind || !date || confirm !== true) {
     return NextResponse.json({ error: "kind, date και confirm: true απαιτούνται" }, { status: 400 });
