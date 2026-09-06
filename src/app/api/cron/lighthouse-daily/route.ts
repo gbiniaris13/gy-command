@@ -94,7 +94,7 @@ async function handler() {
   const holidayCard = (h, when) => `
   <div style="background:${G.navy};border-radius:6px;padding:14px 16px;margin:0 0 12px;">
     <p style="margin:0;font-family:Georgia,serif;font-size:15px;color:#ffffff;"><strong style="color:${G.gold};">${esc(h.label)}</strong> ${when === "today" ? "ΣΗΜΕΡΑ" : "αύριο"} · ${h.recipients} παραλήπτες</p>
-    <p style="margin:4px 0 8px;font-size:12px;color:#97A5B2;">${esc(h.sample.join(", "))}${h.recipients > 5 ? "…" : ""}</p>
+    <p style="margin:4px 0 8px;font-size:12px;color:#97A5B2;">${esc((h.sample ?? h.names ?? []).slice(0, 5).join(", "))}${h.recipients > 5 ? "…" : ""}</p>
     <p style="margin:0;font-size:12px;"><a href="https://command.georgeyachts.com/dashboard/lighthouse" style="color:${G.gold};font-weight:bold;text-decoration:none;">Άνοιξε το Lighthouse για έγκριση με ένα κλικ &rarr;</a></p>
   </div>`;
 
