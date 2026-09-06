@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { requireUser } from "@/lib/require-user";
 import {
   parseFromHeader,
   companyFromEmail,
@@ -155,6 +156,8 @@ Return strictly:
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const { messageId, starred } = await request.json();
 

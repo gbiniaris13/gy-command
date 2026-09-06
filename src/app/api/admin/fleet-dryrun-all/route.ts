@@ -10,6 +10,7 @@ import {
 } from "@/lib/fleet-rotation";
 import { generateFleetCaption, fleetHashtagBlock } from "@/lib/fleet-caption";
 import { detectBannedPhrases, detectEmojiViolations } from "@/lib/ai-voice-guardrails";
+import { requireUser } from "@/lib/require-user";
 
 // GET /api/admin/fleet-dryrun-all
 //
@@ -49,7 +50,9 @@ function pickYachtForAngle(pool: any[], angle: string): any | null {
   return ranked[0] ?? null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sb = createServiceClient();
   const pool = await fetchFleetPool();
   if (pool.length === 0) {

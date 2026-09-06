@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 // GET /api/instagram/pick-image?query=...
 //
@@ -57,6 +58,8 @@ function pexelsImageUrl(p: PexelsPhoto): string {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) {
     return NextResponse.json(

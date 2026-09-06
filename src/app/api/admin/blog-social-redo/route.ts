@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 const KEY = "blog_published_to_social";
 
@@ -62,6 +63,8 @@ async function probeIgCaption(mediaId: string): Promise<any> {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const url = request.nextUrl.searchParams.get("url");
   const deleteFb = request.nextUrl.searchParams.get("fb_post_id");
   const deleteIgFeed = request.nextUrl.searchParams.get("ig_feed_id");

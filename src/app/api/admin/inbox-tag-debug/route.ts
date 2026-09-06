@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,8 @@ CRITICAL OUTPUT RULES:
 REMEMBER: raw JSON only. No fences.`;
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const email = sp.get("email");
   if (!email) {

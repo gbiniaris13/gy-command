@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { classifyMessage, type MessageClass } from "@/lib/message-classifier";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -32,6 +33,8 @@ const INBOUND_TYPES = [
 const SELF_EMAIL = "george@georgeyachts.com";
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const startOffset = parseInt(sp.get("offset") ?? "0", 10);
   const useAi = sp.get("ai") === "1";

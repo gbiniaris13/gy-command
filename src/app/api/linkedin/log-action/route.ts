@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { LINKEDIN_DAILY_LIMITS } from "@/lib/linkedin-safety";
+import { requireUser } from "@/lib/require-user";
 
 // POST /api/linkedin/log-action
 // Body: {
@@ -23,6 +24,8 @@ import { LINKEDIN_DAILY_LIMITS } from "@/lib/linkedin-safety";
 // Returns the recent action log for audit / dedup.
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const sb = createServiceClient();
   const { searchParams } = new URL(req.url);
   const since =
@@ -46,6 +49,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   let body: any;
   try {
     body = await req.json();
@@ -143,6 +148,8 @@ export async function POST(req: NextRequest) {
 // Used to flip pending_approval → posted/rejected after the user
 // approves in Telegram and Domingo finishes the browser action.
 export async function PATCH(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   let body: any;
   try {
     body = await req.json();

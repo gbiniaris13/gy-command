@@ -3,8 +3,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
+import { requireUser } from "@/lib/require-user";
 
 export async function POST(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const { messageId } = await request.json();
 

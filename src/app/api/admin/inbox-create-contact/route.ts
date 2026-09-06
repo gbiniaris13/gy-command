@@ -13,6 +13,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { companyFromEmail } from "@/lib/email-signature-parser";
 import { refreshContactInbox } from "@/lib/inbox-analyzer";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -27,6 +28,8 @@ function getHeader(headers: GmailHeader[] | undefined, n: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const email = sp.get("email")?.toLowerCase();
   const first = sp.get("first") ?? null;

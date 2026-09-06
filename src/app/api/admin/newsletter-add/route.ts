@@ -4,11 +4,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { addSubscribers } from "@/lib/newsletter-proxy";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     const stream = String(body.stream || "bridge").toLowerCase();

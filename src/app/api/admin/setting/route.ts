@@ -11,10 +11,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const key = req.nextUrl.searchParams.get("key");
   if (!key) {
     return NextResponse.json({ error: "key required" }, { status: 400 });
@@ -32,6 +35,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   let body: { key?: unknown; value?: unknown } = {};
   try {
     body = await req.json();

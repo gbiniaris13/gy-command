@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -26,6 +27,8 @@ const EMAIL_TYPES = [
 const WARMUP_RE = /\bwbx[\s_-]/i;
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const apply = sp.get("apply") === "1";
   const sb = createServiceClient();

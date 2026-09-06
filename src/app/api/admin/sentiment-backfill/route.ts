@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { classifySentiment } from "@/lib/sentiment-classifier";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -20,6 +21,8 @@ const INBOUND_TYPES = [
 ];
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const limit = Math.min(500, Math.max(10, parseInt(sp.get("limit") ?? "200", 10)));
   const sb = createServiceClient();

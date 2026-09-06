@@ -7,11 +7,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const sb = createServiceClient();
   const targetHour = parseInt(
     req.nextUrl.searchParams.get("hour") ?? "15",

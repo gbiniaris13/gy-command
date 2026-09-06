@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/require-user";
 
 // POST /api/admin/cleanup-comment-spam
 // Body: { parent_comment_id: string, dry_run?: boolean, secret: string }
@@ -14,6 +15,8 @@ import { NextResponse } from "next/server";
 // the public URL.
 
 export async function POST(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const token = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
   const expected = process.env.SYNC_SECRET;

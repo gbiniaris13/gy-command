@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
+import { requireUser } from "@/lib/require-user";
 
 interface GmailHeader {
   name: string;
@@ -84,6 +85,8 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await requireUser(_request);
+  if (denied) return denied;
   const { id } = await params;
 
   try {

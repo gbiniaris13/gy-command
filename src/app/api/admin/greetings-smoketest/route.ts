@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { templateFor } from "@/lib/pillar3-greeting-templates";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -43,6 +44,8 @@ function buildRawDraft(to: string, subject: string, body: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const email = sp.get("email") ?? "george@georgeyachts.com";
   const keep = sp.get("keep") === "1";

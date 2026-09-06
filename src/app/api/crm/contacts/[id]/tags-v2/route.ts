@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,8 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const { id } = await params;
   const body = (await request.json()) as { tags?: string[] };
   const cleaned = (body.tags ?? [])

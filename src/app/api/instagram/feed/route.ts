@@ -1,8 +1,11 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/require-user";
 
 // GET — fetch recent published posts from Instagram API
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const token = process.env.IG_ACCESS_TOKEN;
   const igId = process.env.IG_BUSINESS_ID;
 

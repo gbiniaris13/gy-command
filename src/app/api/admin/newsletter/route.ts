@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
+import { requireUser } from "@/lib/require-user";
 import {
   resolveAudience,
   composeCampaign,
@@ -107,6 +108,8 @@ function newToken(): string {
 // ─── GET — list campaigns ───────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const sb = createServiceClient();
   const id = req.nextUrl.searchParams.get("id");
   if (id) {
@@ -140,6 +143,8 @@ export async function GET(req: NextRequest) {
 // ─── POST — actions + create ───────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const sb = createServiceClient();
   const action = req.nextUrl.searchParams.get("action");
   const id = req.nextUrl.searchParams.get("id");

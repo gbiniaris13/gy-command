@@ -17,11 +17,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { uploadImageBytes, IG_PHOTO_FOLDER } from "@/lib/ig-media";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   let form: FormData;
   try {
     form = await req.formData();

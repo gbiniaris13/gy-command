@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/require-user";
 
 // GET /api/admin/find-comment?username=eleanna_karvouni&text=stunning&limit=15
 //
@@ -13,6 +14,8 @@ import { NextResponse } from "next/server";
 // data already visible on a public post page.
 
 export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const token = process.env.IG_ACCESS_TOKEN;
   if (!token) {
     return NextResponse.json({ error: "IG not configured" }, { status: 500 });

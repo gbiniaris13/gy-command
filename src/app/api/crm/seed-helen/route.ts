@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 /**
  * GET — One-shot idempotent seed for Helen Skourti (Fraser Yachts Athens).
@@ -11,7 +12,9 @@ import { createServiceClient } from "@/lib/supabase-server";
  *
  * Safe to call multiple times — upserts on email.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const supabase = createServiceClient();
 

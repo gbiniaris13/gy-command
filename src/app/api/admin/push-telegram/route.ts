@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { sendTelegram } from "@/lib/telegram";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,6 +18,8 @@ export const maxDuration = 60;
 const SECRET = process.env.ADMIN_PUSH_KEY || "gy-claude-2026";
 
 export async function POST(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const key = request.nextUrl.searchParams.get("key");
   if (key !== SECRET) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });

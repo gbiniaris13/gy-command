@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 // POST — Create a new contact
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     const supabase = createServiceClient();
@@ -47,6 +50,8 @@ export async function POST(req: NextRequest) {
 
 // PATCH — Update a contact
 export async function PATCH(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     const supabase = createServiceClient();

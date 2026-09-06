@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { requireUser } from "@/lib/require-user";
 
 // PATCH — Update a contact's pipeline stage (used by Kanban drag-drop)
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const body = await req.json();

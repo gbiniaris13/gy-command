@@ -8,12 +8,15 @@
 
 import { NextResponse } from "next/server";
 import { listPages } from "@/lib/facebook-client";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const userToken = process.env.IG_ACCESS_TOKEN;
   const tokenInfo = {
     has_token: !!userToken,

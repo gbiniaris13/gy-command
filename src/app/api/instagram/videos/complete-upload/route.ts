@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { requireUser } from "@/lib/require-user";
 
 // POST /api/instagram/videos/complete-upload
 //
@@ -55,6 +56,8 @@ function generateId(): string {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     // New (Cloudinary) contract: { publicId, secureUrl, filename, size }.

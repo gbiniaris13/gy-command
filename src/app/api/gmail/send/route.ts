@@ -15,6 +15,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { refreshContactInbox } from "@/lib/inbox-analyzer";
 import { extractCommitments } from "@/lib/commitment-extractor";
 import { registerTrackedEmail, instrumentHtml } from "@/lib/email-tracking";
+import { requireUser } from "@/lib/require-user";
 
 function createRawEmail(
   to: string,
@@ -135,6 +136,8 @@ async function logOutboundActivity(args: {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const { to, subject, body, threadId, inReplyTo } = await request.json();
 

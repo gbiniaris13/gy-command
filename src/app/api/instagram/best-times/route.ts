@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 // GET /api/instagram/best-times
 //
@@ -171,7 +172,9 @@ function athensSlot(iso: string): { day: number; hour: number } {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   // 1. Always-on industry recommendation block
   const recommended = INDUSTRY_WINDOWS.slice()
     .sort((a, b) => b.score - a.score)

@@ -5,6 +5,7 @@ import { aiChat } from "@/lib/ai";
 import { detectAutoReply } from "@/lib/auto-reply";
 import { detectWarmup } from "@/lib/email-warmup-detector";
 import { createNotification } from "@/lib/notifications";
+import { requireUser } from "@/lib/require-user";
 
 interface ClassifyRequest {
   messageId: string;
@@ -75,6 +76,8 @@ async function classifyWithAI(email: ClassifyRequest): Promise<ClassifyResult> {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const { messageId, from, subject, body, headers }: ClassifyRequest =
       await request.json();

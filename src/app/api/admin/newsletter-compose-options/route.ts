@@ -3,11 +3,14 @@
 
 import { NextResponse } from "next/server";
 import { getComposerOptions } from "@/lib/newsletter-proxy";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const result = await getComposerOptions();
     return NextResponse.json(result);

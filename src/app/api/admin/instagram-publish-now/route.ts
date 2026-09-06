@@ -33,6 +33,7 @@ import {
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { markHashtagsUsed, clearMetaError } from "@/lib/meta-stealth";
 import { getIgTokenOptional, getIgGraphRoot, getIgMediaUrl } from "@/lib/ig-token";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -58,6 +59,8 @@ function captionQualityIssue(caption: string): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   let body: { post_id?: string } = {};
   try {
     body = await req.json();

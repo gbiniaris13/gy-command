@@ -1,7 +1,10 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+import { requireUser } from "@/lib/require-user";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const raw = process.env.GA_SERVICE_ACCOUNT_JSON;
   if (!raw) return NextResponse.json({ error: "GA_SERVICE_ACCOUNT_JSON not set" });
 

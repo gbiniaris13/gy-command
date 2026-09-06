@@ -20,6 +20,7 @@
 
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -35,7 +36,9 @@ const ACTIVE_STAGE_NAMES = [
 
 const TERMINAL_OR_NEW = ["Lost", "Won", "Closed Won", "Closed Lost", "New", "New Lead"];
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sb = createServiceClient();
   const out: any = { generated_at: new Date().toISOString() };
 

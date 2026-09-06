@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 // POST — Add a note to a contact
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const body = await req.json();

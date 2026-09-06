@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { detectWarmup } from "@/lib/email-warmup-detector";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -84,7 +85,9 @@ async function ensureLabel(
   return created.id;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const labelCache = new Map<string, string>();
   const warmupLabelId = await ensureLabel("gy-warmup", labelCache);
   if (!warmupLabelId) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { requireUser } from "@/lib/require-user";
 
 /**
  * GET — Generate a luxury yacht charter proposal for a contact.
@@ -10,6 +11,8 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await requireUser(_req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const supabase = createServiceClient();

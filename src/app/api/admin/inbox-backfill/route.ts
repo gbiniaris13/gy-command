@@ -22,6 +22,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 import {
   companyFromEmail,
   isNoiseEmail,
@@ -82,6 +83,8 @@ async function inBatches<T, R>(
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const days = Math.min(365, Math.max(1, parseInt(sp.get("days") ?? "90", 10)));
   const limit = Math.min(800, Math.max(50, parseInt(sp.get("limit") ?? "400", 10)));

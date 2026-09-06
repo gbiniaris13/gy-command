@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 // Returns the list of contacts that need a follow-up touch, ranked by how
 // overdue they are. Powers the FollowUpWidget on the main dashboard.
@@ -11,7 +12,9 @@ import { createServiceClient } from "@/lib/supabase-server";
 
 const FOLLOWUP_INTERVAL_DAYS = 4; // Bot sends follow-up 1 after ~4 days
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sb = createServiceClient();
 
   // Resolve the stage IDs we care about once.

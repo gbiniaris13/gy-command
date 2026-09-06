@@ -1,9 +1,12 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 // GET — list scheduled/draft posts
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sb = createServiceClient();
 
   // Table ig_posts should be created via Supabase dashboard SQL editor
@@ -22,6 +25,8 @@ export async function GET() {
 
 // POST — create new post (draft or scheduled)
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const body = await req.json();
   const sb = createServiceClient();
 
@@ -44,6 +49,8 @@ export async function POST(req: NextRequest) {
 
 // PATCH — update post
 export async function PATCH(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const body = await req.json();
   const sb = createServiceClient();
 
@@ -75,6 +82,8 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE — remove post
 export async function DELETE(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const { id } = await req.json();
   const sb = createServiceClient();
   await sb.from("ig_posts").delete().eq("id", id);

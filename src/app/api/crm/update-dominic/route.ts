@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 /**
  * GET — Idempotent update for Dominic (Benarrivati).
@@ -7,7 +8,9 @@ import { createServiceClient } from "@/lib/supabase-server";
  * Adds phone number, upgrades pipeline to "Proposal Sent", appends
  * charter notes and activity. Safe to call multiple times.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const supabase = createServiceClient();
 

@@ -13,11 +13,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { tagOneContact } from "@/lib/pillar2-tagger";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const startOffset = parseInt(sp.get("offset") ?? "0", 10);
   const force = sp.get("force") === "1";

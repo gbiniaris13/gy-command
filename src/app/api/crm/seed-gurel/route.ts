@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 /**
  * GET — One-shot idempotent seed for the Gürel / VOYAGE BY AXİOM deal.
@@ -8,7 +9,9 @@ import { createServiceClient } from "@/lib/supabase-server";
  * pipeline stage with the full La Pellegrina 1 charter deal attached.
  * Safe to call multiple times — will upsert into the same row keyed on email.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const supabase = createServiceClient();
 

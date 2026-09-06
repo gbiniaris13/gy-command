@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 /**
  * PATCH — Update charter fields for a contact.
@@ -9,6 +10,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const { id } = await params;
     const body = await req.json();

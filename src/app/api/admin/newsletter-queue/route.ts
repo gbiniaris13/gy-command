@@ -3,6 +3,7 @@
 // side NEWSLETTER_PROXY_SECRET so the browser never sees it.
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireUser } from "@/lib/require-user";
 import {
   listQueueEntries,
   addQueueEntry,
@@ -14,6 +15,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const url = new URL(req.url);
     const stream = url.searchParams.get("stream") as
@@ -42,6 +45,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     const action = String(body?.action ?? "");

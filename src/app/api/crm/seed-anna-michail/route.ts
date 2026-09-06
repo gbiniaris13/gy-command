@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 /**
  * GET — Idempotent seed for Anna Michail (IYC Charter Manager).
@@ -7,7 +8,9 @@ import { createServiceClient } from "@/lib/supabase-server";
  * She offered M/Y JO I and M/Y ZIA for Summer 2026 Greek charter.
  * CENTRAL_AGENT — IYC identity NEVER appears in client-facing materials.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const supabase = createServiceClient();
 

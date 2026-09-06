@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
 import { igPublicId, signedVideoUpload, IG_VIDEO_FOLDER } from "@/lib/ig-media";
+import { requireUser } from "@/lib/require-user";
 
 // POST /api/instagram/videos/init-upload
 //
@@ -25,6 +26,8 @@ import { igPublicId, signedVideoUpload, IG_VIDEO_FOLDER } from "@/lib/ig-media";
 const MAX_BYTES = 100 * 1024 * 1024; // 100 MB — IG Graph API hard cap
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const { filename, size } = await req.json();
     if (!filename || typeof filename !== "string") {

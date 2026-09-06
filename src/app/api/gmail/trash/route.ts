@@ -4,8 +4,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
+import { requireUser } from "@/lib/require-user";
 
 export async function POST(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const { messageId } = await request.json();
 
@@ -37,6 +40,8 @@ export async function POST(request: NextRequest) {
 // Companion endpoint to UNDO a trash — moves the message back to inbox.
 // Called by the Email view's "UNDO" toast after a swipe-to-delete.
 export async function DELETE(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const { messageId } = await request.json();
 

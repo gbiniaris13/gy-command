@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const contactId = req.nextUrl.searchParams.get("contactId");
 
@@ -33,6 +36,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     const { id, completed, snoozed_until } = body as {

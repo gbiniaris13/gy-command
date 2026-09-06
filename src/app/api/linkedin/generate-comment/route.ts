@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { aiChat } from "@/lib/ai";
 import { commentPrompt } from "@/lib/linkedin-safety";
+import { requireUser } from "@/lib/require-user";
 
 // POST /api/linkedin/generate-comment
 // Body: { post_text: string, author_industry?: string, author_name?: string }
@@ -12,6 +13,8 @@ import { commentPrompt } from "@/lib/linkedin-safety";
 // so we keep one source of truth for the tone/rules.
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const body = await req.json();
     const postText = (body.post_text ?? "").trim();

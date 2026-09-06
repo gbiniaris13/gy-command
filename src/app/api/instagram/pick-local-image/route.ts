@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
+import { requireUser } from "@/lib/require-user";
 
 // POST /api/instagram/pick-local-image
 // Body: { caption: string, reserve?: boolean }
@@ -49,6 +50,8 @@ function heuristicScore(caption: string, photo: PhotoRow): number {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const caption = (body.caption ?? "").toString().trim();
   const reserve = body.reserve === true;

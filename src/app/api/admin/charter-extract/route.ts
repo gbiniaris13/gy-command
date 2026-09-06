@@ -41,6 +41,7 @@ import {
   type PifExtraction,
 } from "@/lib/charter-doc-extractor";
 import { activateCharterFromContract } from "@/lib/charter-activation";
+import { requireUser } from "@/lib/require-user";
 import {
   cascadeGuests,
   normalizeFromPassport,
@@ -123,6 +124,8 @@ async function parseInput(req: NextRequest): Promise<InputPayload | null> {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   let input: InputPayload | null;
   try {
     input = await parseInput(req);
@@ -362,6 +365,8 @@ export async function POST(req: NextRequest) {
 // GET /api/admin/charter-extract?status=manual_review
 // Returns documents awaiting review (used by the queue page).
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const status = req.nextUrl.searchParams.get("status") ?? "manual_review";
   const limit = Math.min(
     100,

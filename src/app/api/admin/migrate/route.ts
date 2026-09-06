@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 // One-time migration endpoint — adds missing columns
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sb = createServiceClient();
 
   // Check if charter_end_date exists by trying to query it

@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const { id } = await params;
   const reason = request.nextUrl.searchParams.get("reason") ?? null;
   const sb = createServiceClient();

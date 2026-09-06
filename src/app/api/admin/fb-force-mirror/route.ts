@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 import {
   publishPhoto,
   publishPhotoCarousel,
@@ -18,6 +19,8 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const id = req.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "?id required" }, { status: 400 });

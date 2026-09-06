@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 /**
  * GET /api/crm/sessions?limit=50
  * Returns latest visitor sessions for the real-time feed auto-refresh.
  */
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const supabase = createServiceClient();
     const { searchParams } = new URL(request.url);

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 // GET /api/admin/fleet-enable?value=true|false
 //
@@ -16,6 +17,8 @@ import { createServiceClient } from "@/lib/supabase-server";
 const KEY = "fleet_posts_enabled";
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const sb = createServiceClient();
   const url = new URL(req.url);
   const value = url.searchParams.get("value");

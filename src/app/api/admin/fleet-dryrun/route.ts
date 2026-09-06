@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
+import { requireUser } from "@/lib/require-user";
 import {
   fetchFleetPool,
   fetchYachtById,
@@ -35,6 +36,8 @@ import {
 // Read-only. No DB writes, no IG calls. Safe to hit repeatedly.
 
 export async function GET(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   const { searchParams } = new URL(req.url);
   const forcedYachtId = searchParams.get("yacht_id");
   const forcedAngle = searchParams.get("angle");

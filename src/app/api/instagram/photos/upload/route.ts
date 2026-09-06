@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { igPublicId, uploadImageBytes, IG_PHOTO_FOLDER } from "@/lib/ig-media";
+import { requireUser } from "@/lib/require-user";
 
 // POST /api/instagram/photos/upload
 //
@@ -58,6 +59,8 @@ Infer from the filename and hint only. Don't see the image. If you can't tell, u
 }
 
 export async function POST(req: NextRequest) {
+  const denied = await requireUser(req);
+  if (denied) return denied;
   try {
     const form = await req.formData();
     const file = form.get("file");
@@ -134,7 +137,9 @@ export async function POST(req: NextRequest) {
 
 // GET /api/instagram/photos/upload — lists all uploaded photos for
 // the dashboard grid view.
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sb = createServiceClient();
   const { data, error } = await sb
     .from("ig_photos")

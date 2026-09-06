@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
+import { requireUser } from "@/lib/require-user";
 
 interface GmailHeader {
   name: string;
@@ -24,6 +25,8 @@ function getHeader(headers: GmailHeader[], name: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const { searchParams } = request.nextUrl;
   const q = searchParams.get("q") ?? "in:inbox";
   const maxResults = searchParams.get("maxResults") ?? "20";

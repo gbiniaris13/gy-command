@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
+import { requireUser } from "@/lib/require-user";
 
 /**
  * GET — Idempotent seed for M/Y JO I and M/Y ZIA.
@@ -11,7 +12,9 @@ import { createServiceClient } from "@/lib/supabase-server";
  * PREREQUISITE: Run vessels-migration.sql in Supabase SQL editor first.
  * Upserts by vessel_name so safe to call multiple times.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   try {
     const supabase = createServiceClient();
 

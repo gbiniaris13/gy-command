@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
 import { extractCommitments } from "@/lib/commitment-extractor";
+import { requireUser } from "@/lib/require-user";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -56,6 +57,8 @@ function extractBody(payload: any): string {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const sp = request.nextUrl.searchParams;
   const days = Math.min(60, Math.max(1, parseInt(sp.get("days") ?? "14", 10)));
   const pageToken = sp.get("pageToken") ?? undefined;
