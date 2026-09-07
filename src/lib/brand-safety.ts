@@ -74,7 +74,12 @@ export async function imageBrandIssue(imageUrl: string): Promise<string | null> 
     const res = await ai.chat.completions.create({
       model,
       temperature: 0,
-      max_tokens: 60,
+      // Gemini 2.5 spends "thinking" tokens out of max_tokens; a 60-token cap
+      // truncated the verdict to "UN" and every post would have read as
+      // unclear. Generous cap, thinking off, one-line answer.
+      max_tokens: 1000,
+      // @ts-expect-error Gemini-only extension accepted by the OpenAI-compatible endpoint
+      extra_body: { google: { thinking_config: { thinking_budget: 0, include_thoughts: false } } },
       messages: [
         {
           role: "user",
