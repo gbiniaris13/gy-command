@@ -14,6 +14,7 @@ import {
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
+import { scrubPartnerNames } from "@/lib/brand-safety";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { sanitizeCaption } from "@/lib/caption-sanitizer";
@@ -146,7 +147,7 @@ Rules:
 - No invented clients, stories, or numbers`,
       { maxTokens: 4000 },
     );
-    caption = sanitizeCaption(raw.replace(/^["']|["']$/g, "").trim());
+    caption = scrubPartnerNames(sanitizeCaption(raw.replace(/^["']|["']$/g, "").trim()));
   } catch {
     caption = `Quiet morning on deck. The engine hums, coffee cools, and the Aegean opens ahead.\n\nA week on a private crewed yacht is not just travel. It is the difference between seeing Greece and living it.\n\nWhich island would you start with?\n\nDM us to plan yours → link in bio\n\n#yachtcharter #greekislands #yachtchartergreece #crewedyacht #aegean #cyclades #charterlife #georgeyachts #yachtlife #luxuryyachtcharter #privatecharter`;
   }

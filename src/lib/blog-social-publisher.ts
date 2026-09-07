@@ -18,6 +18,7 @@
 // short hook. Zero manual work on publish day.
 
 import { aiChat } from "@/lib/ai";
+import { scrubPartnerNames } from "@/lib/brand-safety";
 import type { BlogArticle } from "@/lib/blog-fetcher";
 import { publishPhoto as facebookPublishPhoto } from "@/lib/facebook-client";
 import { getIgTokenOptional } from "@/lib/ig-token";
@@ -103,7 +104,9 @@ after. Do not wrap in quotes or code fences. Just the caption text.`;
     temperature: 0.55,
   });
 
-  return cleanAndGuarantee(raw, article, platform);
+  // 2026-09-07 (George, SOS): no partner, central agent or competitor is
+  // ever named on the house's channels, whatever the article said.
+  return scrubPartnerNames(cleanAndGuarantee(raw, article, platform));
 }
 
 // Post-processing safety net. We never trust the model to always

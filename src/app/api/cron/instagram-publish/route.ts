@@ -25,6 +25,7 @@ import {
 } from "@/lib/meta-stealth";
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { sanitizeCaption } from "@/lib/caption-sanitizer";
+import { containsPartnerName, imageBrandIssue } from "@/lib/brand-safety";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
@@ -52,6 +53,10 @@ function captionQualityIssue(caption: string): string | null {
   // Reject obvious placeholder text
   if (/lorem ipsum|TODO|TBD|placeholder/i.test(prose))
     return "contains placeholder text";
+  // 2026-09-07 (George, SOS): never name a partner, central agent or
+  // competitor on the house's channels.
+  const partner = containsPartnerName(clean);
+  if (partner) return `names another company (${partner})`;
   return null;
 }
 
@@ -298,6 +303,26 @@ async function _observedImpl() {
       // library or if the library is empty.
       const resolvedImageUrl = await swapImageFromLibrary(sb, post);
       post.image_url = resolvedImageUrl;
+
+      // 2026-09-07 (George, SOS): a partner's office sign went out as a
+      // story because the yacht photo sets include brochure pages. Every
+      // image is now looked at before it is published: buildings, signs,
+      // logos, watermarks and other companies' text block the post.
+      const imageIssue = await imageBrandIssue(post.image_url ?? "");
+      if (imageIssue) {
+        await sb
+          .from("ig_posts")
+          .update({ status: "draft", error: `brand_safety: ${imageIssue}` })
+          .eq("id", post.id);
+        await sb
+          .from("ig_photos")
+          .update({ tags: ["brand-unsafe"] })
+          .eq("public_url", post.image_url ?? "");
+        await sendTelegram(
+          `🚫 <b>IG post blocked by brand safety</b>\n<i>${imageIssue}</i>\nImage: ${post.image_url}\nFlipped back to draft — pick another photo in /dashboard/instagram.`
+        ).catch(() => {});
+        continue;
+      }
 
       // Brand-integrity guard. 2026-04-22 a P/CAT ALENA fleet post went
       // live with an Unsplash stock photo because the source image URL

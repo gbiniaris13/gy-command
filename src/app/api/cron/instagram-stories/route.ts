@@ -15,6 +15,7 @@ import {
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
 import { getIgTokenOptional } from "@/lib/ig-token";
+import { imageBrandIssue } from "@/lib/brand-safety";
 import { classifyPhotoForStory, type StoryLinkResult } from "@/lib/story-link";
 import { fetchFleetForStories } from "@/lib/sanity-fleet";
 import { publishPhotoStory } from "@/lib/facebook-client";
@@ -253,10 +254,15 @@ async function _observedImpl(req?: Request) {
   // story-link classifier (lib/story-link.ts) has enough signal
   // to route each story to a relevant page on georgeyachts.com.
   // Boss directive: "δε θέλω να ξαναδώ story χωρίς link από το site μας".
-  const { data: allPhotos } = await sb
+  const { data: allPhotosRaw } = await sb
     .from("ig_photos")
     .select("id, public_url, tags, description, filename")
     .is("used_in_post_id", null);
+  // 2026-09-07 (brand safety): photos the vision check has flagged stay in
+  // the table for the record but never enter the pool again.
+  const allPhotos = (allPhotosRaw ?? []).filter(
+    (p: { tags?: string[] | null }) => !(p.tags ?? []).includes("brand-unsafe"),
+  );
 
   if (!allPhotos || allPhotos.length === 0) {
     await sendTelegram("⚠️ No photos available for Stories. Add more to ~/Desktop/ROBERTO IG/");
@@ -367,6 +373,20 @@ async function _observedImpl(req?: Request) {
   // so every story is visually self-contained — no more silent
   // photo-only stories that "δεν λένε τίποτα" per George's
   // 2026-05-14 ping.
+  // 2026-09-07 (George, SOS): look at the photo before it becomes a story.
+  // A partner's office sign shipped this morning from a yacht's photo set.
+  // Unsafe photos are tagged in the library so the LRU never offers them
+  // again, and the slot is skipped rather than filled with a guess.
+  const storyImageIssue = await imageBrandIssue(photo.public_url);
+  if (storyImageIssue) {
+    if (!String(photo.id).startsWith("yacht:")) {
+      await sb.from("ig_photos").update({ tags: ["brand-unsafe"] }).eq("id", photo.id);
+    }
+    await sendTelegram(
+      `🚫 <b>IG story skipped by brand safety</b>\n<i>${storyImageIssue}</i>\nPhoto: ${photo.public_url}${yachtChoice ? `\nYacht: ${yachtChoice.yachtName} (remove the image from her Sanity set)` : ""}`
+    ).catch(() => {});
+    return NextResponse.json({ skipped: "brand_safety", reason: storyImageIssue, photo: photo.public_url });
+  }
   const ogTitle = yachtChoice ? yachtChoice.yachtName : "From Greek Waters";
   const ogSubtitle = yachtChoice
     ? "Crewed yacht charter · Greece"
