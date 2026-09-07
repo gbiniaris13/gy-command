@@ -55,14 +55,17 @@ export function containsPartnerName(text: string | null | undefined): string | n
 
 const VISION_PROMPT =
   "You are checking a photograph before it is posted on a yacht charter brokerage's Instagram. " +
-  "Answer with ONE line. Reply exactly UNSAFE: <reason> if the image shows any of the following: " +
-  "a building, office, storefront, marina office or reception; any company sign, logo, flag or wordmark other than the yacht's own name on her hull; " +
-  "a watermark or overlaid website/company text (for example a charter website's name in a corner); a brochure page, collage, map or document; " +
-  "a screenshot; a person at a desk or counter; a car, plane or hotel. " +
-  "Otherwise reply exactly SAFE. A yacht, her decks, cabins, food, sea, coast, anchorage, tender, toys or guests at sea are SAFE. " +
-  "A small Greek flag on the yacht is SAFE. Text that is clearly the yacht's own name on the hull is SAFE.";
+  "The house never shows another company. Answer with ONE line. " +
+  "Reply UNSAFE: <quote the exact text or name you see> if the image contains any of the following: " +
+  "an office, shop front, reception desk or a company sign as the subject of the photo; " +
+  "a company name, website address or logo overlaid on the photo (a watermark, a caption bar, a corner credit, a brochure header or footer); " +
+  "a brochure page with marketing text, a collage with text, a screenshot, a map with a company name; a person at a desk or counter. " +
+  "Otherwise reply exactly SAFE. " +
+  "SAFE: a yacht, her decks, cabins, food, sea, coast, anchorage, tender, toys, guests; towns, houses, marinas or buildings in the background or on the shore; " +
+  "a layout or deck-plan drawing without company text; the yacht's own name on the hull, pillows or towels; the boat builder's badge on the boat; " +
+  "equipment brands (engines, electronics, appliances, televisions); a Greek flag.";
 
-export async function imageBrandIssue(imageUrl: string): Promise<string | null> {
+export async function imageBrandIssue(imageUrl: string, yachtName?: string | null): Promise<string | null> {
   if (!imageUrl) return "no image url";
   if (!process.env.AI_API_KEY) return null;
   try {
@@ -91,10 +94,43 @@ export async function imageBrandIssue(imageUrl: string): Promise<string | null> 
       ],
     });
     const out = (res.choices[0]?.message?.content || "").trim();
-    if (/^UNSAFE/i.test(out)) return out.replace(/^UNSAFE:?\s*/i, "").slice(0, 200) || "flagged by vision check";
     if (/^SAFE/i.test(out)) return null;
-    // Unexpected answer: treat as unsafe, a human can approve by re-scheduling.
-    return `unclear vision verdict: ${out.slice(0, 120)}`;
+    if (!/^UNSAFE/i.test(out)) {
+      // Unexpected answer: treat as unsafe, a human can approve by re-scheduling.
+      return `unclear vision verdict: ${out.slice(0, 120)}`;
+    }
+    // The model quotes whatever text it read. Most of it is the yacht's own
+    // name, her builder or an equipment brand (measured on 1,458 fleet
+    // images: 290 quotes, 12 real). A known partner name or a hard reason
+    // (office, screenshot, watermark, brochure) blocks outright; anything
+    // else is asked about once more, as text, before it blocks.
+    const quoted = out.replace(/^UNSAFE:?\s*/i, "").trim().slice(0, 200) || "flagged by vision check";
+    const partner = containsPartnerName(quoted);
+    if (partner) return `${quoted} (${partner})`;
+    if (/office|reception|screenshot|watermark|brochure|website|http|www\.|\.com\b|\.gr\b|caption bar|corner credit|company sign|desk|counter|collage/i.test(quoted)) return quoted;
+    if (yachtName && quoted.toLowerCase().includes(yachtName.toLowerCase())) return null;
+    const second = await ai.chat.completions.create({
+      model,
+      temperature: 0,
+      max_tokens: 200,
+      // @ts-expect-error Gemini-only extension accepted by the OpenAI-compatible endpoint
+      extra_body: { google: { thinking_config: { thinking_budget: 0, include_thoughts: false } } },
+      messages: [
+        {
+          role: "user",
+          content:
+            `The text "${quoted}" was read off a photograph of a charter yacht in Greece` +
+            (yachtName ? ` named ${yachtName}` : "") +
+            ". Is it the name, brand or website of a yacht charter company, yacht broker, charter agency, marina, travel business or media outlet? " +
+            "The yacht's own name, boat builders and models (Lagoon, Fountaine Pajot, Bali, Sunreef, Princess, Azimut, Admiral, Aicon, Riva, Conrad, Excess), " +
+            "equipment and consumer brands (Garmin, Raymarine, Furuno, Simrad, Yamaha, Suzuki, Jobe, Sea-Doo, Williams, Highfield, Aqua Marina, Smeg, Grohe, Siemens, Coca-Cola, Netflix, Moët, Dior, Ferragamo, Perrier), " +
+            "layout labels and generic words are NO. Answer YES or NO and four words why.",
+        },
+      ],
+    });
+    const verdict = (second.choices[0]?.message?.content || "").trim();
+    if (/^NO/i.test(verdict)) return null;
+    return `${quoted} (${verdict.slice(0, 80) || "no second verdict"})`;
   } catch (e) {
     console.error("[brand-safety] vision check failed, not blocking:", (e as Error)?.message);
     return null;

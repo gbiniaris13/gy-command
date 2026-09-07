@@ -377,7 +377,7 @@ async function _observedImpl(req?: Request) {
   // A partner's office sign shipped this morning from a yacht's photo set.
   // Unsafe photos are tagged in the library so the LRU never offers them
   // again, and the slot is skipped rather than filled with a guess.
-  const storyImageIssue = await imageBrandIssue(photo.public_url);
+  const storyImageIssue = await imageBrandIssue(photo.public_url, yachtChoice?.yachtName ?? null);
   if (storyImageIssue) {
     if (!String(photo.id).startsWith("yacht:")) {
       await sb.from("ig_photos").update({ tags: ["brand-unsafe"] }).eq("id", photo.id);
