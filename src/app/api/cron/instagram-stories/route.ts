@@ -16,6 +16,7 @@ import {
 } from "@/lib/rate-limit-guard";
 import { getIgTokenOptional } from "@/lib/ig-token";
 import { imageBrandIssue } from "@/lib/brand-safety";
+import { socialBlockReason, yachtSlugFromFilename } from "@/lib/social-policy";
 import { classifyPhotoForStory, type StoryLinkResult } from "@/lib/story-link";
 import { fetchFleetForStories } from "@/lib/sanity-fleet";
 import { publishPhotoStory } from "@/lib/facebook-client";
@@ -260,9 +261,18 @@ async function _observedImpl(req?: Request) {
     .is("used_in_post_id", null);
   // 2026-09-07 (brand safety): photos the vision check has flagged stay in
   // the table for the record but never enter the pool again.
-  const allPhotos = (allPhotosRaw ?? []).filter(
+  const brandSafe = (allPhotosRaw ?? []).filter(
     (p: { tags?: string[] | null }) => !(p.tags ?? []).includes("brand-unsafe"),
   );
+  // 2026-09-08: library photos named sanity-<slug>-<n>.jpg belong to a
+  // yacht. Yachts listed under a website-only permission never appear in
+  // a story, so they leave the pool before anything is ranked.
+  const allPhotos = [] as typeof brandSafe;
+  for (const p of brandSafe) {
+    const yslug = yachtSlugFromFilename((p as { filename?: string | null }).filename);
+    if (yslug && (await socialBlockReason(yslug, "instagram stories"))) continue;
+    allPhotos.push(p);
+  }
 
   if (!allPhotos || allPhotos.length === 0) {
     await sendTelegram("⚠️ No photos available for Stories. Add more to ~/Desktop/ROBERTO IG/");
@@ -377,6 +387,19 @@ async function _observedImpl(req?: Request) {
   // A partner's office sign shipped this morning from a yacht's photo set.
   // Unsafe photos are tagged in the library so the LRU never offers them
   // again, and the slot is skipped rather than filled with a guess.
+  // Last gate before anything leaves for Instagram. The pool filters above
+  // should have caught this already; this is the one that must never be
+  // skipped, whatever path chose the photo.
+  const policySlug =
+    yachtChoice?.yachtSlug ?? yachtSlugFromFilename((photo as { filename?: string | null }).filename);
+  if (policySlug) {
+    const blocked = await socialBlockReason(policySlug, "instagram stories");
+    if (blocked) {
+      await sendTelegram(`🚫 <b>IG story skipped</b>\n<i>${blocked}</i>\nPhoto: ${photo.public_url}`);
+      return NextResponse.json({ skipped: "social_policy", reason: blocked });
+    }
+  }
+
   const storyImageIssue = await imageBrandIssue(photo.public_url, yachtChoice?.yachtName ?? null);
   if (storyImageIssue) {
     if (!String(photo.id).startsWith("yacht:")) {

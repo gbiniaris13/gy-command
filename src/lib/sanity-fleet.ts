@@ -12,6 +12,14 @@
  * decided later in fleet-rotation.ts.
  */
 
+import { filterSocialAllowed } from "@/lib/social-policy";
+
+// 2026-09-08: both fetchers below feed OUTWARD channels only (Instagram
+// feed and stories, Pinterest, the LinkedIn fleet brief). Some yachts on
+// the site are listed under a website-only permission, so every fleet
+// that leaves this file is filtered against the social policy. An
+// unreadable policy yields an empty fleet: the crons go quiet, which is
+// the safe direction. Site rendering does not come through here.
 const SANITY_PROJECT = "ecqr94ey";
 const SANITY_DATASET = "production";
 const SANITY_API_VERSION = "2024-01-01";
@@ -110,7 +118,8 @@ export async function fetchFleetPool(): Promise<FleetYacht[]> {
     if (!res.ok) return [];
     const body = await res.json();
     const result = Array.isArray(body?.result) ? body.result : [];
-    return result.filter((y: any) => y && y._id && y.name);
+    const clean = result.filter((y: any) => y && y._id && y.name);
+    return await filterSocialAllowed(clean);
   } catch {
     return [];
   }
@@ -133,7 +142,8 @@ export async function fetchFleetForStories(): Promise<FleetYacht[]> {
     if (!res.ok) return [];
     const body = await res.json();
     const result = Array.isArray(body?.result) ? body.result : [];
-    return result.filter((y: any) => y && y._id && y.name && y.slug && (y.images?.length ?? 0) > 0);
+    const clean = result.filter((y: any) => y && y._id && y.name && y.slug && (y.images?.length ?? 0) > 0);
+    return await filterSocialAllowed(clean);
   } catch {
     return [];
   }

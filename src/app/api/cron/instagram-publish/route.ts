@@ -26,6 +26,7 @@ import {
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { sanitizeCaption } from "@/lib/caption-sanitizer";
 import { containsPartnerName, imageBrandIssue } from "@/lib/brand-safety";
+import { socialBlockReason, yachtSlugFromFilename } from "@/lib/social-policy";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
@@ -168,6 +169,20 @@ async function swapImageFromLibrary(sb, post) {
     const ratio = w / h;
     return ratio >= 0.8 && ratio <= 1.91;
   };
+  // 2026-09-08: a library photo named sanity-<slug>-<n>.jpg mirrors that
+  // yacht's Sanity gallery. Yachts listed under a website-only permission
+  // never reach Instagram, so those photos leave the pool here, before
+  // anything is chosen.
+  const cleared = [] as typeof photos;
+  for (const p of photos) {
+    const yslug = yachtSlugFromFilename((p as { filename?: string | null }).filename);
+    if (yslug && (await socialBlockReason(yslug, "instagram"))) continue;
+    cleared.push(p);
+  }
+  photos.length = 0;
+  photos.push(...cleared);
+  if (photos.length === 0) return post.image_url;
+
   const usable = photos.filter(igFriendly);
   if (usable.length === 0) return post.image_url;
   photos.length = 0;
