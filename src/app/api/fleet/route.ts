@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { loadSocialPolicy } from "@/lib/social-policy";
 
 const SANITY_PROJECT_ID = "ecqr94ey";
 const SANITY_DATASET = "production";
@@ -23,6 +24,12 @@ export async function GET() {
     }
 
     const data = await res.json();
+    // 2026-09-08: the dashboard is George's own view and shows every hull,
+    // including the ones listed under a website-only permission. It says so
+    // on each card, so a post built by hand carries the same warning the
+    // crons enforce automatically.
+    const policy = await loadSocialPolicy();
+    const cleared = policy ? new Set(policy.allowed) : null;
     const yachts = (data.result || []).map((y: Record<string, unknown>) => {
       // Determine type from name prefix
       const name = (y.name as string) || "";
@@ -42,6 +49,9 @@ export async function GET() {
         tier: y.fleetTier || "private",
         type,
         image: y.image || null,
+        // null when the policy could not be read, so the UI can say
+        // "unknown" rather than quietly implying it is cleared.
+        socialAllowed: cleared ? cleared.has(String(y.slug ?? "").toLowerCase()) : null,
       };
     });
 
