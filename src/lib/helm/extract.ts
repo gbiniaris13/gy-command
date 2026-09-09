@@ -14,7 +14,7 @@ import { aiChat } from "../ai";
 import { parseLooseJson } from "./json";
 import { fmtEur } from "./pricing";
 import {
-  detectYachtBlocks, anchorBlocks, chunkBlocks, yachtKey, parseSeasonRates, parseRateYear, parseApaVat,
+  detectYachtBlocks, detectHeaderLikeNames, anchorBlocks, chunkBlocks, yachtKey, parseSeasonRates, parseRateYear, parseApaVat,
   pickVatForArea, detectTypeConflict, selectRateForDates, monthsLabel,
   type YachtBlock, type SeasonTier, type VatByArea, type TypeConflict,
 } from "./supplier-parse";
@@ -925,7 +925,9 @@ export async function extractSupplierYachts(
   // makes the count independent of how the supplier writes the line; each
   // name then anchors its own slice of the email. Live lesson: 9 headers
   // recognised out of 31 yachts, one of them the word "or".
-  const headerBlocks = detectYachtBlocks(supplierRaw);
+  // Prefixed headers, then every "N guests | N cabins" line (prefix or not),
+  // then the model's scan. Three counters, one list.
+  const headerBlocks = anchorBlocks(supplierRaw, detectHeaderLikeNames(supplierRaw), detectYachtBlocks(supplierRaw));
   let scanNames: string[] = [];
   try {
     scanNames = (await scanSupplierYachts(supplierRaw)).map((y) => y.name);
@@ -1094,7 +1096,7 @@ export async function scanSupplierYachts(text: string): Promise<ScannedYacht[]> 
   }
   // Backstop: every header counted in the text is listed, even if the model
   // skipped it - the picker must never hide a yacht the supplier offered.
-  for (const b of detectYachtBlocks(text)) {
+  for (const b of anchorBlocks(text, detectHeaderLikeNames(text), detectYachtBlocks(text))) {
     if (seen.has(b.key) || [...seen].some((k) => yachtKey(k) === b.key)) continue;
     seen.add(b.key);
     out.push({ name: b.name, line: b.header.replace(/^[\s\-*•·>]*(?:\d{1,2}[.)])?\s*/, "").slice(0, 140), snippet: "" });
