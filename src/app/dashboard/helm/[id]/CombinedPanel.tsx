@@ -21,7 +21,12 @@ import { allInNumber, type PricingInput } from "@/lib/helm/pricing";
 async function readJsonSafe(r: Response): Promise<any> {
   const text = await r.text();
   try { return JSON.parse(text); }
-  catch { return { error: r.status === 413 ? "That file is too large to upload through the server. (Large PDFs now upload directly — if you still see this, the file may exceed 45MB.)" : (text.slice(0, 200) || `Upload failed (HTTP ${r.status})`) }; }
+  catch {
+    // A non-JSON body is the platform talking, not our route: a 504 is the
+    // function's time ceiling ("Task timed out"), a 413 the body cap.
+    if (r.status === 504) return { error: "The server ran out of time before finishing (5 minute ceiling). Nothing was saved and nothing was lost. Try again; if it keeps happening, split the supplier email into two and extract each." };
+    return { error: r.status === 413 ? "That file is too large to upload through the server. (Large PDFs now upload directly — if you still see this, the file may exceed 45MB.)" : (text.slice(0, 200) || `Request failed (HTTP ${r.status})`) };
+  }
 }
 
 type Confidence = "high" | "medium" | "low";
@@ -487,7 +492,7 @@ export default function CombinedPanel({
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: moreText }),
       });
-      const j = await r.json();
+      const j = await readJsonSafe(r);
       if (!r.ok) throw new Error(j.error || "extract-more-failed");
       const merged: CombinedExtraction = j.extraction?.yachts ? j.extraction : { yachts: [] };
       const addedCount: number = j.added || 0;
@@ -585,7 +590,7 @@ export default function CombinedPanel({
     setBusy("extract"); setError(null);
     try {
       const r = await fetch(`/api/helm/${requestId}/extract`, { method: "POST" });
-      const j = await r.json();
+      const j = await readJsonSafe(r);
       if (!r.ok) throw new Error(j.error || "extract-failed");
       const next: CombinedExtraction = j.extraction?.yachts ? j.extraction : { yachts: [] };
       setEx(next);

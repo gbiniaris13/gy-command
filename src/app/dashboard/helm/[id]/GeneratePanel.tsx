@@ -16,6 +16,19 @@ import PricingExtras from "./PricingExtras";
 import TermsEditor, { type TermsState, EMPTY_TERMS, termsStateFromObject, termsObjectFromState } from "./TermsEditor";
 import type { PricingInput } from "@/lib/helm/pricing";
 
+// A non-JSON body is the platform talking, not our route (a 504 = the
+// function's 5-minute ceiling). Never let res.json() throw "Unexpected token".
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readJsonSafe(r: Response): Promise<any> {
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch {
+    if (r.status === 504) return { error: "The server ran out of time before finishing (5 minute ceiling). Nothing was saved and nothing was lost. Try again; if it keeps happening, split the supplier email into two and extract each." };
+    return { error: text.slice(0, 200) || `Request failed (HTTP ${r.status})` };
+  }
+}
+
+
 type Confidence = "high" | "medium" | "low";
 type Field<T> = { value: T | null; confidence: Confidence; snippet: string };
 type Extraction = {
@@ -213,7 +226,7 @@ export default function GeneratePanel({
     setBusy("extract"); setError(null);
     try {
       const r = await fetch(`/api/helm/${requestId}/extract`, { method: "POST" });
-      const j = await r.json();
+      const j = await readJsonSafe(r);
       if (!r.ok) throw new Error(j.error || "extract-failed");
       setEx(j.extraction);
       setPx(seedPrice(j.extraction));

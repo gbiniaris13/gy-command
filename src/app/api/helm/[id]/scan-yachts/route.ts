@@ -11,7 +11,9 @@ import { getRequest } from "@/lib/helm-admin";
 import { scanSupplierYachts } from "@/lib/helm/extract";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 300: these call the same extractor as /extract. A big paste (a whole fleet
+// with brochures) needs the same ceiling; 60 timed out with a plain-text 504.
+export const maxDuration = 300;
 
 async function adminEmail(): Promise<string | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;

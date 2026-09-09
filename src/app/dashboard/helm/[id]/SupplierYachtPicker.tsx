@@ -12,6 +12,19 @@
 
 import { useState } from "react";
 
+// A non-JSON body is the platform talking, not our route (a 504 = the
+// function's 5-minute ceiling). Never let res.json() throw "Unexpected token".
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readJsonSafe(r: Response): Promise<any> {
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch {
+    if (r.status === 504) return { error: "The server ran out of time before finishing (5 minute ceiling). Nothing was saved and nothing was lost. Try again; if it keeps happening, split the supplier email into two and extract each." };
+    return { error: text.slice(0, 200) || `Request failed (HTTP ${r.status})` };
+  }
+}
+
+
 type Scanned = { name: string; line: string; snippet: string };
 
 export default function SupplierYachtPicker({ requestId, hasImported }: { requestId: string; hasImported: boolean }) {
@@ -31,7 +44,7 @@ export default function SupplierYachtPicker({ requestId, hasImported }: { reques
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(from === "imported" ? { useImported: true } : { text }),
       });
-      const j = await r.json();
+      const j = await readJsonSafe(r);
       if (!r.ok) throw new Error(j.error || "scan failed");
       setScanned(j.yachts as Scanned[]);
       setSource(from);
@@ -59,7 +72,7 @@ export default function SupplierYachtPicker({ requestId, hasImported }: { reques
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(source === "imported" ? { useImported: true, names: [...picked] } : { text, names: [...picked] }),
       });
-      const j = await r.json();
+      const j = await readJsonSafe(r);
       if (!r.ok) throw new Error(j.error || "add failed");
       setMsg(`Added ${j.added} yacht${j.added === 1 ? "" : "s"} — loading the cards…`);
       // A full reload: adding the first yacht flips the request to combined mode,

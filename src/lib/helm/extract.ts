@@ -925,28 +925,53 @@ export async function extractSupplierYachts(
   const cutOffMsg = (after: string) =>
     `Multi-yacht extraction was cut off ${after}. Trim obvious noise (long quoted history, signatures) from the Supplier email(s) in Edit and press Extract again.`;
 
-  const runPieces = async (pieces: { text: string; names: string[] }[]) => {
-    for (const piece of pieces) {
-      try {
-        passes.push(await extractYachtsOnce(piece.text, brief, undefined, piece.names));
-      } catch (e) {
-        if (!(e instanceof ExtractionCutOffError)) throw e;
-        // Still too big for one output: halve at a blank line and go again.
-        const halves = splitSupplierChunks(piece.text);
-        if (halves.length < 2) throw new Error(cutOffMsg("even after splitting the supplier text automatically"));
-        for (const h of halves) {
-          try { passes.push(await extractYachtsOnce(h, brief)); }
-          catch (he) { if (he instanceof ExtractionCutOffError) throw new Error(cutOffMsg("even after splitting the supplier text automatically")); throw he; }
-        }
-      }
+  // One piece -> one or two passes. Falls back to halving at a blank line
+  // when a single piece is still too big for one output.
+  // A transient model error (rate limit, overloaded) on ONE piece must not
+  // sink the whole extract: wait a moment and try that piece once more.
+  const transient = (e: unknown) => /\b(429|503|rate.?limit|quota|overloaded|resource.?exhausted|unavailable)\b/i.test((e as Error)?.message ?? "");
+  const oncePatiently = async (text: string, only?: string[], expect?: string[]): Promise<MultiPass> => {
+    try { return await extractYachtsOnce(text, brief, only, expect); }
+    catch (e) {
+      if (!transient(e)) throw e;
+      await new Promise((r) => setTimeout(r, 8000));
+      return extractYachtsOnce(text, brief, only, expect);
     }
   };
+  const runPiece = async (piece: { text: string; names: string[] }): Promise<MultiPass[]> => {
+    try {
+      return [await oncePatiently(piece.text, undefined, piece.names)];
+    } catch (e) {
+      if (!(e instanceof ExtractionCutOffError)) throw e;
+      const halves = splitSupplierChunks(piece.text);
+      if (halves.length < 2) throw new Error(cutOffMsg("even after splitting the supplier text automatically"));
+      const out: MultiPass[] = [];
+      for (const h of halves) {
+        try { out.push(await extractYachtsOnce(h, brief)); }
+        catch (he) { if (he instanceof ExtractionCutOffError) throw new Error(cutOffMsg("even after splitting the supplier text automatically")); throw he; }
+      }
+      return out;
+    }
+  };
+  // The pieces are independent, so they run TOGETHER. Run one after another,
+  // the 27-yacht fleet email (four pieces plus the continuation) took ~160s on
+  // the fixture and the real request, brochures included, went past the
+  // platform's 300s ceiling: "Task timed out after 300 seconds", 504, and the
+  // browser saw a plain-text error instead of JSON. In parallel the wall time
+  // is roughly one piece's worth. Output order does not matter: the yachts are
+  // sorted later by price, and reconciliation matches by name.
+  const runPieces = async (pieces: { text: string; names: string[] }[]) => {
+    const results = await Promise.all(pieces.map(runPiece));
+    for (const r of results) passes.push(...r);
+  };
 
-  if (blocks.length > 8 || supplierRaw.length > 15000) {
-    // A long fleet never goes through one giant pass: eight yachts per piece,
-    // each piece told exactly which yachts it holds. (The 27-yacht email that
-    // came back as 16 was one pass of valid JSON that simply stopped early.)
-    await runPieces(blocks.length ? chunkBlocks(supplierRaw, blocks, 8) : splitSupplierChunks(supplierRaw).map((t) => ({ text: t, names: [] })));
+  if (blocks.length > 4 || supplierRaw.length > 15000) {
+    // A long fleet never goes through one giant pass: FOUR yachts per piece,
+    // each piece told exactly which yachts it holds, all pieces at once. (The
+    // 27-yacht email that came back as 16 was one pass of valid JSON that
+    // simply stopped early; eight per piece then ran ~100s a piece, too close
+    // to the 300s ceiling once brochures ride along.)
+    await runPieces(blocks.length ? chunkBlocks(supplierRaw, blocks, 4) : splitSupplierChunks(supplierRaw).map((t) => ({ text: t, names: [] })));
   } else {
     try {
       passes.push(await extractYachtsOnce(supplierRaw, brief, undefined, detectedNames));
@@ -966,14 +991,18 @@ export async function extractSupplierYachts(
     const pairs = matchYachtsToBlocks(allYachts, blocks);
     const have = new Set([...pairs.values()].filter(Boolean).map((b) => (b as YachtBlock).key));
     const missing = blocks.filter((b) => !have.has(b.key));
-    for (let i = 0; i < missing.length; i += 8) {
-      const group = missing.slice(i, i + 8);
+    const groups: YachtBlock[][] = [];
+    for (let i = 0; i < missing.length; i += 4) groups.push(missing.slice(i, i + 4));
+    // Same reason as above: independent groups, so together.
+    const results = await Promise.all(groups.map(async (group) => {
       try {
-        passes.push(await extractYachtsOnce(group.map((b) => b.text).join("\n\n"), brief, group.map((b) => b.name), group.map((b) => b.name)));
+        return await oncePatiently(group.map((b) => b.text).join("\n\n"), group.map((b) => b.name), group.map((b) => b.name));
       } catch (e) {
         console.warn("[helm/extract] continuation pass failed:", (e as Error).message);
+        return null;
       }
-    }
+    }));
+    for (const r of results) if (r) passes.push(r);
     allYachts = passes.flatMap((p) => p.yachts);
   }
 
