@@ -13,6 +13,11 @@
 import { aiChat } from "../ai";
 import { parseLooseJson } from "./json";
 import { fmtEur } from "./pricing";
+import {
+  detectYachtBlocks, chunkBlocks, yachtKey, parseSeasonRates, parseRateYear, parseApaVat,
+  pickVatForArea, detectTypeConflict, selectRateForDates, monthsLabel,
+  type YachtBlock, type SeasonTier, type VatByArea, type TypeConflict,
+} from "./supplier-parse";
 
 export type Confidence = "high" | "medium" | "low";
 
@@ -75,9 +80,25 @@ export type ExtractionFlag = {
     | "DIVIDE_BY_UNCLEAR"
     | "PLUS_EXTRAS_NO_BREAKDOWN"
     | "NO_PRICE_FOUND"
-    | "AMBIGUOUS";
+    | "AMBIGUOUS"
+    /** STOP: the charter straddles two seasons and the fee below is the
+     *  pro-rata George specified (weekly/7 x nights per season). Calculated,
+     *  not quoted - needs the supplier's written confirmation. */
+    | "SPLIT_SEASON_CALCULATED"
+    /** Warn: rates are for a different year than the charter. */
+    | "RATE_YEAR_UNCONFIRMED"
+    /** Warn: VAT depends on the cruising area and the request's area did not
+     *  resolve it - set the VAT % by hand. */
+    | "VAT_DEPENDS_ON_AREA"
+    /** Warn: the supplier's type prefix contradicts the model (S/Y on a power
+     *  catamaran). vessel_type is blanked until the broker sets it. */
+    | "TYPE_CONFLICT";
   message: string;
 };
+
+/** A season tier as read DETERMINISTICALLY from the supplier text (months are
+ *  only filled when the email named them - never assumed). */
+export type StructuredRate = { season: SeasonTier; label: string; months: number[]; weekly: number; snippet: string };
 
 // Factual content lifted verbatim from the supplier email — NEVER invented.
 // Empty arrays / "" when the supplier did not state it. Not pricing, so no
@@ -141,6 +162,18 @@ export type Extraction = {
    *  quoted once (unchanged). */
   period_options?: PeriodOption[];
   seasonal_rates: SeasonalRate[];
+  /** Season table with calendar months, read by code from this yacht's own
+   *  block of the email (supplier-parse.ts). Absent when none was stated. */
+  rates?: StructuredRate[];
+  /** The year the supplier's rates are for ("RATES 2027"), else the year of
+   *  extraction. rate_year_confirmed = it matches the charter year. */
+  rate_year?: number;
+  rate_year_confirmed?: boolean;
+  /** VAT that depends on the cruising area, as written ("7,8% for Argosaronic
+   *  Gulf; 6,5% for Cyclades"). vat_pct is resolved from the request area. */
+  vat_by_area?: VatByArea[];
+  /** The supplier wrote S/Y on a power catamaran (or the reverse). */
+  type_conflict?: TypeConflict;
   dates: { from: Field<string>; to: Field<string> };
   embarkation: Field<string>;
   disembarkation: Field<string>;
@@ -154,8 +187,25 @@ export type Extraction = {
 /** Combined-extraction envelope: the per-yacht array PLUS proposal-level
  *  suggestions (auto-detected charter type + last-page terms). Additive: callers
  *  that only read the yacht array are unaffected. */
+/** The count check that makes an omission VISIBLE: yacht headers counted in
+ *  the raw text vs records actually extracted. Never silent. */
+export type Reconciliation = {
+  detected: number;
+  extracted: number;
+  /** Names present in the email that did not come back, after the continuation pass. */
+  missing: string[];
+  detected_names: string[];
+  at: string;
+};
+
+/** Request facts the deterministic layer needs: the charter dates pick the
+ *  season tier; the area resolves a conditional VAT. All optional. */
+export type ExtractContext = { dates_from?: string | null; dates_to?: string | null; area?: string | null };
+
 export type CombinedExtraction = {
   yachts: Extraction[];
+  /** Present whenever the email had countable yacht headers. */
+  reconciliation?: Reconciliation;
   /** Auto-detected charter type for the whole proposal (panel pre-selects). */
   suggested_charter_type?: SuggestedCharterType;
   /** Suggested last-page terms (owner edits/clears). */
@@ -212,6 +262,7 @@ OUTPUT: a SINGLE JSON object, no markdown fences, exactly this shape:
 export async function extractSupplier(
   supplierRaw: string,
   brief?: string,
+  ctx?: ExtractContext,
 ): Promise<Extraction> {
   const userMsg = [
     brief ? `Broker brief / context: ${brief}` : "",
@@ -261,7 +312,10 @@ export async function extractSupplier(
   enforceGrossCharterFee(parsed.pricing);
   for (const sr of parsed.seasonal_rates) sr.fee = toNum(sr.fee) ?? sr.fee;
   parsed.extras = normalizeExtras(parsed.extras);
-  return ensureSeasonalFlag(parsed);
+  ensureSeasonalFlag(parsed);
+  // Same deterministic reading as the combined path, on the whole text.
+  const blocks = detectYachtBlocks(supplierRaw);
+  return enrichYachtFromBlock(parsed, blocks[0] ?? { name: "", key: "", prefix: null, header: "", start: 0, end: supplierRaw.length, text: supplierRaw }, ctx);
 }
 
 // Normalise the per-yacht extras block to the known shape (drop empties, trim,
@@ -625,13 +679,19 @@ type MultiPass = {
 
 /** One extraction pass over one piece of supplier text. Throws
  *  ExtractionCutOffError when the JSON was truncated by the token cap. */
-async function extractYachtsOnce(text: string, brief?: string, onlyNames?: string[]): Promise<MultiPass> {
+async function extractYachtsOnce(text: string, brief?: string, onlyNames?: string[], expectNames?: string[]): Promise<MultiPass> {
   const picked = (onlyNames ?? []).map((n) => n.trim()).filter(Boolean);
+  const expected = (expectNames ?? []).map((n) => n.trim()).filter(Boolean);
   const userMsg = [
     brief ? `Broker brief / context: ${brief}` : "",
     picked.length
       ? `Extract full details for ONLY these yachts and IGNORE every other yacht in the email(s): ${picked.join(" | ")}.`
-      : "",
+      : expected.length
+        // The count is known before the model runs; telling it removes the
+        // "stopped at 16 of 27" failure at the source (the check below catches
+        // whatever still slips).
+        ? `This text lists ${expected.length} yachts: ${expected.join(" | ")}. Return ALL ${expected.length} as separate objects in "yachts", in this order. Do not stop early and do not skip any.`
+        : "",
     picked.length ? "SUPPLIER EMAIL(S):" : "SUPPLIER EMAIL(S) — extract every yacht from this only:",
     "```",
     text,
@@ -704,45 +764,242 @@ export function splitSupplierChunks(text: string): string[] {
   return chunks.length ? chunks : [text];
 }
 
-export async function extractSupplierYachts(
-  supplierRaw: string,
-  brief?: string,
-): Promise<CombinedExtraction> {
-  let passes: MultiPass[];
-  try {
-    passes = [await extractYachtsOnce(supplierRaw, brief)];
-  } catch (e) {
-    if (!(e instanceof ExtractionCutOffError)) throw e;
-    // The single pass ran out of output tokens — auto-chunk and go again,
-    // one piece at a time, then merge. George never splits offers by hand.
-    const chunks = splitSupplierChunks(supplierRaw);
-    if (chunks.length < 2) {
-      throw new Error(
-        "Multi-yacht extraction was cut off and the supplier text has no natural split point. Trim obvious noise (long quoted history, signatures) from the Supplier email(s) in Edit and press Extract again.",
-      );
+
+// =============================================================
+// DETERMINISTIC ENRICHMENT (2026-09-09). Runs AFTER the AI, on each yacht's
+// own block of the email, and only ever FILLS what the model left null or
+// FLAGS what it cannot decide. It never overwrites a stated figure and never
+// invents one: every value it sets carries the exact line it came from.
+// =============================================================
+
+function pushFlag(y: Extraction, code: ExtractionFlag["code"], message: string): void {
+  if (!Array.isArray(y.flags)) y.flags = [];
+  if (!y.flags.some((f) => f.code === code)) y.flags.push({ code, message });
+}
+function dropFlags(y: Extraction, ...codes: ExtractionFlag["code"][]): void {
+  if (!Array.isArray(y.flags)) return;
+  y.flags = y.flags.filter((f) => !codes.includes(f.code as ExtractionFlag["code"]));
+}
+function isBlank(v: unknown): boolean { return v === null || v === undefined || v === ""; }
+
+/** Pair each extracted yacht with its header block. Exact key first; then a
+ *  prefix match for a model the AI glued onto the name ("ASTORIA FP Samana 59"),
+ *  taken only against blocks nobody else claimed, so ADARA can never steal
+ *  ADARA NEXT's block. */
+function matchYachtsToBlocks(yachts: Extraction[], blocks: YachtBlock[]): Map<Extraction, YachtBlock | null> {
+  const out = new Map<Extraction, YachtBlock | null>();
+  const taken = new Set<string>();
+  const keyOf = (y: Extraction) => yachtKey(y.vessel_name?.value);
+  for (const y of yachts) {
+    const k = keyOf(y);
+    const b = k ? blocks.find((x) => x.key === k && !taken.has(x.key)) : undefined;
+    if (b) { out.set(y, b); taken.add(b.key); } else out.set(y, null);
+  }
+  for (const y of yachts) {
+    if (out.get(y)) continue;
+    const k = keyOf(y);
+    if (k.length < 4) continue;
+    const cands = blocks.filter((x) => !taken.has(x.key) && x.key.length >= 4 && (k.startsWith(x.key) || x.key.startsWith(k)));
+    if (cands.length === 1) { out.set(y, cands[0]); taken.add(cands[0].key); }
+  }
+  return out;
+}
+
+function enrichYachtFromBlock(y: Extraction, block: YachtBlock | null, ctx?: ExtractContext): Extraction {
+  const text = block?.text ?? "";
+  if (!text.trim()) return y;
+  if (!y.pricing) y.pricing = {} as ExtractedPricing;
+  const notes: string[] = [];
+  const charterYear = ctx?.dates_from && /^\d{4}/.test(String(ctx.dates_from)) ? Number(String(ctx.dates_from).slice(0, 4)) : null;
+  const fromTo = ctx?.dates_from && ctx?.dates_to ? `${String(ctx.dates_from).slice(0, 10)} to ${String(ctx.dates_to).slice(0, 10)}` : "";
+
+  // ---- season table -> structured rates; pick the tier from the charter dates
+  const parsed = parseSeasonRates(text);
+  if (parsed.length) {
+    y.rates = parsed.map((r) => ({ season: r.season, label: r.label, months: r.months, weekly: r.weekly, snippet: r.snippet }));
+    if (!Array.isArray(y.seasonal_rates) || !y.seasonal_rates.length) {
+      y.seasonal_rates = parsed.map((r) => ({ label: r.label, fee: r.weekly, snippet: r.snippet }));
     }
-    passes = [];
-    for (const chunk of chunks) {
-      try {
-        passes.push(await extractYachtsOnce(chunk, brief));
-      } catch (ce) {
-        if (ce instanceof ExtractionCutOffError) {
-          throw new Error(
-            "Multi-yacht extraction was cut off even after splitting the supplier text automatically. Trim obvious noise (long quoted history, signatures) from the Supplier email(s) in Edit and press Extract again.",
-          );
+    if (isBlank(y.pricing.charter_fee?.value)) {
+      if (parsed.length === 1) {
+        y.pricing.charter_fee = { value: parsed[0].weekly, confidence: "medium", snippet: parsed[0].snippet };
+        dropFlags(y, "NO_PRICE_FOUND");
+        notes.push(`Weekly rate read from the supplier line "${parsed[0].snippet}".`);
+      } else {
+        const sel = selectRateForDates(parsed, ctx?.dates_from, ctx?.dates_to);
+        if (sel.kind === "single") {
+          y.pricing.charter_fee = { value: sel.rate.weekly, confidence: "medium", snippet: sel.rate.snippet };
+          dropFlags(y, "NO_PRICE_FOUND", "MULTIPLE_SEASONAL_RATES");
+          notes.push(`Rate taken from the supplier's season table: ${sel.rate.label}${sel.rate.months.length ? ` (${monthsLabel(sel.rate.months)})` : ""} covers all ${sel.nights} nights ${fromTo}.`);
+        } else if (sel.kind === "split") {
+          y.pricing.charter_fee = { value: sel.total, confidence: "low", snippet: sel.segments.map((g) => g.rate.snippet).join(" | ") };
+          dropFlags(y, "NO_PRICE_FOUND", "MULTIPLE_SEASONAL_RATES");
+          const parts = sel.segments.map((g) => `${g.nights} night${g.nights === 1 ? "" : "s"} ${g.rate.label} at ${fmtEur(g.rate.weekly)}/week`).join(" + ");
+          pushFlag(y, "SPLIT_SEASON_CALCULATED",
+            `Calculated, not quoted: the charter ${fromTo} spans two seasons. ${parts} = ${fmtEur(sel.total)} (each weekly rate / 7 x its nights, APA and VAT then apply on the total). Get the supplier's written confirmation of this figure before generating.`);
         }
-        throw ce;
+        // "none": leave the fee empty; ensureSeasonalFlag keeps the STOP flag so
+        // the broker picks - the code never assumes a calendar the email did not state.
       }
     }
   }
 
-  const allYachts = passes.flatMap((p) => p.yachts);
+  // ---- rate year. Only a season TABLE is a rate card that can belong to another
+  // year; a fee "for the above period" is, by definition, for the stated dates.
+  if (parsed.length) {
+    const ry = parseRateYear(text);
+    y.rate_year = ry ?? new Date().getUTCFullYear();
+    if (charterYear) {
+      y.rate_year_confirmed = y.rate_year === charterYear;
+      if (!y.rate_year_confirmed) {
+        pushFlag(y, "RATE_YEAR_UNCONFIRMED",
+          `${ry ? `The supplier states RATES ${ry}` : `No rate year stated, so these read as ${y.rate_year} rates`}; the charter is in ${charterYear}. Unconfirmed for the charter year - confirm ${charterYear} rates with the supplier.`);
+      }
+    }
+  }
+
+  // ---- APA / VAT (scalar, or VAT that depends on the area)
+  const av = parseApaVat(text);
+  if (isBlank(y.pricing.apa_pct?.value) && av.apa_pct !== null) {
+    y.pricing.apa_pct = { value: av.apa_pct, confidence: "medium", snippet: av.apa_snippet };
+    dropFlags(y, "MISSING_APA");
+  }
+  if (av.vat_by_area.length >= 2) {
+    y.vat_by_area = av.vat_by_area;
+    // Two VATs under a condition are NOT one stated figure. When the model
+    // still put a single number in vat_pct it simply took one of the two (it
+    // took the first, 7,8%, for a Cyclades charter), so a scalar that equals one
+    // of the conditional values is superseded by the resolution below. A VAT
+    // stated elsewhere with a different value is left alone.
+    const current = y.pricing.vat_pct?.value;
+    const cameFromThisLine = current !== null && current !== undefined && av.vat_by_area.some((v) => v.pct === Number(current));
+    if (isBlank(current) || cameFromThisLine) {
+      const pick = pickVatForArea(av.vat_by_area, ctx?.area);
+      if (pick) {
+        y.pricing.vat_pct = { value: pick.pct, confidence: "medium", snippet: `${pick.snippet} (applied: ${pick.area}, request area "${ctx?.area ?? ""}")` };
+        dropFlags(y, "MISSING_VAT", "VAT_DEPENDS_ON_AREA");
+      } else {
+        y.pricing.vat_pct = { value: null, confidence: "low", snippet: av.vat_by_area[0].snippet };
+        pushFlag(y, "VAT_DEPENDS_ON_AREA",
+          `VAT depends on the cruising area: ${av.vat_by_area.map((v) => `${v.pct}% ${v.area}`).join("; ")}. Set the VAT % for this charter's area before generating.`);
+      }
+    }
+  } else if (isBlank(y.pricing.vat_pct?.value) && av.vat_pct !== null) {
+    y.pricing.vat_pct = { value: av.vat_pct, confidence: "medium", snippet: av.vat_snippet };
+    dropFlags(y, "MISSING_VAT");
+  }
+
+  // ---- type prefix vs model
+  if (block) {
+    const tc = detectTypeConflict(block.prefix ?? y.vessel_type?.value, `${block.header} ${y.spec_line?.value ?? ""}`);
+    if (tc) {
+      y.type_conflict = tc;
+      y.vessel_type = { value: null, confidence: "low", snippet: block.header };
+      pushFlag(y, "TYPE_CONFLICT", `Type conflict: ${tc.reason} ("${block.header.slice(0, 100)}"). Verify with the supplier. No type is printed for this yacht until you set it.`);
+    }
+  }
+
+  if (notes.length) y.notes = [y.notes, ...notes].filter((x) => x && String(x).trim()).join(" ");
+  return ensureSeasonalFlag(y);
+}
+
+/** Enrich every yacht from its own block; safe with no blocks (no-op). */
+function enrichAll(yachts: Extraction[], raw: string, ctx?: ExtractContext): void {
+  const blocks = detectYachtBlocks(raw);
+  if (!blocks.length) return;
+  const pairs = matchYachtsToBlocks(yachts, blocks);
+  for (const y of yachts) enrichYachtFromBlock(y, pairs.get(y) ?? null, ctx);
+}
+
+export async function extractSupplierYachts(
+  supplierRaw: string,
+  brief?: string,
+  ctx?: ExtractContext,
+): Promise<CombinedExtraction> {
+  // Count first. A fleet email's yacht headers are countable by code, and that
+  // count is what the model is held to. No headers -> the old flow, unchanged.
+  const blocks = detectYachtBlocks(supplierRaw);
+  const detectedNames = blocks.map((b) => b.name);
+  const passes: MultiPass[] = [];
+
+  const cutOffMsg = (after: string) =>
+    `Multi-yacht extraction was cut off ${after}. Trim obvious noise (long quoted history, signatures) from the Supplier email(s) in Edit and press Extract again.`;
+
+  const runPieces = async (pieces: { text: string; names: string[] }[]) => {
+    for (const piece of pieces) {
+      try {
+        passes.push(await extractYachtsOnce(piece.text, brief, undefined, piece.names));
+      } catch (e) {
+        if (!(e instanceof ExtractionCutOffError)) throw e;
+        // Still too big for one output: halve at a blank line and go again.
+        const halves = splitSupplierChunks(piece.text);
+        if (halves.length < 2) throw new Error(cutOffMsg("even after splitting the supplier text automatically"));
+        for (const h of halves) {
+          try { passes.push(await extractYachtsOnce(h, brief)); }
+          catch (he) { if (he instanceof ExtractionCutOffError) throw new Error(cutOffMsg("even after splitting the supplier text automatically")); throw he; }
+        }
+      }
+    }
+  };
+
+  if (blocks.length > 8 || supplierRaw.length > 15000) {
+    // A long fleet never goes through one giant pass: eight yachts per piece,
+    // each piece told exactly which yachts it holds. (The 27-yacht email that
+    // came back as 16 was one pass of valid JSON that simply stopped early.)
+    await runPieces(blocks.length ? chunkBlocks(supplierRaw, blocks, 8) : splitSupplierChunks(supplierRaw).map((t) => ({ text: t, names: [] })));
+  } else {
+    try {
+      passes.push(await extractYachtsOnce(supplierRaw, brief, undefined, detectedNames));
+    } catch (e) {
+      if (!(e instanceof ExtractionCutOffError)) throw e;
+      const chunks = splitSupplierChunks(supplierRaw);
+      if (chunks.length < 2) throw new Error(cutOffMsg("and the supplier text has no natural split point"));
+      await runPieces(chunks.map((t) => ({ text: t, names: [] })));
+    }
+  }
+
+  let allYachts = passes.flatMap((p) => p.yachts);
+
+  // CONTINUATION: whatever the model left out is asked for BY NAME, from its
+  // own block only (small input, small output), before anyone sees a count.
+  if (blocks.length) {
+    const pairs = matchYachtsToBlocks(allYachts, blocks);
+    const have = new Set([...pairs.values()].filter(Boolean).map((b) => (b as YachtBlock).key));
+    const missing = blocks.filter((b) => !have.has(b.key));
+    for (let i = 0; i < missing.length; i += 8) {
+      const group = missing.slice(i, i + 8);
+      try {
+        passes.push(await extractYachtsOnce(group.map((b) => b.text).join("\n\n"), brief, group.map((b) => b.name), group.map((b) => b.name)));
+      } catch (e) {
+        console.warn("[helm/extract] continuation pass failed:", (e as Error).message);
+      }
+    }
+    allYachts = passes.flatMap((p) => p.yachts);
+  }
+
   if (!allYachts.length) throw new Error("Multi-yacht extraction found no yachts in the supplier email.");
   // DETERMINISTIC post-process (NOT AI): collapse the SAME yacht quoted for 2+
   // durations into ONE base yacht carrying both as period_options ("the double").
   // Runs across ALL chunks, so a yacht split over two pieces still merges.
   const yachts = mergeDuplicateYachts(allYachts);
+
+  // Season tables, rate year, APA/VAT, conditional VAT, type conflicts - read
+  // by code from each yacht's own block. Fills blanks, flags doubts, never overwrites.
+  enrichAll(yachts, supplierRaw, ctx);
+
   const out: CombinedExtraction = { yachts };
+  if (blocks.length) {
+    // The count check. Whatever is still missing is named, never hidden.
+    const pairs = matchYachtsToBlocks(yachts, blocks);
+    const have = new Set([...pairs.values()].filter(Boolean).map((b) => (b as YachtBlock).key));
+    out.reconciliation = {
+      detected: blocks.length,
+      extracted: yachts.length,
+      missing: blocks.filter((b) => !have.has(b.key)).map((b) => b.name),
+      detected_names: detectedNames,
+      at: new Date().toISOString(),
+    };
+  }
   const sct = passes.map((p) => p.suggested_charter_type).find(Boolean);
   if (sct) out.suggested_charter_type = sct;
   const st = passes.map((p) => p.suggested_terms).find(Boolean);
@@ -792,6 +1049,13 @@ export async function scanSupplierYachts(text: string): Promise<ScannedYacht[]> 
     seen.add(key);
     out.push({ name, line: String(o.line ?? "").trim().slice(0, 140), snippet: "" });
   }
+  // Backstop: every header counted in the text is listed, even if the model
+  // skipped it - the picker must never hide a yacht the supplier offered.
+  for (const b of detectYachtBlocks(text)) {
+    if (seen.has(b.key) || [...seen].some((k) => yachtKey(k) === b.key)) continue;
+    seen.add(b.key);
+    out.push({ name: b.name, line: b.header.replace(/^[\s\-*•·>]*(?:\d{1,2}[.)])?\s*/, "").slice(0, 140), snippet: "" });
+  }
   return out;
 }
 
@@ -801,11 +1065,14 @@ export async function extractPickedYachts(
   text: string,
   names: string[],
   brief?: string,
+  ctx?: ExtractContext,
 ): Promise<CombinedExtraction> {
   const picked = names.map((n) => n.trim()).filter(Boolean);
   if (!picked.length) return { yachts: [] };
   const pass = await extractYachtsOnce(text, brief, picked);
-  const out: CombinedExtraction = { yachts: mergeDuplicateYachts(pass.yachts) };
+  const yachts = mergeDuplicateYachts(pass.yachts);
+  enrichAll(yachts, text, ctx);
+  const out: CombinedExtraction = { yachts };
   if (pass.suggested_charter_type) out.suggested_charter_type = pass.suggested_charter_type;
   if (pass.suggested_terms) out.suggested_terms = pass.suggested_terms;
   return out;

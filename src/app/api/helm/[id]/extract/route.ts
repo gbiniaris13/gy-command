@@ -33,6 +33,25 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: "No supplier text on this request to extract from." }, { status: 400 });
   }
 
+  // The charter dates pick the season tier and the area resolves a conditional
+  // VAT, deterministically, inside the extractor (supplier-parse.ts).
+  const rr = r as unknown as { dates_from?: string | null; dates_to?: string | null; area?: string | null; extraction?: unknown };
+  const xctx = { dates_from: rr.dates_from ?? null, dates_to: rr.dates_to ?? null, area: rr.area ?? null };
+
+  // A re-extract rebuilds the YACHT LIST. It must never erase the request's
+  // history that also lives in the extraction JSON: the follow-up plan
+  // (pipeline), magazine views (salon), opens, the imported supplier threads,
+  // the owner's terms / charter type / white-label choice. Until 2026-09-09 a
+  // re-extract replaced the whole column and silently wiped all of that.
+  // featured_index is the one key dropped on purpose: it indexes the OLD card
+  // order, and a stale pin put the wrong yacht on the cover.
+  const keepRequestHistory = (fresh: object) => {
+    const prev = (rr.extraction && typeof rr.extraction === "object") ? (rr.extraction as Record<string, unknown>) : {};
+    const { featured_index: _staleCover, ...history } = prev;
+    void _staleCover;
+    return { ...history, ...fresh };
+  };
+
   try {
     // Combined mode → extract EVERY yacht the supplier offered (array, each
     // with its own numbers + snippets + confidence + STOP flags). Single mode
@@ -41,11 +60,13 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       // CombinedExtraction = { yachts, suggested_charter_type?, suggested_terms? }.
       // The panel pre-selects the auto-detected charter type + seeds the terms
       // editor from the suggestions (the owner confirms / edits / clears).
-      const extraction = await extractSupplierYachts(r.supplier_raw, r.brief || undefined);
+      const fresh = await extractSupplierYachts(r.supplier_raw, r.brief || undefined, xctx);
+      const extraction = keepRequestHistory(fresh);
       await saveExtraction(id, extraction);
       return NextResponse.json({ ok: true, extraction });
     }
-    const extraction = await extractSupplier(r.supplier_raw, r.brief || undefined);
+    const fresh = await extractSupplier(r.supplier_raw, r.brief || undefined, xctx);
+    const extraction = keepRequestHistory(fresh);
     await saveExtraction(id, extraction);
     return NextResponse.json({ ok: true, extraction });
   } catch (e) {

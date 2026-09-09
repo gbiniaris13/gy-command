@@ -46,7 +46,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // Extract ONLY from the new text — the earlier yachts are never re-extracted.
     // The returned envelope carries the new yachts (+ proposal-level suggestions);
     // we APPEND only the yachts and never disturb the existing cards/suggestions.
-    const result = await extractSupplierYachts(text, r.brief || undefined);
+    const rr = r as unknown as { dates_from?: string | null; dates_to?: string | null; area?: string | null };
+    const result = await extractSupplierYachts(text, r.brief || undefined, { dates_from: rr.dates_from ?? null, dates_to: rr.dates_to ?? null, area: rr.area ?? null });
     const added = result.yachts;
     if (!added.length) {
       return NextResponse.json({ error: "No yachts found in the pasted text. Check it and try again." }, { status: 400 });
@@ -56,7 +57,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const existing = Array.isArray(ex.yachts) ? ex.yachts : [];
     // Preserve the existing proposal-level suggestions / settings (charter type,
     // terms, white_label, featured_index, …) — only the yacht list grows.
-    const extraction = { ...ex, yachts: [...existing, ...added] };
+    // reconciliation = the count check for THIS pasted text (the banner names
+    // anything that did not come back).
+    const extraction = { ...ex, yachts: [...existing, ...added], ...(result.reconciliation ? { reconciliation: result.reconciliation } : {}) };
     await saveExtraction(id, extraction);
 
     // Keep the full supplier history on the record (internal only).

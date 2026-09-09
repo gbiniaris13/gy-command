@@ -51,6 +51,9 @@ type YachtExtraction = {
 };
 type CombinedExtraction = {
   yachts: YachtExtraction[];
+  /** The extractor's count check: yacht headers counted in the email vs records
+   *  extracted. Shown as a banner whenever anything is missing - never silent. */
+  reconciliation?: { detected: number; extracted: number; missing: string[]; detected_names?: string[]; at?: string };
   suggested_charter_type?: CharterType;
   suggested_terms?: Record<string, unknown>;
 };
@@ -235,7 +238,10 @@ function suggestedTerms(ct: CharterType): TermsState {
   return { ...EMPTY_TERMS };
 }
 
-const STOP_CODES = new Set(["MISSING_APA", "MULTIPLE_SEASONAL_RATES", "DIVIDE_BY_UNCLEAR", "NO_PRICE_FOUND", "AMBIGUOUS"]);
+// SPLIT_SEASON_CALCULATED: the fee is a pro-rata across two seasons, calculated
+// not quoted - it must be ticked (i.e. confirmed in writing by the supplier)
+// before Generate, exactly like the other STOP flags.
+const STOP_CODES = new Set(["MISSING_APA", "MULTIPLE_SEASONAL_RATES", "DIVIDE_BY_UNCLEAR", "NO_PRICE_FOUND", "AMBIGUOUS", "SPLIT_SEASON_CALCULATED"]);
 const PRICE_FIELDS: { key: string; label: string }[] = [
   { key: "charter_fee", label: "Charter fee (net)" },
   { key: "apa_pct", label: "APA %" },
@@ -874,6 +880,18 @@ export default function CombinedPanel({
             )}
           </div>
 
+          {/* The count check. Missing yachts are NAMED, in a banner nobody can miss. */}
+          {ex.reconciliation && (ex.reconciliation.missing?.length ?? 0) > 0 && (
+            <div style={{ margin: "10px 0", padding: "10px 12px", border: "1px solid #B45309", background: "rgba(180,83,9,0.08)", borderRadius: 4, fontSize: 12.5, color: "#7C2D12" }}>
+              <b>Extracted {ex.reconciliation.extracted} of {ex.reconciliation.detected} detected yachts, {ex.reconciliation.missing.length} missing:</b> {ex.reconciliation.missing.join(", ")}.
+              <div style={{ marginTop: 4 }}>They are named in the supplier email but did not come back, even after a second pass by name. Press Extract again, or add them through &quot;Add yachts from another supplier&quot; with just their part of the email.</div>
+            </div>
+          )}
+          {ex.reconciliation && (ex.reconciliation.missing?.length ?? 0) === 0 && (
+            <div style={{ margin: "6px 0", fontSize: 11.5, color: "#3A6B47" }}>
+              All {ex.reconciliation.detected} yachts named in the supplier email were extracted{ex.reconciliation.extracted > ex.reconciliation.detected ? ` (${ex.reconciliation.extracted} records)` : ""}.
+            </div>
+          )}
           {(ex.yachts?.length ?? 0) > 1 && (
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 6 }}>
               <button type="button" onClick={() => setAllCards(true)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 9 }}>Expand all</button>

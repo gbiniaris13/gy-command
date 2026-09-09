@@ -78,6 +78,7 @@ function suggestedTerms(ct: CharterType): TermsState {
 
 const STOP_CODES = new Set([
   "MISSING_APA", "MULTIPLE_SEASONAL_RATES", "DIVIDE_BY_UNCLEAR", "NO_PRICE_FOUND", "AMBIGUOUS",
+  "SPLIT_SEASON_CALCULATED", // pro-rata across two seasons: calculated, not quoted - confirm with the supplier first
 ]);
 
 const PRICE_FIELDS: { key: string; label: string }[] = [

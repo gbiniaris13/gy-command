@@ -46,7 +46,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (!names.length) return NextResponse.json({ error: "Tick at least one yacht to add." }, { status: 400 });
 
   try {
-    const result = await extractPickedYachts(text, names, r.brief || undefined);
+    const rr = r as unknown as { dates_from?: string | null; dates_to?: string | null; area?: string | null };
+    const result = await extractPickedYachts(text, names, r.brief || undefined, { dates_from: rr.dates_from ?? null, dates_to: rr.dates_to ?? null, area: rr.area ?? null });
     const added = result.yachts;
     if (!added.length) {
       return NextResponse.json({ error: "Could not extract the picked yachts from this email. Try again." }, { status: 400 });
