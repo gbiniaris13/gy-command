@@ -51,7 +51,7 @@ export type YachtBlock = {
 // A header line: optional bullet/number, then a type prefix, then the name.
 // Anchored to line start so a prefix mentioned mid-sentence is not a header.
 const HEADER_RE =
-  /^[ \t]*(?:[-*•·>]+[ \t]*)?(?:\d{1,2}[.)][ \t]*)?(?:\*\*)?(M\/Y|S\/Y|M\/S|M\/C|S\/C|P\/C|M\.Y\.|S\.Y\.|M\.S\.|MY|SY|MOTOR YACHT|SAILING YACHT|MOTOR CATAMARAN|SAILING CATAMARAN|POWER CATAMARAN)(?:\*\*)?[ \t:.\-–—]+([^\n]{2,140})$/gim;
+  /^[ \t]*(?:[-*•·>]+[ \t]*)?(?:\d{1,2}[.)][ \t]*)?(?:\*\*)?(M\/Y|S\/Y|M\/S|M\/C|S\/C|P\/C|M\.Y\.|S\.Y\.|M\.S\.|MOTOR YACHT|SAILING YACHT|MOTOR CATAMARAN|SAILING CATAMARAN|POWER CATAMARAN)(?:\*\*)?[ \t:.\-–—]+([^\n]{2,140})$/gim;
 
 // Words that begin the MODEL part of a header, so the NAME stops before them.
 const MODEL_STARTERS = new Set([
@@ -114,6 +114,56 @@ export function detectYachtBlocks(raw: string): YachtBlock[] {
     blocks.push({ name, key, prefix: h.prefix.toUpperCase().replace(/\./g, ""), header: h.line, start, end, text: text.slice(start, end) });
   }
   return blocks;
+}
+
+/** Blocks anchored on NAMES rather than headers, for emails whose yacht lines
+ *  carry no M/Y prefix at all ("ARKTOS - Lagoon 52F (2020)", "Lagoon 52F
+ *  ARKTOS"). The names come from the model's title scan and from the yachts
+ *  already extracted. Each name's first occurrence AT A LINE START opens its
+ *  block (a mention inside a sentence is used only when there is no line of
+ *  its own), the next block's start closes it. Header blocks are kept; anchored
+ *  ones fill the gaps, and every block's end is recomputed against its real
+ *  neighbour, so a header block no longer swallows the undetected yachts
+ *  beneath it. The live case: 9 headers recognised out of 31, one of them the
+ *  word "or"; the format of the email is not something to guess at. */
+export function anchorBlocks(raw: string, names: string[], headerBlocks: YachtBlock[] = []): YachtBlock[] {
+  const text = raw ?? "";
+  const byKey = new Map<string, YachtBlock>();
+  for (const b of headerBlocks) byKey.set(b.key, { ...b });
+  const esc = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  // A line belongs to ONE yacht. Longer names claim first ("ADARA NEXT" before
+  // "ADARA"), and a name never anchors on a line another yacht already owns -
+  // otherwise ADARA would sit on ADARA NEXT's line and read its rates.
+  const claimed = new Set<number>(headerBlocks.map((b) => b.start));
+  const ordered = [...names].map((n) => (n ?? "").trim()).filter(Boolean).sort((a, b) => b.length - a.length);
+  for (const name of ordered) {
+    const key = yachtKey(name);
+    if (!key || key.length < 2 || byKey.has(key)) continue;
+    const atLineStart = new RegExp(
+      `^[ \\t]*(?:[-*•·>]+[ \\t]*)?(?:\\d{1,2}[.)][ \\t]*)?(?:(?:M\\/Y|S\\/Y|M\\/S|M\\/C|S\\/C|P\\/C|M\\.Y\\.|S\\.Y\\.)[ \\t:.\\-–—]+)?(?:\\*\\*)?(?:"|“)?${esc(name)}(?=$|[^A-Za-z0-9])`, "gim");
+    const anywhere = new RegExp(`(^|[^A-Za-z0-9])${esc(name)}(?=$|[^A-Za-z0-9])`, "gi");
+    let start = -1;
+    for (const m of text.matchAll(atLineStart)) { if (!claimed.has(m.index ?? -1)) { start = m.index ?? -1; break; } }
+    if (start < 0) {
+      for (const m2 of text.matchAll(anywhere)) {
+        const ls = text.lastIndexOf("\n", (m2.index ?? 0) + m2[1].length) + 1;
+        if (!claimed.has(ls)) { start = ls; break; }
+      }
+    }
+    if (start < 0) continue;
+    claimed.add(start);
+    const le = text.indexOf("\n", start);
+    const header = text.slice(start, le < 0 ? text.length : le).trim();
+    const pm = header.match(/^\s*(?:[-*•·>]+\s*)?(?:\d{1,2}[.)]\s*)?(M\/Y|S\/Y|M\/S|M\/C|S\/C|P\/C)\b/i);
+    byKey.set(key, { name, key, prefix: pm ? pm[1].toUpperCase() : null, header, start, end: text.length, text: "" });
+  }
+  const all = [...byKey.values()].sort((a, b) => a.start - b.start);
+  for (let i = 0; i < all.length; i++) {
+    const end = i + 1 < all.length ? all[i + 1].start : text.length;
+    all[i].end = end;
+    all[i].text = text.slice(all[i].start, end);
+  }
+  return all;
 }
 
 /** Group consecutive blocks into extraction-sized chunks. The preamble before

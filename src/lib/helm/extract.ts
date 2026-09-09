@@ -14,7 +14,7 @@ import { aiChat } from "../ai";
 import { parseLooseJson } from "./json";
 import { fmtEur } from "./pricing";
 import {
-  detectYachtBlocks, chunkBlocks, yachtKey, parseSeasonRates, parseRateYear, parseApaVat,
+  detectYachtBlocks, anchorBlocks, chunkBlocks, yachtKey, parseSeasonRates, parseRateYear, parseApaVat,
   pickVatForArea, detectTypeConflict, selectRateForDates, monthsLabel,
   type YachtBlock, type SeasonTier, type VatByArea, type TypeConflict,
 } from "./supplier-parse";
@@ -903,9 +903,11 @@ function enrichYachtFromBlock(y: Extraction, block: YachtBlock | null, ctx?: Ext
   return ensureSeasonalFlag(y);
 }
 
-/** Enrich every yacht from its own block; safe with no blocks (no-op). */
-function enrichAll(yachts: Extraction[], raw: string, ctx?: ExtractContext): void {
-  const blocks = detectYachtBlocks(raw);
+/** Enrich every yacht from its own block. Blocks come from the headers AND
+ *  from the yachts' own names anchored in the text, so an email with no M/Y
+ *  prefixes still yields one block per yacht. Safe with none (no-op). */
+function enrichAll(yachts: Extraction[], raw: string, ctx?: ExtractContext, baseBlocks?: YachtBlock[]): void {
+  const blocks = anchorBlocks(raw, yachts.map((y) => y.vessel_name?.value ?? ""), baseBlocks ?? detectYachtBlocks(raw));
   if (!blocks.length) return;
   const pairs = matchYachtsToBlocks(yachts, blocks);
   for (const y of yachts) enrichYachtFromBlock(y, pairs.get(y) ?? null, ctx);
@@ -918,7 +920,19 @@ export async function extractSupplierYachts(
 ): Promise<CombinedExtraction> {
   // Count first. A fleet email's yacht headers are countable by code, and that
   // count is what the model is held to. No headers -> the old flow, unchanged.
-  const blocks = detectYachtBlocks(supplierRaw);
+  // Two counters, joined: the "M/Y NAME" headers (pure code) and the model's
+  // title scan (names only, a tiny output that does not get cut). The scan
+  // makes the count independent of how the supplier writes the line; each
+  // name then anchors its own slice of the email. Live lesson: 9 headers
+  // recognised out of 31 yachts, one of them the word "or".
+  const headerBlocks = detectYachtBlocks(supplierRaw);
+  let scanNames: string[] = [];
+  try {
+    scanNames = (await scanSupplierYachts(supplierRaw)).map((y) => y.name);
+  } catch (e) {
+    console.warn("[helm/extract] title scan failed, counting headers only:", (e as Error).message);
+  }
+  const blocks = anchorBlocks(supplierRaw, scanNames, headerBlocks);
   const detectedNames = blocks.map((b) => b.name);
   const passes: MultiPass[] = [];
 
@@ -1014,7 +1028,7 @@ export async function extractSupplierYachts(
 
   // Season tables, rate year, APA/VAT, conditional VAT, type conflicts - read
   // by code from each yacht's own block. Fills blanks, flags doubts, never overwrites.
-  enrichAll(yachts, supplierRaw, ctx);
+  enrichAll(yachts, supplierRaw, ctx, blocks);
 
   const out: CombinedExtraction = { yachts };
   if (blocks.length) {
