@@ -369,6 +369,11 @@ export default function CombinedPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  // "Keep only these": George types the yachts he is sending; every other card
+  // is EXCLUDED (dimmed, left out of the PDF - nothing deleted), and any typed
+  // name that is not on the proposal at all is named back to him.
+  const [keepOnly, setKeepOnly] = useState("");
+  const [keepMsg, setKeepMsg] = useState<string | null>(null);
   const [moreText, setMoreText] = useState("");
   // George's itinerary pages — restored from the draft independently of the
   // yacht-count check (they never depend on the extraction shape).
@@ -525,6 +530,20 @@ export default function CombinedPanel({
   }
 
   const patchY = (i: number, patch: Partial<YState>) => setYs((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+
+  function keepOnlyThese() {
+    const key = (v: string) => (v ?? "").toLowerCase().replace(/^(m\/?y|s\/?y|m\/?s)\b[\s.:-]*/i, "").replace(/[^a-z0-9]+/g, "");
+    const wanted = keepOnly.split(/\r?\n|,|;/).map((n) => n.trim()).filter(Boolean);
+    if (!wanted.length || !ex) return;
+    const wantedKeys = wanted.map(key).filter((k) => k.length >= 2);
+    const cardKey = (i: number) => key(ys[i]?.vessel?.name || ex.yachts[i]?.vessel_name?.value || "");
+    const matches = (ck: string, wk: string) => ck === wk || (wk.length >= 4 && (ck.startsWith(wk) || wk.startsWith(ck)));
+    const keptIdx = new Set<number>();
+    ys.forEach((_, i) => { const ck = cardKey(i); if (wantedKeys.some((wk) => matches(ck, wk))) keptIdx.add(i); });
+    setYs((prev) => prev.map((st, i) => ({ ...st, excluded: !keptIdx.has(i) })));
+    const notFound = wanted.filter((n) => { const wk = key(n); return !ys.some((_, i) => matches(cardKey(i), wk)); });
+    setKeepMsg(`Kept ${keptIdx.size} of ${ys.length}; the rest are excluded (nothing deleted).${notFound.length ? ` Not on this proposal: ${notFound.join(", ")} - add them from the box above.` : ""} Press Save draft to keep this after a refresh.`);
+  }
 
   function stopFlagsFor(i: number): { code: string; message: string }[] {
     const y = ex?.yachts?.[i];
@@ -895,6 +914,19 @@ export default function CombinedPanel({
           {ex.reconciliation && (ex.reconciliation.missing?.length ?? 0) === 0 && (
             <div style={{ margin: "6px 0", fontSize: 11.5, color: "#3A6B47" }}>
               All {ex.reconciliation.detected} yachts named in the supplier email were extracted{ex.reconciliation.extracted > ex.reconciliation.detected ? ` (${ex.reconciliation.extracted} records)` : ""}.
+            </div>
+          )}
+          {(ex.yachts?.length ?? 0) > 3 && (
+            <div style={{ margin: "10px 0 12px", padding: "10px 12px", border: "1px solid rgba(13,27,42,0.12)", borderRadius: 4, background: "#fff" }}>
+              <div style={fieldLabel}>Keep only these yachts (one per line) - every other card is excluded, nothing is deleted</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 6, flexWrap: "wrap" }}>
+                <textarea value={keepOnly} onChange={(e) => setKeepOnly(e.target.value)} rows={3}
+                  placeholder={"Pi2\nADARA\nD2"} style={{ ...txt, width: 260, resize: "vertical", lineHeight: 1.5 }} />
+                <button type="button" onClick={keepOnlyThese} disabled={!keepOnly.trim()} style={{ ...ghostBtn, opacity: keepOnly.trim() ? 1 : 0.5 }}>
+                  Keep only these
+                </button>
+                {keepMsg && <span style={{ fontSize: 12.5, color: /Not on this proposal/.test(keepMsg) ? "#B45309" : "#3A6B47", maxWidth: 520 }}>{keepMsg}</span>}
+              </div>
             </div>
           )}
           {(ex.yachts?.length ?? 0) > 1 && (
