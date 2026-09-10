@@ -913,6 +913,24 @@ function enrichAll(yachts: Extraction[], raw: string, ctx?: ExtractContext, base
   for (const y of yachts) enrichYachtFromBlock(y, pairs.get(y) ?? null, ctx);
 }
 
+// Pieces run together, but not ALL at once: a 45-yacht fleet is twelve
+// pieces, and twelve simultaneous calls trip the model's per-minute limit,
+// which then costs a retry each. Five in flight keeps the wall time at a few
+// pieces' worth and stays under the limit; anything larger simply queues.
+const PIECE_CONCURRENCY = 5;
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 export async function extractSupplierYachts(
   supplierRaw: string,
   brief?: string,
@@ -977,7 +995,7 @@ export async function extractSupplierYachts(
   // is roughly one piece's worth. Output order does not matter: the yachts are
   // sorted later by price, and reconciliation matches by name.
   const runPieces = async (pieces: { text: string; names: string[] }[]) => {
-    const results = await Promise.all(pieces.map(runPiece));
+    const results = await mapLimit(pieces, PIECE_CONCURRENCY, runPiece);
     for (const r of results) passes.push(...r);
   };
 
@@ -1010,14 +1028,14 @@ export async function extractSupplierYachts(
     const groups: YachtBlock[][] = [];
     for (let i = 0; i < missing.length; i += 4) groups.push(missing.slice(i, i + 4));
     // Same reason as above: independent groups, so together.
-    const results = await Promise.all(groups.map(async (group) => {
+    const results = await mapLimit(groups, PIECE_CONCURRENCY, async (group) => {
       try {
         return await oncePatiently(group.map((b) => b.text).join("\n\n"), group.map((b) => b.name), group.map((b) => b.name));
       } catch (e) {
         console.warn("[helm/extract] continuation pass failed:", (e as Error).message);
         return null;
       }
-    }));
+    });
     for (const r of results) if (r) passes.push(r);
     allYachts = passes.flatMap((p) => p.yachts);
   }
@@ -1122,20 +1140,48 @@ export async function extractPickedYachts(
   const blocks = anchorBlocks(text, [...detectHeaderLikeNames(text), ...picked], detectYachtBlocks(text));
   const findBlock = (n: string): YachtBlock | undefined => {
     const k = yachtKey(n);
-    return blocks.find((b) => b.key === k) ?? blocks.find((b) => k.length >= 4 && (b.key.startsWith(k) || k.startsWith(b.key)));
+    const exact = blocks.find((b) => b.key === k);
+    if (exact) return exact;
+    // A typed name that is a prefix of a longer block name ("SEABARIT" for
+    // SEABARIT LX) is fine ONLY when the shorter name is not itself a yacht
+    // in the email: "ADARA" must never land on ADARA NEXT's block when the
+    // email also says ADARA on her own. In that case the name goes to the
+    // by-name pass over the full text instead.
+    const standsAlone = new RegExp(`(^|[^A-Za-z0-9])${n.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9 ]*(?:NEXT|II|III|IV|V|2|3))`, "i");
+    const loose = blocks.filter((b) => k.length >= 4 && (b.key.startsWith(k) || k.startsWith(b.key)));
+    if (loose.length === 1 && !(loose[0].key.startsWith(k) && standsAlone.test(text.replace(new RegExp(loose[0].name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "")))) return loose[0];
+    return undefined;
   };
   const matched: { name: string; block: YachtBlock }[] = [];
   const unmatched: string[] = [];
   for (const n of picked) { const b = findBlock(n); if (b) matched.push({ name: n, block: b }); else unmatched.push(n); }
   const passes: MultiPass[] = [];
   if (matched.length) {
-    const focused = matched.map((m) => m.block.text).join("\n\n");
-    passes.push(await extractYachtsOnce(focused, brief, matched.map((m) => m.block.name), matched.map((m) => m.block.name)));
+    // FOUR yachts per call, a few calls in flight: the same recipe as the
+    // full extract. One call with eleven (or forty) blocks is exactly the
+    // long input the model trims silently.
+    const groups: { name: string; block: YachtBlock }[][] = [];
+    for (let i = 0; i < matched.length; i += 4) groups.push(matched.slice(i, i + 4));
+    const results = await mapLimit(groups, PIECE_CONCURRENCY, (group) =>
+      extractYachtsOnce(group.map((m) => m.block.text).join("\n\n"), brief, group.map((m) => m.block.name), group.map((m) => m.block.name)));
+    passes.push(...results);
   }
   if (unmatched.length) {
     passes.push(await extractYachtsOnce(text, brief, unmatched));
   }
-  const yachts = mergeDuplicateYachts(passes.flatMap((p) => p.yachts));
+  let yachts = mergeDuplicateYachts(passes.flatMap((p) => p.yachts));
+  // Second chance, by name, for anything a group left out - from its own
+  // block only, so the retry is small and cannot be trimmed.
+  {
+    const haveNow = new Set(yachts.map((y) => yachtKey(y.vessel_name?.value)));
+    const left = matched.filter((m) => !haveNow.has(m.block.key));
+    if (left.length) {
+      try {
+        const again = await extractYachtsOnce(left.map((m) => m.block.text).join("\n\n"), brief, left.map((m) => m.block.name), left.map((m) => m.block.name));
+        yachts = mergeDuplicateYachts([...yachts, ...again.yachts]);
+      } catch (e) { console.warn("[helm/extract] picked second pass failed:", (e as Error).message); }
+    }
+  }
   enrichAll(yachts, text, ctx, blocks);
   const out: CombinedExtraction = { yachts };
   // Which of the asked-for names actually came back - never silent.

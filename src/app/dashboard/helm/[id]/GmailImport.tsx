@@ -54,7 +54,7 @@ export default function GmailImport({
   const [busy, setBusy] = useState<"" | "list" | "thread" | "import">("");
   const [error, setError] = useState("");
   const [report, setReport] = useState<{
-    appended: number; brochures: Brochure[]; skipped: string[]; warnings: string[];
+    appended: number; refreshed: string[]; brochures: Brochure[]; skipped: string[]; warnings: string[];
   } | null>(null);
 
   async function call(payload: Record<string, unknown>) {
@@ -128,6 +128,7 @@ export default function GmailImport({
       });
       setReport({
         appended: json.appended || 0,
+        refreshed: json.refreshed || [],
         brochures: json.brochures || [],
         skipped: json.skipped || [],
         warnings: json.warnings || [],
@@ -273,8 +274,14 @@ export default function GmailImport({
         <div style={{ fontSize: 13, color: "#1f2937", background: "rgba(13,27,42,0.03)", padding: 12, borderRadius: 2, display: "flex", flexDirection: "column", gap: 6 }}>
           <div>
             ✓ {report.appended} email{report.appended === 1 ? "" : "s"} imported into the supplier text below.
-            {report.skipped.length > 0 && ` ${report.skipped.length} already imported earlier (skipped).`}
+            {report.refreshed.length > 0 && ` ${report.refreshed.length} re-imported in full (the earlier copy was cut short).`}
+            {report.skipped.length > 0 && ` ${report.skipped.length} already imported in full (skipped).`}
           </div>
+          {(report.appended > 0 || report.refreshed.length > 0) && (
+            <div style={{ fontSize: 12.5, color: "#374151" }}>
+              Every word the supplier wrote is kept, however long the email. Only the quoted history under a reply is left out.
+            </div>
+          )}
           {report.brochures.map((b) => (
             <div key={b.url} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <span>📎 {b.filename}{b.facts ? " · facts added to supplier text" : ""}</span>
@@ -286,9 +293,14 @@ export default function GmailImport({
               </button>
             </div>
           ))}
-          {report.appended > 0 && (
+          {report.appended > 0 && report.refreshed.length === 0 && (
             <div style={{ fontSize: 12.5, color: "#374151", fontWeight: 600 }}>
               Next step: press “Extract all yachts” below — a card appears for each yacht and you confirm the numbers.
+            </div>
+          )}
+          {report.refreshed.length > 0 && (
+            <div style={{ fontSize: 12.5, color: "#374151", fontWeight: 600 }}>
+              Next step: in the review below press “Add the yachts not yet on a card” — the ones that were cut off are read now, your existing cards stay as they are.
             </div>
           )}
           {report.brochures.length > 0 && (

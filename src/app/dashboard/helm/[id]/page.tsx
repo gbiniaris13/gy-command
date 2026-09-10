@@ -242,6 +242,7 @@ export default async function HelmDetailPage({
       {r.mode === "combined" ? (
         <CombinedPanel
           requestId={r.id}
+          hasSupplier={!!r.supplier_raw}
           surname={r.client_surname ?? null}
           initialExtraction={r.extraction && r.extraction.yachts ? r.extraction : null}
           pdfPath={r.proposal_pdf_path ?? null}

@@ -315,9 +315,10 @@ function pricingOf(px: Record<string, string>, mode: PriceMode): PricingInput {
 }
 
 export default function CombinedPanel({
-  requestId, surname, initialExtraction, pdfPath, emailSubject, emailIntro, initialMedia, cloudinaryConfigured, initialDraft, isAgent, initialWhiteLabel,
+  requestId, surname, initialExtraction, pdfPath, emailSubject, emailIntro, initialMedia, cloudinaryConfigured, initialDraft, isAgent, initialWhiteLabel, hasSupplier = false,
 }: {
   requestId: string;
+  hasSupplier?: boolean;
   surname: string | null;
   initialExtraction: CombinedExtraction | null;
   pdfPath: string | null;
@@ -513,6 +514,35 @@ export default function CombinedPanel({
         body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks, cover_line: coverLine, salon_video: salonVideo.trim(), salon_video_off: salonVideoOff } }),
       });
       setSavedMsg(`Added ${addedCount} yacht${addedCount === 1 ? "" : "s"} from the new supplier. Your earlier yachts are untouched — review the new cards, then ${pdfPath ? "Regenerate" : "Generate"}.`);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+
+  // One click, no typing: every yacht the imported emails name that has no
+  // card yet is extracted from its own slice of the email and APPENDED. The
+  // list of names is deterministic (headers and "N guests | N cabins" lines),
+  // so nothing depends on the model remembering; 6 or 45 yachts alike.
+  async function addMissingFromImported() {
+    setBusy("extract-missing"); setError(null); setSavedMsg(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}/extract-picked`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ useImported: true, missingOnly: true }),
+      });
+      const j = await readJsonSafe(r);
+      if (!r.ok) throw new Error(j.error || "extract-missing-failed");
+      const addedCount: number = j.added || 0;
+      if (!addedCount) { setSavedMsg(j.note || "Every yacht named in the imported emails is already on a card."); return; }
+      const merged: CombinedExtraction = j.extraction?.yachts ? j.extraction : { yachts: [] };
+      const addedOnly = merged.yachts.slice(merged.yachts.length - addedCount);
+      const nextYs = [...ys, ...seedStates({ yachts: addedOnly })];
+      setEx(merged);
+      setYs(nextYs);
+      await fetch(`/api/helm/${requestId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: nextYs, weeks, cover_line: coverLine, salon_video: salonVideo.trim(), salon_video_off: salonVideoOff } }),
+      });
+      const missing: string[] = j.reconciliation?.missing || [];
+      setSavedMsg(`Added ${addedCount} yacht${addedCount === 1 ? "" : "s"}: ${(j.names || []).join(", ")}. Your earlier cards are untouched.${missing.length ? ` Still not read: ${missing.join(", ")} - press the button once more.` : ""}`);
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
 
@@ -908,7 +938,16 @@ export default function CombinedPanel({
           {ex.reconciliation && (ex.reconciliation.missing?.length ?? 0) > 0 && (
             <div style={{ margin: "10px 0", padding: "10px 12px", border: "1px solid #B45309", background: "rgba(180,83,9,0.08)", borderRadius: 4, fontSize: 12.5, color: "#7C2D12" }}>
               <b>Extracted {ex.reconciliation.extracted} of {ex.reconciliation.detected} detected yachts, {ex.reconciliation.missing.length} missing:</b> {ex.reconciliation.missing.join(", ")}.
-              <div style={{ marginTop: 4 }}>They are named in the supplier email but did not come back, even after a second pass by name. Press Extract again, or add them through &quot;Add yachts from another supplier&quot; with just their part of the email.</div>
+              <div style={{ marginTop: 4 }}>They are named in the supplier email but did not come back, even after a second pass by name. Press &quot;Add the yachts not yet on a card&quot; below: each is read from its own part of the email.</div>
+            </div>
+          )}
+          {hasSupplier && (
+            <div style={{ margin: "8px 0 10px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <button type="button" onClick={addMissingFromImported} disabled={busy !== null} style={{ ...ghostBtn, opacity: busy ? 0.6 : 1 }}
+                title="Reads the imported supplier emails, lists every yacht by name, skips the ones already on a card and extracts the rest. Nothing is deleted or re-read.">
+                {busy === "extract-missing" ? "Reading the missing yachts…" : "Add the yachts not yet on a card"}
+              </button>
+              <span style={{ fontSize: 11.5, color: "#6b7280" }}>from the imported emails · existing cards untouched</span>
             </div>
           )}
           {ex.reconciliation && (ex.reconciliation.missing?.length ?? 0) === 0 && (

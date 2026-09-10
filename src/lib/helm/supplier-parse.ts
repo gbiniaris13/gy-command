@@ -565,3 +565,58 @@ export function monthsLabel(months: number[]): string {
   const names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return months.map((m) => names[m] ?? String(m)).join(", ");
 }
+
+// ─── Quoted-history trimming (used by the Gmail import) ─────────────────────
+//
+// The supplier's own text is kept WHOLE. What is removed is the quoted
+// history under a reply: from the first "On ... wrote:" style line (or an
+// Outlook divider, or a long run of ">" lines that is followed by nothing but
+// a signature) down to the end. A forwarded owner email is not a reply quote
+// and stays. The cut is refused when it would leave almost nothing, and a
+// body that is still absurd afterwards is capped with a visible note.
+const QUOTE_MARKERS: RegExp[] = [
+  /^\s*>?\s*On .{4,200}?wrote:\s*$/m,                    // Gmail / Apple Mail "On Tue, ... <x@y> wrote:"
+  /^\s*>?\s*On .{4,200}?\n.{0,120}?wrote:\s*$/m,         // same, wrapped over two lines
+  /^\s*>?\s*Am .{4,200}?schrieb .{0,120}?:\s*$/m,          // German
+  /^\s*>?\s*Le .{4,200}?a écrit\s*:\s*$/m,                 // French
+  /^\s*>?\s*Στις .{4,200}?έγραψε:\s*$/m,                  // Greek
+  /^\s*(?:\\?-){3,}\s*Original Message\s*(?:\\?-){3,}\s*$/mi,
+  /^\s*_{10,}\s*\n\s*From:/m,                              // Outlook divider + From:
+];
+export const IMPORT_BODY_CEILING = 250_000;
+const MIN_KEPT = 400;
+
+export function trimQuotedHistory(text: string): string {
+  let cut = -1;
+  for (const re of QUOTE_MARKERS) {
+    const m = re.exec(text);
+    if (m && m.index >= MIN_KEPT && (cut < 0 || m.index < cut)) cut = m.index;
+  }
+  // A run of six or more ">" lines counts as history only when what follows
+  // it (ignoring further quoted lines) is no more than a signature: a
+  // supplier who quotes the request in the middle and writes below keeps
+  // every word.
+  const lines = text.split(/\r?\n/);
+  let pos = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^[ \t]*>/.test(lines[i])) {
+      let j = i;
+      while (j < lines.length && /^[ \t]*>/.test(lines[j])) j++;
+      if (j - i >= 6) {
+        const rest = lines.slice(j).filter((l) => !/^[ \t]*>/.test(l)).join("\n").trim();
+        if (rest.length <= MIN_KEPT && pos >= MIN_KEPT && (cut < 0 || pos < cut)) cut = pos;
+        break;
+      }
+      // a short quote inside the supplier's own text: keep going
+      for (let k = i; k < j; k++) pos += lines[k].length + 1;
+      i = j - 1;
+      continue;
+    }
+    pos += lines[i].length + 1;
+  }
+  let out = cut >= MIN_KEPT ? text.slice(0, cut).replace(/\s+$/, "") : text;
+  if (out.length > IMPORT_BODY_CEILING) {
+    out = out.slice(0, IMPORT_BODY_CEILING) + `\n\n[Import note: this email was longer than ${IMPORT_BODY_CEILING.toLocaleString("en-US")} characters and was cut here.]`;
+  }
+  return out;
+}

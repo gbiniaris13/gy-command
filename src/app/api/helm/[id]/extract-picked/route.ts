@@ -11,6 +11,7 @@ import { createServerClient } from "@supabase/ssr";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
 import { createServiceClient } from "@/lib/supabase-server";
 import { extractPickedYachts } from "@/lib/helm/extract";
+import { detectYachtBlocks, detectHeaderLikeNames, anchorBlocks, yachtKey } from "@/lib/helm/supplier-parse";
 
 export const runtime = "nodejs";
 // 300: these call the same extractor as /extract. A big paste (a whole fleet
@@ -43,8 +44,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   // (brochures already transcribed into supplier_raw). Otherwise a fresh paste.
   const useImported = body?.useImported === true;
   const text = (useImported ? (r.supplier_raw ?? "") : (body?.text ?? "")).toString().trim();
-  const names = Array.isArray(body?.names) ? (body.names as unknown[]).map(String).filter(Boolean) : [];
+  let names = Array.isArray(body?.names) ? (body.names as unknown[]).map(String).filter(Boolean) : [];
   if (!text) return NextResponse.json({ error: "The supplier email is missing." }, { status: 400 });
+
+  const ex0 = (r.extraction && typeof r.extraction === "object") ? (r.extraction as Record<string, unknown>) : {};
+  const onCards = Array.isArray(ex0.yachts) ? (ex0.yachts as { vessel_name?: { value?: unknown } }[]) : [];
+  // missingOnly: no typing at all. The yacht list is read DETERMINISTICALLY
+  // from the imported emails (headers, "N guests | N cabins" lines), every
+  // name already on a card is dropped, and only the rest is extracted, each
+  // from its own slice of the email. Works the same for 6 yachts or 45, and
+  // is the one-click answer to the "N of M extracted" banner.
+  if (body?.missingOnly === true) {
+    const hb = detectYachtBlocks(text);
+    const detected = anchorBlocks(text, [...new Set([...hb.map((b) => b.name), ...detectHeaderLikeNames(text)])], hb).map((b) => b.name);
+    const haveKeys = new Set(onCards.map((y) => yachtKey(String(y?.vessel_name?.value ?? ""))));
+    names = detected.filter((n) => !haveKeys.has(yachtKey(n)));
+    if (!names.length) {
+      return NextResponse.json({ ok: true, added: 0, total: onCards.length, detected: detected.length, names: [], note: `Every yacht named in the imported emails (${detected.length}) is already on a card.` });
+    }
+  }
   if (!names.length) return NextResponse.json({ error: "Tick at least one yacht to add." }, { status: 400 });
 
   try {
@@ -89,8 +107,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({
       ok: true,
       added: fresh.length,
+      names: fresh.map((y) => String(y?.vessel_name?.value ?? "")),
       reconciliation: result.reconciliation ?? null,
       total: (extraction.yachts as unknown[]).length,
+      extraction,
     });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

@@ -20,6 +20,7 @@ import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getRequest } from "@/lib/helm-admin";
 import { uploadBrochurePdf } from "@/lib/helm/storage";
+import { trimQuotedHistory } from "@/lib/helm/supplier-parse";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -98,8 +99,12 @@ function extractBody(payload: GmailPart | undefined): string {
   };
   walk(payload);
   const out = plain.trim() || stripHtml(html);
-  // Gmail quotes pile up fast — keep a generous but bounded excerpt.
-  return out.slice(0, 20000);
+  // The supplier's OWN words are never cut. Until 2026-09-10 every body was
+  // sliced at 20,000 characters "because quotes pile up": a 27-yacht fleet
+  // email is 42,000 characters, so its last eleven yachts never reached the
+  // record, and no extractor on earth can find a yacht that is not there.
+  // What piles up is the QUOTED HISTORY under the reply, and only that goes.
+  return trimQuotedHistory(out);
 }
 
 function pdfAttachments(payload: GmailPart | undefined): { filename: string; attachmentId: string; size: number }[] {
@@ -115,6 +120,16 @@ function pdfAttachments(payload: GmailPart | undefined): { filename: string; att
   };
   walk(payload);
   return found;
+}
+
+/** The slice of supplier_raw that one imported email occupies: from its
+ *  marker line to the next marker (or the end of the text). */
+function findImportedBlock(raw: string, mid: string): { start: number; end: number; text: string } | null {
+  const start = raw.indexOf(`───── EMAIL [gmail:${mid}] ─────`);
+  if (start < 0) return null;
+  const next = raw.indexOf("───── EMAIL [gmail:", start + 10);
+  const end = next < 0 ? raw.length : next;
+  return { start, end, text: raw.slice(start, end).replace(/\s+$/, "") };
 }
 
 // ─── Brochure reading (ONE Gemini call per PDF, native inlineData) ──────────
@@ -225,15 +240,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       if (!ids.length) return NextResponse.json({ error: "no messages selected" }, { status: 400 });
       const readBrochures = body.readBrochures !== false;
 
-      const existing = String(r.supplier_raw || "");
+      let existing = String(r.supplier_raw || "");
       const blocks: string[] = [];
       const brochures: { filename: string; url: string; facts: boolean }[] = [];
       const skipped: string[] = [];
+      const refreshed: string[] = [];
       const warnings: string[] = [];
 
       for (const mid of ids) {
-        // Idempotence: each imported block carries a [gmail:<id>] marker.
-        if (existing.includes(`[gmail:${mid}]`)) { skipped.push(mid); continue; }
+        // Idempotence: each imported block carries a [gmail:<id>] marker. An
+        // email imported earlier is fetched again anyway: if the fresh copy is
+        // LONGER than what the record holds (the old 20,000-character cut, or
+        // a brochure that failed to read last time), the old block is replaced
+        // in place, so a truncated fleet email is healed by simply ticking it
+        // again. Same length or shorter: the record already has it, skip.
+        const already = existing.includes(`[gmail:${mid}]`);
 
         const res = await gmailFetch(`/messages/${mid}?format=full`);
         if (!res.ok) { warnings.push(`Message ${mid}: fetch failed`); continue; }
@@ -282,13 +303,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           }
         }
 
-        blocks.push(parts.join("\n"));
+        const block = parts.join("\n");
+        if (already) {
+          const old = findImportedBlock(existing, mid);
+          if (!old || block.length <= old.text.length) { skipped.push(mid); continue; }
+          existing = existing.slice(0, old.start) + block + existing.slice(old.end);
+          refreshed.push(mid);
+          continue;
+        }
+        blocks.push(block);
       }
 
-      if (!blocks.length && !brochures.length) {
+      if (!blocks.length && !refreshed.length) {
         return NextResponse.json({
-          ok: true, appended: 0, brochures: [], skipped, warnings,
-          note: skipped.length ? "All selected emails were already imported." : "Nothing imported.",
+          ok: true, appended: 0, refreshed: [], brochures: [], skipped, warnings,
+          note: skipped.length ? "All selected emails were already imported in full." : "Nothing imported.",
         });
       }
 
@@ -304,10 +333,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         request_id: id,
         direction: null,
         channel: "note",
-        body: `Imported ${blocks.length} email(s) from Gmail into supplier text${brochures.length ? ` + ${brochures.length} brochure PDF(s) saved` : ""}. (by ${email})`,
+        body: `Imported ${blocks.length} email(s) from Gmail into supplier text${refreshed.length ? ` + ${refreshed.length} re-imported in full` : ""}${brochures.length ? ` + ${brochures.length} brochure PDF(s) saved` : ""}. (by ${email})`,
       });
 
-      return NextResponse.json({ ok: true, appended: blocks.length, brochures, skipped, warnings });
+      return NextResponse.json({ ok: true, appended: blocks.length, refreshed, brochures, skipped, warnings });
     }
 
     return NextResponse.json({ error: "unknown action" }, { status: 400 });
