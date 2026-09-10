@@ -35,6 +35,10 @@ export default function SupplierYachtPicker({ requestId, hasImported }: { reques
   const [busy, setBusy] = useState<null | "imported" | "pasted" | "add">(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  // Names George types himself, one per line - no scan, no list, no
+  // dependence on how the supplier wrote the header. The extractor reads only
+  // those yachts' own blocks from the imported emails.
+  const [typed, setTyped] = useState("");
 
   async function scan(from: "imported" | "pasted") {
     if (from === "pasted" && !text.trim()) return;
@@ -82,6 +86,25 @@ export default function SupplierYachtPicker({ requestId, hasImported }: { reques
     } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
 
+  async function addTyped() {
+    const names = typed.split(/\r?\n|,|;/).map((n) => n.trim()).filter(Boolean);
+    if (!names.length) return;
+    setBusy("add"); setErr(null); setMsg(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}/extract-picked`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ useImported: true, names }),
+      });
+      const j = await readJsonSafe(r);
+      if (!r.ok) throw new Error(j.error || "add-failed");
+      const missing: string[] = j.reconciliation?.missing ?? j.extraction?.reconciliation?.missing ?? [];
+      setMsg(`${j.added ?? names.length} yacht${(j.added ?? names.length) === 1 ? "" : "s"} added with their brochure detail.${missing.length ? ` Not found in the imported emails: ${missing.join(", ")}.` : ""}`);
+      setTyped("");
+      // The cards panel is client-seeded: a full reload is what shows the new yachts.
+      setTimeout(() => window.location.reload(), 300);
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+  }
+
   return (
     <section style={card}>
       <div style={cardLabel}>Add yachts from a supplier email</div>
@@ -95,6 +118,27 @@ export default function SupplierYachtPicker({ requestId, hasImported }: { reques
             {busy === "imported" ? "Reading the yachts + brochures…" : "Scan the supplier emails I imported"}
           </button>
           <span style={{ marginLeft: 10, fontSize: 11.5, color: "#9CA3AF" }}>reads the brochures already imported from Gmail</span>
+        </div>
+      )}
+
+      {hasImported && (
+        <div style={{ margin: "4px 0 14px", padding: "12px 14px", border: "1px solid rgba(201,168,76,0.35)", borderRadius: 2, background: "rgba(201,168,76,0.05)" }}>
+          <div style={{ fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", color: "#6b7280", fontWeight: 700, marginBottom: 6 }}>
+            Or type the yachts you want, one per line
+          </div>
+          <textarea
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            rows={4}
+            placeholder={"Pi2\nADARA\nHIGH JINKS\nD2"}
+            style={{ width: "100%", padding: 10, border: "1px solid rgba(13,27,42,0.15)", fontSize: 13, fontFamily: "inherit", resize: "vertical", lineHeight: 1.5 }}
+          />
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={addTyped} disabled={busy !== null || !typed.trim()} style={{ ...primaryBtn, opacity: typed.trim() ? 1 : 0.5 }}>
+              {busy === "add" ? "Reading those yachts + brochures…" : "Add these yachts from the imported emails"}
+            </button>
+            <span style={{ fontSize: 11.5, color: "#9CA3AF" }}>reads only those yachts, spelling as you like (HIGH JINKS = HIGHJINKS)</span>
+          </div>
         </div>
       )}
 

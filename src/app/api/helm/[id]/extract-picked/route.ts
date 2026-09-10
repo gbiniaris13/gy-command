@@ -70,7 +70,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: "Those yachts are already on this proposal." }, { status: 400 });
     }
 
-    const extraction: Record<string, unknown> = { ...ex, yachts: [...existing, ...fresh] };
+    // Which of the asked-for names came back (the banner names any that did not).
+    const extraction: Record<string, unknown> = { ...ex, yachts: [...existing, ...fresh], ...(result.reconciliation ? { reconciliation: result.reconciliation } : {}) };
     if (!ex.suggested_charter_type && result.suggested_charter_type) extraction.suggested_charter_type = result.suggested_charter_type;
     if (!ex.suggested_terms && result.suggested_terms) extraction.suggested_terms = result.suggested_terms;
     await saveExtraction(id, extraction);
@@ -88,6 +89,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({
       ok: true,
       added: fresh.length,
+      reconciliation: result.reconciliation ?? null,
       total: (extraction.yachts as unknown[]).length,
     });
   } catch (e) {

@@ -32,6 +32,10 @@ export function yachtKey(name?: string | null): string {
   return s.replace(/[^a-z0-9]+/g, "");
 }
 
+/** The Gmail import leaves non-breaking spaces (U+00A0) in place of spaces
+ *  ("Charter fee\u00a0for the above period"). Same length, so offsets survive. */
+export function norm(raw: string): string { return (raw ?? "").replace(/\u00a0/g, " "); }
+
 // ----------------------------------------------------------------- blocks
 
 export type YachtBlock = {
@@ -95,7 +99,7 @@ function nameFromHeaderRest(rest: string): string {
  *  Returns [] when the email uses no recognisable headers - callers must then
  *  say "could not count", never "all present". */
 export function detectYachtBlocks(raw: string): YachtBlock[] {
-  const text = raw ?? "";
+  const text = norm(raw);
   const hits: { index: number; prefix: string; rest: string; line: string }[] = [];
   for (const m of text.matchAll(HEADER_RE)) {
     const idx = m.index ?? 0;
@@ -121,15 +125,38 @@ export function detectYachtBlocks(raw: string): YachtBlock[] {
  *  cabins" whether or not a type prefix is written ("SELENE– Model Lagoon 620
  *  - 18,90 m / 62 ft | 2015 built | 10 guests | 5 double cabins | 3 crew" had no
  *  prefix and was the 27th yacht nobody counted). Quoted lines are skipped. */
+const TYPE_WORDS = /^(?:proposal\s+[a-z]\b[\s:.)-]*|option\s+[a-z0-9]\b[\s:.)-]*|[a-d][).]\s*)?(?:(?:sailing|power|motor)\s+(?:catamaran|yacht|sailer)|catamaran|m\/y|s\/y|m\/s|m\.y\.|s\.y\.)?[\s:.\-–—]*/i;
+const NOT_A_NAME = /^(?:view|yacht brochure|brochure pdf|360|walkthrough|accommodation|additional|water toys?|available dates|port|rates?\b|high season|mid season|low season|plus|charter fee|https?:)/i;
+
 export function detectHeaderLikeNames(raw: string): string[] {
   const out: string[] = []; const seen = new Set<string>();
-  for (const line0 of (raw ?? "").split(/\r?\n/)) {
-    const line = line0.trim();
+  const lines = norm(raw).split(/\r?\n/).map((l) => l.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (!line || line.startsWith(">") || /\bwrote:\s*$/i.test(line)) continue;
     if (!/\b\d{1,2}\s*guests?\b/i.test(line) || !/\b\d{1,2}\s*(?:double\s+|twin\s+|guest\s+)?cabins?\b/i.test(line)) continue;
     let rest = line.replace(/^(?:[-*•·]+\s*)?(?:\d{1,2}[.)]\s*)?(?:!\[[^\]]*\]\([^)]*\)\s*)*(?:\*\*)?/, "");
+    const hadPrefix = /^(M\/Y|S\/Y|M\/S|M\/C|S\/C|P\/C|M\.Y\.|S\.Y\.|M\.S\.)(?:\*\*)?[ \t:.\-–—]+/i.test(rest);
     rest = rest.replace(/^(M\/Y|S\/Y|M\/S|M\/C|S\/C|P\/C|M\.Y\.|S\.Y\.|M\.S\.)(?:\*\*)?[ \t:.\-–—]+/i, "");
-    const name = nameFromHeaderRest(rest);
+    let name = nameFromHeaderRest(rest);
+    // Some suppliers put the NAME on its own line above the model line:
+    //   "SAILING CATAMARAN SEABARIT LX"
+    //   "MOON 60 | BUILT 2024 | 10 GUESTS | 5 GUEST CABINS | CREW OF 3"
+    // Only when the signature line itself carries no name (no prefix, and it
+    // opens with a builder/model word or a number) do we take the short line
+    // above, stripped of type words. A prefixed header is never overridden.
+    const toks = rest.replace(/\*\*/g, " ").trim().split(/\s+/);
+    const weak = !hadPrefix && (MODEL_STARTERS.has((toks[0] ?? "").toLowerCase().replace(/[^a-z0-9]/g, "")) || /^\d/.test(toks[0] ?? "") || /^\d+$/.test((toks[1] ?? "").replace(/[^0-9]/g, "") || "x"));
+    if (weak) {
+      for (let k = i - 1; k >= Math.max(0, i - 3); k--) {
+        const above = (lines[k] ?? "").replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\*\*/g, " ").trim();
+        if (!above) continue;
+        if (above.length > 60 || above.includes("|") || NOT_A_NAME.test(above) || /\bwrote:/i.test(above)) break;
+        const cand = above.replace(TYPE_WORDS, "").replace(/[\s:.\-–—]+$/, "").trim();
+        if (/[A-Za-z]/.test(cand) && cand.length >= 2 && cand.length <= 40) name = cand;
+        break;
+      }
+    }
     const key = yachtKey(name);
     if (!key || key.length < 2 || seen.has(key)) continue;
     seen.add(key); out.push(name);
@@ -148,7 +175,7 @@ export function detectHeaderLikeNames(raw: string): string[] {
  *  beneath it. The live case: 9 headers recognised out of 31, one of them the
  *  word "or"; the format of the email is not something to guess at. */
 export function anchorBlocks(raw: string, names: string[], headerBlocks: YachtBlock[] = []): YachtBlock[] {
-  const text = raw ?? "";
+  const text = norm(raw);
   const byKey = new Map<string, YachtBlock>();
   for (const b of headerBlocks) byKey.set(b.key, { ...b });
   const esc = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
@@ -314,7 +341,7 @@ function tierOf(line: string): SeasonTier | null {
 /** All weekly season rates stated in one yacht's text. Only lines that carry a
  *  per-week amount count; a bare number never becomes a rate. */
 export function parseSeasonRates(text: string): ParsedSeasonRate[] {
-  const lines = (text ?? "").split(/\r?\n/);
+  const lines = norm(text).split(/\r?\n/);
   const out: ParsedSeasonRate[] = [];
   const seen = new Set<string>();
   for (const rawLine of lines) {
@@ -380,7 +407,7 @@ function pct(s: string): number | null {
 /** APA % and VAT % as written; VAT that depends on the cruising area comes
  *  back as a list ("7,8% for Argosaronic Gulf; 6,5% for Cyclades"). */
 export function parseApaVat(text: string): { apa_pct: number | null; apa_snippet: string; vat_pct: number | null; vat_snippet: string; vat_by_area: VatByArea[] } {
-  const t = text ?? "";
+  const t = norm(text);
   // The figure may follow the word ("APA 25%", "V.A.T. 6,5%") or precede it
   // ("6,5% VAT", "12% VAT"). Take whichever sits closest to the word; the old
   // after-only reading turned "6,5% VAT & APA 25%" into VAT 25.

@@ -1114,11 +1114,41 @@ export async function extractPickedYachts(
 ): Promise<CombinedExtraction> {
   const picked = names.map((n) => n.trim()).filter(Boolean);
   if (!picked.length) return { yachts: [] };
-  const pass = await extractYachtsOnce(text, brief, picked);
-  const yachts = mergeDuplicateYachts(pass.yachts);
-  enrichAll(yachts, text, ctx);
+  // Find each requested yacht's OWN slice of the email (headers, "N guests |
+  // N cabins" lines, and the typed names themselves as anchors). The model
+  // then reads a few small blocks instead of the whole fleet email: nothing
+  // to omit, nothing to time out on. A name that anchors nowhere is asked
+  // for from the full text, by name, as before.
+  const blocks = anchorBlocks(text, [...detectHeaderLikeNames(text), ...picked], detectYachtBlocks(text));
+  const findBlock = (n: string): YachtBlock | undefined => {
+    const k = yachtKey(n);
+    return blocks.find((b) => b.key === k) ?? blocks.find((b) => k.length >= 4 && (b.key.startsWith(k) || k.startsWith(b.key)));
+  };
+  const matched: { name: string; block: YachtBlock }[] = [];
+  const unmatched: string[] = [];
+  for (const n of picked) { const b = findBlock(n); if (b) matched.push({ name: n, block: b }); else unmatched.push(n); }
+  const passes: MultiPass[] = [];
+  if (matched.length) {
+    const focused = matched.map((m) => m.block.text).join("\n\n");
+    passes.push(await extractYachtsOnce(focused, brief, matched.map((m) => m.block.name), matched.map((m) => m.block.name)));
+  }
+  if (unmatched.length) {
+    passes.push(await extractYachtsOnce(text, brief, unmatched));
+  }
+  const yachts = mergeDuplicateYachts(passes.flatMap((p) => p.yachts));
+  enrichAll(yachts, text, ctx, blocks);
   const out: CombinedExtraction = { yachts };
-  if (pass.suggested_charter_type) out.suggested_charter_type = pass.suggested_charter_type;
-  if (pass.suggested_terms) out.suggested_terms = pass.suggested_terms;
+  // Which of the asked-for names actually came back - never silent.
+  const have = new Set(yachts.map((y) => yachtKey(y.vessel_name?.value)));
+  const got = (n: string) => { const k = yachtKey(n); return have.has(k) || [...have].some((h) => k.length >= 4 && (h.startsWith(k) || k.startsWith(h))); };
+  out.reconciliation = {
+    detected: picked.length, extracted: yachts.length,
+    missing: picked.filter((n) => !got(n)),
+    detected_names: picked, at: new Date().toISOString(),
+  };
+  const sct = passes.map((p) => p.suggested_charter_type).find(Boolean);
+  if (sct) out.suggested_charter_type = sct;
+  const st = passes.map((p) => p.suggested_terms).find(Boolean);
+  if (st) out.suggested_terms = st;
   return out;
 }
