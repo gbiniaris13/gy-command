@@ -105,6 +105,19 @@ function ago(iso, now) {
 // Per-engine analysis lines, from each tool's own stored snapshot.
 async function engineReport(cron, now) {
   try {
+    if (cron === "lighthouse-daily") {
+      // 2026-09-11: the reminder now leaves a snapshot behind (see the
+      // lighthouse-daily route), so the card can say what it found.
+      const s = JSON.parse((await getSetting("lighthouse_daily_latest")) || "null");
+      if (!s) return { at: null, lines: ["η υπενθύμιση στάλθηκε, χωρίς αποθηκευμένη εικόνα ακόμα"] };
+      return {
+        at: s.generated_at,
+        lines: [
+          `${s.today ?? 0} ευχές σήμερα, ${s.tomorrow ?? 0} αύριο, ${s.week ?? 0} μέσα στην εβδομάδα`,
+          `  θέμα του email: «${String(s.subject || "").slice(0, 70)}»`,
+        ],
+      };
+    }
     if (cron === "serp-snapshot") {
       const s = JSON.parse((await getSetting("serp_tracker_latest")) || "null");
       if (!s) return { at: null, lines: ["καμία σάρωση αποθηκευμένη ακόμα"] };
@@ -232,17 +245,27 @@ async function handler() {
   const sb = createServiceClient();
   const now = Date.now();
   const since = new Date(now - 12 * 3600000).toISOString();
+  // 2026-09-11: read every END row the observer still holds (it prunes at
+  // 21 days), not just the last 12 hours. Today's runs come from the same
+  // rows; the newest END per engine is the fallback for "τελευταία
+  // εκτέλεση" when an engine keeps no snapshot of its own. Before this the
+  // Lighthouse card said "έτρεξε σήμερα" and "τελευταία εκτέλεση: ποτέ" in
+  // the same breath, because engineReport had no branch for it.
   const { data: rows } = await sb
     .from("settings")
-    .select("key,value")
+    .select("key,value,updated_at")
     .like("key", "cron_end_%")
-    .gte("updated_at", since)
-    .limit(500);
+    .order("updated_at", { ascending: false })
+    .limit(3000);
 
   const todayRuns = new Map();
+  const lastEnd = new Map();
   for (const r of rows ?? []) {
     try {
       const v = JSON.parse(r.value);
+      const endedAt = v.ended_at || r.updated_at;
+      if (endedAt && (!lastEnd.has(v.name) || endedAt > lastEnd.get(v.name))) lastEnd.set(v.name, endedAt);
+      if (!(r.updated_at >= since)) continue;
       const list = todayRuns.get(v.name) ?? [];
       list.push(v);
       todayRuns.set(v.name, list);
@@ -311,7 +334,7 @@ async function handler() {
       title: e.label,
       status,
       tone,
-      meta: `τελευταία εκτέλεση: ${ago(rep.at, now)}`,
+      meta: `τελευταία εκτέλεση: ${ago(rep.at ?? lastEnd.get(e.cron) ?? null, now)}`,
       lines: rep.lines.map((l) => l.trim()),
       link: e.where.replace("command.georgeyachts.com -> ", ""),
     });
@@ -330,7 +353,7 @@ async function handler() {
       line = `«${post.title}»`;
     } else if (isArticleDay) {
       status = "δεν έχει βγει ακόμα"; tone = "bad"; problems++;
-      line = `Σήμερα είναι μέρα άρθρου. Τελευταίο: «${post.title}» (${postDate}). Ο φύλακας των 13:00 θα το γράψει αν δεν προλάβει το πρωινό.`;
+      line = `Σήμερα είναι μέρα άρθρου. Τελευταίο: «${post.title}» (${postDate}). Το γράφει η συνεδρία του George μέσα στη μέρα (ο αυτόματος φύλακας είναι κλειστός από 3/9).`;
     } else {
       status = "εκτός προγράμματος σήμερα"; tone = "neutral";
       line = `Τελευταίο: «${post.title}» (${postDate})`;

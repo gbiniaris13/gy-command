@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
-import { gmailFetch } from "@/lib/google-api";
+import { gmailFetch, setSetting } from "@/lib/google-api";
 import { observeCron } from "@/lib/cron-observer";
 import { upcomingOccasions, draftFor, occasionKey } from "@/lib/lighthouse";
 
@@ -156,6 +156,21 @@ async function handler() {
         : isSunday
           ? `Lighthouse: η εβδομάδα μπροστά σου (${weekAllP.length + weekAllH.length})`
           : `Lighthouse: σε μία εβδομάδα`;
+
+  // 2026-09-11: leave a snapshot for the engines digest, which reports
+  // "τελευταία εκτέλεση" from each engine's own record. Best-effort.
+  try {
+    await setSetting(
+      "lighthouse_daily_latest",
+      JSON.stringify({
+        generated_at: new Date().toISOString(),
+        today: todayP.length + todayH.length,
+        tomorrow: tomorrowP.length + tomorrowH.length,
+        week: weekAllP.length + weekAllH.length,
+        subject,
+      }),
+    );
+  } catch {}
 
   const html = `
   <div style="background:${G.bg};padding:28px 12px;">
