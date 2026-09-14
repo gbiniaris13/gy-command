@@ -10,6 +10,32 @@
 // =============================================================
 
 import { createServiceClient } from "./supabase-server";
+
+// ─── Patience with the database ──────────────────────────────────────────────
+// 2026-09-14, George: "One moment - the desk could not load" on every other
+// open of a request, two days running, while he was writing an offer. The
+// runtime log names it: "Failed to get API key info", the Supabase API
+// gateway failing to look the key up (its status page: "API Gateway -
+// Degraded Performance"). A read that fails for half a second does not need
+// an error page; it needs a second try. Every read the Helm pages make on
+// load, and the idempotent updates behind Save draft, now retry up to three
+// times with a short pause. Inserts are NOT retried (a retry could double a
+// message). Genuine errors (a bad column, a missing row) are thrown at once.
+const TRANSIENT_DB = /API key info|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|socket hang up|network|timeout|timed out|\b(50[0234]|52[0-4])\b|Bad Gateway|Gateway Time-?out|Service Unavailable|upstream|too many connections|connection (reset|closed|terminated)/i;
+const RETRY_WAITS_MS = [400, 1200, 2500];
+async function patiently<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = (e as Error)?.message ?? String(e);
+      if (attempt >= RETRY_WAITS_MS.length || !TRANSIENT_DB.test(msg)) throw e;
+      console.warn(`[helm-admin] ${label}: transient database error, retry ${attempt + 1}/${RETRY_WAITS_MS.length}: ${msg}`);
+      await new Promise((r) => setTimeout(r, RETRY_WAITS_MS[attempt]));
+    }
+  }
+}
+
 import {
   yachtLabel,
   suggestFollowUps,
@@ -71,81 +97,87 @@ export type HelmCrmItem = HelmListItem & {
 };
 
 export async function listHelmCrm(): Promise<HelmCrmItem[]> {
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("helm_requests")
-    .select(
-      "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads, pipeline:extraction->pipeline, yachts_raw:extraction->yachts",
-    )
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
+  return patiently("listHelmCrm", async () => {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from("helm_requests")
+      .select(
+        "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads, pipeline:extraction->pipeline, yachts_raw:extraction->yachts",
+      )
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
 
-  // Which of these clients are already on the newsletter? One lightweight
-  // lookup over contacts tagged "newsletter" (tags_v2 is jsonb). Best-effort:
-  // a failure here must never break the pipeline list.
-  const newsletterEmails = new Set<string>();
-  try {
-    // tags_v2 is jsonb, so the containment value must be JSON ('["newsletter"]'),
-    // not a PG array literal ('{newsletter}') — hence .filter(cs) with a JSON
-    // string rather than .contains([...]).
-    const { data: nl } = await db
-      .from("contacts")
-      .select("email")
-      .filter("tags_v2", "cs", JSON.stringify(["newsletter"]));
-    for (const c of nl ?? []) {
-      const e = (c as { email: string | null }).email?.trim().toLowerCase();
-      if (e) newsletterEmails.add(e);
+    // Which of these clients are already on the newsletter? One lightweight
+    // lookup over contacts tagged "newsletter" (tags_v2 is jsonb). Best-effort:
+    // a failure here must never break the pipeline list.
+    const newsletterEmails = new Set<string>();
+    try {
+      // tags_v2 is jsonb, so the containment value must be JSON ('["newsletter"]'),
+      // not a PG array literal ('{newsletter}') — hence .filter(cs) with a JSON
+      // string rather than .contains([...]).
+      const { data: nl } = await db
+        .from("contacts")
+        .select("email")
+        .filter("tags_v2", "cs", JSON.stringify(["newsletter"]));
+      for (const c of nl ?? []) {
+        const e = (c as { email: string | null }).email?.trim().toLowerCase();
+        if (e) newsletterEmails.add(e);
+      }
+    } catch {
+      /* ignore — the badge just won't show */
     }
-  } catch {
-    /* ignore — the badge just won't show */
-  }
 
-  return (data || []).map((r) => {
-    // Derive the compact yacht lines server-side and DROP the raw array so
-    // the client row stays tiny (extraction->yachts carries full dossiers).
-    const raw = (r as { yachts_raw?: unknown }).yachts_raw;
-    const yacht_labels: string[] = Array.isArray(raw)
-      ? raw
-          .map((y) =>
-            yachtLabel(
-              (y as { name?: string })?.name ?? null,
-              (y as { type?: string })?.type ?? null,
-            ),
-          )
-          .filter(Boolean)
-      : [];
-    const { yachts_raw: _drop, ...rest } = r as typeof r & { yachts_raw?: unknown };
-    void _drop;
-    return {
-      first_name: null,
-      last_name: null,
-      contact_email: null,
-      on_newsletter: newsletterEmails.has((r.client_email || "").trim().toLowerCase()),
-      yacht_labels,
-      ...rest,
-    };
-  }) as HelmCrmItem[];
+    return (data || []).map((r) => {
+      // Derive the compact yacht lines server-side and DROP the raw array so
+      // the client row stays tiny (extraction->yachts carries full dossiers).
+      const raw = (r as { yachts_raw?: unknown }).yachts_raw;
+      const yacht_labels: string[] = Array.isArray(raw)
+        ? raw
+            .map((y) =>
+              yachtLabel(
+                (y as { name?: string })?.name ?? null,
+                (y as { type?: string })?.type ?? null,
+              ),
+            )
+            .filter(Boolean)
+        : [];
+      const { yachts_raw: _drop, ...rest } = r as typeof r & { yachts_raw?: unknown };
+      void _drop;
+      return {
+        first_name: null,
+        last_name: null,
+        contact_email: null,
+        on_newsletter: newsletterEmails.has((r.client_email || "").trim().toLowerCase()),
+        yacht_labels,
+        ...rest,
+      };
+    }) as HelmCrmItem[];
+  });
 }
 
 export async function listHelm(): Promise<HelmListItem[]> {
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("helm_listing")
-    .select("*")
-    .order("last_activity_at", { ascending: false, nullsFirst: false });
-  if (error) throw new Error(error.message);
-  return data ?? [];
+  return patiently("listHelm", async () => {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from("helm_listing")
+      .select("*")
+      .order("last_activity_at", { ascending: false, nullsFirst: false });
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
 }
 
 export async function getRequest(id: string) {
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("helm_requests")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data;
+  return patiently("getRequest", async () => {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from("helm_requests")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data;
+  });
 }
 
 // Every column EXCEPT proposal_json — which bakes the PDF's base64 images and
@@ -157,14 +189,16 @@ const REQUEST_LIGHT_COLS =
 
 /** getRequest without the heavy proposal_json — for the detail page. */
 export async function getRequestLight(id: string) {
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("helm_requests")
-    .select(REQUEST_LIGHT_COLS)
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data;
+  return patiently("getRequestLight", async () => {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from("helm_requests")
+      .select(REQUEST_LIGHT_COLS)
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data;
+  });
 }
 
 /** Is this one email already a newsletter subscriber? (contacts.tags_v2 has
@@ -188,14 +222,16 @@ export async function isEmailOnNewsletter(email: string | null | undefined): Pro
 }
 
 export async function getMessages(requestId: string): Promise<HelmMessage[]> {
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("helm_messages")
-    .select("*")
-    .eq("request_id", requestId)
-    .order("created_at", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data as HelmMessage[]) ?? [];
+  return patiently("getMessages", async () => {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from("helm_messages")
+      .select("*")
+      .eq("request_id", requestId)
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    return (data as HelmMessage[]) ?? [];
+  });
 }
 
 export type CreateHelmInput = {
@@ -268,19 +304,21 @@ export async function createRequest(input: CreateHelmInput) {
 }
 
 export async function updateRequest(id: string, patch: Record<string, unknown>) {
-  const db = createServiceClient();
-  const { data, error } = await db
-    .from("helm_requests")
-    .update({
-      ...patch,
-      updated_at: new Date().toISOString(),
-      last_activity_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+  return patiently("updateRequest", async () => {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from("helm_requests")
+      .update({
+        ...patch,
+        updated_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  });
 }
 
 export async function addNote(requestId: string, body: string) {
@@ -300,12 +338,14 @@ export async function addNote(requestId: string, body: string) {
 
 // Step 3 — store the AI extraction (pre-confirm, no math done yet).
 export async function saveExtraction(id: string, extraction: unknown) {
-  const db = createServiceClient();
-  const { error } = await db
-    .from("helm_requests")
-    .update({ extraction, updated_at: new Date().toISOString() })
-    .eq("id", id);
-  if (error) throw new Error(error.message);
+  return patiently("saveExtraction", async () => {
+    const db = createServiceClient();
+    const { error } = await db
+      .from("helm_requests")
+      .update({ extraction, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+  });
 }
 
 // Step 3 — store the generated proposal + email draft; advance to 'drafted'.
