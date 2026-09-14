@@ -232,24 +232,28 @@ export async function loadPeople() {
     ]);
   const requests = reqRes.data, contacts = conRes.data, guests = gueRes.data, members = memRes.data;
 
-  // Yachts discussed, fetched in chunks of 6 so each statement stays
-  // tiny; a chunk that still times out loses only its own labels.
+  // Yachts discussed. NOT from proposal_json: that column carries the
+  // finished PDF with its photos baked in as base64, megabytes per row,
+  // and "->yachts" makes Postgres detoast and parse the whole blob for
+  // every row asked. On 14/9 this one statement was 55% of all database
+  // time on the Nano instance (2,312 calls, 8s worst case) and the
+  // memory it ate is what sent George's request pages into "Gateway
+  // Timeout". The extraction column holds the same yacht names in a few
+  // kilobytes; both shapes are read ({name} and {vessel_name:{value}}).
+  // Chunks of 25, one after another: kind to a small database.
   const yachtsByRequest = new Map();
   if (requests?.length) {
     const ids = requests.map((r) => r.id);
-    const chunks = [];
-    for (let i = 0; i < ids.length; i += 6) chunks.push(ids.slice(i, i + 6));
-    await Promise.all(
-      chunks.map(async (chunk) => {
-        try {
-          const { data } = await sb
-            .from("helm_requests")
-            .select("id, y:proposal_json->yachts")
-            .in("id", chunk);
-          for (const row of data ?? []) yachtsByRequest.set(row.id, row.y);
-        } catch {}
-      }),
-    );
+    for (let i = 0; i < ids.length; i += 25) {
+      const chunk = ids.slice(i, i + 25);
+      try {
+        const { data } = await sb
+          .from("helm_requests")
+          .select("id, y:extraction->yachts")
+          .in("id", chunk);
+        for (const row of data ?? []) yachtsByRequest.set(row.id, row.y);
+      } catch {}
+    }
   }
   // Silent-empty is the enemy: keep each query's error for the API to
   // surface (the 29/8 prod mystery: Helm empty while REST worked).
@@ -317,7 +321,10 @@ export async function loadPeople() {
         : first || last || email;
     const rawY = yachtsByRequest.get(r.id);
     const discussed = Array.isArray(rawY)
-      ? rawY.map((y) => (y && typeof y === "object" ? y.name : String(y))).filter(Boolean).slice(0, 4)
+      ? rawY
+          .map((y) => (y && typeof y === "object" ? (y.name ?? y.vessel_name?.value ?? null) : String(y)))
+          .filter(Boolean)
+          .slice(0, 4)
       : [];
     const won = r.status === "won";
     const existing = people.get(key);

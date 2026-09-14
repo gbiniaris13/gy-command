@@ -181,9 +181,16 @@ async function countSince(
   return count ?? 0;
 }
 
+// Same lesson as cron-observer (14/9): a DELETE ... LIKE on every guarded
+// send is a daily chore run thousands of times. Once every six hours per
+// warm instance.
+const PRUNE_EVERY_MS = 6 * 3600_000;
+let lastPruneAt = 0;
 async function pruneOldLogs(
   sb: ReturnType<typeof createServiceClient>,
 ): Promise<void> {
+  if (Date.now() - lastPruneAt < PRUNE_EVERY_MS) return;
+  lastPruneAt = Date.now();
   const cutoff = new Date(
     Date.now() - PRUNE_AFTER_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();

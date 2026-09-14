@@ -96,7 +96,16 @@ async function recordEnd(
   }
 }
 
+// Pruning used to run on EVERY observed cron call: 64 crons, some every 5
+// minutes, so the two DELETE ... LIKE statements ran 72,000 times (28% of
+// all database time on 14/9, 7s worst case) to remove rows that appear
+// once a day. Once every six hours per warm instance is plenty; a cold
+// start simply prunes once more.
+const PRUNE_EVERY_MS = 6 * 3600_000;
+let lastPruneAt = 0;
 async function pruneOld(sb: any): Promise<void> {
+  if (Date.now() - lastPruneAt < PRUNE_EVERY_MS) return;
+  lastPruneAt = Date.now();
   try {
     const cutoff = new Date(
       Date.now() - PRUNE_AFTER_DAYS * 86400000,

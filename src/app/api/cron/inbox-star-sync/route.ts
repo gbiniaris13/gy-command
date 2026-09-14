@@ -116,30 +116,37 @@ async function _observedImpl(): Promise<Response> {
     }
   }
 
-  // 4. Apply: set inbox_starred=true for newly-starred set, false for
-  //    everyone else who's currently true.
+  // 4. Apply, but ONLY where something changed. This ran every 15 minutes
+  //    and rewrote every starred contact every time, one UPDATE each:
+  //    996,997 statements on 14/9, the third-heaviest load on the
+  //    database. A contact already starred on the same thread is left
+  //    alone; a star that moved to a newer thread, or a new star, is
+  //    written; stale stars are cleared as before.
   const now = new Date().toISOString();
+  const { data: currentlyStarred } = await sb
+    .from("contacts")
+    .select("id, inbox_starred_thread_id")
+    .eq("inbox_starred", true);
+  const currentThread = new Map<string, string | null>();
+  for (const c of currentlyStarred ?? []) currentThread.set(c.id as string, (c.inbox_starred_thread_id as string | null) ?? null);
   let setOn = 0;
+  let unchanged = 0;
   for (const cid of newlyStarred) {
+    const thread = starredThreadIdByContact.get(cid) ?? null;
+    if (currentThread.has(cid) && currentThread.get(cid) === thread) { unchanged++; continue; }
     await sb
       .from("contacts")
       .update({
         inbox_starred: true,
         inbox_starred_at: now,
-        inbox_starred_thread_id: starredThreadIdByContact.get(cid) ?? null,
+        inbox_starred_thread_id: thread,
       })
       .eq("id", cid);
     setOn++;
   }
 
   // Clear stale stars (currently true but no longer in starred set).
-  const { data: currentlyStarred } = await sb
-    .from("contacts")
-    .select("id")
-    .eq("inbox_starred", true);
-  const stale = (currentlyStarred ?? [])
-    .map((c) => c.id as string)
-    .filter((id) => !newlyStarred.has(id));
+  const stale = [...currentThread.keys()].filter((id) => !newlyStarred.has(id));
   let clearedOff = 0;
   if (stale.length > 0) {
     const CHUNK = 200;
@@ -157,6 +164,7 @@ async function _observedImpl(): Promise<Response> {
     ok: true,
     starred_messages_seen: ids.length,
     contacts_starred: setOn,
+    contacts_unchanged: unchanged,
     contacts_cleared: clearedOff,
   });
 }
