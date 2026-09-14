@@ -167,8 +167,30 @@ export async function listHelm(): Promise<HelmListItem[]> {
   });
 }
 
+// getRequest is what every Helm button calls (extract, import, generate,
+// send, reply, share). It used to select "*", which drags proposal_json
+// along: the approved proposal text, and on requests generated before
+// 21/7 also the PDF's photos as base64, 20MB a row. Not one of those
+// routes reads it (checked 14/9: only the Salon does, see below), yet the
+// Nano database parsed and shipped it on every click, 7s worst case.
+// Every column EXCEPT proposal_json, defined once below.
 export async function getRequest(id: string) {
   return patiently("getRequest", async () => {
+    const db = createServiceClient();
+    const { data, error } = await db
+      .from("helm_requests")
+      .select(REQUEST_LIGHT_COLS)
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data;
+  });
+}
+
+/** The full row, proposal_json included. ONLY for the Salon (the online
+ *  edition), which renders the approved text and prices from it. */
+export async function getRequestWithProposal(id: string) {
+  return patiently("getRequestWithProposal", async () => {
     const db = createServiceClient();
     const { data, error } = await db
       .from("helm_requests")
@@ -314,7 +336,7 @@ export async function updateRequest(id: string, patch: Record<string, unknown>) 
         last_activity_at: new Date().toISOString(),
       })
       .eq("id", id)
-      .select()
+      .select(REQUEST_LIGHT_COLS)
       .single();
     if (error) throw new Error(error.message);
     return data;

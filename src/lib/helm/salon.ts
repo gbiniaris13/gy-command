@@ -10,7 +10,7 @@
 // Salon is DIRECT-CLIENT ONLY: travel-agent / white-label proposals keep the
 // straight PDF redirect (a George-branded page would break white-label).
 
-import { getRequest } from "@/lib/helm-admin";
+import { getRequestWithProposal } from "@/lib/helm-admin";
 import { optimizedUrl } from "@/lib/helm/cloudinary";
 import type { CombinedProposal, CombinedYacht } from "@/lib/helm/proposal-template";
 
@@ -35,7 +35,7 @@ function isHttpUrl(u: unknown): u is string {
 /** Build the Salon view model, or null when this request must NOT get a
  *  Salon (agent/white-label, single mode, or nothing generated yet). */
 export async function salonData(requestId: string): Promise<SalonModel | null> {
-  const r = await getRequest(requestId);
+  const r = await getRequestWithProposal(requestId);
   if (!r || !r.proposal_json) return null;
   if (r.request_type === "travel_agent") return null;
   const proposal = r.proposal_json as CombinedProposal;
