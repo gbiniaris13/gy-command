@@ -10,7 +10,7 @@
 // plainly ("DRIVE_SCOPE_MISSING") instead of failing in the dark. George
 // re-runs the Google connection once and the mirror starts working.
 
-import { getAccessToken } from "@/lib/google-api";
+import { getAccessToken, _invalidateAccessTokenCache } from "@/lib/google-api";
 
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 export const DRIVE_ROOT_FOLDER = "George Yachts";
@@ -20,16 +20,34 @@ const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 let _scopeCache: { granted: boolean; at: number } | null = null;
 
-/** Does the current Google token carry the Drive scope? Cached 10 minutes. */
+async function tokenHasDriveScope(): Promise<boolean> {
+  const token = await getAccessToken();
+  const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
+  if (!res.ok) return false;
+  const info = (await res.json()) as { scope?: string };
+  return (info.scope || "").split(/\s+/).includes(DRIVE_SCOPE);
+}
+
+/**
+ * Does the current Google token carry the Drive scope? A "yes" is cached
+ * for 10 minutes. A "no" is only trusted for one minute and is re-checked
+ * with a FRESH access token first: the moment George clicks Allow on the
+ * consent screen (24/9), the warm lambda still holds the old access token
+ * in getAccessToken's cache for up to an hour, and without this retry the
+ * panel kept saying "reconnect Google" after he already had.
+ */
 export async function driveScopeGranted(): Promise<boolean> {
-  if (_scopeCache && Date.now() - _scopeCache.at < 10 * 60 * 1000) return _scopeCache.granted;
+  if (_scopeCache) {
+    const age = Date.now() - _scopeCache.at;
+    if (_scopeCache.granted && age < 10 * 60 * 1000) return true;
+    if (!_scopeCache.granted && age < 60 * 1000) return false;
+  }
   let granted = false;
   try {
-    const token = await getAccessToken();
-    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
-    if (res.ok) {
-      const info = (await res.json()) as { scope?: string };
-      granted = (info.scope || "").split(/\s+/).includes(DRIVE_SCOPE);
+    granted = await tokenHasDriveScope();
+    if (!granted) {
+      _invalidateAccessTokenCache();
+      granted = await tokenHasDriveScope();
     }
   } catch {
     granted = false;
