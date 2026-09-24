@@ -31,6 +31,9 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar.events.readonly",
   "https://www.googleapis.com/auth/webmasters.readonly",
   "https://www.googleapis.com/auth/analytics.readonly",
+  // 2026-09-24: Drive, files this app creates only. Mirrors booking documents
+  // (contracts, passports, preference sheets) into George Yachts / Bookings.
+  "https://www.googleapis.com/auth/drive.file",
 ].join(" ");
 
 export function getGoogleAuthUrl(): string {

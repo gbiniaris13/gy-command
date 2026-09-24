@@ -477,3 +477,37 @@ export async function sendInvite(id: string, actorEmail: string) {
     metadata: { to: cabin.principal_charterer_email },
   });
 }
+
+
+// 2026-09-24 — the Helm booking that owns this Cabin (extraction->booking->cabin_id).
+// Lets the Cabin page point back at the papers, the payment status and the
+// white-label switch, which live on the request in The Helm.
+export async function getBookingRequestForCabin(cabinId: string): Promise<{
+  id: string;
+  client_name: string | null;
+  client_surname: string | null;
+  status: string;
+  payment_status: string;
+  white_label: boolean;
+  documents: number;
+} | null> {
+  const db = createServiceClient();
+  const { data } = await db
+    .from("helm_requests")
+    .select("id, client_name, client_surname, status, booking:extraction->booking")
+    .filter("extraction->booking->>cabin_id", "eq", cabinId)
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  const b = (data as { booking?: Record<string, unknown> | null }).booking ?? {};
+  const docs = Array.isArray(b.documents) ? b.documents.length : 0;
+  return {
+    id: data.id,
+    client_name: data.client_name ?? null,
+    client_surname: data.client_surname ?? null,
+    status: data.status,
+    payment_status: typeof b.payment_status === "string" ? b.payment_status : "unpaid",
+    white_label: b.white_label === true,
+    documents: docs,
+  };
+}

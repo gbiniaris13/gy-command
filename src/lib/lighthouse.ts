@@ -210,7 +210,9 @@ export async function loadPeople() {
         // list must never depend on it; the yachts come afterwards in
         // small chunks that cannot take the list down with them.
         .select(
-          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, dates_to, contact_id",
+          // 2026-09-24: the booking's white-label flag, linked Cabin and the
+          // yacht they took ride along as narrow JSON paths (kilobytes).
+          "id, client_title, client_name, client_surname, client_email, client_whatsapp, status, area, occasion, dates_from, dates_to, contact_id, wl:extraction->booking->white_label, bcabin:extraction->booking->>cabin_id, bvessel:extraction->booking->>vessel",
         )
         .limit(1000),
       sb
@@ -225,7 +227,7 @@ export async function loadPeople() {
         .limit(2000),
       sb
         .from("cabin_members")
-        .select("id, display_name, email, mobile, personal_details, deleted_at")
+        .select("id, cabin_id, display_name, email, mobile, personal_details, deleted_at")
         .is("deleted_at", null)
         .limit(2000),
       getSetting("lighthouse_manual_dates"),
@@ -305,11 +307,30 @@ export async function loadPeople() {
 
   const people = new Map();
 
+  // 0. White label (George, 24/9): a charter booked through a partner as
+  //    white label is the partner's relationship. Nobody on that booking,
+  //    the charterer or the Cabin guests, may ever receive a greeting from
+  //    this house, so they never enter the Lighthouse at all.
+  const whiteLabelEmails = new Set();
+  const whiteLabelPhones = new Set();
+  const whiteLabelCabins = new Set();
+  const normPhone = (v) => String(v || "").replace(/[^\d]/g, "");
+  for (const r of requests ?? []) {
+    if (r.wl !== true) continue;
+    if (r.client_email) whiteLabelEmails.add(String(r.client_email).toLowerCase());
+    if (r.client_whatsapp) whiteLabelPhones.add(normPhone(r.client_whatsapp));
+    if (r.bcabin) whiteLabelCabins.add(r.bcabin);
+  }
+  const isWhiteLabel = (email, phone) =>
+    (!!email && whiteLabelEmails.has(String(email).toLowerCase())) ||
+    (!!phone && whiteLabelPhones.has(normPhone(phone)));
+
   // 1. Helm requests: the clients themselves, with the yachts we
   //    actually discussed pulled from the proposal.
   for (const r of requests ?? []) {
     const email = (r.client_email || "").toLowerCase();
     if (!email && !r.client_whatsapp) continue;
+    if (isWhiteLabel(email, r.client_whatsapp)) continue;
     const key = email ? `helm:${email}` : `helm:${r.id}`;
     const first = (r.client_name || "").trim();
     const last = (r.client_surname || "").trim();
@@ -356,7 +377,7 @@ export async function loadPeople() {
       religion_overridden: c.religion_overridden ?? false,
       birthday: c.birthday || c.date_of_birth || null,
       anniversary: c.anniversary_date || null,
-      charter_vessel: c.charter_vessel || (won ? discussed[0] : null) || null,
+      charter_vessel: c.charter_vessel || (won ? r.bvessel || discussed[0] : null) || null,
       charter_date: c.charter_embarkation || c.charter_start_date || (won ? r.dates_from : null) || null,
       travel_from: r.dates_from || null,
       travel_to: r.dates_to || null,
@@ -390,10 +411,13 @@ export async function loadPeople() {
   };
   for (const g of guests ?? []) {
     if (!g.full_name) continue;
+    if (whiteLabelCabins.has(g.cabin_id) || isWhiteLabel(g.email, g.mobile)) continue;
     addOrMerge(`guest:${g.id}`, {
       key: `guest:${g.id}`, contact_id: null, name: g.full_name,
       email: g.email || null, phone: g.mobile || null,
-      country: g.nationality || null, religion: null, religion_overridden: false,
+      // Nationality from the manifest, else the dial code of the mobile
+      // (George 24/9: "από το τηλέφωνό τους το nationality").
+      country: g.nationality || countryFromPhone(g.mobile) || null, religion: null, religion_overridden: false,
       birthday: g.date_of_birth || null, anniversary: null,
       charter_vessel: null, charter_date: null, discussed: [],
       helm_status: "guest", won: true, opt_out: false, vip: false,
@@ -403,10 +427,11 @@ export async function loadPeople() {
   for (const m of members ?? []) {
     const pd = m.personal_details || {};
     if (!m.display_name && !m.email) continue;
+    if (whiteLabelCabins.has(m.cabin_id) || isWhiteLabel(m.email, m.mobile || pd.mobile)) continue;
     addOrMerge(`member:${m.id}`, {
       key: `member:${m.id}`, contact_id: null, name: m.display_name || m.email,
       email: m.email || null, phone: m.mobile || pd.mobile || null,
-      country: pd.nationality || null, religion: null, religion_overridden: false,
+      country: pd.nationality || countryFromPhone(m.mobile || pd.mobile) || null, religion: null, religion_overridden: false,
       birthday: pd.date_of_birth || null, anniversary: null,
       charter_vessel: null, charter_date: null, discussed: [],
       helm_status: "guest", won: true, opt_out: false, vip: false,
@@ -419,6 +444,7 @@ export async function loadPeople() {
   // and fold into the Helm person automatically once he arrives.
   const newRaw = await getSetting("lighthouse_people");
   for (const np of newRaw ? JSON.parse(newRaw) : []) {
+    if (isWhiteLabel(np.email, np.phone)) continue;
     addOrMerge(`new:${np.id}`, {
       key: `new:${np.id}`, contact_id: null, name: np.name,
       email: np.email || null, phone: np.phone || null,

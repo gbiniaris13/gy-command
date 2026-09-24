@@ -51,6 +51,29 @@ export type CrmRow = {
   yachts: string[]; // "M/Y ALTEA", "S/CAT LUCKY CLOVER", ...
   wantedNights: number | null; // what the client wants inside a flexible window
   flexWindow: boolean; // dates span 10+ nights = a window, not the charter length
+  // 2026-09-24: the booking (won requests). ownerCompany is INTERNAL.
+  booking: {
+    vessel: string | null;
+    ownerCompany: string | null;
+    paymentStatus: string;
+    whiteLabel: boolean;
+    cabinId: string | null;
+    docs: number;
+    docTypes: string[];
+    driveLink: string | null;
+  };
+};
+
+const PAYMENT_OPTIONS: { value: string; label: string; color: string }[] = [
+  { value: "unpaid", label: "Unpaid", color: "#9CA3AF" },
+  { value: "deposit_paid", label: "Deposit paid", color: "#F59E0B" },
+  { value: "balance_paid", label: "Balance paid", color: "#60A5FA" },
+  { value: "apa_paid", label: "APA paid", color: "#34D399" },
+  { value: "settled", label: "Settled", color: "#0d6e5a" },
+];
+const DOC_SHORT: Record<string, string> = {
+  contract: "Contract", passport: "Passports", preference_sheet: "Preferences",
+  crew_list: "Crew list", invoice: "Invoice", payment_proof: "Payment", other: "Other",
 };
 
 const STATUS_OPTIONS = ["new", "drafted", "sent", "in_conversation", "negotiating", "won", "lost"];
@@ -351,6 +374,102 @@ function StatusSelect({ id, value }: { id: string; value: string }) {
   );
 }
 
+
+// ── Payment status, editable straight from the Won list (2026-09-24). ────
+function PaymentSelect({ id, value }: { id: string; value: string }) {
+  const router = useRouter();
+  const [v, setV] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const opt = PAYMENT_OPTIONS.find((o) => o.value === v) ?? PAYMENT_OPTIONS[0];
+  async function change(next: string) {
+    const prev = v;
+    setV(next);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/helm/${id}/booking`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save", payment_status: next }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      router.refresh();
+    } catch {
+      setV(prev);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <select
+      value={v}
+      disabled={saving}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => change(e.target.value)}
+      title="Payment status"
+      style={{
+        appearance: "auto", border: "none", cursor: "pointer", borderRadius: 3,
+        padding: "2px 4px", fontSize: 9.5, letterSpacing: 0.3, textTransform: "uppercase",
+        background: opt.color, color: "#fff", fontWeight: 600, opacity: saving ? 0.6 : 1, maxWidth: "100%",
+      }}
+    >
+      {PAYMENT_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value} style={{ background: "#fff", color: "#0D1B2A" }}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+// ── Booking cell: what a WON request turned into. ────────────────────────
+function BookingCell({ r }: { r: CrmRow }) {
+  const b = r.booking;
+  const won = r.status === "won";
+  const empty = !b.vessel && !b.ownerCompany && !b.cabinId && b.docs === 0 && !b.whiteLabel && b.paymentStatus === "unpaid";
+  if (!won && empty) return <span style={{ color: "#cbd5e1" }}>—</span>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: "#0D1B2A", lineHeight: 1.25 }}>
+        {b.vessel || <span style={{ color: "#b45309", fontWeight: 600 }}>Yacht not set</span>}
+      </div>
+      {b.ownerCompany && (
+        <div style={{ fontSize: 10.5, color: "#6b7280" }} title="Owning house (internal)">
+          🏛 {b.ownerCompany}
+        </div>
+      )}
+      <div onClick={(e) => e.stopPropagation()}>
+        <PaymentSelect id={r.id} value={b.paymentStatus} />
+      </div>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 1 }}>
+        {b.docs > 0 ? (
+          <span title={b.docTypes.map((t) => DOC_SHORT[t] || t).join(", ")} style={{
+            fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", padding: "1px 6px", borderRadius: 3,
+            background: "rgba(13,27,42,0.06)", color: "#374151", border: "1px solid rgba(13,27,42,0.12)",
+          }}>📎 {b.docs} file{b.docs === 1 ? "" : "s"}</span>
+        ) : (
+          <span style={{ fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", padding: "1px 6px", borderRadius: 3, color: "#b45309", border: "1px solid rgba(180,83,9,0.3)" }}>no papers</span>
+        )}
+        {b.cabinId && (
+          <Link href={`/dashboard/cabins/${b.cabinId}`} onClick={(e) => e.stopPropagation()} title="Open the Cabin" style={{
+            fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", padding: "1px 6px", borderRadius: 3,
+            background: "rgba(13,110,90,0.10)", color: "#0d6e5a", border: "1px solid rgba(13,110,90,0.25)", textDecoration: "none",
+          }}>Cabin</Link>
+        )}
+        {b.driveLink && (
+          <a href={b.driveLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} title="Open the Drive folder" style={{
+            fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", padding: "1px 6px", borderRadius: 3,
+            background: "rgba(201,168,76,0.12)", color: "#A8873B", border: "1px solid rgba(201,168,76,0.35)", textDecoration: "none",
+          }}>Drive</a>
+        )}
+        {b.whiteLabel && (
+          <span title="White label: booked through a partner. The Lighthouse never greets this client." style={{
+            fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", padding: "1px 6px", borderRadius: 3,
+            background: "rgba(109,40,217,0.10)", color: "#6D28D9", border: "1px solid rgba(109,40,217,0.25)",
+          }}>White label</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -409,7 +528,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
       </div>
 
       <div style={{ background: "#fff", border: "1px solid rgba(13,27,42,0.08)", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 1560, tableLayout: "fixed" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 1730, tableLayout: "fixed" }}>
           {/* Fixed widths so every column stays on screen; long free-text
               (guests, route, budget) wraps inside its box instead of shoving
               the later columns off the right edge. 2026-07-24: Sent rides
@@ -426,6 +545,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
             <col style={{ width: 196 }} />
             <col style={{ width: 130 }} />
             <col style={{ width: 164 }} />
+            <col style={{ width: 170 }} />
           </colgroup>
           <thead>
             <tr style={{ background: "rgba(13,27,42,0.04)", textAlign: "left" }}>
@@ -440,11 +560,12 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
               <th style={th}>Follow-ups</th>
               <th style={th}>Signals</th>
               <th style={th}>Notes</th>
+              <th style={th} title="Won: the yacht they took, the owning house (internal), payment, papers">Booking</th>
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 && (
-              <tr><td colSpan={11} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
+              <tr><td colSpan={12} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
                 Nothing matches. Clear the search or filters.
               </td></tr>
             )}
@@ -601,6 +722,11 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                 {/* George's own notes - typed here, saved here */}
                 <td style={td} onClick={(e) => e.stopPropagation()}>
                   <NotesCell id={r.id} initial={r.notes} />
+                </td>
+
+                {/* Booking - what a WON request became (2026-09-24) */}
+                <td style={td}>
+                  <BookingCell r={r} />
                 </td>
               </tr>
               );

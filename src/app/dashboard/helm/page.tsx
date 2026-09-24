@@ -136,6 +136,19 @@ export default async function HelmListPage() {
       yachts: r.yacht_labels,
       wantedNights: p.wanted_nights ?? null,
       flexWindow: isFlexibleWindow(nights),
+      // 2026-09-24: the booking on a won request (yacht taken, owner house,
+      // payment, white label, papers). Present for every row so the column
+      // can also show a booking George filled in before flipping to won.
+      booking: {
+        vessel: r.booking.vessel,
+        ownerCompany: r.booking.owner_company,
+        paymentStatus: r.booking.payment_status,
+        whiteLabel: r.booking.white_label,
+        cabinId: r.booking.cabin_id,
+        docs: r.booking.documents.length,
+        docTypes: Array.from(new Set(r.booking.documents.map((d) => d.type))),
+        driveLink: r.booking.drive_folder_link,
+      },
     };
   });
 

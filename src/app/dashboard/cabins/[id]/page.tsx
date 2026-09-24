@@ -7,6 +7,7 @@ import {
   getCabin,
   getCabinSections,
   getCabinMembers,
+  getBookingRequestForCabin,
 } from "@/lib/cabin-admin";
 import CabinDetailActions from "./CabinDetailActions";
 import StatusTransitions from "./StatusTransitions";
@@ -34,9 +35,10 @@ export default async function CabinDetailPage({
   const cabin = await getCabin(id);
   if (!cabin) notFound();
 
-  const [sections, members] = await Promise.all([
+  const [sections, members, booking] = await Promise.all([
     getCabinSections(id),
     getCabinMembers(id),
+    getBookingRequestForCabin(id).catch(() => null),
   ]);
 
   // 2026-05-23 — Berth Map Phase 2: backfill REMOVED from the cabin
@@ -158,6 +160,16 @@ export default async function CabinDetailPage({
             <Row k="Charter fee €">{cabin.charter_fee_eur ? cabin.charter_fee_eur.toLocaleString() : "—"}</Row>
             <Row k="APA €">{cabin.apa_eur ? cabin.apa_eur.toLocaleString() : "—"}</Row>
             <Row k="MYBA #">{cabin.myba_contract_number || "—"}</Row>
+            <Row k="Booking (Helm)">
+              {booking ? (
+                <Link href={`/dashboard/helm/${booking.id}`} style={{ color: "#0D1B2A", fontWeight: 600 }}>
+                  {[booking.client_name, booking.client_surname].filter(Boolean).join(" ") || "Open request"}
+                  {" · "}{booking.payment_status.replace(/_/g, " ")}
+                  {" · "}{booking.documents} file{booking.documents === 1 ? "" : "s"}
+                  {booking.white_label ? " · white label" : ""}
+                </Link>
+              ) : "—"}
+            </Row>
           </dl>
         </section>
 

@@ -10,6 +10,7 @@
 // =============================================================
 
 import { createServiceClient } from "./supabase-server";
+import { readBooking } from "./helm/booking";
 
 // ─── Patience with the database ──────────────────────────────────────────────
 // 2026-09-14, George: "One moment - the desk could not load" on every other
@@ -94,6 +95,9 @@ export type HelmCrmItem = HelmListItem & {
   /** Compact yacht lines for the list column ("M/Y ALTEA"), derived
    *  server-side from extraction->yachts so the client row stays tiny. */
   yacht_labels: string[];
+  /** extraction->booking: the yacht they took, owner house (internal),
+   *  payment status, white-label flag, linked Cabin, documents (2026-09-24). */
+  booking: import("./helm/booking").HelmBooking;
 };
 
 export async function listHelmCrm(): Promise<HelmCrmItem[]> {
@@ -102,7 +106,7 @@ export async function listHelmCrm(): Promise<HelmCrmItem[]> {
     const { data, error } = await db
       .from("helm_requests")
       .select(
-        "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads, pipeline:extraction->pipeline, yachts_raw:extraction->yachts",
+        "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads, pipeline:extraction->pipeline, yachts_raw:extraction->yachts, booking:extraction->booking",
       )
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -141,7 +145,7 @@ export async function listHelmCrm(): Promise<HelmCrmItem[]> {
             )
             .filter(Boolean)
         : [];
-      const { yachts_raw: _drop, ...rest } = r as typeof r & { yachts_raw?: unknown };
+      const { yachts_raw: _drop, booking: bookingRaw, ...rest } = r as typeof r & { yachts_raw?: unknown; booking?: unknown };
       void _drop;
       return {
         first_name: null,
@@ -149,6 +153,7 @@ export async function listHelmCrm(): Promise<HelmCrmItem[]> {
         contact_email: null,
         on_newsletter: newsletterEmails.has((r.client_email || "").trim().toLowerCase()),
         yacht_labels,
+        booking: readBooking(bookingRaw),
         ...rest,
       };
     }) as HelmCrmItem[];
