@@ -123,8 +123,18 @@ async function engineReport(cron, now) {
       if (!s) return { at: null, lines: ["καμία σάρωση αποθηκευμένη ακόμα"] };
       const best = (s.results || []).filter((r) => r.position !== null).slice(0, 3);
       const lines = [
-        `${s.found_in_top30}/${s.queries} ερωτήματα στο top 30 της αμερικανικής Google, μέση θέση όπου υπάρχουμε ${s.avg_position_when_found ?? "-"}`,
+        `${s.found_in_top30}/${s.queries} ερωτήματα στο top 30 της αμερικανικής Google, μέση θέση όπου υπάρχουμε ${s.avg_position_when_found ?? "-"}` +
+          (s.found_in_top100 != null ? ` · στο top 100: ${s.found_in_top100}/${s.queries}, μέση θέση ${s.avg_position_top100 ?? "-"}` : ""),
       ];
+      // 2026-09-25: the AI Overview line. Google's own AI answer sits on
+      // top of the cost queries and cites us; that is a position too.
+      if (s.ai_overview_queries != null) {
+        const cited = (s.results || []).filter((r) => r.ai_overview?.cites_us).map((r) => `«${r.query}»`);
+        lines.push(
+          `AI Overview της Google σε ${s.ai_overview_queries}/${s.queries} ερωτήματα, μας παραθέτει σε ${s.ai_overview_cites_us}` +
+            (cited.length ? `: ${cited.slice(0, 4).join(", ")}` : ""),
+        );
+      }
       for (const r of best) {
         const delta =
           r.prev_position != null && r.prev_position !== r.position

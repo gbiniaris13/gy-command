@@ -49,14 +49,39 @@ const DEFAULT_QUERIES = [
   "how much does it cost to charter a yacht in greece",
   "yacht charter greece prices",
   "yacht charter greece with crew cost",
+  // 2026-09-25: the queries of the EUR 35,000 to 80,000 a week segment
+  // (Google Ads, US: private 260/mo, luxury 260, greek islands 260,
+  // best 50, with crew 70). "luxury yacht charter greece" was already here.
+  "private yacht charter greece",
+  "yacht charter greek islands",
+  "luxury crewed yacht charter greece",
+  "yacht charter greece with crew",
+  "best yacht charter greece",
+  "charter a yacht in greece",
 ];
+// The list stored in settings on first run stays as it was, so a new
+// default only reaches the tracker if it is merged in. Missing defaults
+// are appended (cap 30); anything George removed from the list on
+// purpose is not re-added because removals are recorded separately.
+const REMOVED_KEY = "serp_tracker_removed";
 
 async function loadQueries(): Promise<string[]> {
   const raw = await getSetting(QUERIES_KEY);
   if (raw) {
     try {
       const list = JSON.parse(raw);
-      if (Array.isArray(list) && list.length) return list.slice(0, 30);
+      if (Array.isArray(list) && list.length) {
+        let removed: string[] = [];
+        try {
+          removed = JSON.parse((await getSetting(REMOVED_KEY)) || "[]");
+        } catch {}
+        const merged = [...list];
+        for (const q of DEFAULT_QUERIES) {
+          if (!merged.includes(q) && !removed.includes(q) && merged.length < 30) merged.push(q);
+        }
+        if (merged.length !== list.length) await setSetting(QUERIES_KEY, JSON.stringify(merged));
+        return merged.slice(0, 30);
+      }
     } catch {}
   }
   await setSetting(QUERIES_KEY, JSON.stringify(DEFAULT_QUERIES));
@@ -89,7 +114,10 @@ export async function POST() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify([
-        { keyword, location_code: LOCATION_CODE, language_code: "en", device: "desktop", depth: 30 },
+        // 2026-09-25: depth 100, not 30. With 30 the tracker wrote "no
+        // position" for 16 of 19 queries while we sat at 31 to 60 and
+        // moved every week unseen. Same price per call.
+        { keyword, location_code: LOCATION_CODE, language_code: "en", device: "desktop", depth: 100 },
       ]),
       cache: "no-store",
     });
@@ -122,12 +150,23 @@ export async function POST() {
   const results = [];
   for (const task of data.tasks ?? []) {
     const keyword = task?.data?.keyword;
-    const items = (task?.result?.[0]?.items ?? []).filter((i) => i.type === "organic");
+    const all = task?.result?.[0]?.items ?? [];
+    const items = all.filter((i) => i.type === "organic");
     const ours = items.find((i) => (i.domain || "").includes(OUR_DOMAIN));
     const position = ours ? ours.rank_absolute : null;
     const above = ours
       ? items.filter((i) => i.rank_absolute < ours.rank_absolute).map((i) => i.domain)
       : items.slice(0, 10).map((i) => i.domain);
+    // 2026-09-25: Google's own AI Overview. On 25/9 it sat on top of
+    // "yacht charter greece cost" and "cost to charter a yacht in greece"
+    // citing georgeyachts.com twice while the organic result was #20, and
+    // the cost post lost a third of its impressions that week. The
+    // advanced SERP already returns it; we used to throw it away. George's
+    // measure is "keep our place in the AI", so it is recorded per query.
+    const aio = all.find((i) => i.type === "ai_overview");
+    const aioRefs = aio
+      ? [...new Set((aio.references ?? []).map((r) => r.domain).filter(Boolean))]
+      : [];
     const p = prevByQuery.get(keyword);
     results.push({
       query: keyword,
@@ -137,19 +176,31 @@ export async function POST() {
       // are absent) — deduped, keeps SERP order.
       above: [...new Set(above)].slice(0, 10),
       top3: items.slice(0, 3).map((i) => ({ rank: i.rank_absolute, domain: i.domain })),
+      ai_overview: aio
+        ? { present: true, cites_us: aioRefs.some((d) => d.includes(OUR_DOMAIN)), refs: aioRefs.slice(0, 8) }
+        : { present: false, cites_us: false, refs: [] },
     });
   }
-  results.sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
+  results.sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 
   const found = results.filter((r) => r.position !== null);
+  // found_in_top30 keeps its meaning (the digest and the dashboard read
+  // it); found_in_top100 is the new floor now that the depth is 100.
+  const top30 = found.filter((r) => r.position <= 30);
   const snapshot = {
     generated_at: new Date().toISOString(),
     location: "United States (desktop)",
     queries: results.length,
-    found_in_top30: found.length,
-    avg_position_when_found: found.length
+    found_in_top30: top30.length,
+    found_in_top100: found.length,
+    avg_position_when_found: top30.length
+      ? Math.round((top30.reduce((s, r) => s + r.position, 0) / top30.length) * 10) / 10
+      : null,
+    avg_position_top100: found.length
       ? Math.round((found.reduce((s, r) => s + r.position, 0) / found.length) * 10) / 10
       : null,
+    ai_overview_queries: results.filter((r) => r.ai_overview.present).length,
+    ai_overview_cites_us: results.filter((r) => r.ai_overview.cites_us).length,
     cost_usd: data.cost ?? null,
     failed_queries: errors,
     results,
