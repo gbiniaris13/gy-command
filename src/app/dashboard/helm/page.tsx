@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { listHelmCrm } from "@/lib/helm-admin";
 import { refCode } from "@/lib/helm/refcode";
+import { helmDisplayName } from "@/lib/helm/addressing";
 import { phoneCountry } from "@/lib/phone-country";
 import { isFlexibleWindow, extendPlan } from "@/lib/helm/pipeline";
 import { mergePipeline } from "@/lib/helm-admin";
@@ -101,7 +102,8 @@ export default async function HelmListPage() {
     return {
       id: r.id,
       ref: refCode(r.created_at),
-      name: r.client_name || r.client_email || "(unnamed)",
+      // 2026-09-29: full name (title, first, surname), not the raw client_name.
+      name: helmDisplayName(r),
       email: r.client_email || "",
       whatsapp: r.client_whatsapp || "",
       flag: pc?.flag || "",

@@ -593,12 +593,16 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                   >
                     {r.ref}
                   </Link>
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-                    <span style={{ color: "#9CA3AF" }}>Received </span>{fmtReceived(r.createdAt)}
+                  {/* 2026-09-29 (George: "με μικρά γραμματάκια, θέλω να βλέπω
+                      κατευθείαν πότε πήρα το request, πότε του έστειλα"):
+                      both dates in 12.5px bold, dark for Received, green for
+                      Sent, with a small caps label that stays quiet. */}
+                  <div style={{ fontSize: 12.5, color: "#0D1B2A", marginTop: 4, fontWeight: 700, lineHeight: 1.3 }} title="When the request came in (Athens time)">
+                    <span style={{ color: "#9CA3AF", fontWeight: 600, fontSize: 9.5, letterSpacing: 1, textTransform: "uppercase" }}>Received </span>{fmtReceived(r.createdAt)}
                   </div>
                   {r.sentAt && (
-                    <div style={{ fontSize: 11, color: "#0d6e5a", marginTop: 2, fontWeight: 600 }} title="When the proposal email left for the client (Athens time)">
-                      <span style={{ color: "#9CA3AF", fontWeight: 400 }}>Sent </span>{fmtSent(r.sentAt)}
+                    <div style={{ fontSize: 12.5, color: "#0d6e5a", marginTop: 3, fontWeight: 700, lineHeight: 1.3 }} title="When the proposal email left for the client (Athens time)">
+                      <span style={{ color: "#9CA3AF", fontWeight: 600, fontSize: 9.5, letterSpacing: 1, textTransform: "uppercase" }}>Sent </span>{fmtSent(r.sentAt)}
                     </div>
                   )}
                 </td>

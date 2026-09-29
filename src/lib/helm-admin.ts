@@ -79,6 +79,7 @@ export type HelmMessage = {
 /** CRM listing straight off helm_requests — the view lacks whatsapp/party/
  *  budget, which George's at-a-glance pipeline needs (2026-07-17). */
 export type HelmCrmItem = HelmListItem & {
+  client_title: string | null;
   client_whatsapp: string | null;
   party_size: string | null;
   budget: string | null;
@@ -106,7 +107,7 @@ export async function listHelmCrm(): Promise<HelmCrmItem[]> {
     const { data, error } = await db
       .from("helm_requests")
       .select(
-        "id, status, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads, pipeline:extraction->pipeline, yachts_raw:extraction->yachts, booking:extraction->booking",
+        "id, status, client_title, client_name, client_surname, client_email, client_whatsapp, party_size, budget, occasion, dates_from, dates_to, area, follow_up_at, last_activity_at, proposal_pdf_path, mode, request_type, created_at, salon:extraction->salon, supplier_threads:extraction->supplier_threads, pipeline:extraction->pipeline, yachts_raw:extraction->yachts, booking:extraction->booking",
       )
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);

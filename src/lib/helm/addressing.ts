@@ -11,6 +11,31 @@ export function agentFirstName(r: { client_name?: string | null; client_surname?
   return noTitle.split(/\s+/)[0] || "there";
 }
 
+// The name The Helm SHOWS for a request (George 29/9: "θέλω ονοματεπώνυμο,
+// όχι Mr. Chavez"). Title, first name, surname, without repeating what the
+// extraction already folded into client_name ("Mr. Bray", "the Clem Family",
+// "Mr. Matthew" + surname Colford). Unknown first name shows title + surname.
+export function helmDisplayName(r: {
+  client_title?: string | null;
+  client_name?: string | null;
+  client_surname?: string | null;
+  client_email?: string | null;
+}): string {
+  const title = (r.client_title || "").toString().trim().replace(/\.$/, "");
+  const surname = (r.client_surname || "").toString().trim();
+  let first = (r.client_name || "").toString().trim();
+  first = first.replace(/^(mr|mrs|ms|miss|dr|mx)\.?\s+/i, "").trim();
+  const fam = first.match(/^the\s+(.+?)\s+family$/i);
+  if (fam) first = fam[1] === surname ? "" : fam[1];
+  if (surname && first.toLowerCase() === surname.toLowerCase()) first = "";
+  if (surname && first && first.toLowerCase().endsWith(" " + surname.toLowerCase())) {
+    first = first.slice(0, -surname.length).trim();
+  }
+  const parts = [title ? `${title}.` : "", first, surname].filter(Boolean);
+  if (!surname && !first) return (r.client_email || "").toString() || "(unnamed)";
+  return parts.join(" ");
+}
+
 export function helmSalutation(r: {
   request_type?: string | null;
   client_name?: string | null;
