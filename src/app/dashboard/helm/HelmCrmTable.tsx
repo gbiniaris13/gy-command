@@ -528,13 +528,13 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
       </div>
 
       <div style={{ background: "#fff", border: "1px solid rgba(13,27,42,0.08)", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 1730, tableLayout: "fixed" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 1750, tableLayout: "fixed" }}>
           {/* Fixed widths so every column stays on screen; long free-text
               (guests, route, budget) wraps inside its box instead of shoving
               the later columns off the right edge. 2026-07-24: Sent rides
               inside the Ref cell; Follow-ups, Yachts and Notes are new. */}
           <colgroup>
-            <col style={{ width: 134 }} />
+            <col style={{ width: 154 }} />
             <col style={{ width: 200 }} />
             <col style={{ width: 92 }} />
             <col style={{ width: 110 }} />
