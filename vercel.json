@@ -114,15 +114,11 @@
     },
     {
       "path": "/api/cron/instagram-fleet-post",
-      "schedule": "0 15 * * 1,2,3,4"
+      "schedule": "0 15 * * 2,3,4,5"
     },
     {
       "path": "/api/cron/instagram-publish",
       "schedule": "30 15 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-publish-reel",
-      "schedule": "15 15 * * 3,5"
     },
     {
       "path": "/api/cron/instagram-stories",

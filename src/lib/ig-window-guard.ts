@@ -24,7 +24,9 @@ const WINDOW_START_HOUR = 18;
 const WINDOW_END_HOUR = 19; // last legal full hour
 const WINDOW_END_MINUTE = 30; // + up to this minute
 const MIN_GAP_MS = 18 * 60 * 60 * 1000; // 18h between feed posts
-const FLEET_YACHT_DAYS = new Set([2, 3, 4]); // Tue, Wed, Thu (JS Date: 0=Sun)
+// 2026-09-30, George: the grid shows the yachts. Friday's slot was a stock
+// reel; it is a yacht carousel now, so Tue-Fri are fleet days.
+const FLEET_YACHT_DAYS = new Set([2, 3, 4, 5]); // Tue, Wed, Thu, Fri (JS Date: 0=Sun)
 // 2026-09-03 — George opened Saturday for feed posts (holiday audience
 // scrolls on weekends; we were dark Sat+Sun). Sunday stays story-only.
 const FEED_WEEKDAYS = new Set([1, 2, 3, 4, 5, 6]); // Mon-Sat
@@ -116,13 +118,13 @@ export async function assertPublishAllowed({
     return { allowed: false, reason: "outside_window", detail };
   }
 
-  // Rule 2a — fleet yacht only Tue/Wed/Thu (peak B2B days).
+  // Rule 2a — fleet yacht only Tue-Fri.
   if (postType === "fleet_yacht" && !FLEET_YACHT_DAYS.has(dayOfWeek)) {
     const weekdayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayOfWeek] ?? "?";
-    const detail = `fleet yacht on ${weekdayName} — only Tue/Wed/Thu are permitted`;
+    const detail = `fleet yacht on ${weekdayName} — only Tue-Fri are permitted`;
     if (!dryRun) {
       await sendTelegram(
-        `⛔ <b>Fleet yacht blocked</b>\n${detail}\nRe-queued to next Tue/Wed/Thu 18:30.`
+        `⛔ <b>Fleet yacht blocked</b>\n${detail}\nRe-queued to next Tue-Fri 18:00.`
       ).catch(() => {});
     }
     return { allowed: false, reason: "fleet_yacht_bad_day", detail };

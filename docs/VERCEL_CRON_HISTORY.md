@@ -17,6 +17,21 @@ Document changes in markdown here instead.
 
 ---
 
+## 2026-09-30 — the grid shows the yachts (George)
+
+- `/api/cron/instagram-fleet-post` — `0 15 * * 2,3,4,5` (was `1,2,3,4`;
+  the guard allowed Tue/Wed/Thu only, so Monday never fired). Friday is a
+  yacht carousel now. Every carousel opens with classified exterior
+  photographs (src/lib/ig-shots.ts); fleet_posts_enabled was found OFF
+  since 14/9 and switched back on.
+- `/api/cron/instagram-publish-reel` — REMOVED from the schedule. The reel
+  pool is April stock footage of boats that are not ours; the house rule
+  is no placeholder yachts. Route kept; reschedule when real footage of
+  the fleet exists.
+- `/api/cron/instagram-publish` unchanged (15:30 UTC daily); Mon/Sat rows
+  now take an exterior of one of our yachts, named in the caption, page
+  in the first comment.
+
 ## 2026-05-04 — IG content posting re-enabled
 
 George got IG access back (password changed 2026-05-03). Re-enabled

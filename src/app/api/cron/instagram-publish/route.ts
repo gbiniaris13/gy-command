@@ -136,6 +136,53 @@ OUTPUT — return ONLY hashtags separated by single spaces. No explanation. No n
   }
 }
 
+// Which of our yachts a library photograph shows, from the library row
+// (filename sanity-<slug>-<n>.jpg, description starting with her name).
+async function picturedYacht(sb: any, imageUrl: string | null): Promise<{ slug: string; name: string } | null> {
+  if (!imageUrl) return null;
+  try {
+    const { data } = await sb
+      .from("ig_photos")
+      .select("filename, description")
+      .eq("public_url", imageUrl)
+      .limit(1)
+      .maybeSingle();
+    const slug = yachtSlugFromFilename(data?.filename);
+    if (!slug) return null;
+    const raw = String(data?.description ?? "").split(/[,(]/)[0].trim();
+    const name = prettyYachtName(raw || slug.replace(/-/g, " "));
+    return { slug, name };
+  } catch {
+    return null;
+  }
+}
+
+function prettyYachtName(name: string): string {
+  const small = new Set(["of", "de", "la", "le", "the", "and", "del", "di"]);
+  return name
+    .replace(/^(?:m\/y|s\/y|m\/cat|s\/cat|p\/cat|my|sy|cruise ship)\s+/i, "")
+    .split(/\s+/)
+    .map((w, i) => {
+      if (/^[A-Z0-9]{1,2}$/.test(w) && i > 0) return w;
+      if (/\d/.test(w)) return w.toUpperCase();
+      const low = w.toLowerCase();
+      if (i > 0 && small.has(low)) return low;
+      return low.charAt(0).toUpperCase() + low.slice(1);
+    })
+    .join(" ");
+}
+
+// "Pictured: Genny." goes before the hashtag block, or at the end.
+function withPicturedLine(caption: string, name: string): string {
+  const line = `Pictured: ${name}.`;
+  const lines = caption.split("\n");
+  const firstTag = lines.findIndex((l) => /^\s*#/.test(l));
+  if (firstTag > 0) {
+    return [...lines.slice(0, firstTag), "", line, "", ...lines.slice(firstTag)].join("\n").replace(/\n{3,}/g, "\n\n");
+  }
+  return `${caption.trim()}\n\n${line}`;
+}
+
 async function swapImageFromLibrary(sb: any, post: any): Promise<string | null> {
   // Already points at the library? nothing to do.
   if (isLibraryUrl(post.image_url)) {
@@ -352,6 +399,15 @@ async function _observedImpl() {
       }
       post.image_url = resolvedImageUrl;
 
+      // 2026-09-30: the photograph is now one of our yachts from outside,
+      // so the caption says which one (George reposts these) and the
+      // first comment carries her page, as the fleet carousel does.
+      const pictured = await picturedYacht(sb, resolvedImageUrl);
+      if (pictured && !(post.caption ?? "").toLowerCase().includes(pictured.name.toLowerCase())) {
+        post.caption = withPicturedLine(post.caption ?? "", pictured.name);
+        await sb.from("ig_posts").update({ caption: post.caption }).eq("id", post.id);
+      }
+
       // 2026-09-07 (George, SOS): a partner's office sign went out as a
       // story because the yacht photo sets include brochure pages. Every
       // image is now looked at before it is published: buildings, signs,
@@ -545,6 +601,20 @@ async function _observedImpl() {
         post_id: post.id,
         ig_media_id: publishData.id,
       });
+
+      // First comment with the yacht's page (fail-open, never fails the publish).
+      if (pictured?.slug) {
+        try {
+          await fetch(`${getIgMediaUrl(publishData.id)}/comments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: `Full specifications, weekly rate and availability: georgeyachts.com/yachts/${pictured.slug} (also linked in our bio)`,
+              access_token: token,
+            }),
+          });
+        } catch {}
+      }
 
       // Stealth Layers 4 + 5 — record hashtag set as just-used (so
       // repeats inside 14 days are detected) + clear any backoff
