@@ -27,6 +27,7 @@ import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { sanitizeCaption } from "@/lib/caption-sanitizer";
 import { containsPartnerName, imageBrandIssue } from "@/lib/brand-safety";
 import { socialBlockReason, yachtSlugFromFilename } from "@/lib/social-policy";
+import { loadShots } from "@/lib/ig-shots";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { observeCron } from "@/lib/cron-observer";
@@ -135,7 +136,7 @@ OUTPUT — return ONLY hashtags separated by single spaces. No explanation. No n
   }
 }
 
-async function swapImageFromLibrary(sb, post) {
+async function swapImageFromLibrary(sb: any, post: any): Promise<string | null> {
   // Already points at the library? nothing to do.
   if (isLibraryUrl(post.image_url)) {
     return post.image_url;
@@ -187,6 +188,33 @@ async function swapImageFromLibrary(sb, post) {
   if (usable.length === 0) return post.image_url;
   photos.length = 0;
   photos.push(...usable);
+
+  // 2026-09-30, George: the grid was saloon after saloon. Every library
+  // photograph carries a verdict (src/lib/ig-shots.ts); the feed takes an
+  // exterior of one of our yachts first, a deck shot second, and a
+  // photograph nobody has classified, or a room, never. Stock scenery
+  // (no yacht slug in the filename) only when no fleet exterior is left.
+  {
+    const shots = await loadShots(photos.map((p) => String(p.public_url ?? "")));
+    const isFleet = (p: { filename?: string | null }) => Boolean(yachtSlugFromFilename(p.filename));
+    const rank = (p: { public_url?: string | null; filename?: string | null }) => {
+      const s = shots.get(String(p.public_url ?? ""));
+      if (s === "exterior") return isFleet(p) ? 0 : 2;
+      if (s === "deck") return isFleet(p) ? 1 : 3;
+      return 9;
+    };
+    const ranked = photos.filter((p) => rank(p) < 9).sort((a, b) => rank(a) - rank(b));
+    if (ranked.length === 0) {
+      await sendTelegram(
+        "⚠ Feed post held: no classified exterior photograph left in the library. Run /api/admin/ig-classify-shots?sync=1.",
+      );
+      return null;
+    }
+    const best = rank(ranked[0]);
+    const top = ranked.filter((p) => rank(p) === best);
+    photos.length = 0;
+    photos.push(...(top.length >= 3 ? top : ranked.slice(0, 12)));
+  }
 
   // Gemini match — same contract as /api/instagram/pick-local-image
   let pickedId: string | null = null;
@@ -317,6 +345,11 @@ async function _observedImpl() {
       // touch Instagram. Pure no-op if the post already points at the
       // library or if the library is empty.
       const resolvedImageUrl = await swapImageFromLibrary(sb, post);
+      if (resolvedImageUrl === null) {
+        // No classified exterior in the library: the row stays scheduled
+        // and the next tick tries again once the library has been fed.
+        continue;
+      }
       post.image_url = resolvedImageUrl;
 
       // 2026-09-07 (George, SOS): a partner's office sign went out as a

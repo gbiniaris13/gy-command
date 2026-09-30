@@ -17,6 +17,7 @@ import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { fetchFleetPool, buildFleetUTM } from "@/lib/sanity-fleet";
+import { loadShots, orderForCarousel, igFriendlyUrl } from "@/lib/ig-shots";
 import { observeCron } from "@/lib/cron-observer";
 import {
   loadRotationState,
@@ -176,9 +177,26 @@ async function _observedImpl() {
     }
   } catch {}
 
+  // 2026-09-30, George: "θέλω να ανεβάζει τα σκάφη, εξωτερικά". Every
+  // photograph has a recorded verdict (src/lib/ig-shots.ts). A yacht joins
+  // the rotation only when at least three exterior shots of her are known,
+  // so the carousel opens with the boat and never with a saloon.
+  const shots = await loadShots(
+    pool.flatMap((y) => (y.images ?? []).map((i) => i.url).filter((u) => typeof u === "string")),
+  );
+  const exteriorCount = (y: (typeof pool)[number]) =>
+    (y.images ?? []).filter((i) => i?.url && shots.get(i.url) === "exterior" && igFriendlyUrl(i.url)).length;
+  const ready = pool.filter((y) => exteriorCount(y) >= 3);
+  if (ready.length === 0) {
+    await sendTelegram(
+      `⚠ Fleet post skipped: no cleared yacht has three classified exterior photographs yet (${pool.length} in pool). Run /api/admin/ig-classify-shots.`,
+    );
+    return NextResponse.json({ error: "no yacht with classified exteriors" });
+  }
+
   // Rotation select.
   const state = await loadRotationState();
-  const yacht = selectNextYacht(pool, state);
+  const yacht = selectNextYacht(ready, state);
   if (!yacht) {
     await sendTelegram("⚠ Fleet post cron: no eligible yacht found (all on cooldown or zero valid angles).");
     return NextResponse.json({ error: "no eligible yacht" });
@@ -308,17 +326,15 @@ async function _observedImpl() {
   // 1.91:1. Sanity image URLs carry the pixel size (…-1615x566.jpg);
   // panoramic hull shots outside that window are dropped here instead
   // of failing as carousel children.
-  const igFriendly = (u: string) => {
-    const m = u.match(/-(\d+)x(\d+)\.(?:jpg|jpeg|png|webp)(?:\?|$)/i);
-    if (!m) return true;
-    const ratio = Number(m[1]) / Number(m[2]);
-    return ratio >= 0.8 && ratio <= 1.91;
-  };
-  const photos = (yacht.images ?? [])
-    .map((img) => img.url)
-    .filter((u) => typeof u === "string" && u.length > 10)
-    .filter(igFriendly)
-    .slice(0, 8);
+  // 2026-09-30: exteriors first in gallery order (the hero leads), then at
+  // most two deck shots, never a room. Seven slides at most.
+  const photos = orderForCarousel(
+    (yacht.images ?? [])
+      .map((img) => img.url)
+      .filter((u) => typeof u === "string" && u.length > 10)
+      .filter(igFriendlyUrl),
+    shots,
+  ).slice(0, 7);
   if (photos.length < 4) {
     await sendTelegram(
       `⚠ Fleet post skipped — ${yacht.name} has only ${photos.length} usable images (need ≥4).`,
@@ -498,6 +514,16 @@ async function _observedImpl() {
         }),
         updated_at: new Date().toISOString(),
       });
+    } catch {}
+
+    // A photograph that went out in this carousel is spent for the single
+    // feed post too (George's rule: never the same photo twice on the grid).
+    try {
+      await sb
+        .from("ig_photos")
+        .update({ used_in_post_id: publishData.id })
+        .in("public_url", photos)
+        .is("used_in_post_id", null);
     } catch {}
 
     // Update rotation state.
