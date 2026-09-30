@@ -31,14 +31,15 @@ const SANITY_API_VERSION = "2024-01-01";
 // 2026-09-01 the bot posted S/CAT Perseids, retired eleven days earlier
 // — that incident is why this filter exists. Keep in sync with the site
 // repo's lib/retiredYachts.js.
+// 2026-09-30: brought level with the site's list (24 hulls; the 14/9
+// premium cut and the 17/9 retirement had not reached this copy, and the
+// pool still offered VISTA, N.ICE, STAR LINK, RED ROSE and others that
+// redirect on the site).
 const RETIRED_YACHT_SLUGS = [
-  "alia",
-  "angelika",
-  "helidoni",
-  "madicon",
-  "my-angel",
-  "odyssey",
-  "perseids",
+  "alia", "angelika", "helidoni", "madicon", "my-angel", "odyssey", "perseids",
+  "n-ice", "lidia", "estia-poseidon", "irenes", "red-rose", "star-link", "vista",
+  "ottawa", "ariela", "shero", "my-star", "errant-vagabond", "alegria",
+  "endless-beauty", "tamiro", "moya", "shooting-star",
 ];
 const NOT_RETIRED = `&& !(slug.current in [${RETIRED_YACHT_SLUGS.map((s) => JSON.stringify(s)).join(",")}])`;
 
