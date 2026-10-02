@@ -91,6 +91,13 @@ export default async function SalonPage({
   const yachts: SalonYachtView[] = (d.yachts ?? []).map((y) => {
     const pr = computePricing(y.pricing);
     const m = mediaFor(model, y);
+    // 2026-10-02 (George's review of the McCrary edition): the investment
+    // box listed APA, VAT and relocation but never the charter fee itself,
+    // so the client saw the parts and not the price. The fee leads the rows
+    // in breakdown mode (a discounted edition already shows the net line).
+    const rows: [string, string][] = pr.mode === "breakdown" && pr.charter_fee_disp && !pr.discount_note
+      ? [["Charter fee", pr.charter_fee_disp], ...pr.rows]
+      : pr.rows;
     return {
       name: y.name,
       tier: y.tier_label ?? null,
@@ -100,17 +107,22 @@ export default async function SalonPage({
       main: m.main ?? null,
       gallery: m.gallery,
       brochure: m.brochure ?? y.links?.brochure ?? null,
-      description: y.description ?? null,
+      description: cleanDescription(y.description ?? null),
       insideInfo: y.inside_info ?? null,
       crewLine: y.crew_line ?? null,
       money: {
         discountNote: pr.discount_note,
-        rows: pr.rows,
+        rows,
         allIn: pr.all_in,
+        // "€ 43,097.36" is not the language of the house; "around EUR 43,100"
+        // is. The exact figure stays beneath it in the box.
+        allInAround: aroundEur(pr.all_in),
         allInclusive: pr.all_inclusive,
         headline: pr.headline || pr.charter_fee_disp || null,
-        perGuest4: pr.per_person_4,
-        perGuest6: pr.per_person_6,
+        // Per-guest figures are off the client page for good (one price per
+        // yacht per week; a party of seven was reading "at 4 · at 6").
+        perGuest4: null,
+        perGuest6: null,
         periods: (y.period_options ?? []).map((po) => ({
           label: po.label ?? "",
           dates: po.dates ?? "",
@@ -135,7 +147,18 @@ export default async function SalonPage({
               ? [String(Object.values(x)[0] ?? ""), String(Object.values(x)[1] ?? "")]
               : [String(x ?? ""), ""],
         )
-        .filter(([a]) => a),
+        .filter(([a]) => a)
+        // "One master cabin / master cabin" twice on a line: the extraction
+        // sometimes repeats the label as the detail. Keep one.
+        .map(([a, b]): [string, string] => {
+          const la = a.trim().toLowerCase();
+          const lb = b.trim().toLowerCase();
+          if (!lb || la === lb || la.includes(lb) || lb.includes(la)) return [a.trim().length >= b.trim().length ? a : b, ""];
+          return [a, b];
+        }),
+      availabilityLine: model.sentAt
+        ? `Availability confirmed with the owner on ${fmtLongDate(model.sentAt)}. I re-confirm the day you choose.`
+        : null,
     };
   });
 
@@ -166,7 +189,10 @@ export default async function SalonPage({
     period: null,
     guests: d.guests ?? null,
     area: d.area ?? null,
-    introParas: (d.intro_letter ?? "").split("\n").map((s) => s.trim()).filter(Boolean),
+    introParas: withBriefParagraph(
+      (d.intro_letter ?? "").split("\n").map((s) => s.trim()).filter(Boolean),
+      { guests: d.guests ?? null, area: d.area ?? null, period: coverLine || null, yachts },
+    ),
     video: videoEmbed(model.videoUrl),
     yachts,
     weeks: (d.custom_weeks ?? []).map((w) => ({
@@ -190,7 +216,7 @@ export default async function SalonPage({
 // refresh (no regenerate) and future ones stay clean regardless of source.
 // The view is text + URLs only (photos are URLs, never base64), so this is cheap.
 function deepNoDash<T>(v: T): T {
-  if (typeof v === "string") return v.replace(/[—–]/g, "-") as unknown as T;
+  if (typeof v === "string") return cleanText(v) as unknown as T;
   if (Array.isArray(v)) return v.map((x) => deepNoDash(x)) as unknown as T;
   if (v && typeof v === "object") {
     const o: Record<string, unknown> = {};
@@ -198,4 +224,77 @@ function deepNoDash<T>(v: T): T {
     return o as unknown as T;
   }
   return v;
+}
+
+// The same sweep also repairs what the extraction leaves behind (2026-10-02):
+// HTML entities printed as code ("&amp;"), numeric dates in two formats on
+// facing pages ("15/06/2027" beside "13 June 2027"), and a decimal split by a
+// space ("Bali 5. 4").
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function cleanText(s: string): string {
+  return s
+    .replace(/[—–]/g, "-")
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+    .replace(/\b(\d{2})\/(\d{2})\/(\d{4})\b/g, (_m, dd, mm, yyyy) => {
+      const mi = Number(mm) - 1;
+      return mi >= 0 && mi < 12 ? `${Number(dd)} ${MONTHS[mi]} ${yyyy}` : _m;
+    })
+    .replace(/(\d)\.\s+(\d)(?=\s*[A-Za-z])/g, "$1.$2");
+}
+
+function fmtLongDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+// "€ 43,097.36" -> "around EUR 43,100". Nearest hundred, no cents.
+function aroundEur(disp: string | null): string | null {
+  if (!disp) return null;
+  const n = Number(String(disp).replace(/[^\d.]/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const r = Math.round(n / 100) * 100;
+  return `around EUR ${r.toLocaleString("en-US")}`;
+}
+
+// A description the extraction cut mid-sentence ("... LIBRA, measures 16.")
+// is worse than none. Keep it only when it ends like a sentence that was
+// finished, and never when the last word is a bare number.
+function cleanDescription(s: string | null): string | null {
+  if (!s) return null;
+  const t = s.replace(/(\d)\.\s+(\d)/g, "$1.$2").trim();
+  if (t.length < 40) return null;
+  if (/\b(measures|is|of|at|for|with|and|to|the|a)\s+\d+(\.\d+)?\.?$/i.test(t)) return null;
+  if (!/[.!?"”)]$/.test(t)) return null;
+  return t;
+}
+
+// The letter speaks to their week (George 2026-10-02): one paragraph built
+// from the brief and from the recommendation's own inside info, placed after
+// the greeting. Nothing is written by a model at render; every clause comes
+// from data George already approved in The Helm.
+function withBriefParagraph(
+  paras: string[],
+  b: { guests: string | null; area: string | null; period: string | null; yachts: SalonYachtView[] },
+): string[] {
+  const first = b.yachts[0];
+  if (!first) return paras;
+  // The cover line is George's own summary of the brief ("Seven family
+  // members. The quiet anchorages of the Small Cyclades. June 2027."); the
+  // raw guests/area fields are working notes and never read well, so the
+  // letter uses the cover line or nothing.
+  const brief = (b.period ?? "").trim().replace(/\.$/, "");
+  const n = b.yachts.length;
+  const count = n === 1 ? "One yacht follows" : `${["", "", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"][n] ?? n} yachts follow`;
+  const why = (first.insideInfo ?? "").trim();
+  if (!brief && !why) return paras;
+  const sentence =
+    (brief ? `Your brief, as I read it: ${brief}. ` : "") +
+    `${count}, in the order I would show them to you` +
+    (why ? `, and I would start with ${first.name}: ${why.charAt(0).toLowerCase()}${why.slice(1)}` : ".") +
+    (why && !/[.!?]$/.test(why) ? "." : "");
+  const greet = paras.findIndex((p) => /^dear\b/i.test(p));
+  const out = [...paras];
+  out.splice(greet >= 0 ? greet + 1 : 0, 0, sentence);
+  return out;
 }

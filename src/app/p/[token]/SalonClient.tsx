@@ -28,6 +28,7 @@ export type SalonYachtView = {
     discountNote: string | null;
     rows: [string, string][];
     allIn: string | null;
+    allInAround: string | null;
     allInclusive: boolean;
     headline: string | null;
     perGuest4: string | null;
@@ -42,6 +43,7 @@ export type SalonYachtView = {
   accommodation: [string, string][];
   distinctions: string[];
   testimonials: string[];
+  availabilityLine: string | null;
 };
 
 export type SalonView = {
@@ -139,6 +141,11 @@ export default function SalonClient({ view }: { view: SalonView }) {
     ...(hasGlance ? [{ kind: "glance" }] : []),
     ...view.yachts.map((_, i) => ({ kind: "yacht", idx: i })),
     ...view.weeks.map((_, i) => ({ kind: "week", idx: i })),
+    // 2026-10-02, George: the client must know what APA and VAT are, that the
+    // itineraries are samples the weather and the captain decide, that a crew
+    // can change, and exactly what happens after the yes. Two quiet pages.
+    { kind: "knowhow" },
+    { kind: "after" },
     { kind: "broker" },
     { kind: "house" },
     { kind: "closing" },
@@ -264,25 +271,46 @@ export default function SalonClient({ view }: { view: SalonView }) {
         <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.08em", margin: "0 0 24px" }}>
           The selection at a glance
         </h2>
-        <div style={{ borderTop: GOLD_HAIR }}>
-          {view.yachts.map((y, i) => (
-            <button key={y.name} type="button"
-              onClick={() => { setPage(pages.findIndex((p) => p.kind === "yacht" && p.idx === i)); if (pageRef.current) pageRef.current.scrollTop = 0; }}
-              style={{
-                display: "flex", width: "100%", justifyContent: "space-between", alignItems: "baseline", gap: 14,
-                padding: "16px 4px", background: "none", border: "none", borderBottom: HAIR, cursor: "pointer", textAlign: "left",
-              }}>
-              <span style={{ fontFamily: "var(--salon-serif)", fontSize: 21, color: INK }}>
-                {y.name}
-                {y.tier && <span style={{ ...label, fontSize: 8.5, marginLeft: 10 }}>{y.tier}</span>}
-              </span>
-              <span style={{ fontFamily: "var(--salon-ui)", fontSize: 13, color: GOLD, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                {y.money.allIn ? `${y.money.allIn} all-in` : y.money.headline || ""}
-              </span>
-            </button>
-          ))}
-        </div>
-        <p style={{ ...label, fontSize: 8.5, color: INK_FAINT, marginTop: 22 }}>Turn the page, or tap a name</p>
+        {/* 2026-10-02: a comparison, not a list. Cabins, guests, crew, where
+            she starts and the all-in figure, side by side, so six yachts can
+            be held in one glance. A tier label that repeats shows once. */}
+        {(() => {
+          const seenTier = new Set<string>();
+          return (
+            <div style={{ borderTop: GOLD_HAIR }}>
+              {view.yachts.map((y, i) => {
+                const f = glanceFacts(y);
+                const tier = y.tier && !seenTier.has(y.tier.toLowerCase()) ? y.tier : null;
+                if (y.tier) seenTier.add(y.tier.toLowerCase());
+                return (
+                  <button key={y.name} type="button"
+                    onClick={() => { setPage(pages.findIndex((p) => p.kind === "yacht" && p.idx === i)); if (pageRef.current) pageRef.current.scrollTop = 0; }}
+                    style={{
+                      display: "flex", width: "100%", justifyContent: "space-between", alignItems: "flex-start", gap: 14,
+                      padding: "16px 4px", background: "none", border: "none", borderBottom: HAIR, cursor: "pointer", textAlign: "left",
+                    }}>
+                    <span>
+                      <span style={{ fontFamily: "var(--salon-serif)", fontSize: 21, color: INK }}>
+                        {y.name}
+                        {tier && <span style={{ ...label, fontSize: 8.5, marginLeft: 10 }}>{tier}</span>}
+                      </span>
+                      {f && (
+                        <span style={{ display: "block", fontFamily: "var(--salon-ui)", fontSize: 11.5, color: INK_DIM, marginTop: 4, lineHeight: 1.6, letterSpacing: "0.04em" }}>{f}</span>
+                      )}
+                    </span>
+                    <span style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: GOLD, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", paddingTop: 4 }}>
+                      {y.money.allInAround ? `${y.money.allInAround} all in` : y.money.allIn ? `${y.money.allIn} all in` : y.money.headline || ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
+        <p style={{ fontFamily: "var(--salon-ui)", fontSize: 11, color: INK_FAINT, marginTop: 16, lineHeight: 1.7 }}>
+          All-in figures include APA and VAT and exclude the crew gratuity. The exact breakdown is on each yacht&apos;s page.
+        </p>
+        <p style={{ ...label, fontSize: 8.5, color: INK_FAINT, marginTop: 14 }}>Turn the page, or tap a name</p>
       </div>
     );
   }
@@ -296,12 +324,15 @@ export default function SalonClient({ view }: { view: SalonView }) {
         </h2>
         {y.spec && <p style={{ ...label, color: INK_DIM, textAlign: "center", letterSpacing: "0.22em", marginBottom: 4 }}>{y.spec}</p>}
         {y.voyage && <p style={{ ...label, fontSize: 9, textAlign: "center", marginBottom: 8 }}>{y.voyage}</p>}
+        {y.availabilityLine && (
+          <p style={{ fontFamily: "var(--salon-serif)", fontStyle: "italic", fontSize: 15, color: INK_DIM, textAlign: "center", margin: "0 0 14px" }}>{y.availabilityLine}</p>
+        )}
         {/* the price is never a mystery: headline figure up top, full
             breakdown in The Investment box below */}
         {(y.money.allIn || y.money.headline) && (
           <p style={{ textAlign: "center", margin: "0 0 20px" }}>
             <span style={{ fontFamily: "var(--salon-serif)", fontSize: 24, color: INK, fontVariantNumeric: "tabular-nums" }}>
-              {y.money.allIn ?? y.money.headline}
+              {y.money.allInAround ?? y.money.allIn ?? y.money.headline}
             </span>
             <span style={{ ...label, fontSize: 8.5, display: "block", marginTop: 3, color: INK_FAINT }}>
               {y.money.allIn ? (y.money.allInclusive ? "all-inclusive · full breakdown below" : "estimated all-in · full breakdown below") : "charter fee · details below"}
@@ -362,7 +393,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
             {y.accommodation.map(([cab, det], k) => (
               <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "6px 0", borderBottom: HAIR, fontFamily: "var(--salon-ui)", fontSize: 12.5 }}>
                 <span style={{ color: INK }}>{cab}</span>
-                <span style={{ color: INK_DIM, textAlign: "right" }}>{det}</span>
+                {det && <span style={{ color: INK_DIM, textAlign: "right" }}>{det}</span>}
               </div>
             ))}
           </div>
@@ -415,15 +446,20 @@ export default function SalonClient({ view }: { view: SalonView }) {
           )}
           {y.money.allIn && (
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "14px 0 0", marginTop: 10, borderTop: `1px solid ${GOLD}` }}>
-              <span style={label}>{y.money.allInclusive ? "All-inclusive" : "Estimated all-in"}</span>
-              <span style={{ fontFamily: "var(--salon-serif)", fontSize: 25, color: INK, fontVariantNumeric: "tabular-nums" }}>{y.money.allIn}</span>
+              <span style={label}>{y.money.allInclusive ? "All-inclusive" : "Estimated all in"}</span>
+              <span style={{ textAlign: "right" }}>
+                <span style={{ display: "block", fontFamily: "var(--salon-serif)", fontSize: 25, color: INK, fontVariantNumeric: "tabular-nums" }}>{y.money.allInAround ?? y.money.allIn}</span>
+                {y.money.allInAround && (
+                  <span style={{ display: "block", fontFamily: "var(--salon-ui)", fontSize: 10.5, color: INK_FAINT, fontVariantNumeric: "tabular-nums", marginTop: 2 }}>exactly {y.money.allIn}</span>
+                )}
+              </span>
             </div>
           )}
-          {(y.money.perGuest4 || y.money.perGuest6) && (
-            <p style={{ fontFamily: "var(--salon-ui)", fontSize: 11, color: INK_FAINT, margin: "8px 0 0", textAlign: "right" }}>
-              {[y.money.perGuest4 ? `${y.money.perGuest4} per guest at 4` : "", y.money.perGuest6 ? `${y.money.perGuest6} at 6` : ""].filter(Boolean).join(" · ")}
-            </p>
-          )}
+          {/* 2026-10-02: the gratuity is said here, not discovered on the last
+              day. Per-guest figures are gone: one price per yacht per week. */}
+          <p style={{ fontFamily: "var(--salon-ui)", fontSize: 11, color: INK_DIM, margin: "10px 0 0", lineHeight: 1.7 }}>
+            Not included: a crew gratuity of 10 to 15 percent of the charter fee, customary at the end of the week and entirely at your discretion.
+          </p>
           {(y.payableAtBase.length > 0 || y.deposit) && (
             <p style={{ fontFamily: "var(--salon-ui)", fontSize: 11.5, color: INK_DIM, margin: "12px 0 0", lineHeight: 1.7 }}>
               {y.payableAtBase.map((x) => `${x.label}: ${x.amount}`).join(" · ")}
@@ -474,6 +510,72 @@ export default function SalonClient({ view }: { view: SalonView }) {
               <span>
                 <span style={{ display: "block", fontFamily: "var(--salon-serif)", fontSize: 20, color: INK }}>{x.leg.replace(/\s*(?:->|→)\s*/g, " → ")}</span>
                 {x.note && <span style={{ display: "block", fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, marginTop: 2, lineHeight: 1.6 }}>{x.note}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // GOOD TO KNOW (George 2026-10-02): the four misunderstandings that cost a
+  // week, said once, in plain words, before the client chooses.
+  function renderKnowHow() {
+    const items: [string, string][] = [
+      ["APA, the Advance Provisioning Allowance",
+        "The running budget of your week, paid in advance to the yacht together with the balance. It covers fuel, food and drink, berthing and port fees, water and whatever is bought for the boat during the charter. The captain keeps the accounts and shows you the receipts. What is not spent is returned to you at the end of the week; if the week spends more, the difference is settled on board. The percentage shown in each investment box is the yacht's own."],
+      ["Why the VAT differs from yacht to yacht",
+        "Greek charter VAT is charged at the rate each yacht is certified for, from 5.2 to 12 percent, with a statutory ceiling of 13 percent. The rate follows the yacht's licence and her itinerary, not the broker, which is why two yachts in the same edition can show two different percentages. Each box states the rate that applies."],
+      ["The itineraries are samples, and the sea has the last word",
+        "Every route in this edition is one we actually run, and none of it is fixed. The wind, the sea state and the safety of the yacht decide the day, and that decision belongs to the captain alone. We do not control the weather, and neither does any broker; a port authority can close a harbour on a windy morning and a route can change the same day. The itinerary is discussed with the captain one week before embarkation, when the forecast is reliable, and agreed at check-in, when it becomes real. Hold the islands lightly and the week firmly."],
+      ["The crew can change, and what you are owed if it does",
+        "The crew described here is the crew on board today. Under the MYBA charter agreement the owner may replace a crew member for health or another serious reason. In practice it is rare. When it happens, the owner's duty is to replace them with someone of the same standard or better, and ours is to tell you the moment we know. We describe a crew by role rather than by name for exactly this reason."],
+    ];
+    return (
+      <div style={col}>
+        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>Good to know</p>
+        <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.1em", margin: "0 0 10px" }}>
+          Before you choose
+        </h2>
+        <p style={{ ...serifBody, fontSize: 16, textAlign: "center", maxWidth: 540, margin: "0 auto 26px" }}>
+          Four things I would rather you heard from me now than discovered on the water.
+        </p>
+        <div style={{ borderTop: GOLD_HAIR }}>
+          {items.map(([h, t], k) => (
+            <div key={k} style={{ padding: "18px 4px", borderBottom: HAIR }}>
+              <p style={{ fontFamily: "var(--salon-serif)", fontSize: 20, color: INK, margin: "0 0 8px" }}>{h}</p>
+              <p style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, margin: 0, lineHeight: 1.75 }}>{t}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // AFTER THE YES (George 2026-10-02): the client buys what happens after the
+  // booking as much as the yacht. Six steps, the MYBA payment terms in full.
+  function renderAfter() {
+    const steps: [string, string][] = [
+      ["You choose", "Reply with one name, or two. The same day I confirm her availability with the owner and hold the dates for you."],
+      ["The charter agreement", "The MYBA charter agreement, the standard contract of the industry, is issued in your name and signed electronically. Nothing is owed until you sign."],
+      ["Payment, in two parts", "50 percent of the charter fee on signing. The remaining 50 percent, together with the VAT and the APA, 45 days before embarkation. The security deposit, where one applies, is settled at the base."],
+      ["Your preferences, and The Cabin", "You receive the preference sheet, food, drink, pace, occasions, and your private page, The Cabin, where the crew, the menus, the berth and your documents live. Passports are collected there for the port authorities."],
+      ["One week before", "The itinerary call with the captain, with a reliable forecast in hand. Transfers and the embarkation time are confirmed."],
+      ["Check-in, and after", "I meet you on the quay in Athens, or my team does, and I am a message away every day you are on the water. Afterwards you are no longer a booking; you are a client of this house."],
+    ];
+    return (
+      <div style={col}>
+        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>After the yes</p>
+        <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.1em", margin: "0 0 26px" }}>
+          What happens once you choose
+        </h2>
+        <div style={{ borderTop: GOLD_HAIR }}>
+          {steps.map(([h, t], k) => (
+            <div key={k} style={{ display: "grid", gridTemplateColumns: "64px 1fr", gap: 14, padding: "14px 4px", borderBottom: HAIR }}>
+              <span style={{ ...label, fontSize: 9, paddingTop: 6 }}>Step {k + 1}</span>
+              <span>
+                <span style={{ display: "block", fontFamily: "var(--salon-serif)", fontSize: 20, color: INK }}>{h}</span>
+                <span style={{ display: "block", fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, marginTop: 2, lineHeight: 1.6 }}>{t}</span>
               </span>
             </div>
           ))}
@@ -537,8 +639,9 @@ export default function SalonClient({ view }: { view: SalonView }) {
             islands called.
           </p>
           <p style={{ ...serifBody, margin: "0 0 14px" }}>
-            A former captain: licensed skipper seasons out of Corfu and charter operations across the Ionian, the Cyclades and the
-            Saronic. When he recommends an anchorage, it is because he has held a wheel there.
+            A licensed sailing skipper, Olympiacos SFP Sailing Academy, with a powerboat licence valid to 25 metres: seasons out of
+            Corfu and charter operations across the Ionian, the Cyclades and the Saronic. When he recommends an anchorage, it is
+            because he has held a wheel there.
           </p>
           <p style={{ ...serifBody, margin: "0 0 14px" }}>
             Before yachting, a decade at the top of Mykonos hospitality, directing operations for a five-star hotel, a fine-dining
@@ -605,6 +708,8 @@ export default function SalonClient({ view }: { view: SalonView }) {
       case "glance": return renderGlance();
       case "yacht": return renderYacht(view.yachts[p.idx!], p.idx!);
       case "week": return renderWeek(view.weeks[p.idx!]);
+      case "knowhow": return renderKnowHow();
+      case "after": return renderAfter();
       case "broker": return renderBroker();
       case "house": return renderHouse();
       default: return renderClosing();
@@ -783,6 +888,24 @@ export default function SalonClient({ view }: { view: SalonView }) {
 // George's spec: "να σκρολάρει τις φωτογραφίες με βελάκια και να του βάζω
 // όσες θέλω" — up to 24 per yacht from the panel. Its own touch handlers
 // stop propagation so swiping photos never turns the magazine page.
+// "5 cabins · 10 guests · crew of 3 · from Paros", read off the spec and
+// voyage lines the edition already carries. Nothing is invented: a fact that
+// is not on the spec line is simply not shown.
+function glanceFacts(y: SalonYachtView): string {
+  const spec = y.spec ?? "";
+  const cab = spec.match(/(\d+)\s*CABINS?/i)?.[1];
+  const gue = spec.match(/(\d+)\s*GUESTS?/i)?.[1];
+  const crew = spec.match(/CREW OF\s*(\d+)/i)?.[1];
+  const from = (y.voyage ?? "").split(/\s*(?:->|→)\s*/)[0]?.split("·")[0]?.trim();
+  const parts = [
+    cab ? `${cab} cabins` : "",
+    gue ? `${gue} guests` : "",
+    crew ? `crew of ${crew}` : "",
+    from && from.length <= 24 ? `from ${from.charAt(0) + from.slice(1).toLowerCase()}` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
 function Carousel({ photos, alt, onZoom }: { photos: string[]; alt: string; onZoom: (u: string) => void }) {
   const [i, setI] = useState(0);
   const tx = useRef<number | null>(null);

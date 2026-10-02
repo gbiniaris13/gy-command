@@ -22,6 +22,9 @@ export type SalonModel = {
   /** keyed by normalized yacht name */
   media: Record<string, SalonYachtMedia>;
   videoUrl: string | null;
+  // When George sent this edition (extraction.pipeline.sent_at). The yacht
+  // spreads say "availability confirmed with the owner on <date>" from it.
+  sentAt: string | null;
   clientWhatsApp: string | null;
   hasPdf: boolean;
 };
@@ -82,6 +85,10 @@ export async function salonData(requestId: string): Promise<SalonModel | null> {
     proposal,
     media,
     videoUrl,
+    sentAt: (() => {
+      const p = (r.extraction as { pipeline?: { sent_at?: unknown } } | null)?.pipeline;
+      return typeof p?.sent_at === "string" ? p.sent_at : null;
+    })(),
     clientWhatsApp: r.client_whatsapp ? String(r.client_whatsapp) : null,
     hasPdf: !!r.proposal_pdf_path,
   };
