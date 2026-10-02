@@ -42,6 +42,10 @@ export type CrmRow = {
   salonViews: number;
   salonLastAt: string | null;
   interest: string | null;
+  dwellYacht: string | null;
+  dwellMin: number | null;
+  holdYacht: string | null;
+  holdAt: string | null;
   waitingDays: number | null;
   onNewsletter: boolean;
   // 2026-07-24 pipeline upgrade
@@ -697,6 +701,9 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
 
                 {/* Signals — engagement (the buying signal) + waiting/next hints */}
                 <td style={td}>
+                  {r.holdYacht ? (
+                    <div style={{ color: "#b91c1c", fontSize: 12, fontWeight: 700 }}>🔥 Hold asked: {r.holdYacht}{r.holdAt ? ` · ${fmt(r.holdAt)}` : ""}</div>
+                  ) : null}
                   {r.interest ? (
                     <div style={{ color: "#A8873B", fontSize: 12, fontWeight: 700 }}>⭐ Interested: {r.interest}</div>
                   ) : r.salonViews > 0 ? (
@@ -704,8 +711,11 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                       👀 Opened{r.salonViews > 1 ? ` ${r.salonViews}×` : ""}{r.salonLastAt ? ` · ${fmt(r.salonLastAt)}` : ""}
                     </div>
                   ) : null}
+                  {r.dwellYacht && r.dwellYacht !== r.holdYacht ? (
+                    <div style={{ color: "#64748b", fontSize: 11.5 }}>⏱ Longest on {r.dwellYacht}{r.dwellMin ? ` · ${r.dwellMin} min` : ""}</div>
+                  ) : null}
                   {(() => {
-                    const hasEngagement = !!r.interest || r.salonViews > 0;
+                    const hasEngagement = !!r.interest || r.salonViews > 0 || !!r.holdYacht;
                     const line = r.due
                       ? <span style={{ color: "#b45309", fontSize: 12, fontWeight: 700 }}>● Follow up now</span>
                       : r.status === "new"

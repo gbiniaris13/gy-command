@@ -85,7 +85,13 @@ export type HelmCrmItem = HelmListItem & {
   budget: string | null;
   /** extraction->salon (views etc.) and extraction->supplier_threads, pulled
    *  as narrow JSON paths so the row stays light. */
-  salon: { views?: number; last_at?: string; yachts?: Record<string, number> } | null;
+  salon: {
+    views?: number;
+    last_at?: string;
+    yachts?: Record<string, number>;
+    dwell?: Record<string, number>;
+    hold?: { yacht: string; at: string };
+  } | null;
   supplier_threads: { email: string }[] | null;
   /** true when this client's email is already a newsletter subscriber
    *  (contacts.tags_v2 contains "newsletter") — George 2026-07-17. */

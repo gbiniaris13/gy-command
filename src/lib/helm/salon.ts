@@ -10,6 +10,7 @@
 // Salon is DIRECT-CLIENT ONLY: travel-agent / white-label proposals keep the
 // straight PDF redirect (a George-branded page would break white-label).
 
+import { createServiceClient } from "@/lib/supabase-server";
 import { getRequestWithProposal } from "@/lib/helm-admin";
 import { optimizedUrl } from "@/lib/helm/cloudinary";
 import type { CombinedProposal, CombinedYacht } from "@/lib/helm/proposal-template";
@@ -25,6 +26,13 @@ export type SalonModel = {
   // When George sent this edition (extraction.pipeline.sent_at). The yacht
   // spreads say "availability confirmed with the owner on <date>" from it.
   sentAt: string | null;
+  createdAt: string | null;
+  // "No. 41": this edition's place in the run of editions George has
+  // composed, counted from the requests that carry a proposal.
+  issueNo: number | null;
+  // After the yes (George, 2 October 2026): the same link becomes "The
+  // <Surname> Week", built from the booking and The Cabin.
+  week: SalonWeek | null;
   clientWhatsApp: string | null;
   hasPdf: boolean;
 };
@@ -37,6 +45,98 @@ function isHttpUrl(u: unknown): u is string {
 
 /** Build the Salon view model, or null when this request must NOT get a
  *  Salon (agent/white-label, single mode, or nothing generated yet). */
+export type SalonWeek = {
+  vessel: string;
+  from: string | null;
+  to: string | null;
+  portEmbarkation: string | null;
+  portDisembarkation: string | null;
+  berth: string | null;
+  crew: { role: string; years: number | null }[];
+  menu: { title: string | null; tagline: string | null; sections: { name: string; items: string[] }[] } | null;
+};
+
+function parseJson(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  try { return JSON.parse(v); } catch { return null; }
+}
+
+function titleRole(s: string): string {
+  const t = String(s || "").replace(/_/g, " ").trim().toLowerCase();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
+}
+
+async function weekFor(r: { status?: string | null; extraction?: unknown }): Promise<SalonWeek | null> {
+  if (r.status !== "won") return null;
+  const booking = (r.extraction as { booking?: { vessel?: unknown; cabin_id?: unknown; white_label?: unknown } } | null)?.booking;
+  const vessel = typeof booking?.vessel === "string" ? booking.vessel.trim() : "";
+  if (!vessel || booking?.white_label === true) return null;
+  const week: SalonWeek = {
+    vessel, from: null, to: null, portEmbarkation: null, portDisembarkation: null, berth: null, crew: [], menu: null,
+  };
+  const cabinId = typeof booking?.cabin_id === "string" ? booking.cabin_id : null;
+  if (!cabinId) return week;
+  try {
+    const db = createServiceClient();
+    const { data: c } = await db
+      .from("cabins")
+      .select("charter_period_from, charter_period_to, port_embarkation, port_disembarkation, berth_label, crew_display, sample_menu")
+      .eq("id", cabinId)
+      .maybeSingle();
+    if (!c) return week;
+    week.from = c.charter_period_from ?? null;
+    week.to = c.charter_period_to ?? null;
+    week.portEmbarkation = c.port_embarkation ?? null;
+    week.portDisembarkation = c.port_disembarkation ?? null;
+    week.berth = c.berth_label ?? null;
+    // Crew by role only (George: names and faces change; the role is what
+    // is promised). Years of experience when the Cabin has a number.
+    const crew = parseJson(c.crew_display);
+    if (Array.isArray(crew)) {
+      week.crew = crew
+        .map((m) => {
+          const role = titleRole(String((m as { role?: unknown })?.role ?? ""));
+          const y = Number((m as { years_experience?: unknown })?.years_experience);
+          return role ? { role, years: Number.isFinite(y) && y > 0 ? y : null } : null;
+        })
+        .filter((x): x is { role: string; years: number | null } => x !== null);
+    }
+    const menu = parseJson(c.sample_menu) as { title?: unknown; tagline?: unknown; sections?: unknown } | null;
+    if (menu && Array.isArray(menu.sections)) {
+      week.menu = {
+        title: typeof menu.title === "string" ? menu.title : null,
+        tagline: typeof menu.tagline === "string" ? menu.tagline : null,
+        sections: (menu.sections as { name?: unknown; items?: unknown; dishes?: unknown }[])
+          .map((s) => ({
+            name: String(s?.name ?? "").trim(),
+            items: ((Array.isArray(s?.items) ? s.items : Array.isArray(s?.dishes) ? s.dishes : []) as unknown[])
+              .map((x) => (typeof x === "string" ? x : String((x as { name?: unknown })?.name ?? ""))).filter(Boolean).slice(0, 5),
+          }))
+          .filter((s) => s.name && s.items.length > 0)
+          .slice(0, 8),
+      };
+    }
+  } catch {
+    /* the booking stands without the Cabin's details */
+  }
+  return week;
+}
+
+async function issueNumberFor(createdAt: string | null): Promise<number | null> {
+  if (!createdAt) return null;
+  try {
+    const db = createServiceClient();
+    const { count } = await db
+      .from("helm_requests")
+      .select("id", { count: "exact", head: true })
+      .not("proposal_json", "is", null)
+      .lte("created_at", createdAt);
+    return typeof count === "number" && count > 0 ? count : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function salonData(requestId: string): Promise<SalonModel | null> {
   const r = await getRequestWithProposal(requestId);
   if (!r || !r.proposal_json) return null;
@@ -89,6 +189,9 @@ export async function salonData(requestId: string): Promise<SalonModel | null> {
       const p = (r.extraction as { pipeline?: { sent_at?: unknown } } | null)?.pipeline;
       return typeof p?.sent_at === "string" ? p.sent_at : null;
     })(),
+    createdAt: typeof r.created_at === "string" ? r.created_at : null,
+    issueNo: await issueNumberFor(typeof r.created_at === "string" ? r.created_at : null),
+    week: await weekFor(r),
     clientWhatsApp: r.client_whatsapp ? String(r.client_whatsapp) : null,
     hasPdf: !!r.proposal_pdf_path,
   };

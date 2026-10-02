@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { gmailFetch, setSetting } from "@/lib/google-api";
 import { observeCron } from "@/lib/cron-observer";
-import { upcomingOccasions, draftFor, occasionKey } from "@/lib/lighthouse";
+import { upcomingOccasions, draftFor, occasionKey, loadPeople } from "@/lib/lighthouse";
 
 // The Lighthouse daily reminder — George's brief verbatim (29/8):
 // "να με ειδοποιεί με email μία ημέρα πριν από κάθε γεγονός και την
@@ -86,7 +86,20 @@ async function handler() {
   const weekAllP = occ.personal.filter((o) => o.date > todayIso && fresh(o));
   const weekAllH = occ.holidays.filter((h) => h.date > todayIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
 
-  const total = todayP.length + tomorrowP.length + todayH.length + tomorrowH.length + unlocksH.length + headsUpP.length;
+  // January, Mondays (George, 2 October 2026): the annual edition for every
+  // client who sailed with us. One tap per card in the Lighthouse prepares
+  // the draft; this is the reminder that the season has opened.
+  const isJanuary = athens.getMonth() === 0;
+  const isMonday = athens.getDay() === 1;
+  let seasonClients = [];
+  if (isJanuary && isMonday) {
+    try {
+      const { people } = await loadPeople();
+      seasonClients = people.filter((p) => p.won && p.email && p.charter_vessel);
+    } catch {}
+  }
+
+  const total = todayP.length + tomorrowP.length + todayH.length + tomorrowH.length + unlocksH.length + headsUpP.length + seasonClients.length;
   if (total === 0 && !(isSunday && (weekAllP.length + weekAllH.length))) {
     return NextResponse.json({ skipped: "no occasions today or tomorrow" });
   }
@@ -120,6 +133,14 @@ async function handler() {
     headsUpP.map((o) => `
   <div style="background:#ffffff;border:1px solid ${G.line};border-radius:6px;padding:12px 16px;margin:0 0 10px;">
     <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong>${esc(o.person?.name ?? "")}</strong> · ${esc(o.label)} στις ${esc(o.date)}${o.person?.vessel ? ` · πελάτης ${esc(o.person.vessel)}` : ""}</p>
+  </div>`),
+    (x) => x,
+  );
+  sec(
+    "Ετήσιες εκδόσεις: η σεζόν άνοιξε",
+    seasonClients.map((p) => `
+  <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${G.gold};border-radius:6px;padding:12px 16px;margin:0 0 10px;">
+    <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong>${esc(p.name)}</strong> · ${esc(p.charter_vessel)}${p.travel_from ? ` · ${esc(String(p.travel_from).slice(0, 10))}` : ""} · <a href="https://command.georgeyachts.com/dashboard/lighthouse" style="color:${G.gold};font-weight:bold;text-decoration:none;">ετοίμασε την έκδοση &rarr;</a></p>
   </div>`),
     (x) => x,
   );

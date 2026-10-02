@@ -20,6 +20,7 @@ import { Cinzel, Cormorant_Garamond, Montserrat } from "next/font/google";
 import { verifyProposalToken } from "@/lib/helm/proposal-token";
 import { salonData, mediaFor } from "@/lib/helm/salon";
 import { computePricing, fmtEur } from "@/lib/helm/pricing";
+import { chartForWeek } from "@/lib/helm/greek-ports";
 import SalonClient, { type SalonView, type SalonYachtView } from "./SalonClient";
 
 export const runtime = "nodejs";
@@ -198,9 +199,30 @@ export default async function SalonPage({
     weeks: (d.custom_weeks ?? []).map((w) => ({
       title: w.title,
       days: (w.days ?? []).map((x) => ({ leg: x.leg, note: x.note })),
+      chart: chartForWeek((w.days ?? []).map((x) => String(x.leg ?? ""))),
     })),
     crewNote: d.crew_note ?? null,
     hasPdf: model.hasPdf,
+    issueLine: (() => {
+      const when = model.sentAt || model.createdAt;
+      if (!when) return null;
+      const dt = new Date(when);
+      const month = Number.isNaN(dt.getTime()) ? "" : `${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()}`;
+      return [model.issueNo ? `No. ${model.issueNo}` : "", month].filter(Boolean).join(" · ") || null;
+    })(),
+    week: model.week
+      ? {
+          ...model.week,
+          fromLong: model.week.from ? fmtLongDate(model.week.from) : null,
+          toLong: model.week.to ? fmtLongDate(model.week.to) : null,
+          yachtIndex: (() => {
+            const key = (s: string) => s.toLowerCase().replace(/^(m\/y|s\/y|m\/cat|s\/cat|p\/cat|my|sy)\s+/i, "").replace(/[^a-z0-9]/g, "");
+            const want = key(model.week.vessel);
+            const i = yachts.findIndex((y) => key(y.name) === want);
+            return i >= 0 ? i : null;
+          })(),
+        }
+      : null,
   };
 
   return (
@@ -288,10 +310,17 @@ function withBriefParagraph(
   const count = n === 1 ? "One yacht follows" : `${["", "", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"][n] ?? n} yachts follow`;
   const why = (first.insideInfo ?? "").trim();
   if (!brief && !why) return paras;
+  // A letter George already wrote around the first yacht (the annual
+  // edition does this) needs no second paragraph saying the same.
+  const key = (s: string) => s.toLowerCase().replace(/^(m\/y|s\/y|m\/cat|s\/cat|p\/cat|my|sy)\s+/i, "").replace(/[^a-z0-9]/g, "");
+  if (paras.some((p) => key(p).includes(key(first.name)) && p.length > 60)) return paras;
+  // "LIBRA is…" keeps her capitals; only a sentence that starts with an
+  // ordinary word is folded into the running text.
+  const whyLow = /^[A-Z][a-z]/.test(why) ? `${why.charAt(0).toLowerCase()}${why.slice(1)}` : why;
   const sentence =
     (brief ? `Your brief, as I read it: ${brief}. ` : "") +
     `${count}, in the order I would show them to you` +
-    (why ? `, and I would start with ${first.name}: ${why.charAt(0).toLowerCase()}${why.slice(1)}` : ".") +
+    (why ? `, and I would start with ${first.name}: ${whyLow}` : ".") +
     (why && !/[.!?]$/.test(why) ? "." : "");
   const greet = paras.findIndex((p) => /^dear\b/i.test(p));
   const out = [...paras];

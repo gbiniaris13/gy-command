@@ -90,6 +90,15 @@ export default async function HelmListPage() {
     const interest = r.salon?.yachts
       ? Object.entries(r.salon.yachts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
       : null;
+    // 2026-10-02: the yacht they stared at longest, and a 48-hour hold request
+    // (the strongest call-now cue the Salon can send).
+    const dwellTop = r.salon?.dwell
+      ? Object.entries(r.salon.dwell).sort((a, b) => b[1] - a[1])[0] ?? null
+      : null;
+    const dwellYacht = dwellTop && dwellTop[1] >= 20 ? dwellTop[0] : null;
+    const dwellMin = dwellTop ? Math.max(1, Math.round(dwellTop[1] / 60)) : null;
+    const holdYacht = r.salon?.hold?.yacht ?? null;
+    const holdAt = r.salon?.hold?.at ?? null;
     // How long an un-worked request has been sitting (new/drafted only). Lets
     // George see at a glance which leads are going cold (George 2026-07-17).
     const waitingDays = ["new", "drafted"].includes(r.status) && r.created_at
@@ -124,6 +133,10 @@ export default async function HelmListPage() {
       salonViews,
       salonLastAt,
       interest,
+      dwellYacht,
+      dwellMin,
+      holdYacht,
+      holdAt,
       waitingDays,
       onNewsletter: r.on_newsletter,
       sentAt: p.sent_at ?? null,

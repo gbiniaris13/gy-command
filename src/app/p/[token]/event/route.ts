@@ -52,6 +52,12 @@ type SalonStats = {
   yachts?: Record<string, number>;
   pdf?: number;
   wa?: number;
+  /** seconds spent on each yacht's page (2026-10-02) */
+  dwell?: Record<string, number>;
+  /** the last 48-hour hold the client asked for (2026-10-02) */
+  hold?: { yacht: string; at: string };
+  /** "Ask George about her" taps, per yacht (2026-10-02) */
+  wa_yachts?: Record<string, number>;
 };
 
 const PING_GAP_MS = 6 * 3600 * 1000;
@@ -68,10 +74,13 @@ export async function POST(
   if (await isAdminViewer()) return NextResponse.json({ ok: true, self: true });
 
   try {
-    const body = (await req.json().catch(() => ({}))) as { t?: string; y?: string };
+    const body = (await req.json().catch(() => ({}))) as { t?: string; y?: string; s?: unknown };
     const t = String(body.t || "");
     const yacht = String(body.y || "").slice(0, 80);
-    if (!["view", "yacht", "pdf", "wa"].includes(t)) return NextResponse.json({ ok: true });
+    // 2026-10-02: "dwell" (seconds on a yacht page) and "hold" (ask the owner
+    // to hold her dates 48h) join the signals.
+    if (!["view", "yacht", "pdf", "wa", "dwell", "hold"].includes(t)) return NextResponse.json({ ok: true });
+    const secs = Math.max(0, Math.min(1800, Math.round(Number(body.s) || 0)));
 
     const r = await getRequest(id);
     if (!r) return NextResponse.json({ ok: true });
@@ -93,6 +102,16 @@ export async function POST(
     } else if (t === "yacht" && yacht) {
       s.yachts = s.yachts ?? {};
       s.yachts[yacht] = (s.yachts[yacht] ?? 0) + 1;
+    } else if (t === "dwell" && yacht && secs >= 8) {
+      s.dwell = s.dwell ?? {};
+      s.dwell[yacht] = Math.min(36000, (s.dwell[yacht] ?? 0) + secs);
+      s.last_at = now;
+    } else if (t === "hold" && yacht) {
+      s.hold = { yacht, at: now };
+    }
+    if (t === "wa" && yacht) {
+      s.wa_yachts = s.wa_yachts ?? {};
+      s.wa_yachts[yacht] = (s.wa_yachts[yacht] ?? 0) + 1;
     }
 
     // Telegram — throttled views, instant buying signals.
@@ -106,17 +125,21 @@ export async function POST(
       }
     } else if (t === "yacht" && yacht) {
       ping = `⭐ <b>${client}</b> pressed “This one interests us” on <b>${yacht}</b>. Call while it's warm.`;
+    } else if (t === "hold" && yacht) {
+      ping = `🔥 <b>${client}</b> asks you to hold the dates of <b>${yacht}</b> for 48 hours. Ask the owner and confirm to them today.`;
+    } else if (t === "wa" && yacht) {
+      ping = `💬 <b>${client}</b> opened WhatsApp to ask about <b>${yacht}</b>.`;
     }
 
     await saveExtraction(id, { ...ex, salon: s });
 
-    if (t === "yacht" && yacht) {
+    if ((t === "yacht" || t === "hold") && yacht) {
       const db = createServiceClient();
       await db.from("helm_messages").insert({
         request_id: id,
         direction: null,
         channel: "note",
-        body: `[Salon] Client marked interest in ${yacht}.`,
+        body: t === "hold" ? `[Salon] Client asked to hold ${yacht} for 48 hours.` : `[Salon] Client marked interest in ${yacht}.`,
       });
     }
 
@@ -135,7 +158,10 @@ export async function POST(
       try {
         const { emailGeorgeReport, athensTime } = await import("@/lib/email-tracking");
         const subject =
-          t === "yacht" ? `Interest marked: ${yacht}` : `${client} is reading the proposal`;
+          t === "yacht" ? `Interest marked: ${yacht}`
+          : t === "hold" ? `HOLD asked: ${yacht} for ${client}`
+          : t === "wa" ? `${client} asks about ${yacht}`
+          : `${client} is reading the proposal`;
         const lines = [
           plain,
           ``,

@@ -57,9 +57,35 @@ export type SalonView = {
   introParas: string[];
   video: { kind: "iframe" | "video"; src: string } | null;
   yachts: SalonYachtView[];
-  weeks: { title: string; days: { leg: string; note: string }[] }[];
+  weeks: { title: string; days: { leg: string; note: string }[]; chart: WeekChart | null }[];
   crewNote: string | null;
   hasPdf: boolean;
+  /** "No. 41 · October 2026" on the cover. */
+  issueLine: string | null;
+  /** After the yes: the same link is "The <Surname> Week". */
+  week: SalonWeekView | null;
+};
+
+export type WeekChart = {
+  w: number;
+  h: number;
+  points: { x: number; y: number; label: string; day: number }[];
+  path: string;
+  scale: { x1: number; x2: number; y: number; label: string };
+};
+
+export type SalonWeekView = {
+  vessel: string;
+  from: string | null;
+  to: string | null;
+  fromLong: string | null;
+  toLong: string | null;
+  portEmbarkation: string | null;
+  portDisembarkation: string | null;
+  berth: string | null;
+  crew: { role: string; years: number | null }[];
+  menu: { title: string | null; tagline: string | null; sections: { name: string; items: string[] }[] } | null;
+  yachtIndex: number | null;
 };
 
 const INK = "#17263A";
@@ -80,6 +106,10 @@ const GY_LOGO = "https://georgeyachts.com/images/gy-logo-real.svg";
 export default function SalonClient({ view }: { view: SalonView }) {
   const sentView = useRef(false);
   const [interested, setInterested] = useState<Record<string, boolean>>({});
+  const [holdAsked, setHoldAsked] = useState<Record<string, boolean>>({});
+  // How long the reader stayed on each yacht (George, 2 October 2026: "the
+  // broker who knows they stared at Aphaea three times calls about Aphaea").
+  const dwell = useRef<{ yacht: string | null; since: number }>({ yacht: null, since: Date.now() });
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [turning, setTurning] = useState<"next" | "prev" | null>(null);
@@ -134,22 +164,40 @@ export default function SalonClient({ view }: { view: SalonView }) {
   }, [page]);
 
   // ---- page plan: cover, letter, glance?, yachts…, weeks…, closing ----
+  // After the yes the same link is the client's own week (George, 2 October
+  // 2026): the booked yacht, her crew by role, the route we are planning, a
+  // taste of the galley, what to know before boarding.
+  const wk = view.week;
+  const weekYachtIdx = wk ? (wk.yachtIndex ?? 0) : null;
   const hasGlance = view.yachts.length >= 3;
-  const pages: { kind: string; idx?: number }[] = [
-    { kind: "cover" },
-    { kind: "letter" },
-    ...(hasGlance ? [{ kind: "glance" }] : []),
-    ...view.yachts.map((_, i) => ({ kind: "yacht", idx: i })),
-    ...view.weeks.map((_, i) => ({ kind: "week", idx: i })),
-    // 2026-10-02, George: the client must know what APA and VAT are, that the
-    // itineraries are samples the weather and the captain decide, that a crew
-    // can change, and exactly what happens after the yes. Two quiet pages.
-    { kind: "knowhow" },
-    { kind: "after" },
-    { kind: "broker" },
-    { kind: "house" },
-    { kind: "closing" },
-  ];
+  const pages: { kind: string; idx?: number }[] = wk
+    ? [
+        { kind: "cover" },
+        { kind: "letter" },
+        ...(view.yachts.length ? [{ kind: "yacht", idx: weekYachtIdx ?? 0 }] : []),
+        ...view.weeks.map((_, i) => ({ kind: "week", idx: i })),
+        ...(wk.crew.length ? [{ kind: "crew" }] : []),
+        ...(wk.menu && wk.menu.sections.length ? [{ kind: "galley" }] : []),
+        { kind: "board" },
+        { kind: "knowhow" },
+        { kind: "broker" },
+        { kind: "closing" },
+      ]
+    : [
+        { kind: "cover" },
+        { kind: "letter" },
+        ...(hasGlance ? [{ kind: "glance" }] : []),
+        ...view.yachts.map((_, i) => ({ kind: "yacht", idx: i })),
+        ...view.weeks.map((_, i) => ({ kind: "week", idx: i })),
+        // 2026-10-02, George: the client must know what APA and VAT are, that the
+        // itineraries are samples the weather and the captain decide, that a crew
+        // can change, and exactly what happens after the yes. Two quiet pages.
+        { kind: "knowhow" },
+        { kind: "after" },
+        { kind: "broker" },
+        { kind: "house" },
+        { kind: "closing" },
+      ];
   const last = pages.length - 1;
 
   const go = useCallback((dir: 1 | -1) => {
@@ -176,9 +224,46 @@ export default function SalonClient({ view }: { view: SalonView }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [go, lightbox]);
 
+  // Dwell: when the reader leaves a yacht page (or the tab), the seconds spent
+  // there go to George. Eight seconds or more counts; a flick does not.
+  const flushDwell = useCallback(() => {
+    const d = dwell.current;
+    const secs = Math.round((Date.now() - d.since) / 1000);
+    if (d.yacht && secs >= 8) {
+      try {
+        fetch(`/p/${view.token}/event`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ t: "dwell", y: d.yacht, s: Math.min(secs, 1800) }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch { /* signal only */ }
+    }
+    dwell.current = { yacht: null, since: Date.now() };
+  }, [view.token]);
+  useEffect(() => {
+    flushDwell();
+    const p = pages[page];
+    dwell.current = { yacht: p?.kind === "yacht" && p.idx !== undefined ? view.yachts[p.idx]?.name ?? null : null, since: Date.now() };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === "hidden") flushDwell(); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flushDwell);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flushDwell);
+    };
+  }, [flushDwell]);
+
   function markInterest(name: string) {
     if (!interested[name]) beacon("yacht", name);
     setInterested((p) => ({ ...p, [name]: true }));
+  }
+  function askHold(name: string) {
+    if (!holdAsked[name]) beacon("hold", name);
+    setHoldAsked((p) => ({ ...p, [name]: true }));
   }
 
   // ---- shared styles ----
@@ -208,26 +293,37 @@ export default function SalonClient({ view }: { view: SalonView }) {
         <div style={{ textAlign: "center", padding: "44px 20px 26px", background: PAPER }}>
           <p style={{ ...label, fontSize: 11, letterSpacing: "0.42em", color: INK }}>GEORGE YACHTS BROKERAGE HOUSE</p>
           <div style={{ width: 54, height: 1, background: GOLD, margin: "18px auto" }} />
-          <p style={{ ...label, fontSize: 9 }}>{view.period || "A private charter publication"}</p>
+          <p style={{ ...label, fontSize: 9 }}>
+            {wk ? "Your week, as it stands" : (view.period || "A private charter publication")}
+            {view.issueLine ? ` · ${view.issueLine}` : ""}
+          </p>
         </div>
-        {photo && (
+        {(wk && weekYachtIdx !== null && view.yachts[weekYachtIdx]?.main ? (
+          <div style={{ flex: 1, minHeight: "38vh", backgroundImage: `url(${view.yachts[weekYachtIdx].main})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+        ) : photo ? (
           <div style={{ flex: 1, minHeight: "38vh", backgroundImage: `url(${photo})`, backgroundSize: "cover", backgroundPosition: "center" }} />
-        )}
+        ) : null)}
         <div style={{ textAlign: "center", padding: "36px 22px 120px", background: PAPER }}>
           {view.editionName && (
             <p style={{
               fontFamily: "var(--salon-display)", fontWeight: 700, color: GOLD,
               fontSize: "clamp(30px, 6.4vw, 52px)", letterSpacing: "0.12em", margin: "0 0 14px",
               textWrap: "balance",
-            }}>{view.editionName}</p>
+            }}>{wk ? view.editionName.replace(/ Edition$/, " Week") : view.editionName}</p>
           )}
           <p style={{
             fontFamily: "var(--salon-display)", fontWeight: 400, color: INK,
             fontSize: "clamp(15px, 3vw, 20px)", letterSpacing: "0.14em", margin: "0 0 16px",
           }}>
-            {view.clientName ? `Personally curated for ${view.clientName}` : "A personally curated selection"}
+            {wk
+              ? (view.clientName ? `Personally prepared for ${view.clientName}` : "Your week, personally prepared")
+              : (view.clientName ? `Personally curated for ${view.clientName}` : "A personally curated selection")}
           </p>
-          {view.coverLine && (
+          {wk ? (
+            <p style={{ ...label, color: INK_DIM, letterSpacing: "0.2em", lineHeight: 2 }}>
+              {[wk.vessel, wk.fromLong && wk.toLong ? `${wk.fromLong} to ${wk.toLong}` : "", wk.portEmbarkation ? `from ${wk.portEmbarkation}` : ""].filter(Boolean).join(" · ")}
+            </p>
+          ) : view.coverLine && (
             <p style={{ ...label, color: INK_DIM, letterSpacing: "0.2em", lineHeight: 2 }}>{view.coverLine}</p>
           )}
           <p style={{ fontFamily: "var(--salon-ui)", fontSize: 10.5, color: INK_DIM, marginTop: 30, lineHeight: 1.9, letterSpacing: "0.06em" }}>
@@ -255,7 +351,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
             )}
           </div>
         )}
-        {view.introParas.map((p, i) => (
+        {(wk ? weekLetter() : view.introParas).map((p, i) => (
           <p key={i} style={{ ...serifBody, margin: "0 0 16px" }}>{p}</p>
         ))}
         <p style={{ fontFamily: "var(--salon-serif)", fontSize: 23, color: GOLD, margin: "28px 0 2px" }}>George P. Biniaris</p>
@@ -316,20 +412,21 @@ export default function SalonClient({ view }: { view: SalonView }) {
   }
 
   function renderYacht(y: SalonYachtView, i: number) {
+    const money = !wk;
     return (
       <div style={{ ...col, paddingTop: 40 }}>
-        {y.tier && <p style={{ ...label, textAlign: "center", marginBottom: 10 }}>{y.tier}</p>}
+        {wk ? <p style={{ ...label, textAlign: "center", marginBottom: 10 }}>Your yacht</p> : y.tier && <p style={{ ...label, textAlign: "center", marginBottom: 10 }}>{y.tier}</p>}
         <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(28px, 5.4vw, 40px)", letterSpacing: "0.1em", margin: "0 0 8px" }}>
           {y.name}
         </h2>
         {y.spec && <p style={{ ...label, color: INK_DIM, textAlign: "center", letterSpacing: "0.22em", marginBottom: 4 }}>{y.spec}</p>}
         {y.voyage && <p style={{ ...label, fontSize: 9, textAlign: "center", marginBottom: 8 }}>{y.voyage}</p>}
-        {y.availabilityLine && (
+        {money && y.availabilityLine && (
           <p style={{ fontFamily: "var(--salon-serif)", fontStyle: "italic", fontSize: 15, color: INK_DIM, textAlign: "center", margin: "0 0 14px" }}>{y.availabilityLine}</p>
         )}
         {/* the price is never a mystery: headline figure up top, full
             breakdown in The Investment box below */}
-        {(y.money.allIn || y.money.headline) && (
+        {money && (y.money.allIn || y.money.headline) && (
           <p style={{ textAlign: "center", margin: "0 0 20px" }}>
             <span style={{ fontFamily: "var(--salon-serif)", fontSize: 24, color: INK, fontVariantNumeric: "tabular-nums" }}>
               {y.money.allInAround ?? y.money.allIn ?? y.money.headline}
@@ -420,7 +517,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         )}
 
         {/* money box */}
-        <div style={{ border: GOLD_HAIR, padding: "22px 22px 18px", marginTop: 28, background: "#FFFFFF" }}>
+        {money && <div style={{ border: GOLD_HAIR, padding: "22px 22px 18px", marginTop: 28, background: "#FFFFFF" }}>
           <p style={{ ...label, fontSize: 9, marginBottom: 14 }}>The investment · in full transparency</p>
           {y.money.discountNote && (
             <p style={{ fontFamily: "var(--salon-serif)", fontWeight: 600, fontSize: 17, color: GOLD, margin: "0 0 12px" }}>{y.money.discountNote}</p>
@@ -473,44 +570,158 @@ export default function SalonClient({ view }: { view: SalonView }) {
               Complimentary on board: {y.freeOnboard.join(", ")}
             </p>
           )}
-        </div>
+        </div>}
 
-        <div style={{ display: "flex", gap: 12, marginTop: 22, flexWrap: "wrap", alignItems: "center" }}>
-          <button type="button" onClick={() => markInterest(y.name)}
-            style={interested[y.name] ? { ...ghostBtn, opacity: 0.75, cursor: "default" } : goldBtn}>
-            {interested[y.name] ? "George has been notified" : "This one interests us"}
-          </button>
-          {y.brochure && (
-            <a href={y.brochure} target="_blank" rel="noopener noreferrer" style={ghostBtn}>Digital brochure</a>
-          )}
-        </div>
-        {interested[y.name] && (
+        {money && (
+          <div style={{ display: "flex", gap: 12, marginTop: 22, flexWrap: "wrap", alignItems: "center" }}>
+            <button type="button" onClick={() => markInterest(y.name)}
+              style={interested[y.name] ? { ...ghostBtn, opacity: 0.75, cursor: "default" } : goldBtn}>
+              {interested[y.name] ? "George has been notified" : "This one interests us"}
+            </button>
+            {/* 2026-10-02: two more ways to say it, both land on George's desk
+                with the yacht's name attached. The hold asks the owner; it is
+                not a booking and nothing is owed. */}
+            <button type="button" onClick={() => askHold(y.name)}
+              style={holdAsked[y.name] ? { ...ghostBtn, opacity: 0.75, cursor: "default" } : ghostBtn}>
+              {holdAsked[y.name] ? "Hold requested" : "Hold her dates for 48 hours"}
+            </button>
+            <a href={`${WA}${encodeURIComponent(`Hello George, a question about ${y.name}${view.editionName ? ` in ${view.editionName}` : ""}: `)}`}
+              target="_blank" rel="noopener noreferrer" style={ghostBtn} onClick={() => beacon("wa", y.name)}>Ask George about her</a>
+            {y.brochure && (
+              <a href={y.brochure} target="_blank" rel="noopener noreferrer" style={ghostBtn}>Digital brochure</a>
+            )}
+          </div>
+        )}
+        {money && interested[y.name] && (
           <p style={{ fontFamily: "var(--salon-serif)", fontStyle: "italic", fontSize: 15, color: INK_DIM, marginTop: 12 }}>
             Noted. George will confirm availability personally and come back to you the same day.
+          </p>
+        )}
+        {money && holdAsked[y.name] && (
+          <p style={{ fontFamily: "var(--salon-serif)", fontStyle: "italic", fontSize: 15, color: INK_DIM, marginTop: 12 }}>
+            Noted. George will ask the owner to hold these dates for 48 hours and confirm to you within the day. Nothing is booked and nothing is owed.
           </p>
         )}
       </div>
     );
   }
 
-  function renderWeek(wk: { title: string; days: { leg: string; note: string }[] }) {
+  function renderWeek(w: { title: string; days: { leg: string; note: string }[]; chart: WeekChart | null }) {
     return (
       <div style={col}>
-        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>A week like this</p>
+        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>{wk ? "Your week, as we are planning it" : "A week like this"}</p>
         <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.1em", margin: "0 0 10px" }}>
-          {wk.title}
+          {w.title}
         </h2>
         <p style={{ ...serifBody, fontSize: 16, textAlign: "center", maxWidth: 540, margin: "0 auto 26px" }}>
-          A sample rhythm for the week, drawn from routes we actually run. Every day is adjusted on board around your pace, the wind and the water.
+          {wk
+            ? "The route we are planning with the captain. It becomes final one week before you board, with the forecast in hand, and the sea keeps the last word."
+            : "A sample rhythm for the week, drawn from routes we actually run. Every day is adjusted on board around your pace, the wind and the water."}
         </p>
+        {w.chart && <WeekChartSvg chart={w.chart} />}
         <div style={{ borderTop: GOLD_HAIR }}>
-          {wk.days.map((x, k) => (
+          {w.days.map((x, k) => (
             <div key={k} style={{ display: "grid", gridTemplateColumns: "64px 1fr", gap: 14, padding: "14px 4px", borderBottom: HAIR }}>
               <span style={{ ...label, fontSize: 9, paddingTop: 6 }}>Day {k + 1}</span>
               <span>
                 <span style={{ display: "block", fontFamily: "var(--salon-serif)", fontSize: 20, color: INK }}>{x.leg.replace(/\s*(?:->|→)\s*/g, " → ")}</span>
                 {x.note && <span style={{ display: "block", fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, marginTop: 2, lineHeight: 1.6 }}>{x.note}</span>}
               </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // THE WEEK pages (after the yes, George 2 October 2026).
+  function weekLetter(): string[] {
+    if (!wk) return view.introParas;
+    const greet = view.introParas.find((p) => /^dear\b/i.test(p)) ?? (view.clientName ? `Dear ${view.clientName},` : "Dear guests,");
+    const when = wk.fromLong && wk.toLong ? ` from ${wk.fromLong} to ${wk.toLong}` : "";
+    const port = wk.portEmbarkation ? `, out of ${wk.portEmbarkation}` : "";
+    return [
+      greet,
+      `It is done: ${wk.vessel} is yours${when}${port}. What follows is your week as it stands today: the yacht, her crew by role, the route we are planning with the captain, a taste of the galley, and what to know before you board.`,
+      "Nothing here is final until the captain and I speak a week before you sail, with a reliable forecast in hand, and that is as it should be. The sea has the last word, and we plan around it rather than against it.",
+      "I am a message away every day between now and your check-in, and every day you are on the water.",
+    ];
+  }
+
+  function renderCrew() {
+    if (!wk) return null;
+    return (
+      <div style={col}>
+        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>Your crew</p>
+        <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.1em", margin: "0 0 10px" }}>
+          On board {wk.vessel}
+        </h2>
+        <p style={{ ...serifBody, fontSize: 16, textAlign: "center", maxWidth: 540, margin: "0 auto 26px" }}>
+          {wk.crew.length} crew, described by role. Names, faces and the preference sheet are in The Cabin, your private page.
+        </p>
+        <div style={{ borderTop: GOLD_HAIR }}>
+          {wk.crew.map((c, k) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "14px 4px", borderBottom: HAIR }}>
+              <span style={{ fontFamily: "var(--salon-serif)", fontSize: 20, color: INK }}>{c.role}</span>
+              {c.years && <span style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, paddingTop: 6 }}>{c.years} years at sea</span>}
+            </div>
+          ))}
+        </div>
+        <p style={{ fontFamily: "var(--salon-ui)", fontSize: 11, color: INK_FAINT, marginTop: 16, lineHeight: 1.7 }}>
+          Under the MYBA charter agreement the owner may replace a crew member for health or another serious reason, with someone of the same standard or better. I tell you the moment I know.
+        </p>
+      </div>
+    );
+  }
+
+  function renderGalley() {
+    if (!wk?.menu) return null;
+    return (
+      <div style={col}>
+        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>From the galley</p>
+        <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.1em", margin: "0 0 10px" }}>
+          A taste of the week
+        </h2>
+        {/* The Cabin's tagline can name the chef; the edition speaks of the crew
+            by role only, so the line here is the house's own. */}
+        <p style={{ ...serifBody, fontSize: 16, textAlign: "center", maxWidth: 540, margin: "0 auto 26px" }}>
+          A sample from the galley. The menus of your week are written around your preference sheet, not the other way round.
+        </p>
+        {wk.menu.sections.map((s, k) => (
+          <div key={k} style={{ padding: "14px 4px", borderTop: k === 0 ? GOLD_HAIR : HAIR }}>
+            <p style={{ ...label, fontSize: 8.5, marginBottom: 8 }}>{s.name}</p>
+            {s.items.map((it, j) => (
+              <p key={j} style={{ fontFamily: "var(--salon-serif)", fontSize: 17, color: INK_DIM, margin: "0 0 5px", lineHeight: 1.5 }}>{it}</p>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderBoard() {
+    if (!wk) return null;
+    const rows: [string, string][] = [
+      ["Embarkation", [wk.portEmbarkation, wk.berth].filter(Boolean).join(", ") || "Athens; the berth is confirmed the week before"],
+      ["Dates", wk.fromLong && wk.toLong ? `${wk.fromLong} to ${wk.toLong}` : "As on your charter agreement"],
+      ["Disembarkation", wk.portDisembarkation || wk.portEmbarkation || "Athens"],
+      ["Transfers", "Arranged from your preference sheet; the captain and I confirm the pick-up the day before."],
+      ["Documents", "Passports for every guest are collected in The Cabin for the port authorities; nothing is needed on paper."],
+      ["One week before", "The itinerary call with the captain, with a reliable forecast in hand. The embarkation time is confirmed then."],
+      ["What to bring", "Soft bags rather than hard suitcases; soft-soled shoes for the deck; light layers for the evening breeze; a hat and reef-safe sunscreen; your medication; chargers for European sockets. The yacht has towels, snorkels and the toys."],
+      ["Check-in", "I meet you on the quay, or my team does. From then on, a message away."],
+    ];
+    return (
+      <div style={col}>
+        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>Before you board</p>
+        <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.1em", margin: "0 0 26px" }}>
+          The practical page
+        </h2>
+        <div style={{ borderTop: GOLD_HAIR }}>
+          {rows.map(([h, t], k) => (
+            <div key={k} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 14, padding: "12px 4px", borderBottom: HAIR }}>
+              <span style={{ ...label, fontSize: 8.5, paddingTop: 5 }}>{h}</span>
+              <span style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, lineHeight: 1.65 }}>{t}</span>
             </div>
           ))}
         </div>
@@ -535,7 +746,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
       <div style={col}>
         <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>Good to know</p>
         <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.1em", margin: "0 0 10px" }}>
-          Before you choose
+          {wk ? "Before you sail" : "Before you choose"}
         </h2>
         <p style={{ ...serifBody, fontSize: 16, textAlign: "center", maxWidth: 540, margin: "0 auto 26px" }}>
           Four things I would rather you heard from me now than discovered on the water.
@@ -589,8 +800,9 @@ export default function SalonClient({ view }: { view: SalonView }) {
       <div style={{ ...col, textAlign: "center", paddingTop: 90 }}>
         <p style={{ ...label, marginBottom: 18 }}>What happens next</p>
         <p style={{ ...serifBody, maxWidth: 540, margin: "0 auto 30px" }}>
-          Reply with the one or two names that speak to you, and I will confirm availability with the owners the same day.
-          Nothing is booked and nothing is owed until you decide.
+          {wk
+            ? "Anything at all before you sail, from a birthday on board to a change of plan, write to me. I would rather hear it early."
+            : "Reply with the one or two names that speak to you, and I will confirm availability with the owners the same day. Nothing is booked and nothing is owed until you decide."}
         </p>
         {view.crewNote && <p style={{ ...serifBody, fontSize: 16, margin: "0 auto 30px", maxWidth: 540 }}>{view.crewNote}</p>}
         <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
@@ -710,6 +922,9 @@ export default function SalonClient({ view }: { view: SalonView }) {
       case "week": return renderWeek(view.weeks[p.idx!]);
       case "knowhow": return renderKnowHow();
       case "after": return renderAfter();
+      case "crew": return renderCrew();
+      case "galley": return renderGalley();
+      case "board": return renderBoard();
       case "broker": return renderBroker();
       case "house": return renderHouse();
       default: return renderClosing();
@@ -904,6 +1119,38 @@ function glanceFacts(y: SalonYachtView): string {
     from && from.length <= 24 ? `from ${from.charAt(0) + from.slice(1).toLowerCase()}` : "",
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+// The week on paper: gold line, a dot per stop, the day it is reached,
+// and a bar in nautical miles. Not a chart to navigate by, and it says so.
+function WeekChartSvg({ chart }: { chart: WeekChart }) {
+  return (
+    <div style={{ margin: "0 0 26px" }}>
+      <svg viewBox={`0 0 ${chart.w} ${chart.h}`} width="100%" role="img" aria-label="The week's route, to scale"
+        style={{ display: "block", background: "#FFFFFF", border: GOLD_HAIR }}>
+        <path d={chart.path} fill="none" stroke={GOLD} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
+        {chart.points.map((p, i) => (
+          <g key={i}>
+            <circle cx={p.x} cy={p.y} r={i === 0 ? 5 : 4} fill={i === 0 ? INK : "#FFFFFF"} stroke={INK} strokeWidth={1.4} />
+            {p.label && (
+              <text x={p.x + 9} y={p.y - 7} fontFamily="Cormorant Garamond, Georgia, serif" fontSize={17} fill={INK}>{p.label}</text>
+            )}
+            {i > 0 && (
+              <text x={p.x + 9} y={p.y + 12} fontFamily="Montserrat, Helvetica, Arial, sans-serif" fontSize={8.5} letterSpacing={1.5} fill={GOLD}>{`DAY ${p.day}`}</text>
+            )}
+          </g>
+        ))}
+        <line x1={chart.scale.x1} x2={chart.scale.x2} y1={chart.scale.y} y2={chart.scale.y} stroke={INK} strokeWidth={1} />
+        <line x1={chart.scale.x1} x2={chart.scale.x1} y1={chart.scale.y - 4} y2={chart.scale.y + 4} stroke={INK} strokeWidth={1} />
+        <line x1={chart.scale.x2} x2={chart.scale.x2} y1={chart.scale.y - 4} y2={chart.scale.y + 4} stroke={INK} strokeWidth={1} />
+        <text x={chart.scale.x1} y={chart.scale.y - 8} fontFamily="Montserrat, Helvetica, Arial, sans-serif" fontSize={8.5} letterSpacing={1.5} fill={INK}>{chart.scale.label.toUpperCase()}</text>
+        <text x={chart.w - 16} y={22} textAnchor="end" fontFamily="Montserrat, Helvetica, Arial, sans-serif" fontSize={8.5} letterSpacing={2} fill={GOLD}>N ↑</text>
+      </svg>
+      <p style={{ fontFamily: "var(--salon-ui)", fontSize: 10.5, color: "rgba(23,38,58,0.42)", margin: "6px 0 0", textAlign: "right" }}>
+        Sketch to scale, harbours placed to the nearest mile. Not for navigation.
+      </p>
+    </div>
+  );
 }
 
 function Carousel({ photos, alt, onZoom }: { photos: string[]; alt: string; onZoom: (u: string) => void }) {

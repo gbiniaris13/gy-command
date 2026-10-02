@@ -930,6 +930,23 @@ function ClientCard({ p, sent, onSave, onSaved, say, full = false }) {
             Email
           </a>
         )}
+        {p.won && p.email && (
+          <button
+            onClick={async () => {
+              const year = new Date().getMonth() >= 8 ? new Date().getFullYear() + 1 : new Date().getFullYear();
+              say(`Ετοιμάζω την έκδοση ${year} για ${p.name}…`);
+              const res = await fetch("/api/lighthouse/season-edition", {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: p.email, year }),
+              });
+              const d = await res.json();
+              if (d.error) return say(`Δεν ετοιμάστηκε: ${d.error}`);
+              say(`Έτοιμο πρόχειρο: The ${p.name.split(" ").slice(-1)[0]} Edition ${year} (${(d.yachts ?? []).join(", ")}). Άνοιξε στο Helm.`);
+              window.open(d.url, "_blank");
+            }}
+            className="rounded-full px-4 py-1.5 text-xs font-bold text-deep-space" style={{ background: GOLD }}>
+            Έκδοση {new Date().getMonth() >= 8 ? new Date().getFullYear() + 1 : new Date().getFullYear()}
+          </button>
+        )}
       </div>
       {editing && (
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
