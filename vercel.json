@@ -215,6 +215,10 @@
     {
       "path": "/api/cron/lighthouse-daily",
       "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/week-edition",
+      "schedule": "0 5 * * *"
     }
   ]
 }

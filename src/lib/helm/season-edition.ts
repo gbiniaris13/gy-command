@@ -171,7 +171,7 @@ export async function createSeasonEdition(opts: { email: string; year?: number; 
     proposal_json: proposal,
     combined_media,
     review_draft: { yachts: picks.map((y) => ({ vessel: { name: plainName(y.name) } })) },
-    extraction: { source: "season_edition", from_request: won.id, pipeline: {}, yachts: [] },
+    extraction: { source: "season_edition", season_year: year, from_request: won.id, pipeline: {}, yachts: [] },
   });
   return { id: created.id as string, year, yachts: picks.map((y) => plainName(y.name)), url: `/dashboard/helm/${created.id}` };
 }

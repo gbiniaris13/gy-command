@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { gmailFetch, setSetting } from "@/lib/google-api";
 import { observeCron } from "@/lib/cron-observer";
 import { upcomingOccasions, draftFor, occasionKey, loadPeople } from "@/lib/lighthouse";
+import { createServiceClient } from "@/lib/supabase-server";
+import { createSeasonEdition } from "@/lib/helm/season-edition";
 
 // The Lighthouse daily reminder — George's brief verbatim (29/8):
 // "να με ειδοποιεί με email μία ημέρα πριν από κάθε γεγονός και την
@@ -92,10 +94,34 @@ async function handler() {
   const isJanuary = athens.getMonth() === 0;
   const isMonday = athens.getDay() === 1;
   let seasonClients = [];
+  // The first Monday of January the drafts are CREATED here, one per past
+  // client, so the morning email carries links to editions already written;
+  // the later Mondays only remind. Idempotent: a draft that exists for the
+  // year is not made twice.
+  let seasonDrafts = [];
   if (isJanuary && isMonday) {
     try {
       const { people } = await loadPeople();
       seasonClients = people.filter((p) => p.won && p.email && p.charter_vessel);
+      if (athens.getDate() <= 7 && seasonClients.length) {
+        const year = athens.getFullYear();
+        const sb = createServiceClient();
+        for (const p of seasonClients) {
+          try {
+            const { data: exists } = await sb
+              .from("helm_requests")
+              .select("id")
+              .ilike("client_email", p.email)
+              .eq("extraction->>source", "season_edition")
+              .eq("extraction->>season_year", String(year))
+              .limit(1)
+              .maybeSingle();
+            if (exists) { seasonDrafts.push({ name: p.name, id: exists.id, fresh: false }); continue; }
+            const made = await createSeasonEdition({ email: p.email, year, actorEmail: "lighthouse-daily" });
+            seasonDrafts.push({ name: p.name, id: made.id, fresh: true });
+          } catch {}
+        }
+      }
     } catch {}
   }
 
@@ -138,10 +164,15 @@ async function handler() {
   );
   sec(
     "Ετήσιες εκδόσεις: η σεζόν άνοιξε",
-    seasonClients.map((p) => `
+    seasonClients.map((p) => {
+      const d = seasonDrafts.find((x) => x.name === p.name);
+      const link = d ? `https://command.georgeyachts.com/dashboard/helm/${d.id}` : "https://command.georgeyachts.com/dashboard/lighthouse";
+      const verb = d ? (d.fresh ? "το πρόχειρο γράφτηκε, άνοιξέ το και στείλ' το" : "το πρόχειρο υπάρχει στο Helm") : "ετοίμασε την έκδοση";
+      return `
   <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${G.gold};border-radius:6px;padding:12px 16px;margin:0 0 10px;">
-    <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong>${esc(p.name)}</strong> · ${esc(p.charter_vessel)}${p.travel_from ? ` · ${esc(String(p.travel_from).slice(0, 10))}` : ""} · <a href="https://command.georgeyachts.com/dashboard/lighthouse" style="color:${G.gold};font-weight:bold;text-decoration:none;">ετοίμασε την έκδοση &rarr;</a></p>
-  </div>`),
+    <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong>${esc(p.name)}</strong> · ${esc(p.charter_vessel)}${p.travel_from ? ` · ${esc(String(p.travel_from).slice(0, 10))}` : ""} · <a href="${link}" style="color:${G.gold};font-weight:bold;text-decoration:none;">${verb} &rarr;</a></p>
+  </div>`;
+    }),
     (x) => x,
   );
   if (isSunday && (weekAllP.length || weekAllH.length)) {

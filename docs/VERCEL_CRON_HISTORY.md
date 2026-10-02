@@ -17,6 +17,14 @@ Document changes in markdown here instead.
 
 ---
 
+## 2026-10-02 — the Week edition reaches the client by itself (George)
+
+- `/api/cron/week-edition` — NEW, `0 5 * * *` (08:00 Athens). For every won
+  direct-client charter whose Cabin brief is complete and not yet dispatched,
+  writes the client's "Your week, as it stands" email with their edition link
+  as a Gmail DRAFT (settings `week_edition_mode` = draft, default) or sends it
+  (= send). George is emailed either way. `?dry=1` lists candidates.
+
 ## 2026-09-30 — the grid shows the yachts (George)
 
 - `/api/cron/instagram-fleet-post` — `0 15 * * 2,3,4,5` (was `1,2,3,4`;
