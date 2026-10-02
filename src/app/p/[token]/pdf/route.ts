@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
 import { getSignedProposalUrl } from "@/lib/helm/storage";
-import { verifyProposalToken } from "@/lib/helm/proposal-token";
+import { resolveEditionRef } from "@/lib/helm/edition-link";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +38,7 @@ export async function GET(
   ctx: { params: Promise<{ token: string }> },
 ): Promise<Response> {
   const { token } = await ctx.params;
-  const id = verifyProposalToken(token || "");
+  const id = await resolveEditionRef(token || "");
   if (!id) return new NextResponse("Not found", { status: 404 });
 
   const r = await getRequest(id);

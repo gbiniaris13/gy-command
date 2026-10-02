@@ -12,7 +12,7 @@
 
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch, getSetting } from "@/lib/google-api";
-import { proposalToken } from "@/lib/helm/proposal-token";
+import { editionUrl } from "@/lib/helm/edition-link";
 import { sendHelmEmail, buildRawEmail, getGmailSignature } from "@/lib/helm/gmail-send";
 import { helmSalutation } from "@/lib/helm/addressing";
 import { logHelmMessage, saveExtraction } from "@/lib/helm-admin";
@@ -108,7 +108,7 @@ export async function dispatchWeekEditions(opts: { dryRun?: boolean } = {}) {
     const { data: r } = await db.from("helm_requests").select("request_type, client_name, client_title, client_surname, client_is_family, extraction").eq("id", c.id).maybeSingle();
     if (!r) continue;
     const { salutation } = helmSalutation(r);
-    const link = `${BASE}/p/${proposalToken(c.id)}`;
+    const link = await editionUrl(c.id);
     const { subject, body } = letterFor(c, salutation, link);
     const ex = (r.extraction && typeof r.extraction === "object" ? r.extraction : {}) as Record<string, unknown>;
     const now = new Date().toISOString();

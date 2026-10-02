@@ -15,7 +15,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
-import { verifyProposalToken } from "@/lib/helm/proposal-token";
+import { resolveEditionRef } from "@/lib/helm/edition-link";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,7 +67,7 @@ export async function POST(
   ctx: { params: Promise<{ token: string }> },
 ): Promise<Response> {
   const { token } = await ctx.params;
-  const id = verifyProposalToken(token || "");
+  const id = await resolveEditionRef(token || "");
   if (!id) return NextResponse.json({ ok: true }); // never help enumeration
 
   // George previewing his own edition is not a client signal — record nothing.

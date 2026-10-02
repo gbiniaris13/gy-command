@@ -17,7 +17,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Cinzel, Cormorant_Garamond, Montserrat } from "next/font/google";
-import { verifyProposalToken } from "@/lib/helm/proposal-token";
+import { resolveEditionRef } from "@/lib/helm/edition-link";
 import { salonData, mediaFor } from "@/lib/helm/salon";
 import { computePricing, fmtEur } from "@/lib/helm/pricing";
 import { chartForWeek } from "@/lib/helm/greek-ports";
@@ -40,19 +40,55 @@ const SALON_TITLE = "A Private Charter Selection · George Yachts";
 const SALON_DESC =
   "Your yachts, itineraries and pricing, prepared personally by George P. Biniaris. Boutique crewed charter, Greek waters exclusively.";
 
-export const metadata: Metadata = {
-  title: SALON_TITLE,
-  description: SALON_DESC,
-  robots: { index: false, follow: false },
-  openGraph: {
+// 2026-10-02 (George: the link must feel like the edition). The preview a
+// client sees in WhatsApp or iMessage carries the edition's own name and the
+// cover yacht; an invalid or foreign link falls back to the neutral card.
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
+  const neutral: Metadata = {
     title: SALON_TITLE,
     description: SALON_DESC,
-    siteName: "George Yachts Brokerage House",
-    type: "website",
-    images: [{ url: "https://georgeyachts.com/opengraph-image", width: 1200, height: 630 }],
-  },
-  twitter: { card: "summary_large_image" },
-};
+    robots: { index: false, follow: false },
+    openGraph: {
+      title: SALON_TITLE,
+      description: SALON_DESC,
+      siteName: "George Yachts Brokerage House",
+      type: "website",
+      images: [{ url: "https://georgeyachts.com/opengraph-image", width: 1200, height: 630 }],
+    },
+    twitter: { card: "summary_large_image" },
+  };
+  try {
+    const { token } = await params;
+    const id = await resolveEditionRef(token || "");
+    if (!id) return neutral;
+    const model = await salonData(id);
+    if (!model) return neutral;
+    const d = model.proposal;
+    const words = String(d.client_name ?? "").replace(/\b(mr|mrs|ms|miss|dr|capt|sir|the|family)\.?\b/gi, " ").trim().split(/\s+/).filter(Boolean);
+    const surname = words.length ? words[words.length - 1] : "";
+    const name = surname.length >= 2 ? `The ${surname} ${model.week ? "Week" : "Edition"}` : SALON_TITLE;
+    // Served through our own address (see ./cover/route.ts), never a photo host.
+    const cover = `https://edition.georgeyachts.com/p/${encodeURIComponent(token)}/cover`;
+    const description = model.week
+      ? `${model.week.vessel}, your week as it stands. Prepared personally by George P. Biniaris, George Yachts Brokerage House.`
+      : `A private charter edition of one, prepared personally by George P. Biniaris, George Yachts Brokerage House. Greek waters exclusively.`;
+    return {
+      title: name,
+      description,
+      robots: { index: false, follow: false },
+      openGraph: {
+        title: name,
+        description,
+        siteName: "George Yachts Brokerage House",
+        type: "website",
+        images: [{ url: cover || "https://georgeyachts.com/opengraph-image", width: 1200, height: 630 }],
+      },
+      twitter: { card: "summary_large_image" },
+    };
+  } catch {
+    return neutral;
+  }
+}
 
 /** Convert a pasted video URL into something embeddable. */
 function videoEmbed(url: string | null): { kind: "iframe" | "video"; src: string } | null {
@@ -73,7 +109,7 @@ export default async function SalonPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  const id = verifyProposalToken(token || "");
+  const id = await resolveEditionRef(token || "");
   if (!id) {
     // Same posture as before: nothing to enumerate.
     return (

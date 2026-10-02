@@ -5,6 +5,28 @@ const SUPABASE_URL = "https://ojpcmnnqohxlfsudvxcz.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__yNJKcssEsLPHv0Xuh-f7A_HW447VM0";
 
 export async function middleware(request: NextRequest) {
+  // 2026-10-02: edition.georgeyachts.com is the client's address for their
+  // edition. "/<surname>-<code>" is served by the Salon page under /p/, same
+  // app and same origin, so photographs, fonts and the reading beacons all
+  // work unchanged. The bare host goes to the public site.
+  const host = request.headers.get("host") || "";
+  if (host.startsWith("edition.")) {
+    const path = request.nextUrl.pathname;
+    if (path === "/" || path === "") {
+      return NextResponse.redirect("https://georgeyachts.com", 307);
+    }
+    const m = path.match(/^\/([a-z0-9]{1,24}-[a-z0-9]{6})\/?$/);
+    if (m) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/p/${m[1]}`;
+      return NextResponse.rewrite(url);
+    }
+    if (!path.startsWith("/p/") && !path.startsWith("/_next") && !path.startsWith("/api")) {
+      return NextResponse.redirect("https://georgeyachts.com", 307);
+    }
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -75,6 +97,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login"],
-  // Note: /api/* and /auth/* are NOT matched — they bypass middleware
+  // The edition host needs the root and the short-code paths; everything
+  // else on command.georgeyachts.com is untouched (api/auth still bypass).
+  matcher: ["/dashboard/:path*", "/login", "/", "/:code([a-z0-9]{1,24}-[a-z0-9]{6})"],
 };

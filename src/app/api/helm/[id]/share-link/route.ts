@@ -12,6 +12,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest } from "@/lib/helm-admin";
 import { proposalToken } from "@/lib/helm/proposal-token";
+import { editionUrl } from "@/lib/helm/edition-link";
 
 export const runtime = "nodejs";
 
@@ -44,8 +45,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // Always the clean custom domain for a CLIENT-shared link, never the raw
     // *.vercel.app origin George may be browsing from (2026-07-18).
     const origin = process.env.NEXT_PUBLIC_SITE_URL || "https://command.georgeyachts.com";
-    const url = `${origin}/p/${proposalToken(id)}`;
     const isAgent = r.request_type === "travel_agent";
+    // Direct clients get the short named link (2026-10-02); agents keep the
+    // signed /p/ link to the white-label PDF, which never shows George's name.
+    const url = isAgent ? `${origin}/p/${proposalToken(id)}` : await editionUrl(id);
     const title = String(r.client_title || "").trim();
     const surname = String(r.client_surname || "").trim();
 

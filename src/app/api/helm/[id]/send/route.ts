@@ -8,7 +8,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, markRequestSent, logHelmMessage } from "@/lib/helm-admin";
 import { subjectWithRef } from "@/lib/helm/refcode";
-import { proposalToken } from "@/lib/helm/proposal-token";
+import { editionUrl } from "@/lib/helm/edition-link";
 import { downloadProposalPdf } from "@/lib/helm/storage";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
 import { PARTNERSHIP_PDF_BASE64, PARTNERSHIP_PDF_FILENAME } from "@/lib/helm/partnership-pdf.generated";
@@ -92,9 +92,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       // rewrites the AI draft by hand — he only ever presses Send.
       // Always the clean custom domain for a CLIENT link, never the raw
       // *.vercel.app origin George may be browsing from (2026-07-18).
-      const origin = process.env.NEXT_PUBLIC_SITE_URL || "https://command.georgeyachts.com";
-      const salonUrl = `${origin}/p/${proposalToken(id)}`;
-      if (!finalBody.includes("/p/")) {
+      // 2026-10-02: the short, named link (edition.georgeyachts.com/<surname>-<code>).
+      const salonUrl = await editionUrl(id);
+      if (!finalBody.includes("/p/") && !finalBody.includes("edition.georgeyachts.com/")) {
         finalBody = `${finalBody.replace(/\s+$/, "")}\n\nYour private selection, with the photographs and everything in one place:\n${salonUrl}`;
       }
     }
