@@ -17,6 +17,32 @@ Document changes in markdown here instead.
 
 ---
 
+## 2026-10-03 — the charter timeline and ONE morning email (George)
+
+- `/api/cron/charter-timeline` — NEW, `40 4 * * *` (07:40 Athens). For every
+  won, direct, non-white-label charter: T-45 (balance, VAT, APA), T-7 (the week
+  before, plus the embarkation and a captain-call reminder in George's
+  calendar), T-1 (see you at the dock), T+3 (thank you, review, photo). Every
+  client letter is a Gmail DRAFT in the client's thread; George presses Send.
+  State in extraction.timeline; shares the thank-you guard with
+  rebooking-ritual (cabin_thanks_<id>). `?dry=1` previews.
+- `/api/cron/morning-brief` — NEW, `20 5 * * *` (08:20 Athens). The one morning
+  email "Σήμερα στην Αθήνα": timeline, Helm (opens, holds, follow-ups due, new
+  requests), papers, Week editions, the Lighthouse page, the newsletter note.
+  Reads the engines' `*_latest` snapshots. `?preview=1` renders the HTML.
+- `lighthouse-daily` and `week-edition` no longer send their own emails while
+  settings `morning_brief_enabled` is not "0"; their content rides in the brief.
+- Calendar write scope added to both consent lists; George presses "Connect
+  Gmail" once so the timeline can write his calendar.
+- `/api/cron/inbox-documents` — NEW, `*/30 * * * *`. GY Inbox: attachments on
+  Gmail messages from a won client's own address, or forwarded by George with
+  "GY INBOX" in the subject, are read (what + whose), filed under the charter
+  (private bucket + Drive mirror) and the message labelled gy-filed. Unsure
+  papers wait at /dashboard/helm/inbox (drop zone there too). `?dry=1`.
+- `/api/cron/desk-note-draft` — NEW, `10 5 * * 1` (Mondays 08:10 Athens). The
+  Bridge desk note drafted from the Helm's numbers, parked for one-click
+  approval in the morning brief (/api/newsletter/desk-note/approve, signed).
+
 ## 2026-10-02 — the Week edition reaches the client by itself (George)
 
 - `/api/cron/week-edition` — NEW, `0 5 * * *` (08:00 Athens). For every won

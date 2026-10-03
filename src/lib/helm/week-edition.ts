@@ -11,7 +11,7 @@
 // extraction.week_edition. White-label (agent) bookings are never touched.
 
 import { createServiceClient } from "@/lib/supabase-server";
-import { gmailFetch, getSetting } from "@/lib/google-api";
+import { gmailFetch, getSetting, setSetting } from "@/lib/google-api";
 import { editionUrl } from "@/lib/helm/edition-link";
 import { sendHelmEmail, buildRawEmail, getGmailSignature } from "@/lib/helm/gmail-send";
 import { helmSalutation } from "@/lib/helm/addressing";
@@ -131,7 +131,10 @@ export async function dispatchWeekEditions(opts: { dryRun?: boolean } = {}) {
       done.push({ id: c.id, client: c.client, mode: `error: ${(e as Error).message}` });
     }
   }
-  if (done.length) {
+  try { await setSetting("week_edition_latest", JSON.stringify({ generated_at: new Date().toISOString(), mode, done })); } catch {}
+  // 2026-10-03: with the morning brief on (default) the news rides in it.
+  const briefOn = ((await getSetting("morning_brief_enabled")) ?? "1").trim() !== "0";
+  if (done.length && !briefOn) {
     const lines = done.map((d) => `• ${d.client}: ${d.mode === "sent" ? "ΕΣΤΑΛΗ στον πελάτη" : d.mode === "draft" ? "πρόχειρο στο Gmail σου, πάτα Send" : d.mode}  →  ${BASE}/dashboard/helm/${d.id}`);
     await emailGeorgeReport(
       `Week edition ${mode === "send" ? "sent" : "ready"}: ${done.map((d) => d.client).join(", ")}`,

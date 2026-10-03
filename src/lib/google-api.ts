@@ -29,6 +29,9 @@ const SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events.readonly",
+  // 2026-10-03: the charter timeline writes the embarkation and the captain
+  // call into George's calendar. Needs one fresh "Connect Gmail".
+  "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/webmasters.readonly",
   "https://www.googleapis.com/auth/analytics.readonly",
   // 2026-09-24: Drive, files this app creates only. Mirrors booking documents

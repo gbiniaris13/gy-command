@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
-import { gmailFetch, setSetting } from "@/lib/google-api";
+import { gmailFetch, getSetting, setSetting } from "@/lib/google-api";
 import { observeCron } from "@/lib/cron-observer";
 import { upcomingOccasions, draftFor, occasionKey, loadPeople } from "@/lib/lighthouse";
 import { createServiceClient } from "@/lib/supabase-server";
@@ -220,6 +220,9 @@ async function handler() {
         tomorrow: tomorrowP.length + tomorrowH.length,
         week: weekAllP.length + weekAllH.length,
         subject,
+        // 2026-10-03: the morning brief folds this page in whole.
+        html_inner: htmlParts.join(""),
+        text: textParts.join("\n\n"),
       }),
     );
   } catch {}
@@ -234,6 +237,12 @@ async function handler() {
     </div>
   </div>`;
 
+  // 2026-10-03: ONE morning email. When the morning brief is on (default),
+  // this page travels inside it (snapshot above) and is not sent on its own.
+  const briefOn = ((await getSetting("morning_brief_enabled")) ?? "1").trim() !== "0";
+  if (briefOn) {
+    return NextResponse.json({ ok: true, folded_into_morning_brief: true, today: todayP.length + todayH.length, tomorrow: tomorrowP.length + tomorrowH.length });
+  }
   const res = await gmailFetch("/messages/send", {
     method: "POST",
     body: JSON.stringify({ raw: rawEmail(GEORGE, subject, textParts.join("\n\n"), html) }),

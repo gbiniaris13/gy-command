@@ -86,6 +86,7 @@ export type SalonWeekView = {
   crew: { role: string; years: number | null }[];
   menu: { title: string | null; tagline: string | null; sections: { name: string; items: string[] }[] } | null;
   yachtIndex: number | null;
+  cabin: { id: string; percent: number; submitted: boolean; pending: string[]; guestsOnManifest: number; partySize: number | null } | null;
 };
 
 const INK = "#17263A";
@@ -179,6 +180,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         ...(wk.crew.length ? [{ kind: "crew" }] : []),
         ...(wk.menu && wk.menu.sections.length ? [{ kind: "galley" }] : []),
         { kind: "board" },
+        ...(wk.cabin ? [{ kind: "cabin" }] : []),
         { kind: "knowhow" },
         { kind: "broker" },
         { kind: "closing" },
@@ -729,6 +731,60 @@ export default function SalonClient({ view }: { view: SalonView }) {
     );
   }
 
+  // YOUR CABIN (George 2026-10-02, "the Cabin inside the same link"): the
+  // state of the preference brief and one door into it. The door is this
+  // edition's own address followed by /cabin; it signs the client in without
+  // a password, the same way their emailed link does.
+  function renderCabin() {
+    if (!wk?.cabin) return null;
+    const c = wk.cabin;
+    const door = `${window.location.pathname.replace(/\/$/, "")}/cabin`;
+    const guestsLine = c.partySize
+      ? `${c.guestsOnManifest} of ${c.partySize} guests on the manifest`
+      : c.guestsOnManifest ? `${c.guestsOnManifest} guests on the manifest` : "The guest manifest is still empty";
+    return (
+      <div style={col}>
+        <p style={{ ...label, textAlign: "center", marginBottom: 8 }}>Your Cabin</p>
+        <h2 style={{ fontFamily: "var(--salon-display)", fontWeight: 400, color: INK, textAlign: "center", fontSize: "clamp(24px, 4.6vw, 34px)", letterSpacing: "0.1em", margin: "0 0 10px" }}>
+          {c.submitted ? "Your brief is with the crew" : c.percent >= 100 ? "Your brief is complete" : "Tell us how you like your week"}
+        </h2>
+        <p style={{ ...serifBody, fontSize: 16, textAlign: "center", maxWidth: 540, margin: "0 auto 26px" }}>
+          {c.submitted
+            ? "Everything you told us has reached the captain and the chef. Change anything, any time, from the same page."
+            : "The Cabin is your private page for the week: who is coming, how you like the table and the cellar, where you would like to go, the little things. Fill it roughly today and polish it when you have a minute; the chef provisions from it."}
+        </p>
+        <div style={{ borderTop: GOLD_HAIR, borderBottom: HAIR, padding: "14px 4px", display: "grid", gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <span style={{ fontFamily: "var(--salon-serif)", fontSize: 18, color: INK }}>The brief</span>
+            <span style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM }}>{c.submitted ? "submitted" : `${c.percent} percent`}</span>
+          </div>
+          <div style={{ height: 3, background: "rgba(23,38,58,0.1)" }}>
+            <div style={{ height: 3, width: `${c.submitted ? 100 : c.percent}%`, background: GOLD, transition: "width .6s" }} />
+          </div>
+          {(c.guestsOnManifest > 0 || !c.submitted) && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontFamily: "var(--salon-serif)", fontSize: 18, color: INK }}>The guests</span>
+              <span style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM }}>{guestsLine}</span>
+            </div>
+          )}
+          {c.pending.length > 0 && (
+            <div style={{ fontFamily: "var(--salon-ui)", fontSize: 12.5, color: INK_DIM, lineHeight: 1.7 }}>
+              Still open: {c.pending.join(" · ")}
+            </div>
+          )}
+        </div>
+        <div style={{ textAlign: "center", marginTop: 26 }}>
+          <a href={door} onClick={() => beacon("cabin")} style={{ ...goldBtn, display: "inline-block", textDecoration: "none" }}>
+            {c.submitted || c.percent >= 100 ? "Open your Cabin" : "Continue the brief"}
+          </a>
+          <p style={{ fontFamily: "var(--salon-ui)", fontSize: 11, color: INK_FAINT, marginTop: 12, lineHeight: 1.7 }}>
+            No password. The page knows it is you. Passports are typed only there, never here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // GOOD TO KNOW (George 2026-10-02): the four misunderstandings that cost a
   // week, said once, in plain words, before the client chooses.
   function renderKnowHow() {
@@ -925,6 +981,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
       case "crew": return renderCrew();
       case "galley": return renderGalley();
       case "board": return renderBoard();
+      case "cabin": return renderCabin();
       case "broker": return renderBroker();
       case "house": return renderHouse();
       default: return renderClosing();

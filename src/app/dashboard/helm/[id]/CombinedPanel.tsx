@@ -372,6 +372,8 @@ export default function CombinedPanel({
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Edition settings drawer (cover line, video, itineraries, another supplier).
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   // "Keep only these": George types the yachts he is sending; every other card
   // is EXCLUDED (dimmed, left out of the PDF - nothing deleted), and any typed
@@ -1096,7 +1098,6 @@ export default function CombinedPanel({
                     {stops.length > 0 && !stops.every((f) => s.resolved.includes(f.code)) && (
                       <span style={{ fontSize: 11.5, color: "#b91c1c", fontWeight: 600 }}>● resolve before generating</span>
                     )}
-                    <button type="button" onClick={() => toggleCard(i)} style={{ ...ghostBtn, padding: "4px 10px", fontSize: 9, marginLeft: "auto" }}>Open ▾</button>
                   </div>
                 )}
 
@@ -1357,6 +1358,14 @@ export default function CombinedPanel({
             );
           })}
 
+          {/* Edition settings (2026-10-03): cover line, video, itinerary pages
+              and a second supplier, folded into one drawer under the cards. */}
+          <button type="button" onClick={() => setSettingsOpen((o) => !o)}
+            style={{ ...ghostBtn, width: "100%", textAlign: "left", marginTop: 14, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>Edition settings · cover line, video, itinerary pages, another supplier</span>
+            <span>{settingsOpen ? "▴" : "▾"}</span>
+          </button>
+          <div style={{ display: settingsOpen ? "block" : "none" }}>
           {/* George's cover sub-line — the words printed under the client's name
               on the cover. Fixes the live leak where the internal card note
               (guests/area fields holding the whole brief) printed on the cover. */}
@@ -1496,6 +1505,7 @@ export default function CombinedPanel({
             <button type="button" onClick={addMoreYachts} disabled={busy !== null || !moreText.trim()} style={{ ...ghostBtn, marginTop: 8 }}>
               {busy === "extract-more" ? "Extracting new yachts…" : "Extract & add these yachts"}
             </button>
+          </div>
           </div>
 
           <button type="button" onClick={runGenerate} disabled={!canGenerate} style={{ ...primaryBtn, marginTop: 8, opacity: canGenerate ? 1 : 0.5, cursor: canGenerate ? "pointer" : "not-allowed" }}>

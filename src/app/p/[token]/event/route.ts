@@ -79,7 +79,7 @@ export async function POST(
     const yacht = String(body.y || "").slice(0, 80);
     // 2026-10-02: "dwell" (seconds on a yacht page) and "hold" (ask the owner
     // to hold her dates 48h) join the signals.
-    if (!["view", "yacht", "pdf", "wa", "dwell", "hold"].includes(t)) return NextResponse.json({ ok: true });
+    if (!["view", "yacht", "pdf", "wa", "dwell", "hold", "cabin"].includes(t)) return NextResponse.json({ ok: true });
     const secs = Math.max(0, Math.min(1800, Math.round(Number(body.s) || 0)));
 
     const r = await getRequest(id);

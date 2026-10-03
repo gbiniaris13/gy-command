@@ -54,6 +54,27 @@ export type SalonWeek = {
   berth: string | null;
   crew: { role: string; years: number | null }[];
   menu: { title: string | null; tagline: string | null; sections: { name: string; items: string[] }[] } | null;
+  /** The Cabin's state for the "Your Cabin" page (2026-10-03). */
+  cabin: {
+    id: string;
+    percent: number;
+    submitted: boolean;
+    pending: string[];          // friendly names of sections still open
+    guestsOnManifest: number;
+    partySize: number | null;
+  } | null;
+};
+
+const SECTION_NAME: Record<string, string> = {
+  arrival: "Arrival and transfers",
+  guests: "Who is coming",
+  health: "Health and allergies",
+  itinerary: "Where you would like to go",
+  life_aboard: "Life aboard",
+  dining: "The table",
+  beverages: "The cellar",
+  little_things: "The little things",
+  children: "The children",
 };
 
 function parseJson(v: unknown): unknown {
@@ -66,13 +87,13 @@ function titleRole(s: string): string {
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";
 }
 
-async function weekFor(r: { status?: string | null; extraction?: unknown }): Promise<SalonWeek | null> {
+async function weekFor(r: { status?: string | null; extraction?: unknown; party_size?: string | null }): Promise<SalonWeek | null> {
   if (r.status !== "won") return null;
   const booking = (r.extraction as { booking?: { vessel?: unknown; cabin_id?: unknown; white_label?: unknown } } | null)?.booking;
   const vessel = typeof booking?.vessel === "string" ? booking.vessel.trim() : "";
   if (!vessel || booking?.white_label === true) return null;
   const week: SalonWeek = {
-    vessel, from: null, to: null, portEmbarkation: null, portDisembarkation: null, berth: null, crew: [], menu: null,
+    vessel, from: null, to: null, portEmbarkation: null, portDisembarkation: null, berth: null, crew: [], menu: null, cabin: null,
   };
   const cabinId = typeof booking?.cabin_id === "string" ? booking.cabin_id : null;
   if (!cabinId) return week;
@@ -80,10 +101,28 @@ async function weekFor(r: { status?: string | null; extraction?: unknown }): Pro
     const db = createServiceClient();
     const { data: c } = await db
       .from("cabins")
-      .select("charter_period_from, charter_period_to, port_embarkation, port_disembarkation, berth_label, crew_display, sample_menu")
+      .select("charter_period_from, charter_period_to, port_embarkation, port_disembarkation, berth_label, crew_display, sample_menu, brief_completion_percent, brief_submitted_at, status")
       .eq("id", cabinId)
       .maybeSingle();
     if (!c) return week;
+    // The Cabin's state: how far the brief is, what is still open, how many
+    // guests are on the manifest. Read-only here; the Cabin itself is the
+    // place to write, reached through the edition's own door (/cabin).
+    try {
+      const { data: secs } = await db.from("cabin_brief_sections").select("section_key, completed").eq("cabin_id", cabinId);
+      const doneKeys = new Set((secs ?? []).filter((x) => x.completed).map((x) => String(x.section_key)));
+      const { count } = await db.from("cabin_guests_manifest").select("id", { count: "exact", head: true }).eq("cabin_id", cabinId);
+      const partySize = Number(String(r.party_size ?? "").match(/\d+/)?.[0] ?? "");
+      const pending = Object.keys(SECTION_NAME).filter((k) => k !== "children" && !doneKeys.has(k)).map((k) => SECTION_NAME[k]);
+      week.cabin = {
+        id: cabinId,
+        percent: Math.max(0, Math.min(100, Number(c.brief_completion_percent ?? 0) || 0)),
+        submitted: !!c.brief_submitted_at,
+        pending: c.brief_submitted_at ? [] : pending,
+        guestsOnManifest: count ?? 0,
+        partySize: Number.isFinite(partySize) && partySize > 0 ? partySize : null,
+      };
+    } catch { /* the week stands without the Cabin's state */ }
     week.from = c.charter_period_from ?? null;
     week.to = c.charter_period_to ?? null;
     week.portEmbarkation = c.port_embarkation ?? null;

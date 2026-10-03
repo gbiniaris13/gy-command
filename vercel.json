@@ -219,6 +219,22 @@
     {
       "path": "/api/cron/week-edition",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/charter-timeline",
+      "schedule": "40 4 * * *"
+    },
+    {
+      "path": "/api/cron/morning-brief",
+      "schedule": "20 5 * * *"
+    },
+    {
+      "path": "/api/cron/inbox-documents",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/desk-note-draft",
+      "schedule": "10 5 * * 1"
     }
   ]
 }

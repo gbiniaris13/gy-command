@@ -44,6 +44,28 @@ export async function POST(req: NextRequest) {
   const yachtName = String(body.yachtName ?? "").trim().slice(0, 120);
   const source = String(body.source ?? "website form").trim().slice(0, 80);
   const channel = String(body.preferredChannel ?? "").trim().slice(0, 30);
+  // The visitor's trail (2026-10-03): the site collects the last pages the
+  // person opened, the yachts they lingered on, minutes on site and the
+  // referrer, first-party only. It lands at extraction.visitor so the Helm
+  // page can say "they looked at X, Y, Z" before George writes a word.
+  const vc = body.visitor_context && typeof body.visitor_context === "object" ? (body.visitor_context as Record<string, unknown>) : null;
+  const str = (x: unknown, n = 200) => (typeof x === "string" ? x.trim().slice(0, n) : "");
+  const strList = (x: unknown, n = 12) => (Array.isArray(x) ? x.map((v) => str(v, 120)).filter(Boolean).slice(0, n) : []);
+  const visitor = vc
+    ? {
+        pages: Array.isArray(vc.pages)
+          ? (vc.pages as unknown[]).map((p) => {
+              const o = p && typeof p === "object" ? (p as Record<string, unknown>) : {};
+              return { path: str(o.path ?? o.p, 300), title: str(o.title ?? o.t, 160), at: str(o.at, 40) };
+            }).filter((p) => p.path).slice(0, 12)
+          : [],
+        yachts: strList(vc.yachts_this_visit),
+        yachts_history: strList(vc.yachts_history),
+        minutes: Number.isFinite(Number(vc.session_minutes)) ? Number(vc.session_minutes) : null,
+        arrived_from: str(vc.arrived_from, 200),
+        captured_at: new Date().toISOString(),
+      }
+    : null;
   const shortlist = Array.isArray(body.shortlist)
     ? (body.shortlist as { name?: string; weeklyRatePrice?: string }[])
         .map((s) => [s?.name, s?.weeklyRatePrice].filter(Boolean).join(" "))
@@ -86,6 +108,7 @@ export async function POST(req: NextRequest) {
       client_whatsapp: phone || undefined,
       request_type: "direct_client",
       brief,
+      ...(visitor && (visitor.pages.length || visitor.yachts.length) ? { extraction: { visitor } } : {}),
       actorEmail: "website-form",
     });
 

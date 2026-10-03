@@ -5,7 +5,7 @@ import Link from "next/link";
 import { getRequestLight, getMessages, isEmailOnNewsletter } from "@/lib/helm-admin";
 import { phoneCountry } from "@/lib/phone-country";
 import { isFlexibleWindow, readPipeline } from "@/lib/helm/pipeline";
-import StatusTransitions from "./StatusTransitions";
+import StageSelect from "./StageSelect";
 import HelmDetailActions from "./HelmDetailActions";
 import GeneratePanel from "./GeneratePanel";
 import CombinedPanel from "./CombinedPanel";
@@ -63,6 +63,17 @@ export default async function HelmDetailPage({
 }) {
   const { id } = await params;
   const r = await getRequestLight(id);
+  // The visitor's trail from the site (extraction.visitor), when the request
+  // came through the website form.
+  const visitorRaw = (r as { extraction?: { visitor?: unknown } } | null)?.extraction?.visitor;
+  const visitor = visitorRaw && typeof visitorRaw === "object"
+    ? (() => {
+        const v = visitorRaw as { pages?: { path?: string; title?: string }[]; yachts?: string[]; yachts_history?: string[]; minutes?: number | null; arrived_from?: string };
+        const pages = (Array.isArray(v.pages) ? v.pages : []).filter((p) => p && typeof p.path === "string").slice(-10);
+        const yachts = Array.from(new Set([...(Array.isArray(v.yachts) ? v.yachts : []), ...(Array.isArray(v.yachts_history) ? v.yachts_history : [])])).slice(0, 8);
+        return pages.length || yachts.length ? { pages, yachts, minutes: typeof v.minutes === "number" ? v.minutes : null, arrived_from: typeof v.arrived_from === "string" ? v.arrived_from : "" } : null;
+      })()
+    : null;
 
   if (!r) {
     return (
@@ -80,6 +91,8 @@ export default async function HelmDetailPage({
   // opening a request feels continuous (George 2026-07-17: "κάνε φιλικό το μέσα").
   const pc = phoneCountry(r.client_whatsapp);
   const isAgent = r.request_type === "travel_agent";
+  const hasYachts = !!(r.extraction && (r.extraction as { yachts?: unknown[] }).yachts?.length);
+  const proposalSent = !!r.gmail_thread_id || ["sent", "in_conversation", "negotiating", "won"].includes(r.status);
   const onNewsletter = await isEmailOnNewsletter(r.client_email);
   const nights = nightsBetween(r.dates_from, r.dates_to);
   const isDay = nights !== null && nights <= 1;
@@ -121,6 +134,7 @@ export default async function HelmDetailPage({
             color: isAgent ? "#6D28D9" : "#0d6e5a",
             border: `1px solid ${isAgent ? "rgba(109,40,217,0.25)" : "rgba(13,110,90,0.25)"}`,
           }}>{isAgent ? "Travel advisor" : "Direct client"}</span>
+          <StageSelect requestId={r.id} current={r.status} />
           {isAgent && (
             <span style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", padding: "2px 8px", borderRadius: 3, background: "#6D28D9", color: "#fff" }}>
               white-label PDF
@@ -183,19 +197,40 @@ export default async function HelmDetailPage({
             <p style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#1f2937", marginTop: 2 }}>{r.special_requests}</p>
           </div>
         )}
+        {visitor && (
+          <div style={{ marginTop: 12, padding: "10px 12px", background: "rgba(201,168,76,0.07)", border: "1px solid rgba(201,168,76,0.35)" }}>
+            <div style={{ fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: "#9CA3AF" }}>What they looked at before writing</div>
+            {visitor.yachts.length > 0 && (
+              <div style={{ fontSize: 14, color: "#1f2937", marginTop: 4 }}>Yachts: <b style={{ fontWeight: 600 }}>{visitor.yachts.join(", ")}</b></div>
+            )}
+            {visitor.pages.length > 0 && (
+              <div style={{ fontSize: 13, color: "#374151", marginTop: 4, lineHeight: 1.6 }}>
+                {visitor.pages.map((p, i) => (
+                  <span key={i}>{i > 0 ? " → " : ""}<a href={`https://georgeyachts.com${p.path}`} target="_blank" rel="noopener noreferrer" style={{ color: "#0D1B2A" }}>{p.title || p.path}</a></span>
+                ))}
+              </div>
+            )}
+            <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 4 }}>
+              {[visitor.minutes != null ? `${visitor.minutes} min on the site` : "", visitor.arrived_from ? `came from ${visitor.arrived_from.replace(/^https?:\/\//, "").slice(0, 60)}` : ""].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Gmail import — George picks the exact supplier emails; bodies land
           in supplier_raw below, PDF brochures are saved + read once. */}
       <div id="flow-yachts" />
-      {/* Two-phase picker: paste a supplier email → tick the yachts you want →
-          only those are extracted and added. Repeat per supplier. */}
-      <SupplierYachtPicker requestId={r.id} hasImported={!!r.supplier_raw} />
-      <SupplierReplies requestId={r.id} />
-      <GmailImport
-        requestId={r.id}
-        hasThread={!!r.gmail_thread_id}
-      />
+      {/* Yachts in (2026-10-03, one card instead of three): the supplier
+          replies, the Gmail import and the paste-and-pick picker. Open while
+          the request has no yachts yet; folded once it does. */}
+      <Quiet title="Yachts in" hint="supplier replies · import from Gmail · paste an email and tick the yachts" defaultOpen={!hasYachts}>
+        <SupplierReplies requestId={r.id} />
+        <GmailImport
+          requestId={r.id}
+          hasThread={!!r.gmail_thread_id}
+        />
+        <SupplierYachtPicker requestId={r.id} hasImported={!!r.supplier_raw} />
+      </Quiet>
 
       {/* supplier source (internal only) — folded: reference material, not a step */}
       <Quiet title="Supplier source" hint="the raw emails and brochure facts behind the yachts · internal only">
@@ -276,16 +311,18 @@ export default async function HelmDetailPage({
       <div id="flow-send" />
       {/* send proposal + capture replies (after the PDF is generated) */}
       {r.proposal_pdf_path && (
-        <HelmSend
-          requestId={r.id}
-          clientEmail={r.client_email ?? null}
-          initialSubject={r.email_subject ?? null}
-          initialBody={r.email_intro ?? null}
-          status={r.status}
-          followUpAt={r.follow_up_at ?? null}
-          threadId={r.gmail_thread_id ?? null}
-          isAgent={isAgent}
-        />
+        <Quiet title={proposalSent ? "Send proposal · sent" : "Send proposal"} hint={proposalSent ? "resend, share on WhatsApp, check replies" : "the email that carries the edition"} defaultOpen={!proposalSent}>
+          <HelmSend
+            requestId={r.id}
+            clientEmail={r.client_email ?? null}
+            initialSubject={r.email_subject ?? null}
+            initialBody={r.email_intro ?? null}
+            status={r.status}
+            followUpAt={r.follow_up_at ?? null}
+            threadId={r.gmail_thread_id ?? null}
+            isAgent={isAgent}
+          />
+        </Quiet>
       )}
 
       {/* after the proposal is sent: WhatsApp nudge, reply, follow up (in-thread, never auto) */}
@@ -302,18 +339,23 @@ export default async function HelmDetailPage({
           })
           .sort((a, z) => (a.at < z.at ? 1 : -1));
         const hasInbound = messages.some((m) => m.direction === "inbound" && (m.body ?? "").trim());
+        // A reply is "waiting" when the newest message in the thread is theirs.
+        const threadMsgs = messages.filter((m) => m.channel === "email" && (m.body ?? "").trim()).sort((a, z) => (a.created_at < z.created_at ? 1 : -1));
+        const replyWaiting = threadMsgs[0]?.direction === "inbound";
         return (
           <>
             <Quiet title="WhatsApp nudge" hint="a short casual message with a tap-to-open link">
               <HelmWhatsApp requestId={r.id} clientWhatsapp={r.client_whatsapp ?? null} />
             </Quiet>
             {hasInbound && (
-              <HelmReply
-                requestId={r.id}
-                clientEmail={r.client_email ?? null}
-                isAgent={r.request_type === "travel_agent"}
-                hasInbound={hasInbound}
-              />
+              <Quiet title={replyWaiting ? "Their reply is waiting for yours" : "Reply"} hint="answer their latest message in the same thread" defaultOpen={replyWaiting}>
+                <HelmReply
+                  requestId={r.id}
+                  clientEmail={r.client_email ?? null}
+                  isAgent={r.request_type === "travel_agent"}
+                  hasInbound={hasInbound}
+                />
+              </Quiet>
             )}
             <Quiet title="Follow-up" hint="log a follow-up you did · see the history · know when the next is due">
               <HelmFollowUp
@@ -332,9 +374,6 @@ export default async function HelmDetailPage({
 
       {/* won: booking next steps (MYBA contract request + confirmation drafts) */}
       {r.status === "won" && <HelmBooking requestId={r.id} />}
-
-      {/* pipeline */}
-      <StatusTransitions requestId={r.id} current={r.status} />
 
       {/* conversation log */}
       <section style={card}>

@@ -288,6 +288,10 @@ export type CreateHelmInput = {
   request_type?: "direct_client" | "travel_agent" | null;
   no_myba?: boolean;
   show_ghost_credit?: boolean;
+  /** What the visitor looked at on georgeyachts.com before writing
+   *  (2026-10-03): the last pages, the yachts, minutes on site, where they
+   *  came from. Stored at extraction.visitor; never shown to the client. */
+  extraction?: Record<string, unknown>;
   actorEmail: string;
 };
 

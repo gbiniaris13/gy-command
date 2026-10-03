@@ -797,7 +797,7 @@ export default function DashboardLayout({
 
             {/* Grouped items */}
             {GROUP_ORDER.map((groupKey) => {
-              const items = navItems.filter((i) => i.group === groupKey);
+              const items = navItems.filter((i) => i.group === groupKey && !i.parked);
               if (items.length === 0) return null;
               return (
                 <div key={groupKey} className="pt-3">
