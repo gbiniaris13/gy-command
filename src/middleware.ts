@@ -60,11 +60,14 @@ export async function middleware(request: NextRequest) {
   // silent. Not a secret, so no httpOnly: it must survive and be readable
   // on any later request from that browser.
   if (user) {
+    // Scoped to .georgeyachts.com in production (2026-10-02) so George's own
+    // visits to edition.georgeyachts.com never count as client views.
     supabaseResponse.cookies.set("gy_staff", "1", {
       maxAge: 60 * 60 * 24 * 365,
       sameSite: "lax",
       path: "/",
       secure: process.env.NODE_ENV === "production",
+      ...(process.env.NODE_ENV === "production" ? { domain: ".georgeyachts.com" } : {}),
     });
   }
 

@@ -18,6 +18,7 @@ import { uploadProposalPdf } from "@/lib/helm/storage";
 import { optimizedUrl } from "@/lib/helm/cloudinary";
 import { assertWhiteLabelClean } from "@/lib/helm/whitelabel";
 import { fleetPhotosForNames } from "@/lib/helm/fleet-photo";
+import { dossiersForNames, dossierKey } from "@/lib/helm/dossier";
 
 export const runtime = "nodejs";
 // Combined mode composes copy for N yachts + the intro letter before rendering,
@@ -629,6 +630,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const fleetPhotos = whiteLabel
         ? {}
         : await fleetPhotosForNames(inYachts.map((iy) => iy.vessel?.name || ""));
+      // The Fleet Book (2026-10-02): a yacht built once. Its photos, one-line
+      // description, Inside Info, crew line and brochure fill in wherever the
+      // card is silent. Order of precedence on every field: George's card,
+      // then the folder, then our own site photos / the AI.
+      const dossiers = await dossiersForNames(inYachts.map((iy) => iy.vessel?.name || ""));
 
       // Every yacht adds a full-page photo (and up to three strip photos), so
       // the squeeze is chosen from how many share the file - a long shortlist
@@ -669,15 +675,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
           content.accommodation?.length ? `Accommodation: ${content.accommodation.map((a) => `${a[0]} (${a[1]})`).join("; ")}` : "",
         ].filter(Boolean).join("\n") || (v.name ? `${v.name}${v.type ? ` ${v.type}` : ""}` : "the yacht");
 
-        const info = await composeYachtInsideInfo({
-          vessel_name: v.name || "the yacht",
-          vessel_type: v.type,
-          spec_line: v.spec_line,
-          supplier_facts: supplierFacts,
-          brief: r.brief || undefined,
-          occasion: r.occasion || undefined,
-          anonymous: whiteLabel,
-        });
+        const dossier = whiteLabel ? undefined : dossiers[dossierKey(v.name)];
+        // The folder's own words stand in for the AI when the folder is
+        // complete; the AI is only asked for what the folder lacks.
+        const folderComplete = !!(dossier?.description && dossier?.inside_info);
+        const info = folderComplete
+          ? { description: dossier!.description!, inside_info: dossier!.inside_info!, crew_line: dossier?.crew_line ?? content.crew_line ?? "" }
+          : await composeYachtInsideInfo({
+              vessel_name: v.name || "the yacht",
+              vessel_type: v.type,
+              spec_line: v.spec_line,
+              supplier_facts: supplierFacts,
+              brief: r.brief || undefined,
+              occasion: r.occasion || undefined,
+              anonymous: whiteLabel,
+            }).then((ai) => ({
+              description: dossier?.description || ai.description,
+              inside_info: dossier?.inside_info || ai.inside_info,
+              crew_line: dossier?.crew_line || ai.crew_line,
+            }));
         // George's own words beat the AI every time: his card note becomes the
         // Inside Info verbatim (em dashes normalised, clamped to the exact
         // 240-char budget the page renders). Crew line stays fact-guarded AI.
@@ -691,7 +707,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         const media = combinedMedia[String(iy.media_index ?? i)] || {};
         // Manual main photo wins. If absent, fall back to a REAL fleet photo
         // when this yacht is one of our own (exact-name match; [] otherwise).
-        const fleetMain = media.main_url ? "" : (fleetPhotos[v.name || ""]?.[0] || "");
+        const fleetMain = media.main_url ? "" : (dossier?.main_url || fleetPhotos[v.name || ""]?.[0] || "");
         const mainSrc = media.main_url || fleetMain;
         const mainFetched = mainSrc ? await toDataUriWithAspect(optimizedUrl(mainSrc), budget) : null;
         const mainImg = mainFetched?.uri ?? null;
@@ -703,7 +719,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         const extraUrls: string[] = Array.isArray((media as { extra_urls?: unknown }).extra_urls)
           ? ((media as { extra_urls: unknown[] }).extra_urls.filter((u) => typeof u === "string") as string[])
           : [];
-        const gallerySrcs = (extraUrls.length ? extraUrls : (fleetPhotos[v.name || ""] || []).slice(1, 4)).slice(0, 3);
+        const folderExtras = dossier?.extra_urls?.length ? dossier.extra_urls : [];
+        const gallerySrcs = (extraUrls.length ? extraUrls : folderExtras.length ? folderExtras : (fleetPhotos[v.name || ""] || []).slice(1, 4)).slice(0, 3);
         const galleryImgs = (
           await Promise.all(gallerySrcs.map((u) => toDataUri(optimizedUrl(u), budget)))
         ).filter((g): g is string => !!g);
@@ -724,6 +741,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         const links: Record<string, string> = {};
         // Operator-vetted: include the brochure link as provided (George confirms white-label).
         if (media.brochure_url) links.brochure = media.brochure_url;
+        else if (dossier?.brochure_url) links.brochure = dossier.brochure_url;
 
         const specStrip = (Array.isArray(content.tech_specs) ? content.tech_specs : []).slice(0, 3) as [string, string][];
         // PER-YACHT bareboat extras — this yacht's OWN money-box extras (absent

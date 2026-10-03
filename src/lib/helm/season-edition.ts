@@ -14,6 +14,7 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import { createRequest, updateRequest } from "@/lib/helm-admin";
 import { fetchFleetPool, type FleetYacht } from "@/lib/sanity-fleet";
+import { dossiersForNames, dossierKey } from "@/lib/helm/dossier";
 import type { CombinedProposal, CombinedYacht, CustomWeek } from "@/lib/helm/proposal-template";
 
 function norm(s: string | null | undefined): string {
@@ -117,11 +118,32 @@ export async function createSeasonEdition(opts: { email: string; year?: number; 
   const picks: FleetYacht[] = theirs ? [theirs, ...near.slice(0, 2)] : near.slice(0, 3);
   if (picks.length === 0) throw new Error("no cleared yacht matches");
   const tiers = theirs ? ["The one you know", "A close cousin", "One step up"] : ["Our recommendation", "The considered choice", "The statement"];
-  const yachts = picks.map((y, i) => yachtCard(y, tiers[i] ?? "", year));
+  // The Fleet Book (2026-10-02): where George has written a folder for a
+  // pick, his words and his photographs replace the site's.
+  const folders = await dossiersForNames(picks.map((p) => p.name));
+  const yachts = picks.map((y, i) => {
+    const card = yachtCard(y, tiers[i] ?? "", year);
+    const d = folders[dossierKey(y.name)];
+    if (!d) return card;
+    return {
+      ...card,
+      ...(d.type ? { type: d.type } : {}),
+      ...(d.spec_line ? { spec_line: d.spec_line } : {}),
+      ...(d.description ? { description: d.description } : {}),
+      ...(d.inside_info ? { inside_info: d.inside_info } : {}),
+      ...(d.crew_line ? { crew_line: d.crew_line } : {}),
+      salon_extras: {
+        highlights: d.highlights?.length ? d.highlights.slice(0, 5) : card.salon_extras?.highlights ?? [],
+        water_toys: d.water_toys?.length ? d.water_toys.slice(0, 8) : card.salon_extras?.water_toys ?? [],
+        accommodation: d.accommodation?.length ? d.accommodation : [],
+      },
+    };
+  });
 
   const combined_media: Record<string, { main_url?: string; extra_urls: string[] }> = {};
   picks.forEach((y, i) => {
-    const urls = (y.images ?? []).map((im) => im.url).filter(Boolean);
+    const d = folders[dossierKey(y.name)];
+    const urls = d?.main_url ? [d.main_url, ...(d.extra_urls ?? [])] : (y.images ?? []).map((im) => im.url).filter(Boolean);
     combined_media[String(i)] = { main_url: urls[0], extra_urls: urls.slice(1, 10) };
   });
 

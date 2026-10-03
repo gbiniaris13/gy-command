@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
+import { applyDossiers } from "@/lib/helm/dossier";
 import { createServiceClient } from "@/lib/supabase-server";
 import { extractPickedYachts } from "@/lib/helm/extract";
 import { detectYachtBlocks, detectHeaderLikeNames, anchorBlocks, yachtKey } from "@/lib/helm/supplier-parse";
@@ -89,7 +90,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     // Which of the asked-for names came back (the banner names any that did not).
-    const extraction: Record<string, unknown> = { ...ex, yachts: [...existing, ...fresh], ...(result.reconciliation ? { reconciliation: result.reconciliation } : {}) };
+    const filled = (await applyDossiers({ yachts: fresh as unknown[] })).yachts ?? [];
+    const extraction: Record<string, unknown> = { ...ex, yachts: [...existing, ...filled], ...(result.reconciliation ? { reconciliation: result.reconciliation } : {}) };
     if (!ex.suggested_charter_type && result.suggested_charter_type) extraction.suggested_charter_type = result.suggested_charter_type;
     if (!ex.suggested_terms && result.suggested_terms) extraction.suggested_terms = result.suggested_terms;
     await saveExtraction(id, extraction);

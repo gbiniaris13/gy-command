@@ -48,6 +48,9 @@ type YachtExtraction = {
   embarkation?: Field<string>;
   disembarkation?: Field<string>;
   content?: Record<string, unknown>;
+  /** Set when this yacht has a folder in the Fleet Book (2026-10-02): type,
+   *  spec line, crew and the Salon lists were pre-filled from it. */
+  dossier_key?: string;
   suggested_mode?: "breakdown" | "plus_extras" | "all_inclusive";
   flags: { code: string; message: string }[];
   /** "THE DOUBLE": set by the deterministic merge when the supplier quoted this
@@ -696,6 +699,29 @@ export default function CombinedPanel({
     } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
   }
 
+  // ---- the Fleet Book (2026-10-02): this card becomes the yacht's folder ----
+  // Everything George reviewed here (type, spec line, his Inside Info, the
+  // Salon lists, photographs, brochure) is kept once and reused by every
+  // later proposal. Price and dates stay with this request.
+  async function saveToBook(i: number) {
+    setBusy(`book-${i}`); setError(null);
+    try {
+      // The card as it stands (his typed note, spec line, type) goes first.
+      await fetch(`/api/helm/${requestId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_draft: { mode: "combined", yachts: ys, weeks, cover_line: coverLine, salon_video: salonVideo.trim(), salon_video_off: salonVideoOff } }),
+      });
+      const r = await fetch(`/api/helm/${requestId}/yachts`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save-dossier", index: i }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "save-failed");
+      setEx((prev) => prev ? { ...prev, yachts: prev.yachts.map((yy, k) => (k === i ? { ...yy, dossier_key: j.dossier?.key } : yy)) } : prev);
+      router.refresh();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(null); }
+  }
+
   // ---- feature: pin one yacht as the lead / cover ----
   // Calls the curate endpoint; the generate route reads extraction.featured_index
   // to put this yacht first (cover + lead) while the rest keep the price ladder.
@@ -993,6 +1019,19 @@ export default function CombinedPanel({
                     <span style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: s.excluded ? "#9CA3AF" : ready ? "#3A6B47" : "#B07A2C" }}>
                       {s.excluded ? "excluded from proposal" : ready ? "ready ✓" : "needs review"}
                     </span>
+                    {y.dossier_key ? (
+                      <a href={`/dashboard/helm/yachts/${encodeURIComponent(y.dossier_key)}`} target="_blank" rel="noopener noreferrer"
+                        title="This yacht has a folder in the Fleet Book: specs, photographs and Inside Info come from it. Open the folder."
+                        style={{ fontSize: 9, letterSpacing: 1, textTransform: "uppercase", color: "#0D1B2A", background: "rgba(201,168,76,0.18)", border: "1px solid #C9A84C", padding: "2px 7px", borderRadius: 2, textDecoration: "none" }}>
+                        In the Fleet Book
+                      </a>
+                    ) : !s.excluded ? (
+                      <button type="button" onClick={() => saveToBook(i)} disabled={busy !== null}
+                        title="Keep this yacht, as reviewed here, for every future proposal: type, spec line, your Inside Info, the lists, the photographs. Price and dates are not kept."
+                        style={{ ...ghostBtn, padding: "5px 10px", fontSize: 9, borderColor: "rgba(201,168,76,0.6)" }}>
+                        {busy === `book-${i}` ? "Saving…" : "Save to the Fleet Book"}
+                      </button>
+                    ) : null}
                     {!s.excluded && (
                       <button
                         type="button"

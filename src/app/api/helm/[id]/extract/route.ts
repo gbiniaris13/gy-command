@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
+import { applyDossiers } from "@/lib/helm/dossier";
 import { extractSupplier, extractSupplierYachts } from "@/lib/helm/extract";
 
 export const runtime = "nodejs";
@@ -60,7 +61,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       // CombinedExtraction = { yachts, suggested_charter_type?, suggested_terms? }.
       // The panel pre-selects the auto-detected charter type + seeds the terms
       // editor from the suggestions (the owner confirms / edits / clears).
-      const fresh = await extractSupplierYachts(r.supplier_raw, r.brief || undefined, xctx);
+      // The Fleet Book fills type, spec line, crew and the Salon lists for any
+      // yacht George has a folder for; the email keeps every number.
+      const fresh = await applyDossiers(await extractSupplierYachts(r.supplier_raw, r.brief || undefined, xctx));
       const extraction = keepRequestHistory(fresh);
       await saveExtraction(id, extraction);
       return NextResponse.json({ ok: true, extraction });

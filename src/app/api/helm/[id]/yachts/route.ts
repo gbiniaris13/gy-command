@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, updateRequest } from "@/lib/helm-admin";
+import { getDossier, saveDossier, dossierFromRequestYacht } from "@/lib/helm/dossier";
 
 export const runtime = "nodejs";
 
@@ -69,6 +70,40 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       combined_media: newMedia,
     });
     return NextResponse.json({ ok: true, total: newYachts.length, featured_index: newFeatured });
+  }
+
+  // "Save to the Fleet Book" (2026-10-02): this card, as George reviewed it,
+  // becomes (or refreshes) the yacht's folder. Price and dates stay behind.
+  if (action === "save-dossier") {
+    const idx = Number(body?.index);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= yachts.length) {
+      return NextResponse.json({ error: "bad index" }, { status: 400 });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const y: any = yachts[idx] ?? {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const draftY: any = (r.review_draft as any)?.yachts?.[idx] ?? {};
+    const name = String(draftY?.vessel?.name || y?.vessel_name?.value || "").trim();
+    if (!name) return NextResponse.json({ error: "This yacht has no name yet." }, { status: 400 });
+    try {
+      const existing = await getDossier(name);
+      const d = dossierFromRequestYacht({
+        name,
+        type: draftY?.vessel?.type || y?.vessel_type?.value || undefined,
+        spec_line: draftY?.vessel?.spec_line || y?.spec_line?.value || undefined,
+        manual_note: typeof draftY?.manual_note === "string" ? draftY.manual_note : undefined,
+        content: y?.content && typeof y.content === "object" ? y.content : undefined,
+        media: media[String(idx)] ?? undefined,
+        existing,
+        by: email,
+      });
+      const saved = await saveDossier(d, email);
+      const newYachts = yachts.map((yy, i) => (i === idx ? { ...(yy as object), dossier_key: saved.key } : yy));
+      await updateRequest(id, { extraction: { ...ex, yachts: newYachts } });
+      return NextResponse.json({ ok: true, dossier: saved });
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 400 });
+    }
   }
 
   if (action === "feature") {

@@ -129,6 +129,17 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: "The Fleet Book",
+    href: "/dashboard/helm/yachts",
+    group: "operate",
+    // A closed book: every yacht written once, read by every proposal.
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.5c-1.5-1.3-3.6-1.8-6.5-1.5v13c2.9-.3 5 .2 6.5 1.5m0-13c1.5-1.3 3.6-1.8 6.5-1.5v13c-2.9-.3-5 .2-6.5 1.5m0-13v13" />
+      </svg>
+    ),
+  },
+  {
     label: "The Cabin",
     href: "/dashboard/cabins",
     group: "operate",

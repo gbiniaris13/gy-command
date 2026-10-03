@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
+import { applyDossiers } from "@/lib/helm/dossier";
 import { createServiceClient } from "@/lib/supabase-server";
 import { extractSupplierYachts } from "@/lib/helm/extract";
 
@@ -50,7 +51,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     // we APPEND only the yachts and never disturb the existing cards/suggestions.
     const rr = r as unknown as { dates_from?: string | null; dates_to?: string | null; area?: string | null };
     const result = await extractSupplierYachts(text, r.brief || undefined, { dates_from: rr.dates_from ?? null, dates_to: rr.dates_to ?? null, area: rr.area ?? null });
-    const added = result.yachts;
+    const added = (await applyDossiers({ yachts: result.yachts })).yachts;
     if (!added.length) {
       return NextResponse.json({ error: "No yachts found in the pasted text. Check it and try again." }, { status: 400 });
     }

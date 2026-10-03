@@ -183,12 +183,20 @@ export default async function HelmListPage() {
             </div>
           )}
         </div>
-        <Link href="/dashboard/helm/new" style={{
-          background: "#0D1B2A", color: "#F8F5F0", padding: "10px 18px", textDecoration: "none",
-          fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", border: "1px solid #C9A84C",
-        }}>
-          + New request
-        </Link>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <Link href="/dashboard/helm/yachts" style={{
+            background: "#fff", color: "#0D1B2A", padding: "10px 18px", textDecoration: "none",
+            fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", border: "1px solid rgba(13,27,42,0.25)",
+          }}>
+            The Fleet Book
+          </Link>
+          <Link href="/dashboard/helm/new" style={{
+            background: "#0D1B2A", color: "#F8F5F0", padding: "10px 18px", textDecoration: "none",
+            fontSize: 10, letterSpacing: 2.5, textTransform: "uppercase", border: "1px solid #C9A84C",
+          }}>
+            + New request
+          </Link>
+        </div>
       </header>
 
       <HelmCrmTable rows={rows} />
