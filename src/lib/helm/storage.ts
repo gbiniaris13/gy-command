@@ -106,6 +106,43 @@ export async function uploadBrochurePdf(
   return data.signedUrl;
 }
 
+/** 2026-10-07: vessel PHOTOS to our own storage as well. CLOUDINARY_URL is
+ *  empty in production, so every photo George uploaded on a card answered
+ *  "Cloudinary is not connected yet" and saved nothing; the Morrison edition
+ *  went out with two yachts missing the photos he had chosen. Images now land
+ *  in the same private bucket under photos/<id>/ with a 5-year signed URL,
+ *  exactly like brochures. Cloudinary, when configured, still takes priority
+ *  for its on-the-fly resizing; this is the path that always works. */
+export async function uploadVesselImage(
+  requestId: string,
+  filename: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<string> {
+  const db = createServiceClient();
+  const ext = (contentType.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "").toLowerCase().slice(0, 5) || "jpg";
+  const slug =
+    (filename || "photo")
+      .replace(/\.[a-z0-9]+$/i, "")
+      .replace(/[^a-z0-9.-]+/gi, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .toLowerCase()
+      .slice(0, 60) || "photo";
+  const path = `photos/${requestId}/${slug}-${Date.now().toString(36)}.${ext}`;
+  const { error } = await db.storage
+    .from(PROPOSALS_BUCKET)
+    .upload(path, bytes, { contentType, upsert: true });
+  if (error) throw new Error(`photo upload failed: ${error.message}`);
+  const { data, error: signErr } = await db.storage
+    .from(PROPOSALS_BUCKET)
+    .createSignedUrl(path, 5 * 365 * 24 * 3600);
+  if (signErr || !data?.signedUrl) {
+    throw new Error(`photo signed URL failed: ${signErr?.message ?? "no url"}`);
+  }
+  return data.signedUrl;
+}
+
 /** Create a one-time signed UPLOAD URL so the BROWSER can put a large brochure
  *  PDF straight into our storage, bypassing Vercel's ~4.5MB serverless body cap.
  *  Returns the same brochures/<id>/<slug>-<ts>.pdf path scheme as uploadBrochurePdf

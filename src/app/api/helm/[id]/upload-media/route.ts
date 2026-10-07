@@ -13,7 +13,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { addVesselPhoto, removeVesselPhoto, setBrochureUrl, setCombinedMedia, appendCombinedExtraUrl, removeCombinedExtraUrl } from "@/lib/helm-admin";
 import { isCloudinaryConfigured, uploadToCloudinary } from "@/lib/helm/cloudinary";
-import { uploadBrochurePdf, getSignedProposalUrl } from "@/lib/helm/storage";
+import { uploadBrochurePdf, getSignedProposalUrl, uploadVesselImage } from "@/lib/helm/storage";
 import { agencyDomainWarning } from "@/lib/helm/media";
 
 export const runtime = "nodejs";
@@ -73,18 +73,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }
     }
 
-    // IMAGES → Cloudinary (web-optimized delivery; behaviour unchanged).
-    if (!isCloudinaryConfigured()) {
-      // graceful degrade — never crash the page
-      return NextResponse.json({
-        ok: false,
-        configured: false,
-        message: "Cloudinary is not connected yet. Paste an image/brochure link instead, or add CLOUDINARY_URL in Vercel.",
-      });
+    // IMAGES → Cloudinary when it is configured (on-the-fly resizing), otherwise
+    // OUR OWN storage (2026-10-07). CLOUDINARY_URL is empty in production, and
+    // the old branch here answered "not connected" and dropped every photo
+    // George uploaded on a card. A photo upload must never save nothing.
+    if (buf.length > 25 * 1024 * 1024) {
+      return NextResponse.json({ error: `This image is ${(buf.length / 1024 / 1024).toFixed(1)}MB - the upload limit is 25MB. Export it smaller and upload again.` }, { status: 400 });
     }
     try {
-      const dataUri = `data:${file.type || "application/octet-stream"};base64,${buf.toString("base64")}`;
-      const secureUrl = await uploadToCloudinary(dataUri, { folder: `helm/${id}`, resourceType: "auto" });
+      const secureUrl = isCloudinaryConfigured()
+        ? await uploadToCloudinary(
+            `data:${file.type || "application/octet-stream"};base64,${buf.toString("base64")}`,
+            { folder: `helm/${id}`, resourceType: "auto" },
+          )
+        : await uploadVesselImage(id, file.name || "photo", buf, file.type || "image/jpeg");
       // Combined per-yacht media → combined_media[index], not the single-yacht arrays.
       if (yachtIndex !== null && Number.isFinite(yachtIndex)) {
         // kind "extra" appends to extra_urls (cap 8 - first 3 print in the PDF strip,

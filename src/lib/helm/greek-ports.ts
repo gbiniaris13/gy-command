@@ -57,6 +57,38 @@ const P: Record<string, Port> = {
   poros: { lat: 37.50, lon: 23.46, label: "Poros" },
   aegina: { lat: 37.75, lon: 23.43, label: "Aegina" },
   agistri: { lat: 37.70, lon: 23.35, label: "Agistri" },
+  // 2026-10-07: the Saronic anchorages George writes into sample weeks. The
+  // Morrison edition read "Hydra -> Dokos" and, Dokos being absent, the chart
+  // restarted at day 5 and showed three stops of a seven-day week.
+  dokos: { lat: 37.33, lon: 23.32, label: "Dokos" },
+  moni: { lat: 37.72, lon: 23.43, label: "Moni" },
+  perdika: { lat: 37.69, lon: 23.45, label: "Perdika" },
+  methana: { lat: 37.58, lon: 23.39, label: "Methana" },
+  epidavros: { lat: 37.63, lon: 23.16, label: "Epidavros" },
+  "palaia epidavros": { lat: 37.63, lon: 23.16, label: "Epidavros" },
+  "porto cheli": { lat: 37.33, lon: 23.14, label: "Porto Heli" },
+  portocheli: { lat: 37.33, lon: 23.14, label: "Porto Heli" },
+  koilada: { lat: 37.41, lon: 23.13, label: "Koilada" },
+  kiparissi: { lat: 36.97, lon: 22.99, label: "Kiparissi" },
+  leonidio: { lat: 37.16, lon: 22.90, label: "Leonidio" },
+  plaka: { lat: 37.16, lon: 22.90, label: "Leonidio" },
+  mandraki: { lat: 37.35, lon: 23.47, label: "Hydra" },
+  "russian bay": { lat: 37.49, lon: 23.43, label: "Poros" },
+  vathi: { lat: 37.59, lon: 23.33, label: "Vathi" },
+  // Cyclades anchorages that appear in the house routes.
+  rhenia: { lat: 37.40, lon: 25.22, label: "Rineia" },
+  ornos: { lat: 37.42, lon: 25.32, label: "Mykonos" },
+  kalafati: { lat: 37.43, lon: 25.42, label: "Mykonos" },
+  "agios georgios": { lat: 37.10, lon: 25.37, label: "Naxos" },
+  // Ionian anchorages.
+  sivota: { lat: 39.41, lon: 20.24, label: "Sivota" },
+  syvota: { lat: 39.41, lon: 20.24, label: "Sivota" },
+  parga: { lat: 39.28, lon: 20.40, label: "Parga" },
+  vlicho: { lat: 38.70, lon: 20.71, label: "Vlicho" },
+  spartochori: { lat: 38.66, lon: 20.76, label: "Meganisi" },
+  atokos: { lat: 38.47, lon: 20.81, label: "Atokos" },
+  assos: { lat: 38.38, lon: 20.54, label: "Assos" },
+  "one house bay": { lat: 38.47, lon: 20.81, label: "Atokos" },
   ermioni: { lat: 37.39, lon: 23.25, label: "Ermioni" },
   "porto heli": { lat: 37.33, lon: 23.14, label: "Porto Heli" },
   nafplio: { lat: 37.57, lon: 22.80, label: "Nafplio" },
@@ -138,16 +170,20 @@ export type Chart = {
  */
 export function chartForWeek(legs: string[], w = 680, h = 420): Chart | null {
   const stops: { port: Port; day: number }[] = [];
+  let unknown = false;
   legs.forEach((leg, i) => {
     const parts = String(leg).split(/\s*(?:->|→|–|-)\s*/).map((s) => s.trim()).filter(Boolean);
     if (parts.length < 2) return;
     const a = findPort(parts[0]);
     const b = findPort(parts[parts.length - 1]);
-    if (!a || !b) { stops.length = 0; return; }
+    // An unknown stop drops the chart for the week, as the header promises.
+    // Until 2026-10-07 this reset the chain and drew the days AFTER the
+    // unknown stop as if they were the whole week: a wrong chart, worse than none.
+    if (!a || !b) { unknown = true; return; }
     if (stops.length === 0) stops.push({ port: a, day: i + 1 });
     stops.push({ port: b, day: i + 1 });
   });
-  if (stops.length < 2) return null;
+  if (unknown || stops.length < 2) return null;
 
   const lats = stops.map((s) => s.port.lat);
   const lons = stops.map((s) => s.port.lon);
