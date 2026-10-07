@@ -47,6 +47,37 @@ export async function buildMorningBrief(): Promise<{ subject: string; text: stri
   const since = new Date(Date.now() - 24 * 3600000).toISOString();
   const sections: Section[] = [];
 
+  // 0. The requests (George, 7 October 2026: "ένα μετρητή requests ανά μέρα
+  // στο πρωινό email"). The fall from nine a week to five was seen three
+  // weeks late; this line shows it in three days. Direct clients only, the
+  // house's own test submissions left out, days counted in Athens time.
+  try {
+    const { data: reqRows } = await db
+      .from("helm_requests")
+      .select("created_at, client_email, request_type, dates_from")
+      .gte("created_at", new Date(Date.now() - 15 * 24 * 3600000).toISOString())
+      .order("created_at", { ascending: false });
+    const real = (reqRows ?? []).filter((r) => r.request_type === "direct_client" && !String(r.client_email ?? "").includes("test+"));
+    const athensDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Europe/Athens" });
+    const today = athensDay(new Date().toISOString());
+    const dayMs = 24 * 3600000;
+    const inDays = (iso: string, from: number, to: number) => { const age = (Date.now() - new Date(iso).getTime()) / dayMs; return age >= from && age < to; };
+    const nToday = real.filter((r) => athensDay(r.created_at) === today).length;
+    const n7 = real.filter((r) => inDays(r.created_at, 0, 7)).length;
+    const nPrev7 = real.filter((r) => inDays(r.created_at, 7, 14)).length;
+    const n7for2027 = real.filter((r) => inDays(r.created_at, 0, 7) && String(r.dates_from ?? "").startsWith("2027")).length;
+    const arrow = n7 > nPrev7 ? "↑" : n7 < nPrev7 ? "↓" : "→";
+    const line = `Σήμερα ${nToday} · τελευταίες 7 μέρες ${n7} (${n7for2027} για 2027) · προηγούμενες 7 ${nPrev7} ${arrow} · στόχος 7 έως 14 την εβδομάδα`;
+    sections.push({
+      title: "Requests",
+      count: 0,
+      lines: ["REQUESTS", line],
+      html: `<div style="margin:0 0 22px 0"><div style="font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:${G.gold};margin:0 0 8px 0">Requests</div><div style="font-size:15px;color:${G.navy};line-height:1.5"><b>${nToday}</b> σήμερα · <b>${n7}</b> τις τελευταίες 7 μέρες (${n7for2027} για 2027) · ${nPrev7} τις προηγούμενες 7 ${arrow}</div><div style="font-size:12px;color:${G.soft};margin-top:4px">Στόχος: 7 έως 14 την εβδομάδα. ${link(`${BASE}/dashboard/helm`, "The Helm")}</div></div>`,
+    });
+  } catch {
+    /* the counter never blocks the brief */
+  }
+
   // 1. The charters: the timeline's work this morning and the next ten days.
   const tl = await snapshot<{ drafted?: { id: string; client: string; vessel: string; moment: Moment; subject: string; draft: boolean }[]; upcoming?: { id: string; client: string; vessel: string; moment: Moment; due: string; days: number }[]; calendar_missing?: boolean }>("charter_timeline_latest");
   const charterItems: { text: string; html?: string }[] = [];
