@@ -45,6 +45,7 @@ import {
   type HelmPipeline,
 } from "./helm/pipeline";
 import { upsertContactByEmail, splitName } from "./contacts";
+import { detectAiSource, readAiSource } from "@/lib/helm/ai-source";
 
 export type HelmListItem = {
   id: string;
@@ -300,6 +301,15 @@ export async function createRequest(input: CreateHelmInput) {
   // actorEmail is recorded for future audit; not persisted in this skeleton.
   const { actorEmail: _actorEmail, ...rest } = input;
   void _actorEmail;
+
+  // Plan item 13 (2026-10-08): whichever door the request came through,
+  // a brief that mentions ChatGPT (or another assistant) marks the request
+  // at extraction.ai_source so it can be seen and counted.
+  if (!readAiSource(rest.extraction)) {
+    const visitor = rest.extraction && typeof rest.extraction === "object" ? (rest.extraction as { visitor?: { arrived_from?: string } }).visitor : undefined;
+    const ai = detectAiSource({ brief: rest.brief, arrivedFrom: visitor?.arrived_from ?? "" });
+    if (ai) rest.extraction = { ...(rest.extraction || {}), ai_source: ai };
+  }
 
   // Link to the shared contacts hub when we have an email.
   let contactId: string | null = null;

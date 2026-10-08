@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { createRequest } from "@/lib/helm-admin";
+import { detectAiSource, aiSourceLine } from "@/lib/helm/ai-source";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,8 +90,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Plan item 13 (2026-10-08): a request that mentions ChatGPT, or arrived
+  // from it, says so on its first lines and carries extraction.ai_source.
+  const ai = detectAiSource({ message, arrivedFrom: visitor?.arrived_from ?? "" });
+
   const brief = [
     `Website inquiry (${source.replace(/_/g, " ")}).`,
+    ai ? aiSourceLine(ai) : "",
     dates ? `Dates: ${dates}` : "",
     yachtName ? `Yacht of interest: ${yachtName}` : "",
     shortlist.length ? `Shortlist: ${shortlist.join("; ")}` : "",
@@ -108,7 +114,9 @@ export async function POST(req: NextRequest) {
       client_whatsapp: phone || undefined,
       request_type: "direct_client",
       brief,
-      ...(visitor && (visitor.pages.length || visitor.yachts.length) ? { extraction: { visitor } } : {}),
+      ...((visitor && (visitor.pages.length || visitor.yachts.length)) || ai
+        ? { extraction: { ...(visitor && (visitor.pages.length || visitor.yachts.length) ? { visitor } : {}), ...(ai ? { ai_source: ai } : {}) } }
+        : {}),
       actorEmail: "website-form",
     });
 
@@ -117,7 +125,7 @@ export async function POST(req: NextRequest) {
       await sendTelegram(
         [
           `🆕 <b>Website request → The Helm</b>`,
-          `${name || email}${dates ? ` · ${dates}` : ""}${yachtName ? ` · ${yachtName}` : ""}`,
+          `${name || email}${dates ? ` · ${dates}` : ""}${yachtName ? ` · ${yachtName}` : ""}${ai ? ` · via ${ai.assistant}` : ""}`,
           `Ανοίχτηκε αυτόματα ως νέο request. Δες το στο Helm dashboard.`,
         ].join("\n"),
       );

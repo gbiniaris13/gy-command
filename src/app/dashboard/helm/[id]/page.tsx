@@ -24,6 +24,7 @@ import { refCode } from "@/lib/helm/refcode";
 import { isCloudinaryConfigured } from "@/lib/helm/cloudinary";
 import { resolveAgencyRecipients } from "@/lib/helm/recipients";
 import { agencyAlreadySent } from "@/lib/helm/agency";
+import { readAiSource } from "@/lib/helm/ai-source";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,10 @@ export default async function HelmDetailPage({
         return pages.length || yachts.length ? { pages, yachts, minutes: typeof v.minutes === "number" ? v.minutes : null, arrived_from: typeof v.arrived_from === "string" ? v.arrived_from : "" } : null;
       })()
     : null;
+
+  // Plan item 13: the assistant that sent them, when the message or the
+  // referrer said so (extraction.ai_source).
+  const aiSource = readAiSource((r as { extraction?: unknown } | null)?.extraction);
 
   if (!r) {
     return (
@@ -195,6 +200,12 @@ export default async function HelmDetailPage({
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 10, letterSpacing: 1.5, textTransform: "uppercase", color: "#9CA3AF" }}>Special requests</div>
             <p style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap", color: "#1f2937", marginTop: 2 }}>{r.special_requests}</p>
+          </div>
+        )}
+        {aiSource && (
+          <div style={{ marginTop: 12, padding: "8px 12px", background: "#0D1B2A", color: "#F8F5EC", fontSize: 12.5, letterSpacing: 0.3 }}>
+            Found us through <b style={{ fontWeight: 600 }}>{aiSource.assistant}</b>
+            {aiSource.where === "referrer" ? ", arrived from it" : ", said so in the message"}
           </div>
         )}
         {visitor && (
