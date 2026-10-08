@@ -8,6 +8,7 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting, gmailFetch } from "@/lib/google-api";
 import { MOMENT_LABEL, athensToday, type Moment } from "@/lib/helm/timeline";
+import { mondayFiveSection } from "@/lib/monday-five";
 
 const GEORGE = "george@georgeyachts.com";
 const BASE = "https://command.georgeyachts.com";
@@ -46,6 +47,20 @@ export async function buildMorningBrief(): Promise<{ subject: string; text: stri
   const db = createServiceClient();
   const since = new Date(Date.now() - 24 * 3600000).toISOString();
   const sections: Section[] = [];
+
+  // The Monday five (George, 8 October 2026, plan item 2): on Mondays the
+  // brief opens with the same five figures, each against the week before:
+  // requests, sessions from chatgpt.com, Google impressions, the ten buying
+  // prompts, Bing AI citations on buying pages. Other days it is absent.
+  const weekdayAthens = new Date().toLocaleDateString("en-US", { timeZone: "Europe/Athens", weekday: "short" });
+  if (weekdayAthens === "Mon") {
+    try {
+      const five = await mondayFiveSection();
+      if (five) sections.push(five);
+    } catch (e) {
+      console.error("[morning-brief] monday five failed", e);
+    }
+  }
 
   // 0. The requests (George, 7 October 2026: "ένα μετρητή requests ανά μέρα
   // στο πρωινό email"). The fall from nine a week to five was seen three
