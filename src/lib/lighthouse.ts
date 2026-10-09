@@ -736,11 +736,15 @@ const BDAY_OPEN = [
   "A very happy birthday to you! I hope it is spent well, among the people who matter most.",
   "Happy birthday! I hope the day treats you as well as you treat the people around you.",
 ];
+// Six lines in every pool: a six-member family (the Stevens) must never
+// share one.
 const BDAY_SAILED = [
   " Every year this date will remind me of your week aboard {V}{WHEN}, and I hope Greek waters see you again before long.",
   " It was a real pleasure to have you aboard {V}{WHEN}; I still think of that week, and the sea here keeps your place.",
   " Your week aboard {V}{WHEN} is one I remember with pleasure. The Aegean remembers its guests, and so do I.",
   " I hope the day brings back a little of {V}{WHEN}: the same light, the same ease, and a table that nobody wants to leave.",
+  " Since {V}{WHEN} you have had a standing place at this end of the sea; happy birthday from all of us who looked after you that week.",
+  " The week aboard {V}{WHEN} was one of the good ones, and birthdays are when I like to say so.",
 ];
 const BDAY_WILL = [
   " And this year comes with something to look forward to: {V} and Greek waters are waiting for you.",
@@ -753,6 +757,7 @@ const BDAY_NONE = [
   " If this year deserves a proper celebration on the water, I would be glad to plan it with you.",
   " The islands are quiet this time of year and already thinking about next summer; so am I.",
   " With every good wish from Athens, and an open invitation to the islands whenever the time is right.",
+  " And if the year ahead has a week to spare, the islands have a bay for it; say the word and I will do the rest.",
 ];
 const MILESTONE: Record<number, string> = {
   30: "thirtieth", 40: "fortieth", 50: "fiftieth", 60: "sixtieth", 70: "seventieth", 80: "eightieth", 90: "ninetieth",
