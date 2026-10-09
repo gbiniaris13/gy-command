@@ -71,8 +71,18 @@ async function handler() {
   const tomorrowIso = new Date(Date.parse(todayIso) + 86400000).toISOString().slice(0, 10);
 
   const fresh = (o) => !occ.sent[occasionKey(o)];
-  const todayP = occ.personal.filter((o) => o.date === todayIso && fresh(o)).map((o) => ({ ...o, draft: draftFor(o) }));
-  const tomorrowP = occ.personal.filter((o) => o.date === tomorrowIso && fresh(o)).map((o) => ({ ...o, draft: draftFor(o) }));
+  // 2026-10-09: a draft George already rewrote on the card goes out in
+  // the morning mail as he wrote it.
+  let edits = {};
+  try {
+    const { getSetting } = await import("@/lib/google-api");
+    const { DRAFT_EDITS_KEY } = await import("@/lib/lighthouse");
+    const raw = await getSetting(DRAFT_EDITS_KEY);
+    edits = raw ? JSON.parse(raw) : {};
+  } catch {}
+  const withDraft = (o) => ({ ...o, draft: draftFor({ ...o, edit: edits[occasionKey(o)] }) });
+  const todayP = occ.personal.filter((o) => o.date === todayIso && fresh(o)).map(withDraft);
+  const tomorrowP = occ.personal.filter((o) => o.date === tomorrowIso && fresh(o)).map(withDraft);
   const todayH = occ.holidays.filter((h) => h.date === todayIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
   const tomorrowH = occ.holidays.filter((h) => h.date === tomorrowIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
 

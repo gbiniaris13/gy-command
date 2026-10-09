@@ -545,6 +545,10 @@ export default function LighthouseClient() {
                         <p className="mt-0.5 text-sm text-muted-blue">
                           {KIND_GR[o.kind] ?? o.label}
                           {o.vessel ? ` · ${o.vessel}` : o.person.vessel ? ` · ${o.person.vessel}` : ""}
+                          {Array.isArray(o.person.household_names) && o.person.household_names.length > 0
+                            ? ` · οικογένεια: ${o.person.household_names.join(", ")}`
+                            : ""}
+                          {o.draft?.edited ? " · δικό σου κείμενο" : ""}
                         </p>
                       </div>
                       {o.done ? (
@@ -563,44 +567,14 @@ export default function LighthouseClient() {
                       )}
                     </div>
                     {openDraft === o.key && (
-                      <div className="mt-4 rounded-xl bg-white/5 p-4">
-                        <p className="text-xs text-muted-blue">Θέμα: <span className="font-semibold text-soft-white">{o.draft.subject}</span></p>
-                        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-soft-white/90">{o.draft.body}</p>
-                        {o.person.email && (
-                          <button
-                            onClick={async () => {
-                              if (busyKey) return;
-                              setBusyKey(o.key);
-                              const d = await act({ action: "send_wish", person_key: o.person.key, kind: o.kind, date: o.date });
-                              setBusyKey(null);
-                              if (!d.error) {
-                                say(`Η κάρτα στάλθηκε στον ${o.person.name} ✓`);
-                                setOpenDraft(null);
-                                load();
-                              }
-                            }}
-                            disabled={busyKey === o.key}
-                            className="mt-3 mr-2 rounded-full px-4 py-2 text-xs font-bold text-deep-space disabled:opacity-60"
-                            style={{ background: GOLD }}
-                          >
-                            {busyKey === o.key ? "Στέλνεται…" : "Στείλε την κάρτα ✉"}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(`${o.draft.subject}\n\n${o.draft.body}`);
-                            say("Αντιγράφηκε, επικόλλησέ το στο mail σου");
-                          }}
-                          className="mt-3 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-soft-white hover:bg-white/15">
-                          Αντιγραφή draft
-                        </button>
-                        {o.person.email && (
-                          <a href={`mailto:${o.person.email}?subject=${encodeURIComponent(o.draft.subject)}&body=${encodeURIComponent(o.draft.body)}`}
-                            className="ml-2 rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-soft-white hover:bg-white/15">
-                            Άνοιξε στο mail
-                          </a>
-                        )}
-                      </div>
+                      <DraftEditor
+                        o={o}
+                        act={act}
+                        say={say}
+                        busy={busyKey === o.key}
+                        setBusy={(b) => setBusyKey(b ? o.key : null)}
+                        onSent={() => { setOpenDraft(null); load(); }}
+                      />
                     )}
                   </div>
                 );
@@ -926,7 +900,7 @@ function ClientCard({ p, sent, onSave, onSaved, say, full = false }) {
           {editing ? "Κλείσε" : "Συμπλήρωσε"}
         </button>
         {p.email && (
-          <a href={`mailto:${p.email}`} className="rounded-full bg-white/10 px-4 py-1.5 text-xs font-semibold text-soft-white hover:bg-white/15">
+          <a href={gmailComposeUrl(p.email, "", "")} target="_blank" rel="noopener noreferrer" className="rounded-full bg-white/10 px-4 py-1.5 text-xs font-semibold text-soft-white hover:bg-white/15">
             Email
           </a>
         )}
@@ -1037,6 +1011,106 @@ function PersonRow({ p, onSave, onSaved, say }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// 2026-10-09 (George, on Mark Stevens' 60th): "να μπορώ να πειράξω εγώ
+// το κείμενο και να το στείλω". The card is his to rewrite: subject and
+// body are editable, saved on blur per occasion and year (the morning
+// mail and the send button read the same text), copied as he wrote it,
+// and "Άνοιξε στο Gmail" opens a compose window in the George Yachts
+// Gmail account instead of mailto:, which the Mac handed to the wrong
+// company's Mail app.
+const GY_GMAIL = "george@georgeyachts.com";
+function gmailComposeUrl(to, subject, body) {
+  const q = new URLSearchParams({ view: "cm", fs: "1", to: to || "", su: subject || "", body: body || "" });
+  return `https://mail.google.com/mail/u/${encodeURIComponent(GY_GMAIL)}/?${q.toString()}`;
+}
+
+function DraftEditor({ o, act, say, busy, setBusy, onSent }) {
+  const [subject, setSubject] = useState(o.draft?.subject ?? "");
+  const [body, setBody] = useState(o.draft?.body ?? "");
+  const [edited, setEdited] = useState(!!o.draft?.edited);
+  const [saving, setSaving] = useState(false);
+  const dirty = subject !== (o.draft?.subject ?? "") || body !== (o.draft?.body ?? "");
+
+  async function save() {
+    if (!dirty || saving) return;
+    setSaving(true);
+    const d = await act({ action: "save_draft", person_key: o.person.key, kind: o.kind, date: o.date, subject, body });
+    setSaving(false);
+    if (!d.error) { setEdited(true); say("Το κείμενό σου αποθηκεύτηκε"); }
+  }
+  async function reset() {
+    setSaving(true);
+    const d = await act({ action: "reset_draft", person_key: o.person.key, kind: o.kind, date: o.date });
+    setSaving(false);
+    if (!d.error) { setEdited(false); say("Επιστροφή στο κείμενο του σπιτιού, ξαναφορτώνω"); onSent(); }
+  }
+
+  const inputCls = "w-full rounded-xl border border-white/10 bg-deep-space/70 px-4 py-3 text-sm text-soft-white placeholder:text-muted-blue/60 focus:outline-none focus:ring-2 focus:ring-[#DAA110]/40";
+  return (
+    <div className="mt-4 rounded-xl bg-white/5 p-4">
+      <p className="mb-1 text-[11px] uppercase tracking-[0.2em] text-muted-blue">Θέμα</p>
+      <input value={subject} onChange={(e) => setSubject(e.target.value)} onBlur={save} className={inputCls} />
+      <p className="mb-1 mt-3 text-[11px] uppercase tracking-[0.2em] text-muted-blue">
+        Κείμενο {edited ? <span style={{ color: GOLD }}>· δικό σου</span> : <span>· πρόταση του σπιτιού, γράψε το όπως θες</span>}
+      </p>
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onBlur={save}
+        rows={Math.min(16, Math.max(8, body.split("\n").length + 2))}
+        className={`${inputCls} leading-relaxed`}
+        style={{ fontFamily: "inherit", resize: "vertical" }}
+      />
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {o.person.email && (
+          <button
+            onClick={async () => {
+              if (busy) return;
+              await save();
+              setBusy(true);
+              const d = await act({ action: "send_wish", person_key: o.person.key, kind: o.kind, date: o.date, subject, body });
+              setBusy(false);
+              if (!d.error) { say(`Η κάρτα στάλθηκε στον ${o.person.name} ✓`); onSent(); }
+            }}
+            disabled={busy}
+            className="rounded-full px-4 py-2 text-xs font-bold text-deep-space disabled:opacity-60"
+            style={{ background: GOLD }}
+          >
+            {busy ? "Στέλνεται…" : "Στείλε την κάρτα ✉"}
+          </button>
+        )}
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(`${subject}\n\n${body}`);
+            say("Αντιγράφηκε όπως το έγραψες");
+          }}
+          className="rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-soft-white hover:bg-white/15"
+        >
+          Αντιγραφή
+        </button>
+        {o.person.email && (
+          <a
+            href={gmailComposeUrl(o.person.email, subject, body)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={save}
+            className="rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-soft-white hover:bg-white/15"
+          >
+            Άνοιξε στο Gmail
+          </a>
+        )}
+        {edited && (
+          <button onClick={reset} disabled={saving} className="rounded-full px-4 py-2 text-xs text-muted-blue hover:text-soft-white disabled:opacity-60">
+            Επαναφορά στο κείμενο του σπιτιού
+          </button>
+        )}
+        <span className="text-[11px] text-muted-blue">{saving ? "Αποθηκεύεται…" : dirty ? "Αποθηκεύεται μόλις αφήσεις το πεδίο" : ""}</span>
+      </div>
     </div>
   );
 }

@@ -200,7 +200,7 @@ export async function loadPeople() {
   // plus Cabin guests, who by definition have sailed with the house.
   // A contacts row is only used to ENRICH a person already inside.
   const sb = createServiceClient();
-  const [reqRes, conRes, gueRes, memRes, manualRaw] =
+  const [reqRes, conRes, gueRes, memRes, manualRaw, cabRes] =
     await Promise.all([
       sb
         .from("helm_requests")
@@ -231,8 +231,30 @@ export async function loadPeople() {
         .is("deleted_at", null)
         .limit(2000),
       getSetting("lighthouse_manual_dates"),
+      // 2026-10-09 (George, Mark Stevens' 60th): a Cabin is a charter that
+      // happened, with the yacht, the dates and the whole family aboard.
+      // Guests used to arrive with no vessel and no dates, so their
+      // birthday draft fell back to the generic Aegean line; and the six
+      // Stevens got the same sentence. The cabin row gives both.
+      sb
+        .from("cabins")
+        .select("id, vessel_name, charter_period_from, charter_period_to, cruising_area, deleted_at")
+        .is("deleted_at", null)
+        .limit(500),
     ]);
   const requests = reqRes.data, contacts = conRes.data, guests = gueRes.data, members = memRes.data;
+  const cabinById = new Map((cabRes?.data ?? []).map((c) => [c.id, c]));
+  const fromCabin = (cabinId) => {
+    const c = cabinId ? cabinById.get(cabinId) : null;
+    if (!c) return {};
+    return {
+      charter_vessel: c.vessel_name || null,
+      charter_date: c.charter_period_from || null,
+      travel_from: c.charter_period_from || null,
+      travel_to: c.charter_period_to || null,
+      area: c.cruising_area || null,
+    };
+  };
 
   // Yachts discussed. NOT from proposal_json: that column carries the
   // finished PDF with its photos baked in as base64, megabytes per row,
@@ -358,6 +380,7 @@ export async function loadPeople() {
         existing.travel_to = r.dates_to || existing.travel_to;
         existing.area = r.area || existing.area;
       }
+      if (r.bcabin && !existing.cabin_id) existing.cabin_id = r.bcabin;
       continue;
     }
     const c = (r.contact_id && contactById.get(r.contact_id)) || contactByEmail.get(email) || {};
@@ -389,6 +412,7 @@ export async function loadPeople() {
       vip: !!c.vip,
       is_minor: false,
       source: "helm",
+      cabin_id: r.bcabin || null,
     });
   }
 
@@ -404,6 +428,14 @@ export async function loadPeople() {
       if (!match.birthday && entry.birthday) match.birthday = entry.birthday;
       if (!match.country && entry.country) match.country = entry.country;
       if (!match.email && entry.email) match.email = entry.email;
+      if (!match.cabin_id && entry.cabin_id) match.cabin_id = entry.cabin_id;
+      if (!match.charter_vessel && entry.charter_vessel) match.charter_vessel = entry.charter_vessel;
+      if (!match.travel_from && entry.travel_from) {
+        match.travel_from = entry.travel_from;
+        match.travel_to = entry.travel_to;
+        match.charter_date = match.charter_date || entry.charter_date;
+        match.area = match.area || entry.area;
+      }
       match.source = match.source === "helm" ? "helm+cabin" : match.source;
     } else {
       people.set(key, entry);
@@ -422,6 +454,7 @@ export async function loadPeople() {
       charter_vessel: null, charter_date: null, discussed: [],
       helm_status: "guest", won: true, opt_out: false, vip: false,
       is_minor: !!g.is_minor, source: "cabin",
+      cabin_id: g.cabin_id || null, ...fromCabin(g.cabin_id),
     });
   }
   for (const m of members ?? []) {
@@ -436,6 +469,7 @@ export async function loadPeople() {
       charter_vessel: null, charter_date: null, discussed: [],
       helm_status: "guest", won: true, opt_out: false, vip: false,
       is_minor: false, source: "cabin",
+      cabin_id: m.cabin_id || null, ...fromCabin(m.cabin_id),
     });
   }
 
@@ -517,7 +551,30 @@ export async function loadPeople() {
       }
     }
   }
-  return { people: out.filter((p) => !hidden.has(p.key)), manual, errors: _errors };
+  const visible = out.filter((p) => !hidden.has(p.key));
+
+  // Households (2026-10-09). The people who shared a Cabin are one
+  // family at one table: Mark, Tricia, Caroline, Grant, Jack, Madison.
+  // Each member keeps a stable index inside the household so the
+  // drafts can give every one of them a different opening and a
+  // different closing line; the same sentence to six members of one
+  // family would embarrass the house ("γίνομαι ρεζίλι").
+  const byCabin = new Map();
+  for (const p of visible) {
+    if (!p.cabin_id) continue;
+    (byCabin.get(p.cabin_id) ?? byCabin.set(p.cabin_id, []).get(p.cabin_id)).push(p);
+  }
+  for (const [cid, group] of byCabin) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    group.forEach((p, i) => {
+      p.household = cid;
+      p.household_index = i;
+      p.household_size = group.length;
+      p.household_names = group.filter((x) => x !== p).map((x) => firstNameOf(x.name));
+    });
+  }
+  return { people: visible, manual, errors: _errors };
 }
 
 // ─── Occasions in a window ────────────────────────────────────────
@@ -664,25 +721,95 @@ function firstNameOf(full: string): string {
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
-export function draftFor(o): { subject: string; body: string } {
+// Variety (2026-10-09). One family, six birthdays, and every draft used
+// to open with the same sentence and close with "the Aegean is always
+// here"; George closes deals with that line and did not want to hear it
+// read back to him at a family table. Each pool is picked by a stable
+// hash of the household (or the person) and the year, plus the member's
+// index in the household, so relatives get different lines and the same
+// person gets a different one next year.
+const BDAY_OPEN = [
+  "Happy birthday! I hope your day is filled with the people you love and a glass of something good.",
+  "Happy birthday! I hope the day is a slow one, with good company and a long table.",
+  "Many happy returns! I hope today brings you exactly the kind of day you would have chosen for yourself.",
+  "Happy birthday from Athens! I hope the day is yours from the first coffee to the last glass.",
+  "A very happy birthday to you! I hope it is spent well, among the people who matter most.",
+  "Happy birthday! I hope the day treats you as well as you treat the people around you.",
+];
+const BDAY_SAILED = [
+  " Every year this date will remind me of your week aboard {V}{WHEN}, and I hope Greek waters see you again before long.",
+  " It was a real pleasure to have you aboard {V}{WHEN}; I still think of that week, and the sea here keeps your place.",
+  " Your week aboard {V}{WHEN} is one I remember with pleasure. The Aegean remembers its guests, and so do I.",
+  " I hope the day brings back a little of {V}{WHEN}: the same light, the same ease, and a table that nobody wants to leave.",
+];
+const BDAY_WILL = [
+  " And this year comes with something to look forward to: {V} and Greek waters are waiting for you.",
+  " With {V} ahead of you this season, I would say the best part of the year is still to come.",
+  " The countdown to {V} has started on this side of the sea too; we will be ready for you.",
+];
+const BDAY_NONE = [
+  " And whenever you feel like celebrating a year of life properly, the Aegean is always here.",
+  " Should the next year call for a week at sea, you know where to find me.",
+  " If this year deserves a proper celebration on the water, I would be glad to plan it with you.",
+  " The islands are quiet this time of year and already thinking about next summer; so am I.",
+  " With every good wish from Athens, and an open invitation to the islands whenever the time is right.",
+];
+const MILESTONE: Record<number, string> = {
+  30: "thirtieth", 40: "fortieth", 50: "fiftieth", 60: "sixtieth", 70: "seventieth", 80: "eightieth", 90: "ninetieth",
+};
+function hashOf(str: string): number {
+  let h = 0;
+  for (const ch of String(str)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h;
+}
+function pick<T>(pool: T[], o, salt: string): T {
+  const base = hashOf(`${o.person?.household || o.person?.key || "x"}:${String(o.date || "").slice(0, 4)}:${salt}`);
+  const idx = (base + (o.person?.household_index || 0)) % pool.length;
+  return pool[idx];
+}
+function monthWord(dateStr): string {
+  const d = new Date(String(dateStr).slice(0, 10) + "T00:00:00Z");
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+function ageOn(birthday, dateStr): number | null {
+  const b = String(birthday || "");
+  const m = b.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  if (y < 1900 || y > 2020) return null;
+  return Number(String(dateStr).slice(0, 4)) - y;
+}
+
+export const DRAFT_EDITS_KEY = "lighthouse_draft_edits";
+
+export function draftFor(o): { subject: string; body: string; edited?: boolean } {
   const first = firstNameOf(o.person?.name);
+  // George's own words win (2026-10-09): a draft he edited on the card
+  // is stored per occasion and comes back exactly as he left it.
+  if (o.edit && String(o.edit.body || "").trim()) {
+    return { subject: String(o.edit.subject || "").trim() || `Happy birthday, ${first}!`, body: String(o.edit.body), edited: true };
+  }
   if (o.kind === "birthday") {
     // The Hong rule (audit 29/8): a vessel is mentioned in the PAST
     // tense only for a charter that already happened. A future
     // charter gets anticipation, never memory.
     const today = new Date().toISOString().slice(0, 10);
-    const sailed = o.person?.charter_vessel && o.person?.travel_from && String(o.person.travel_from).slice(0, 10) < today;
-    const willSail = o.person?.charter_vessel && o.person?.travel_from && String(o.person.travel_from).slice(0, 10) >= today;
+    const vessel = o.person?.charter_vessel;
+    const sailed = vessel && o.person?.travel_from && String(o.person.travel_from).slice(0, 10) < today;
+    const willSail = vessel && o.person?.travel_from && String(o.person.travel_from).slice(0, 10) >= today;
+    const when = sailed && o.person?.travel_from ? ` in ${monthWord(o.person.travel_from)}` : "";
+    const age = ageOn(o.person?.birthday, o.date);
+    const milestone = age && MILESTONE[age] ? ` A ${MILESTONE[age]} birthday deserves to be marked properly, and I hope yours is.` : "";
+    const open = pick(BDAY_OPEN, o, "open");
+    const tail = sailed
+      ? pick(BDAY_SAILED, o, "sailed").replace(/\{V\}/g, vessel).replace(/\{WHEN\}/g, when)
+      : willSail
+        ? pick(BDAY_WILL, o, "will").replace(/\{V\}/g, vessel)
+        : pick(BDAY_NONE, o, "none");
     return {
-      subject: `Happy birthday, ${first}!`,
-      body:
-        `Dear ${first},\n\nHappy birthday! I hope your day is filled with the people you love and a glass of something good.` +
-        (sailed
-          ? ` Every year this date reminds me of the pleasure of hosting you aboard ${o.person.charter_vessel}, and I hope Greek waters see you again soon.`
-          : willSail
-            ? ` And this year comes with something to look forward to: ${o.person.charter_vessel} and Greek waters are waiting for you.`
-            : ` And whenever you feel like celebrating a year of life properly, the Aegean is always here.`) +
-        SIGN,
+      subject: age && MILESTONE[age] ? `Happy ${age}th birthday, ${first}!` : `Happy birthday, ${first}!`,
+      body: `Dear ${first},\n\n${open}${milestone}${tail}${SIGN}`,
     };
   }
   if (o.kind === "name_day") {

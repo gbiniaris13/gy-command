@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting } from "@/lib/google-api";
-import { upcomingOccasions, loadPeople, markSent, draftFor } from "@/lib/lighthouse";
+import { upcomingOccasions, loadPeople, markSent, draftFor, occasionKey, DRAFT_EDITS_KEY } from "@/lib/lighthouse";
 import { requireUser } from "@/lib/require-user";
 
 // The Lighthouse API. GET = everything the dashboard needs. POST =
@@ -21,8 +21,10 @@ const CACHE_KEY = "lighthouse_cache_v1";
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 async function computePayload(days) {
-  const [occ, ppl] = await Promise.all([upcomingOccasions(days), loadPeople()]);
-  return { occ, ppl };
+  const [occ, ppl, editsRaw] = await Promise.all([upcomingOccasions(days), loadPeople(), getSetting(DRAFT_EDITS_KEY)]);
+  let edits = {};
+  try { edits = editsRaw ? JSON.parse(editsRaw) : {}; } catch {}
+  return { occ, ppl, edits };
 }
 
 export async function GET(request) {
@@ -55,21 +57,22 @@ export async function GET(request) {
       }
     } catch {}
   }
-  const { occ, ppl } = await computePayload(days);
-  const responseBody = buildResponseBody(occ, ppl);
+  const { occ, ppl, edits } = await computePayload(days);
+  const responseBody = buildResponseBody(occ, ppl, edits);
   try {
     await setSetting(CACHE_KEY, JSON.stringify({ at: Date.now(), days, payload: responseBody }));
   } catch {}
   return NextResponse.json(responseBody);
 }
 
-function buildResponseBody(occ, ppl) {
+function buildResponseBody(occ, ppl, edits = {}) {
   const withDrafts = {
     ...occ,
     personal: occ.personal.map((o) => ({
       ...o,
-      draft: draftFor(o),
+      draft: draftFor({ ...o, edit: edits?.[occasionKey(o)] }),
       person: {
+        household_names: o.person.household_names ?? null,
         key: o.person.key,
         contact_id: o.person.contact_id,
         name: o.person.name,
@@ -110,8 +113,8 @@ function buildResponseBody(occ, ppl) {
 }
 
 export async function recomputeCache() {
-  const { occ, ppl } = await computePayload(365);
-  const body = buildResponseBody(occ, ppl);
+  const { occ, ppl, edits } = await computePayload(365);
+  const body = buildResponseBody(occ, ppl, edits);
   await setSetting(CACHE_KEY, JSON.stringify({ at: Date.now(), days: 365, payload: body }));
   return body;
 }
@@ -154,7 +157,15 @@ export async function POST(request) {
     const sentRaw0 = await getSetting("lighthouse_sent");
     const sentMap0 = sentRaw0 ? JSON.parse(sentRaw0) : {};
     if (sentMap0[yearKey]) return NextResponse.json({ error: "έχει ήδη σταλεί φέτος" }, { status: 409 });
-    const d = draftFor({ kind, person, date });
+    // 2026-10-09: George's edited text wins, inline from the card first,
+    // then whatever he saved on it, then the house draft.
+    const editsRaw1 = await getSetting(DRAFT_EDITS_KEY);
+    let edits1 = {};
+    try { edits1 = editsRaw1 ? JSON.parse(editsRaw1) : {}; } catch {}
+    const inline = String(body.body || "").trim()
+      ? { subject: String(body.subject || "").trim(), body: String(body.body).slice(0, 6000) }
+      : null;
+    const d = draftFor({ kind, person, date, edit: inline || edits1[yearKey] });
     const { greetingCard } = await import("@/lib/lighthouse-card");
     const html = greetingCard({ kind, subject: d.subject, body: d.body });
     const boundary = "boundary_gy_wish";
@@ -192,6 +203,29 @@ export async function POST(request) {
     }
     await bustCache();
     return NextResponse.json({ ok: true, sent_to: person.email });
+  }
+
+  if (body.action === "save_draft" || body.action === "reset_draft") {
+    // 2026-10-09 (George: "να μπορώ να πειράξω εγώ το κείμενο"): the
+    // card's subject and body are his to rewrite; stored per occasion
+    // and year, read by the card, the send button and the morning mail.
+    const { person_key, kind, date } = body;
+    if (!person_key || !kind || !date) return NextResponse.json({ error: "λείπουν στοιχεία" }, { status: 400 });
+    const k = `${person_key}:${kind}:${String(date).slice(0, 4)}`;
+    const raw = await getSetting(DRAFT_EDITS_KEY);
+    let edits = {};
+    try { edits = raw ? JSON.parse(raw) : {}; } catch {}
+    if (body.action === "reset_draft") {
+      delete edits[k];
+    } else {
+      const subject = String(body.subject || "").trim().slice(0, 200);
+      const text = String(body.body || "").slice(0, 6000);
+      if (!text.trim()) return NextResponse.json({ error: "κενό κείμενο" }, { status: 400 });
+      edits[k] = { subject, body: text, at: new Date().toISOString() };
+    }
+    await setSetting(DRAFT_EDITS_KEY, JSON.stringify(edits));
+    await bustCache();
+    return NextResponse.json({ ok: true, key: k, edited: body.action === "save_draft" });
   }
 
   if (body.action === "apply_document") {
