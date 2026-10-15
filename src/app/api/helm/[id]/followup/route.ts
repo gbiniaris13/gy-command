@@ -239,7 +239,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const emailBody = (body?.body ?? "").toString().trim();
     const to = (r.client_email ?? "").toString().trim();
     if (!to) return NextResponse.json({ error: "No recipient email on this request." }, { status: 400 });
-    if (!emailBody) return NextResponse.json({ error: "The follow-up body is empty - generate or write a draft first." }, { status: 400 });
+    if (!emailBody) return NextResponse.json({ error: "The follow-up box is empty. Write the note, or draft one, then send." }, { status: 400 });
 
     try {
       const sent = await sendHelmEmail({

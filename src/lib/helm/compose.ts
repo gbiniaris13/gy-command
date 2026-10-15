@@ -477,8 +477,17 @@ ${tone}
   // gemini is a thinking model and spends tokens before the JSON, so keep ample
   // headroom even though the follow-up body itself is short (1500 truncated it).
   const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.7 });
-  const out = parseLooseJson(raw) as { body?: string };
-  return { body: deDash(out.body || "") };
+  // 2026-10-15 (George hit "no parseable JSON" on a follow-up): when the model
+  // answers with the email as plain prose instead of {"body": ...}, the prose
+  // IS the draft. Keep it rather than failing; George edits before sending.
+  let body: string;
+  try {
+    const out = parseLooseJson(raw) as { body?: string };
+    body = out.body || "";
+  } catch {
+    body = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+  }
+  return { body: deDash(body) };
 }
 
 // Reply to a client's / agent's incoming message (a real back-and-forth in the

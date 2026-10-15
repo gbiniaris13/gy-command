@@ -101,7 +101,8 @@ export default function HelmFollowUp({
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "generate-failed");
-      setBody(j.body || "");
+      if (!(j.body || "").trim()) throw new Error("The draft came back empty. Write it yourself in the box below, or try again.");
+      setBody(j.body);
       setMsg(`Follow-up ${j.followupNumber} draft ready. Review and edit before sending.`);
     } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
@@ -197,25 +198,29 @@ export default function HelmFollowUp({
           Or draft one to send
         </div>
         <div style={{ fontSize: 12.5, color: "#374151", marginBottom: 10 }}>
-          Composes a short, human follow-up as a reply in the proposal thread to <b>{clientEmail || who}</b>. Next: <b>follow-up {nextNumber}</b>.
+          Write it yourself, or let the house draft one, then edit. It goes as a reply in the proposal thread to <b>{clientEmail || who}</b>. Next: <b>follow-up {nextNumber}</b>.
         </div>
-        <button type="button" onClick={generate} disabled={busy !== null} style={ghostBtn}>
-          {busy === "generate" ? "Generating…" : body ? `Regenerate follow-up ${nextNumber}` : `Generate follow-up ${nextNumber}`}
-        </button>
-
-        {body && (
-          <>
-            <label style={{ ...fieldLabel, marginTop: 12, display: "block" }}>
-              Follow-up {nextNumber} (review and edit - replies in the proposal thread)
-            </label>
-            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} style={textarea} />
-            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button type="button" onClick={send} disabled={busy !== null || !clientEmail || !body.trim()} style={primaryBtn}>
-                {busy === "send" ? "Sending…" : `Send follow-up ${nextNumber} to ${clientEmail || who}`}
-              </button>
-            </div>
-          </>
-        )}
+        {/* 2026-10-15 (George): the box and the Send button are always here.
+            A hand-written follow-up never has to pass through Generate, and a
+            failed Generate never takes the box away. */}
+        <label style={{ ...fieldLabel, display: "block" }}>
+          Follow-up {nextNumber} (your text, or a draft to edit - replies in the proposal thread)
+        </label>
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={8}
+          style={textarea}
+          placeholder="Paste or write the follow-up here. Begin with the greeting; your Gmail signature is added automatically."
+        />
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" onClick={send} disabled={busy !== null || !clientEmail || !body.trim()} style={primaryBtn}>
+            {busy === "send" ? "Sending…" : `Send follow-up ${nextNumber} to ${clientEmail || who}`}
+          </button>
+          <button type="button" onClick={generate} disabled={busy !== null} style={ghostBtn}>
+            {busy === "generate" ? "Drafting…" : body.trim() ? "Draft one for me (replaces the text)" : "Draft one for me"}
+          </button>
+        </div>
       </div>
 
       {msg && <p style={{ color: "#3A6B47", fontSize: 12.5, marginTop: 10 }}>{msg}</p>}
