@@ -83,10 +83,14 @@ export async function GET() {
 
   try {
     // Two adjacent 7-day windows ending at the freshest full day GSC has.
-    const curEnd = isoDaysAgo(2);
-    const curStart = isoDaysAgo(8);
-    const prevEnd = isoDaysAgo(9);
-    const prevStart = isoDaysAgo(15);
+    // 2026-10-17: GSC publishes a day two to three days late; ending at
+    // "2 days ago" left the current window one day short (6 days of clicks
+    // against 7) and the Saturday digest read a fall that was not there.
+    // Three days back is always a complete day.
+    const curEnd = isoDaysAgo(3);
+    const curStart = isoDaysAgo(9);
+    const prevEnd = isoDaysAgo(10);
+    const prevStart = isoDaysAgo(16);
 
     const [curTot, prevTot, curQ, prevQ, daily] = await Promise.all([
       gscQuery(token, { startDate: curStart, endDate: curEnd, dimensions: [] }),
