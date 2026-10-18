@@ -11,6 +11,7 @@ import GeneratePanel from "./GeneratePanel";
 import CombinedPanel from "./CombinedPanel";
 import HelmMedia from "./HelmMedia";
 import HelmSend from "./HelmSend";
+import NewEditionPanel from "./NewEditionPanel";
 import HelmFollowUp from "./HelmFollowUp";
 import HelmWhatsApp from "./HelmWhatsApp";
 import HelmReply from "./HelmReply";
@@ -335,6 +336,19 @@ export default async function HelmDetailPage({
           />
         </Quiet>
       )}
+
+      {/* a second edition for the same client (George 18/10/2026): paste the
+          new supplier email, replace or add the yachts, same link, same thread */}
+      {r.mode === "combined" && r.proposal_pdf_path && !isAgent && (() => {
+        const exn = (r.extraction && typeof r.extraction === "object" ? r.extraction : {}) as { yachts?: unknown[]; edition_no?: unknown; edition_history?: unknown[] };
+        const editionNo = Number(exn.edition_no) >= 1 ? Number(exn.edition_no) : 1;
+        const hist = Array.isArray(exn.edition_history) ? (exn.edition_history as { no: number; closed_at?: string | null; yachts?: string[]; replaced?: boolean }[]) : [];
+        return (
+          <Quiet title={`New edition for this client · No. ${editionNo + 1}`} hint="the client changed their mind, or a better supplier answered: replace or add yachts, same link">
+            <NewEditionPanel requestId={r.id} editionNo={editionNo} yachtCount={Array.isArray(exn.yachts) ? exn.yachts.length : 0} history={hist} />
+          </Quiet>
+        );
+      })()}
 
       {/* after the proposal is sent: WhatsApp nudge, reply, follow up (in-thread, never auto) */}
       {r.gmail_thread_id && (() => {

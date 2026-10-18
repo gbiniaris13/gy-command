@@ -871,6 +871,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const withPhoto = sorted.find((y) => y.images?.main);
       if (withPhoto?.images?.main) images.cover = withPhoto.images.main as string;
 
+    // 2026-10-18: a later edition for the same client says so in one line.
+    const editionUpdateNote = (() => {
+      const exn = (r.extraction && typeof r.extraction === "object" ? r.extraction : {}) as { edition_no?: unknown; edition_history?: { replaced?: boolean }[] };
+      const n = Number(exn.edition_no);
+      if (!Number.isFinite(n) || n < 2) return undefined;
+      const last = Array.isArray(exn.edition_history) ? exn.edition_history[exn.edition_history.length - 1] : undefined;
+      return last && last.replaced === false
+        ? `This is an updated selection (edition No. ${n}) that ADDS new yachts to the ones the client already received, following your conversation.`
+        : `This is a new, updated selection (edition No. ${n}) that REPLACES the earlier one the client received, following your conversation and what they told you they prefer now.`;
+    })();
       const summary = sorted.map((y) => {
         // A "double" summarises its quoted durations (e.g. "5 nights € 15,000;
         // 7 nights € 17,857") rather than a single headline fee.
@@ -902,7 +912,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         // forward as their own and that commission terms are in the partnership
         // PDF. So the email is NOT anonymous and is NOT white-label guarded.
         composeCombinedIntro({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, yacht_summary: summary, anonymous: whiteLabel }),
-        composeEmail({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, selection_summary: summary, agent: whiteLabel }),
+        composeEmail({ salutation: addr.salutation, occasion: r.occasion || undefined, brief: r.brief || undefined, selection_summary: summary, agent: whiteLabel, update_note: editionUpdateNote }),
       ]);
 
       // GEORGE-WRITTEN itinerary pages (max 2). Server-side clamps mirror the

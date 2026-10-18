@@ -30,6 +30,8 @@ export type SalonModel = {
   // "No. 41": this edition's place in the run of editions George has
   // composed, counted from the requests that carry a proposal.
   issueNo: number | null;
+  // No. 2, No. 3: a later edition for the same client (extraction.edition_no).
+  editionNo: number | null;
   // After the yes (George, 2 October 2026): the same link becomes "The
   // <Surname> Week", built from the booking and The Cabin.
   week: SalonWeek | null;
@@ -230,6 +232,7 @@ export async function salonData(requestId: string): Promise<SalonModel | null> {
     })(),
     createdAt: typeof r.created_at === "string" ? r.created_at : null,
     issueNo: await issueNumberFor(typeof r.created_at === "string" ? r.created_at : null),
+    editionNo: (() => { const n = Number((r.extraction as { edition_no?: unknown } | null)?.edition_no); return Number.isFinite(n) && n > 1 ? n : null; })(),
     week: await weekFor(r),
     clientWhatsApp: r.client_whatsapp ? String(r.client_whatsapp) : null,
     hasPdf: !!r.proposal_pdf_path,

@@ -244,7 +244,8 @@ export default async function SalonPage({
       if (!when) return null;
       const dt = new Date(when);
       const month = Number.isNaN(dt.getTime()) ? "" : `${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()}`;
-      return [model.issueNo ? `No. ${model.issueNo}` : "", month].filter(Boolean).join(" · ") || null;
+      const ed = model.editionNo ? `${ORDINALS[model.editionNo] || `${model.editionNo}th`} edition` : "";
+      return [model.issueNo ? `No. ${model.issueNo}` : "", month, ed].filter(Boolean).join(" · ") || null;
     })(),
     week: model.week
       ? {
@@ -288,6 +289,7 @@ function deepNoDash<T>(v: T): T {
 // HTML entities printed as code ("&amp;"), numeric dates in two formats on
 // facing pages ("15/06/2027" beside "13 June 2027"), and a decimal split by a
 // space ("Bali 5. 4").
+const ORDINALS = ["", "First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 function cleanText(s: string): string {
   return s

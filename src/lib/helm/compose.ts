@@ -306,6 +306,9 @@ export type EmailFacts = {
    *  to us - and that their commission terms are in the attached partnership
    *  program. The white-label artifact is the PDF; this email is agent-facing. */
   agent?: boolean;
+  /** A later edition for the same client (2026-10-18): one line saying this
+   *  selection replaces or extends the earlier one, after their conversation. */
+  update_note?: string;
 };
 
 // The email body (does the selling; George pastes/sends it, PDF attached).
@@ -331,6 +334,7 @@ Structure: warm one-line open referencing the conversation/brief; one short para
     f.occasion ? `Occasion: ${f.occasion}` : "",
     f.brief ? `Charter context (use ONLY the requirements - guests, children, area, style; NEVER a person's name): ${f.brief}` : "",
     `Selection (cheapest first):\n${f.selection_summary}`,
+    f.update_note ? `IMPORTANT CONTEXT: ${f.update_note} Say this plainly in the first short paragraph (one sentence), as a natural continuation of your conversation, never as an apology.` : "",
   ].filter(Boolean).join("\n");
   const raw = await aiChat(sys, user, { maxTokens: 4000, temperature: 0.6 });
   const out = parseLooseJson(raw) as { subject?: string; body?: string };
