@@ -23,6 +23,27 @@ async function adminEmail(): Promise<string | null> {
   return user?.email ?? null;
 }
 
+const EDITION_SEP = /\n?----- EDITION No\. \d+ [^\n]*-----\n?/g;
+const IMPORTED_NOTE = /^\(edition No\. \d+ extracted from the emails imported above\)\s*/m;
+
+/** The supplier text of the current edition. With no separator, all of it.
+ *  An edition built "from the emails imported above" has only a note after
+ *  its separator: its text is the imported blocks before it that are not part
+ *  of an earlier edition, so fall back to the full record minus nothing. */
+function currentEditionText(raw: string): string {
+  const seps = [...raw.matchAll(EDITION_SEP)];
+  if (!seps.length) return raw;
+  const last = seps[seps.length - 1];
+  const tail = raw.slice((last.index ?? 0) + last[0].length);
+  if (IMPORTED_NOTE.test(tail) && !tail.replace(IMPORTED_NOTE, "").trim()) {
+    // Built from imports: the previous edition's text ends at ITS separator.
+    const prev = seps.length >= 2 ? seps[seps.length - 2] : null;
+    const from = prev ? (prev.index ?? 0) + prev[0].length : 0;
+    return raw.slice(from, last.index ?? 0);
+  }
+  return tail;
+}
+
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const email = await adminEmail();
@@ -63,7 +84,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       // editor from the suggestions (the owner confirms / edits / clears).
       // The Fleet Book fills type, spec line, crew and the Salon lists for any
       // yacht George has a folder for; the email keeps every number.
-      const fresh = await applyDossiers(await extractSupplierYachts(r.supplier_raw, r.brief || undefined, xctx));
+      // A card on its second (third…) edition: re-extract only the text of
+      // the CURRENT edition, after the last EDITION separator. Until 19/10/2026
+      // this re-read every edition and brought the old yachts back as duplicates.
+      const fresh = await applyDossiers(await extractSupplierYachts(currentEditionText(r.supplier_raw), r.brief || undefined, xctx));
       const extraction = keepRequestHistory(fresh);
       await saveExtraction(id, extraction);
       return NextResponse.json({ ok: true, extraction });

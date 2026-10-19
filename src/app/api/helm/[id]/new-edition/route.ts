@@ -45,6 +45,38 @@ async function adminEmail(): Promise<string | null> {
 
 type YachtCard = { vessel_name?: { value?: unknown } };
 
+const EDITION_SEP = /\n?----- EDITION No\. \d+ [^\n]*-----\n?/g;
+
+/** The supplier text that belongs to the NEXT edition: imported Gmail blocks
+ *  after the last EDITION separator, plus any block dated after the previous
+ *  edition was sent (or generated). Pasted text after the separator counts too. */
+function importedSince(raw: string, ex: Record<string, unknown>, generatedAt: string | null): string {
+  if (!raw.trim()) return "";
+  const seps = [...raw.matchAll(EDITION_SEP)];
+  const lastSep = seps.length ? seps[seps.length - 1] : null;
+  const tail = lastSep ? raw.slice((lastSep.index ?? 0) + lastSep[0].length) : "";
+  const pipeline = (ex.pipeline && typeof ex.pipeline === "object") ? (ex.pipeline as { sent_at?: unknown }) : {};
+  const baseIso = typeof pipeline.sent_at === "string" ? pipeline.sent_at : generatedAt;
+  const base = baseIso ? Date.parse(baseIso) : NaN;
+  const head = lastSep ? raw.slice(0, lastSep.index ?? 0) : raw;
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  const pushBlock = (b: string) => { const t = b.trim(); if (t && !seen.has(t)) { seen.add(t); parts.push(t); } };
+  // Blocks before the last separator: only those dated after the previous edition.
+  if (Number.isFinite(base)) {
+    for (const b of head.split(/(?=───── EMAIL \[gmail:)/)) {
+      if (!b.startsWith("───── EMAIL [gmail:")) continue;
+      const m = b.match(/^Date:\s*(.+)$/m);
+      const d = m ? Date.parse(m[1].trim()) : NaN;
+      if (Number.isFinite(d) && d > base) pushBlock(b);
+    }
+  }
+  // Everything after the last separator belongs to this edition.
+  const tailClean = tail.replace(/^\(edition No\. \d+ extracted from the emails imported above\)\s*/m, "");
+  for (const b of tailClean.split(/(?=───── EMAIL \[gmail:)/)) pushBlock(b);
+  return parts.join("\n\n").trim();
+}
+
 function yachtNames(list: unknown): string[] {
   if (!Array.isArray(list)) return [];
   return (list as YachtCard[])
@@ -64,9 +96,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   const body = await req.json().catch(() => ({}));
-  const text = (body?.text ?? "").toString().trim();
   const keep = body?.keep === true;
-  if (!text) return NextResponse.json({ error: "Paste the new supplier's email first." }, { status: 400 });
+  const useImported = body?.useImported === true;
+  const ex0 = (r.extraction && typeof r.extraction === "object") ? (r.extraction as Record<string, unknown>) : {};
+  // "From the emails I imported" (George, 19 October 2026: he wants the same
+  // flow as the first edition, Import from Gmail and extract, not a paste).
+  // The new edition's text = the Gmail blocks that arrived AFTER the previous
+  // edition: everything past the last EDITION separator, plus any imported
+  // email dated after that edition went out (or was generated).
+  const text = useImported ? importedSince(String(r.supplier_raw || ""), ex0, r.proposal_generated_at ?? null) : (body?.text ?? "").toString().trim();
+  if (!text) {
+    return NextResponse.json({
+      error: useImported
+        ? "No supplier emails imported after the previous edition. Import the new emails from Gmail first (the box above), then press again."
+        : "Paste the new supplier's email first.",
+    }, { status: 400 });
+  }
 
   try {
     const rr = r as unknown as { dates_from?: string | null; dates_to?: string | null; area?: string | null };
@@ -76,7 +121,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: "No yachts found in the pasted text. Check it and try again." }, { status: 400 });
     }
 
-    const ex = (r.extraction && typeof r.extraction === "object") ? (r.extraction as Record<string, unknown>) : {};
+    const ex = ex0;
     const existing = Array.isArray(ex.yachts) ? (ex.yachts as unknown[]) : [];
     const prevNo = Number(ex.edition_no) >= 1 ? Number(ex.edition_no) : 1;
     const nextNo = prevNo + 1;
@@ -108,11 +153,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     const db = createServiceClient();
     const sep = `\n\n----- EDITION No. ${nextNo} (${keep ? "added to" : "replacing"} the previous yachts, ${nowIso.slice(0, 10)}) -----\n\n`;
+    // A fresh edition also drops the saved review draft's yacht rows: they
+    // describe the OLD cards, and a draft with the same count as the new
+    // extraction would have been restored over the new yachts. The itinerary
+    // pages, cover line and video on the draft stay.
+    const draft = (r.review_draft && typeof r.review_draft === "object") ? (r.review_draft as Record<string, unknown>) : null;
+    const { yachts: _oldDraftYachts, ...draftRest } = draft || {};
+    void _oldDraftYachts;
     await db
       .from("helm_requests")
       .update({
-        supplier_raw: r.supplier_raw ? `${r.supplier_raw}${sep}${text}` : text,
-        ...(keep ? {} : { combined_media: {} }),
+        // When the text came from imported emails it is already on the record:
+        // only the separator is added, so a re-extract knows where this edition starts.
+        supplier_raw: useImported ? `${r.supplier_raw || ""}${sep}(edition No. ${nextNo} extracted from the emails imported above)` : (r.supplier_raw ? `${r.supplier_raw}${sep}${text}` : text),
+        ...(keep ? {} : { combined_media: {}, review_draft: draft ? draftRest : null }),
         updated_at: nowIso,
       })
       .eq("id", id);

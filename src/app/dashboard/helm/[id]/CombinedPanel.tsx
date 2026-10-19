@@ -359,11 +359,19 @@ export default function CombinedPanel({
   // (same yacht count); otherwise seed fresh from the extraction.
   const [ys, setYs] = useState<YState[]>(() => {
     const d = initialDraft;
-    if (d && d.mode === "combined" && Array.isArray(d.yachts) && d.yachts.length > 0
-        && d.yachts.length === (initialExtraction?.yachts?.length || 0)) {
-      return d.yachts as YState[];
+    const seeds = seedStates(initialExtraction);
+    if (d && d.mode === "combined" && Array.isArray(d.yachts) && d.yachts.length > 0) {
+      if (d.yachts.length === seeds.length) return d.yachts as YState[];
+      // Counts differ (yachts were added, or a new edition replaced them):
+      // keep George's row only where it still describes the same yacht, seed
+      // the rest from the extraction. Never a stale row on a different yacht.
+      const nm = (x: unknown) => String(x ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+      return seeds.map((sd, i) => {
+        const row = (d.yachts as YState[])[i];
+        return row && nm(row.vessel?.name) === nm(sd.vessel.name) ? row : sd;
+      });
     }
-    return seedStates(initialExtraction);
+    return seeds;
   });
   const [media, setMedia] = useState<Record<string, MediaEntry>>(initialMedia || {});
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
