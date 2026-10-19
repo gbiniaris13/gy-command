@@ -13,6 +13,8 @@
 import { createServiceClient } from "@/lib/supabase-server";
 import { getRequestWithProposal } from "@/lib/helm-admin";
 import { optimizedUrl } from "@/lib/helm/cloudinary";
+import { dossiersForNames, dossierKey } from "@/lib/helm/dossier";
+import { fleetPhotosForNames } from "@/lib/helm/fleet-photo";
 import type { CombinedProposal, CombinedYacht } from "@/lib/helm/proposal-template";
 
 export type SalonYachtMedia = { main?: string; gallery: string[]; brochure?: string };
@@ -212,6 +214,36 @@ export async function salonData(requestId: string): Promise<SalonModel | null> {
     if (isHttpUrl(m.main_url)) entry.main = optimizedUrl(m.main_url);
     if (isHttpUrl(m.brochure_url)) entry.brochure = m.brochure_url;
     media[name] = entry;
+  }
+
+  // The Fleet Book (George, 19 October 2026: "PI2 and EFFIE STAR from the
+  // Fleet Book have NO photos"). The PDF already fell back to the yacht's
+  // folder; the Salon read only the card's manual media, so a Fleet Book
+  // yacht arrived on the web edition without a single photograph. Same order
+  // as the PDF: George's card, then the folder, then our own site photos.
+  try {
+    const silent = proposal.yachts.filter((y) => {
+      const m = media[norm(y.name)];
+      return !m || (!m.main && !m.gallery.length);
+    });
+    if (silent.length) {
+      const names = silent.map((y) => String(y.name || ""));
+      const [dossiers, fleet] = await Promise.all([dossiersForNames(names), fleetPhotosForNames(names)]);
+      for (const y of silent) {
+        const name = norm(y.name);
+        const entry: SalonYachtMedia = media[name] || { gallery: [] };
+        const d = dossiers[dossierKey(y.name)];
+        const own = fleet[String(y.name || "")] || [];
+        const main = d?.main_url && isHttpUrl(d.main_url) ? d.main_url : own[0];
+        const extras = d?.extra_urls?.length ? d.extra_urls : own.slice(1);
+        if (main) entry.main = optimizedUrl(main);
+        if (!entry.gallery.length) entry.gallery = extras.filter(isHttpUrl).slice(0, 24).map((u) => optimizedUrl(u));
+        if (!entry.brochure && d?.brochure_url && isHttpUrl(d.brochure_url)) entry.brochure = d.brochure_url;
+        media[name] = entry;
+      }
+    }
+  } catch {
+    /* the edition stands without the folder's photographs */
   }
 
   // George's kill switch (2026-07-16): "no video this time" without losing
