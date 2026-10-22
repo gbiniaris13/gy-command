@@ -10,6 +10,7 @@
 // direct link. Double-submit guard: an inquiry from the same email within
 // 10 minutes updates nothing and returns the existing id.
 
+import { leadDisplayName } from "@/lib/lead-name";
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { createRequest } from "@/lib/helm-admin";
@@ -33,8 +34,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  const name = String(body.name ?? "").trim().slice(0, 160);
   const email = String(body.email ?? "").trim().toLowerCase().slice(0, 320);
+  // 2026-10-22 (George): "Micro brief" / "Concierge card lead" become the
+  // name read from the email (enzo.burito@ -> Enzo Burito).
+  const name = leadDisplayName(String(body.name ?? "").trim().slice(0, 160), email).slice(0, 160);
   if (!name && !email) {
     return NextResponse.json({ error: "name or email required" }, { status: 400 });
   }
