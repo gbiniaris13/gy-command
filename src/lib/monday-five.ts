@@ -17,6 +17,7 @@
 // writes them to settings through /api/admin/monday-five; the brief prints
 // them with their date, and says so when they are older than ten days.
 
+import { tagSiteLinks } from "@/lib/utm";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting, getAccessToken, gmailFetch } from "@/lib/google-api";
 import { getGA4AccessToken, getGSCAccessToken } from "@/lib/google-intel";
@@ -222,6 +223,8 @@ export async function saveMondayManual(input: { ai_panel?: AiPanel; bing_ai?: Bi
 }
 
 function rawEmail(to: string, subject: string, text: string, html: string): string {
+  text = tagSiteLinks(text, { source: "internal", campaign: "helm-report" });
+  html = tagSiteLinks(html, { source: "internal", campaign: "helm-report" });
   const boundary = "gy-monday-five";
   return Buffer.from(
     [

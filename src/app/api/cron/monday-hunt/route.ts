@@ -1,3 +1,4 @@
+import { tagSiteLinks } from "@/lib/utm";
 import { NextRequest, NextResponse } from "next/server";
 import { getGSCAccessToken } from "@/lib/google-intel";
 import { getAccessToken, gmailFetch } from "@/lib/google-api";
@@ -75,6 +76,7 @@ function r1(n: number): number {
 }
 
 function rawEmail(to: string, subject: string, body: string): string {
+  body = tagSiteLinks(body, { source: "internal", campaign: "helm-report" });
   const lines = [
     `From: GY Command <${GEORGE_EMAIL}>`,
     `To: ${to}`,

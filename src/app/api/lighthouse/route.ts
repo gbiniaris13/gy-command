@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { tagSiteLinks } from "@/lib/utm";
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting } from "@/lib/google-api";
@@ -167,7 +168,7 @@ export async function POST(request) {
       : null;
     const d = draftFor({ kind, person, date, edit: inline || edits1[yearKey] });
     const { greetingCard } = await import("@/lib/lighthouse-card");
-    const html = greetingCard({ kind, subject: d.subject, body: d.body });
+    const html = tagSiteLinks(greetingCard({ kind, subject: d.subject, body: tagSiteLinks(d.body, { source: "lighthouse", campaign: kind }) }), { source: "lighthouse", campaign: kind });
     const boundary = "boundary_gy_wish";
     const raw = Buffer.from(
       [
@@ -180,7 +181,7 @@ export async function POST(request) {
         `--${boundary}`,
         "Content-Type: text/plain; charset=UTF-8",
         "",
-        d.body,
+        tagSiteLinks(d.body, { source: "lighthouse", campaign: kind }),
         `--${boundary}`,
         "Content-Type: text/html; charset=UTF-8",
         "",

@@ -242,7 +242,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!emailBody) return NextResponse.json({ error: "The follow-up box is empty. Write the note, or draft one, then send." }, { status: 400 });
 
     try {
-      const sent = await sendHelmEmail({
+      const sent = await sendHelmEmail({ utm: { source: "helm", campaign: "follow-up" },
         to,
         subject: r.email_subject || "Your Greek charter",
         body: emailBody,

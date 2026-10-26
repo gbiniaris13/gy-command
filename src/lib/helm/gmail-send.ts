@@ -5,6 +5,7 @@
 // follow-up cron's reminder-to-George. NEVER auto-sends to a client — callers
 // trigger it only after George confirms.
 
+import { tagSiteLinks, type Utm } from "@/lib/utm";
 import { gmailFetch } from "@/lib/google-api";
 import { registerTrackedEmail, instrumentHtml } from "@/lib/email-tracking";
 
@@ -62,11 +63,16 @@ export function buildRawEmail(args: {
   // 2026-07-23 tracking: applied to the HTML alternative only, so the
   // text/plain part stays byte-identical to what George wrote.
   htmlTransform?: (html: string) => string;
+  // 2026-10-26: links to the site carry a source (see lib/utm.ts), in both
+  // alternatives, so a click from this email is never "Direct" in analytics.
+  utm?: Utm;
 }): string {
   const alt = "alt_" + Math.random().toString(36).slice(2);
   const sig = args.signatureHtml?.trim() ? args.signatureHtml : "";
-  const textBody = sig ? `${args.body}\n\n${htmlToText(sig)}` : args.body;
-  let htmlBody = `${args.body.replace(/\n/g, "<br>")}${sig ? `<br><br>${sig}` : ""}`;
+  const utm = args.utm || { source: "helm" };
+  const body = tagSiteLinks(args.body, utm);
+  const textBody = sig ? `${body}\n\n${htmlToText(sig)}` : body;
+  let htmlBody = `${body.replace(/\n/g, "<br>")}${sig ? `<br><br>${tagSiteLinks(sig, utm)}` : ""}`;
   if (args.htmlTransform) htmlBody = args.htmlTransform(htmlBody);
   const altBlock = [
     `Content-Type: multipart/alternative; boundary="${alt}"`,
@@ -157,6 +163,7 @@ export async function sendHelmEmail(args: {
   threadId?: string;
   inReplyTo?: string;
   attachments?: Attachment[];
+  utm?: Utm;
 }): Promise<{ messageId: string; threadId: string }> {
   const signatureHtml = await getGmailSignature();
   const token = await registerTrackedEmail({

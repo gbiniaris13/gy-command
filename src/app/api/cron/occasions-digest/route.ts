@@ -1,3 +1,4 @@
+import { tagSiteLinks } from "@/lib/utm";
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
@@ -33,6 +34,7 @@ const GEORGE_EMAIL = "george@georgeyachts.com";
 // ─── Gmail: send the digest to George himself ───────────────────────────────
 
 function rawEmail(to: string, subject: string, body: string): string {
+  body = tagSiteLinks(body, { source: "internal", campaign: "helm-report" });
   const lines = [
     `From: GY Command <${GEORGE_EMAIL}>`,
     `To: ${to}`,

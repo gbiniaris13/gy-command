@@ -120,7 +120,7 @@ export async function dispatchWeekEditions(opts: { dryRun?: boolean } = {}) {
         done.push({ id: c.id, client: c.client, mode: "sent" });
       } else {
         const signatureHtml = await getGmailSignature();
-        const raw = buildRawEmail({ to: c.email, subject, body, signatureHtml });
+        const raw = buildRawEmail({ to: c.email, subject, body, signatureHtml, utm: { source: "helm", campaign: "week-edition" } });
         const res = await gmailFetch("/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: { raw } }) });
         const j = res.ok ? await res.json() : null;
         await logHelmMessage(c.id, { direction: null, channel: "note", body: `[Week edition] Draft written in Gmail for ${c.client}: ${subject}` });

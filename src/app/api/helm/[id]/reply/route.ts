@@ -70,7 +70,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!emailBody) return NextResponse.json({ error: "The reply body is empty - generate or write a draft first." }, { status: 400 });
 
     try {
-      const sent = await sendHelmEmail({
+      const sent = await sendHelmEmail({ utm: { source: "helm", campaign: "reply" },
         to,
         subject: r.email_subject || "Your Greek charter",
         body: emailBody,

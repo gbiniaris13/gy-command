@@ -99,7 +99,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }
     }
 
-    const sent = await sendHelmEmail({
+    const sent = await sendHelmEmail({ utm: { source: "helm", campaign: "proposal" },
       to,
       subject: subject || "Your Greek charter",
       body: finalBody,

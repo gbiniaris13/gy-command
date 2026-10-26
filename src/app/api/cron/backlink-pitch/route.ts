@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    await sendHelmEmail({ to: next.to, subject: next.subject, body: next.body });
+    await sendHelmEmail({ utm: { source: "helm", campaign: "backlink-pitch" }, to: next.to, subject: next.subject, body: next.body });
     next.status = "sent";
     next.sent_at = new Date().toISOString();
   } catch (e) {

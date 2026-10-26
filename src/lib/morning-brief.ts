@@ -5,6 +5,7 @@
 // snapshot in `settings` (<engine>_latest); the brief reads the snapshots
 // and the live Helm numbers, and sends once. Nothing here acts; it reports.
 
+import { tagSiteLinks } from "@/lib/utm";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting, gmailFetch } from "@/lib/google-api";
 import { MOMENT_LABEL, athensToday, type Moment } from "@/lib/helm/timeline";
@@ -179,6 +180,8 @@ export async function buildMorningBrief(): Promise<{ subject: string; text: stri
 }
 
 function rawEmail(to: string, subject: string, textBody: string, htmlBody: string): string {
+  textBody = tagSiteLinks(textBody, { source: "internal", campaign: "helm-report" });
+  htmlBody = tagSiteLinks(htmlBody, { source: "internal", campaign: "helm-report" });
   const boundary = "boundary_" + Date.now();
   return Buffer.from(
     [

@@ -166,7 +166,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const messageIds: string[] = [];
       const sentThreads: { email: string; thread_id: string; message_id: string; at: string }[] = [];
       for (const rcpt of targets) {
-        const sent = await sendHelmEmail({ to: rcpt, subject, body: emailBody });
+        const sent = await sendHelmEmail({ utm: { source: "helm", campaign: "agency-inquiry" }, to: rcpt, subject, body: emailBody });
         messageIds.push(sent.messageId);
         sentThreads.push({ email: rcpt, thread_id: sent.threadId, message_id: sent.messageId, at: new Date().toISOString() });
       }

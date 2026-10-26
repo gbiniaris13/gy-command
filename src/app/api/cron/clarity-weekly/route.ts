@@ -13,6 +13,7 @@
 // broken cron. It says plainly which days are missing rather than averaging
 // over the gap.
 
+import { tagSiteLinks } from "@/lib/utm";
 import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
@@ -25,6 +26,7 @@ export const maxDuration = 60;
 const DAYS_IN_REPORT = 7;
 
 function createRawEmail(to: string, subject: string, body: string): string {
+  body = tagSiteLinks(body, { source: "internal", campaign: "helm-report" });
   const lines = [
     "From: George Yachts <george@georgeyachts.com>",
     `To: ${to}`,

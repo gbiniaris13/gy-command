@@ -1,3 +1,4 @@
+import { tagSiteLinks } from "@/lib/utm";
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
@@ -9,6 +10,7 @@ import { optOutFooter, recentGreeting, greetingName, getTier } from "@/lib/greet
 // ─── Gmail send helper ──────────────────────────────────────────────────────
 
 function createRawEmail(to: string, subject: string, body: string): string {
+  body = tagSiteLinks(body, { source: "lighthouse", campaign: "holiday" });
   const lines: string[] = [
     `From: George Yachts <george@georgeyachts.com>`,
     `To: ${to}`,

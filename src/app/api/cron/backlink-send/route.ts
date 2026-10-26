@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { tagSiteLinks } from "@/lib/utm";
 import { NextResponse } from "next/server";
 import { gmailFetch, getSetting, setSetting } from "@/lib/google-api";
 import { observeCron } from "@/lib/cron-observer";
@@ -32,6 +33,7 @@ const DRY_FLAG = "backlink_ready_empty_notified";
 const GEORGE = "george@georgeyachts.com";
 
 function rawEmail(to: string, subject: string, body: string): string {
+  body = tagSiteLinks(body, { source: "backlink-pitch", campaign: "backlink-pitch" });
   const boundary = "boundary_" + Date.now();
   const lines = [
     `To: ${to}`,

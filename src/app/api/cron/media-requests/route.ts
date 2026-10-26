@@ -10,6 +10,7 @@
 // a journalist can tell when a person did not write the reply, and the whole
 // proposition of this house is that a person answers.
 
+import { tagSiteLinks } from "@/lib/utm";
 import { NextRequest, NextResponse } from "next/server";
 import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
@@ -96,6 +97,7 @@ function extractText(payload?: GmailPart): string {
 }
 
 function createRawEmail(to: string, subject: string, body: string): string {
+  body = tagSiteLinks(body, { source: "press", campaign: "media-request" });
   const lines = [
     "From: George Yachts <george@georgeyachts.com>",
     `To: ${to}`,

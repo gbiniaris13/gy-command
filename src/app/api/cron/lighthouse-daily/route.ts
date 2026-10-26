@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { tagSiteLinks } from "@/lib/utm";
 import { NextResponse } from "next/server";
 import { gmailFetch, getSetting, setSetting } from "@/lib/google-api";
 import { observeCron } from "@/lib/cron-observer";
@@ -23,6 +24,8 @@ const G = { navy: "#0D1B2A", gold: "#DAA110", ink: "#26313D", soft: "#5A6874", l
 const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 function rawEmail(to, subject, textBody, htmlBody) {
+  textBody = tagSiteLinks(textBody, { source: "lighthouse", campaign: "lighthouse-daily" });
+  htmlBody = tagSiteLinks(htmlBody, { source: "lighthouse", campaign: "lighthouse-daily" });
   const boundary = "boundary_" + Date.now();
   return Buffer.from(
     [

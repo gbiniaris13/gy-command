@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { tagSiteLinks } from "@/lib/utm";
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch, getSetting } from "@/lib/google-api";
@@ -32,6 +33,8 @@ const ENGINES = [
 ];
 
 function rawEmail(to, subject, textBody, htmlBody) {
+  textBody = tagSiteLinks(textBody, { source: "internal", campaign: "helm-report" });
+  htmlBody = tagSiteLinks(htmlBody, { source: "internal", campaign: "helm-report" });
   const boundary = "boundary_" + Date.now();
   const lines = [
     `To: ${to}`,

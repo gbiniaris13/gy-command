@@ -296,7 +296,7 @@ export async function GET(req: NextRequest) {
       // Fallback: the old internal reminder email, so the follow-up is
       // never silently dropped.
       try {
-        await sendHelmEmail({
+        await sendHelmEmail({ utm: { source: "helm", campaign: "follow-up" },
           to: REMINDER_TO,
           subject: `Follow up: ${name} - no reply yet on your charter proposal`,
           body:
