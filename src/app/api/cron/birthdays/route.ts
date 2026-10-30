@@ -5,6 +5,7 @@ import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
 import { optOutFooter, recentGreeting, OCCASION_PRIORITY, greetingName, getTier } from "@/lib/greetings";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 // ─── Gmail send helper ──────────────────────────────────────────────────────
 
@@ -13,7 +14,7 @@ function createRawEmail(to: string, subject: string, body: string): string {
   const lines: string[] = [
     `From: George Yachts <george@georgeyachts.com>`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset=UTF-8`,
     "",

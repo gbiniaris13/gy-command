@@ -28,6 +28,7 @@ import {
   type Stream,
   type AudienceFilter,
 } from "@/lib/newsletter";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -49,7 +50,7 @@ function buildRawDraft(args: {
   const lines = [
     `To: ${args.to}`,
     `From: George Yachts <${SELF}>`,
-    `Subject: ${args.subject}`,
+    `Subject: ${encodeHeaderWord(args.subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     ``,

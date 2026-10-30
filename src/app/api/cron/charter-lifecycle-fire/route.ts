@@ -20,6 +20,7 @@ import {
   type TemplateContext,
 } from "@/lib/charter-lifecycle";
 import { observeCron } from "@/lib/cron-observer";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -86,7 +87,7 @@ function todayAthens(): string {
 function buildRawDraft(to: string, subject: string, body: string): string {
   const lines = [
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset=UTF-8`,
     ``,

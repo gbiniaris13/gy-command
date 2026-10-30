@@ -26,6 +26,7 @@ import {
 import { templateFor, shouldSkipForMissingName } from "@/lib/pillar3-greeting-templates";
 import { inferReligion } from "@/lib/pillar3-religion-inferrer";
 import { observeCron } from "@/lib/cron-observer";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -111,7 +112,7 @@ async function getOrCreateLabelId(name: string): Promise<string | null> {
 function buildRawDraft(to: string, subject: string, body: string): string {
   const lines = [
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset=UTF-8`,
     ``,

@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 // ─── Email Templates ────────────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ function createRawEmail(to: string, subject: string, body: string): string {
   const lines: string[] = [
     `From: George Yachts <george@georgeyachts.com>`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset=UTF-8`,
     "",

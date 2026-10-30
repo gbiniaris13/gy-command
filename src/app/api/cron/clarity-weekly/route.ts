@@ -19,6 +19,7 @@ import { gmailFetch } from "@/lib/google-api";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
 import { readBuffer, buildWeek, renderWeekEmail } from "@/lib/clarity";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -30,7 +31,7 @@ function createRawEmail(to: string, subject: string, body: string): string {
   const lines = [
     "From: George Yachts <george@georgeyachts.com>",
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
     "",

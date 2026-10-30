@@ -14,7 +14,7 @@ import { gmailFetch } from "@/lib/google-api";
 import { createServiceClient } from "@/lib/supabase-server";
 import { refreshContactInbox } from "@/lib/inbox-analyzer";
 import { extractCommitments } from "@/lib/commitment-extractor";
-import { registerTrackedEmail, instrumentHtml } from "@/lib/email-tracking";
+import { registerTrackedEmail, instrumentHtml, encodeHeaderWord } from "@/lib/email-tracking";
 import { requireUser } from "@/lib/require-user";
 
 function createRawEmail(
@@ -28,7 +28,7 @@ function createRawEmail(
   const boundary = "boundary_" + Date.now();
   const lines: string[] = [
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ];

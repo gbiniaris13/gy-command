@@ -16,6 +16,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { gmailFetch } from "@/lib/google-api";
 import { templateFor } from "@/lib/pillar3-greeting-templates";
 import { requireUser } from "@/lib/require-user";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -34,7 +35,7 @@ function tomorrowAthens(): { year: number; month: number; day: number } {
 function buildRawDraft(to: string, subject: string, body: string): string {
   const lines = [
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/plain; charset=UTF-8`,
     ``,

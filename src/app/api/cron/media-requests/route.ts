@@ -22,6 +22,7 @@ import {
   findOutlet,
   draftAnswer,
 } from "@/lib/media-requests";
+import { encodeHeaderWord } from "@/lib/email-tracking";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -101,7 +102,7 @@ function createRawEmail(to: string, subject: string, body: string): string {
   const lines = [
     "From: George Yachts <george@georgeyachts.com>",
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeHeaderWord(subject)}`,
     "MIME-Version: 1.0",
     "Content-Type: text/plain; charset=UTF-8",
     "",
