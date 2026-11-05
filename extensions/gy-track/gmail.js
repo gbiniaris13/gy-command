@@ -42,16 +42,26 @@
     document.querySelectorAll('[role="button"][data-tooltip^="Send"], [role="button"][aria-label^="Send"], [role="button"][data-tooltip^="Αποστολή"], [role="button"][aria-label^="Αποστολή"]').forEach((b) => { if (isSendButton(b)) out.add(b); });
     return [...out];
   }
-  // The nearest ancestor holding both a draft body and a Send button: one
-  // compose window (or one inline reply), never two.
+  // One compose window (or one inline reply), never two. In Gmail the body
+  // and Send live in one block and the recipients and subject in a sibling
+  // form, so the root is the nearest ancestor that holds the body, a Send
+  // button AND the subject field; while climbing it must still hold a
+  // single Send button. Without a subject field in reach, the body+Send
+  // block is the root.
+  const SUBJECT_SEL = 'input[name="subjectbox"]';
   function composeRoot(from) {
-    let el = from;
-    for (let i = 0; el && i < 60; i++, el = el.parentElement) {
+    const sends = sendButtons();
+    let el = from, inner = null;
+    for (let i = 0; el && el !== document.body && i < 80; i++, el = el.parentElement) {
       if (!el.querySelector) continue;
-      const body = el.querySelector(BODY_SEL);
-      if (body && sendButtons().some((b) => el.contains(b))) return el;
+      if (!inner) {
+        if (el.querySelector(BODY_SEL) && sends.some((b) => el.contains(b))) inner = el;
+        else continue;
+      }
+      if (sends.filter((b) => el.contains(b)).length > 1) break;
+      if (el.querySelector(SUBJECT_SEL)) return el;
     }
-    return null;
+    return inner;
   }
   const bodyOf = (root) => root.querySelector(BODY_SEL);
 
@@ -72,10 +82,12 @@
     });
     // An inline reply can keep its recipients folded away. Then the people
     // of the open conversation are the recipients.
-    if (!all && !root.closest('[role="dialog"]')) {
+    let via = "draft";
+    if (!all && !root.querySelector(SUBJECT_SEL)) {
+      via = "conversation";
       document.querySelectorAll("[email]").forEach((el) => { if (!el.closest(BODY_SEL)) count(el.getAttribute("email")); });
     }
-    return { external: [...set], any: all > 0 };
+    return { external: [...set], any: all > 0, via };
   }
 
   function subjectOf(root) {
@@ -129,7 +141,7 @@
     if (!root || !body) return { track: false, why: "Could not find the draft in this Gmail window." };
     const r = recipients(root, body);
     if (!r.external.length) return { track: false, why: r.any ? "Only George Yachts recipients: internal mail is not tracked." : "No recipient yet." };
-    return { track: true, why: "", to: r.external, body };
+    return { track: true, why: "", to: r.external, body, via: r.via };
   }
 
   let lastSend = { root: null, at: 0 };
@@ -216,7 +228,7 @@
         btn.style.boxShadow = v.track ? "0 0 0 2px #b08d57" : "";
         const base = (btn.getAttribute("data-tooltip") || "").replace(/\s*·\s*GY Track.*$/, "");
         if (base) btn.setAttribute("data-tooltip", `${base} · GY Track: ${v.track ? "tracked" : "not tracked"}`);
-        let line = v.track ? `will track, ${v.to.length} recipient(s)` : `not tracked: ${v.why}`;
+        let line = v.track ? `will track, ${v.to.length} recipient(s) read from the ${v.via}, subject field ${root.querySelector(SUBJECT_SEL) ? "found" : "not found"}` : `not tracked: ${v.why}`;
         // Self-test: a draft with this exact subject is instrumented at once
         // (never sent), so the whole Send path can be checked on real Gmail.
         if (root && subjectOf(root) === SELFTEST && !tested.has(root)) {
