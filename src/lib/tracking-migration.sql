@@ -45,3 +45,15 @@ create table if not exists email_tracking_hits (
 );
 create index if not exists email_tracking_hits_token_idx on email_tracking_hits (token, at desc);
 alter table email_tracking_hits enable row level security;
+
+-- 2026-11-05 v3: NO schema change. Bookkeeping rows ride in
+-- email_tracking_hits under kinds other than open/click, url = small JSON:
+--   msg     the Gmail message id/thread of a Helm or Cabin send  {m, th}
+--   copy    George's Sent copy swapped for one without the tracker
+--           (verdict done | skipped | failed | gave-up)  {o, m, th, why}
+--   alert   the Gmail thread that holds every alert for this email  {th}
+--   seen    George's own Gmail showed this email just now (GY Track)
+--   replied the recipient answered in the thread (open alerts stop)
+-- The place of a click rides in hits.ip as "1.2.3.4 | City, Region, CC".
+-- source 'gmail' = written by George in Gmail, tracked by the GY Track
+-- extension (extensions/gy-track).

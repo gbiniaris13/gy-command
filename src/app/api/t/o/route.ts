@@ -4,15 +4,40 @@
 // apple-mpp — see classifyOpen); only a HUMAN open updates the counters and
 // notifies George. HubSpot-grade filtering, per hit, because our volume
 // affords the full audit trail.
+//
+// v3 (2026-11-05): every reading session alerts, not only the first (a new
+// session = no other human open in the 30 minutes before it), in one Gmail
+// thread per email with the whole timeline. Two more ways an open is
+// George's own and stays silent: his Chrome sends x-gy-self (GY Track), or
+// his Gmail reported the email on his screen a moment ago ("seen"). The
+// verdict is re-read a few seconds later before anything counts, so a
+// "seen" that arrives just after the pixel still wins.
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { emailGeorgeReport, athensTime, classifyOpen, selfFooter } from "@/lib/email-tracking";
+import {
+  athensTime,
+  classifyOpen,
+  selfFooter,
+  isExtRequest,
+  seenRecently,
+  timelineFor,
+  hasReplied,
+  sendThreadedAlert,
+  alertSubject,
+  placeFromHeaders,
+  ipWithPlace,
+  sleep,
+} from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+
+// A reader who opens the email twice in ten minutes is one reading, not two.
+const SESSION_GAP_MS = 30 * 60_000;
 
 function gif(): NextResponse {
   return new NextResponse(GIF, {
@@ -33,7 +58,7 @@ export async function GET(req: NextRequest) {
     const sb = createServiceClient();
     const { data: row } = await sb
       .from("email_tracking")
-      .select("id, sent_at, open_count, first_open_at, open_notified, subject, recipient, source")
+      .select("id, sent_at, subject, recipient, source")
       .eq("token", token)
       .maybeSingle();
     if (!row) return gif();
@@ -46,55 +71,103 @@ export async function GET(req: NextRequest) {
       null;
     const sentMs = Date.parse(row.sent_at);
 
-    const verdict = classifyOpen({
+    let verdict = classifyOpen({
       userAgent,
       sentAtMs: Number.isFinite(sentMs) ? sentMs : null,
       nowMs: now.getTime(),
     });
+    if (verdict === "human" && (isExtRequest(req.headers.get("x-gy-self")) || (await seenRecently(token, now.getTime())))) {
+      verdict = "self";
+    }
 
     // Full audit trail — every hit, every verdict. Never blocks the pixel.
-    await sb.from("email_tracking_hits").insert({
-      token,
-      kind: "open",
-      user_agent: (userAgent || "").slice(0, 400),
-      ip,
-      verdict,
-    });
-
-    if (verdict !== "human") return gif();
-
-    const isFirst = !row.first_open_at;
-    await sb
-      .from("email_tracking")
-      .update({
-        open_count: (row.open_count || 0) + 1,
-        last_open_at: now.toISOString(),
-        ...(isFirst ? { first_open_at: now.toISOString() } : {}),
-        ...(isFirst ? { open_notified: true } : {}),
+    const { data: hit } = await sb
+      .from("email_tracking_hits")
+      .insert({
+        token,
+        kind: "open",
+        user_agent: (userAgent || "").slice(0, 400),
+        ip: ipWithPlace(ip, placeFromHeaders(req.headers)),
+        verdict,
       })
-      .eq("id", row.id);
+      .select("id, at")
+      .single();
 
-    if (isFirst && !row.open_notified) {
-      const body = [
-        `Your email was just opened.`,
-        ``,
-        `To:      ${row.recipient || "unknown"}`,
-        `Subject: ${row.subject || "(no subject)"}`,
-        `Sent:    ${athensTime(row.sent_at)} (Athens)`,
-        `Opened:  ${athensTime(now.toISOString())} (Athens)`,
-        `Via:     ${row.source}`,
-        ``,
-        `Machine fetches (Gmail prefetch, scanners, Apple proxy) are filtered out - this one classified as a real reader.`,
-        `Further opens and clicks are counted silently - the evening digest has the totals.`,
-        ...selfFooter(token, "open"),
-      ].join("\n");
-      await emailGeorgeReport(
-        `\u{1F4EC} Opened: ${(row.subject || "(no subject)").slice(0, 60)} - ${row.recipient || ""}`,
-        body,
-      );
+    if (verdict === "human" && hit) {
+      after(() => countAndAlert(token, row, hit.id, now));
     }
   } catch (err) {
     console.error("[tracking/open] failed:", err);
   }
   return gif();
+}
+
+async function countAndAlert(
+  token: string,
+  row: { id: string; sent_at: string; subject: string | null; recipient: string | null; source: string },
+  hitId: string,
+  now: Date,
+): Promise<void> {
+  try {
+    // Give a "seen" from George's own Gmail a moment to land and relabel it.
+    await sleep(6_000);
+    const sb = createServiceClient();
+    const { data: still } = await sb.from("email_tracking_hits").select("verdict").eq("id", hitId).maybeSingle();
+    if (still?.verdict !== "human") return;
+
+    const { data: cur } = await sb
+      .from("email_tracking")
+      .select("open_count, first_open_at")
+      .eq("id", row.id)
+      .maybeSingle();
+    const isFirst = !cur?.first_open_at;
+    await sb
+      .from("email_tracking")
+      .update({
+        open_count: (cur?.open_count || 0) + 1,
+        last_open_at: now.toISOString(),
+        ...(isFirst ? { first_open_at: now.toISOString(), open_notified: true } : {}),
+      })
+      .eq("id", row.id);
+
+    // Same reading session as an open a few minutes ago: counted, not alerted.
+    const { data: recent } = await sb
+      .from("email_tracking_hits")
+      .select("id")
+      .eq("token", token)
+      .eq("kind", "open")
+      .eq("verdict", "human")
+      .neq("id", hitId)
+      .gte("at", new Date(now.getTime() - SESSION_GAP_MS).toISOString())
+      .limit(1);
+    if (recent && recent.length) return;
+
+    if (await hasReplied(token, row.sent_at)) return;
+
+    const tl = await timelineFor(token, row.sent_at);
+    const n = Math.max(1, tl.humanOpens);
+    const headline = n === 1 ? `Opened for the first time.` : `Opened again, the ${ordinalWord(n)} time.`;
+    const body = [
+      headline,
+      ``,
+      `To:      ${row.recipient || "unknown"}`,
+      `Subject: ${row.subject || "(no subject)"}`,
+      `Opened:  ${athensTime(now.toISOString())} (Athens)`,
+      ``,
+      `Timeline (Athens)`,
+      ...tl.lines,
+      ...(tl.apple ? [``, `Apple Mail loaded it ${tl.apple}x by itself (Apple does that to every email, so those are not counted).`] : []),
+      ...selfFooter(token, "open"),
+    ].join("\n");
+    await sendThreadedAlert(token, alertSubject(row), body);
+  } catch (err) {
+    console.error("[tracking/open] alert failed:", err);
+  }
+}
+
+function ordinalWord(n: number): string {
+  const w = ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"];
+  if (n < w.length) return w[n];
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
 }

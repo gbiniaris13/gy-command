@@ -16,6 +16,7 @@ import { refreshContactInbox } from "@/lib/inbox-analyzer";
 import { extractCommitments } from "@/lib/commitment-extractor";
 import { registerTrackedEmail, instrumentHtml, encodeHeaderWord } from "@/lib/email-tracking";
 import { requireUser } from "@/lib/require-user";
+import { afterTrackedSend } from "@/lib/sent-copy";
 
 function createRawEmail(
   to: string,
@@ -171,6 +172,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await res.json();
+    await afterTrackedSend(trackingToken, data.id, data.threadId);
 
     // Best-effort activity log — never fail the send because of it.
     logOutboundActivity({

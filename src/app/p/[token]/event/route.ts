@@ -16,6 +16,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
 import { resolveEditionRef } from "@/lib/helm/edition-link";
+import { staffSig } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,11 +71,27 @@ export async function POST(
   const id = await resolveEditionRef(token || "");
   if (!id) return NextResponse.json({ ok: true }); // never help enumeration
 
+  const body = (await req.json().catch(() => ({}))) as { t?: string; y?: string; s?: unknown; gs?: unknown };
+
+  // 2026-11-05: opened from George's own copy of the email (?gs=, see
+  // lib/sent-copy.ts). The house, whatever the browser: record nothing and
+  // stamp the durable marker here too, so later visits need no link.
+  if (typeof body.gs === "string" && body.gs === staffSig(id)) {
+    const res = NextResponse.json({ ok: true, self: true });
+    res.cookies.set("gy_staff", "1", {
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: "lax",
+      path: "/",
+      secure: process.env.NODE_ENV === "production",
+      ...(process.env.NODE_ENV === "production" ? { domain: ".georgeyachts.com" } : {}),
+    });
+    return res;
+  }
+
   // George previewing his own edition is not a client signal — record nothing.
   if (await isAdminViewer()) return NextResponse.json({ ok: true, self: true });
 
   try {
-    const body = (await req.json().catch(() => ({}))) as { t?: string; y?: string; s?: unknown };
     const t = String(body.t || "");
     const yacht = String(body.y || "").slice(0, 80);
     // 2026-10-02: "dwell" (seconds on a yacht page) and "hold" (ask the owner

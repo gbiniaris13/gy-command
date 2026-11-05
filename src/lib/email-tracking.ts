@@ -44,12 +44,46 @@ export function signClick(token: string, url: string): string {
   return hmac(`${token}|${url}`);
 }
 
+function sameSig(a: string, b: string): boolean {
+  return a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 export function verifyClick(token: string, url: string, sig: string): boolean {
-  const expected = signClick(token, url);
-  return (
-    sig.length === expected.length &&
-    crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))
-  );
+  // Links signed here, or signed in George's Gmail by the GY Track extension
+  // with its own key (it cannot hold CRON_SECRET, see extKey).
+  return sameSig(sig, signClick(token, url)) || sameSig(sig, signClickExt(token, url));
+}
+
+// 2026-11-05 — the GY Track Chrome extension. It instruments the emails
+// George writes from scratch in Gmail, so it must sign click links in the
+// browser, synchronously, at the moment he presses Send. It holds a key
+// DERIVED from CRON_SECRET (never the secret itself), fetched once from
+// /api/t/ext/key by a signed-in Command tab.
+export function extKey(): string {
+  const key = process.env.CRON_SECRET || "gy-tracking";
+  return crypto.createHmac("sha256", key).update("gy-track-extension").digest("base64url");
+}
+
+export function signClickExt(token: string, url: string): string {
+  return crypto.createHmac("sha256", extKey()).update(`${token}|${url}`).digest("base64url").slice(0, 16);
+}
+
+export function isExtRequest(value: string | null | undefined): boolean {
+  return !!value && sameSig(value, extKey());
+}
+
+// George's own copy of an Edition link carries ?gs=<this>. The Salon reads
+// it, treats the visit as the house and stamps the gy_staff cookie in that
+// browser (the Gmail app's in-app browser has no Command session, which is
+// how his own reading of a proposal used to count as the client's).
+export function staffSig(requestId: string): string {
+  return hmac(`staff|${requestId}`);
+}
+
+// Internal mail is never tracked: there is nobody to report on.
+export function isInternalOnly(recipients: string): boolean {
+  const emails = recipients.toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]+/g) || [];
+  return emails.length > 0 && emails.every((e) => e.endsWith("@georgeyachts.com"));
 }
 
 // "That was me" correction link (2026-08-18). Signed with the same key as
@@ -88,6 +122,7 @@ export async function registerTrackedEmail(args: {
   subject: string;
 }): Promise<string | null> {
   try {
+    if (isInternalOnly(args.recipient)) return null;
     const token = newToken();
     const sb = createServiceClient();
     const { error } = await sb.from("email_tracking").insert({
@@ -272,3 +307,210 @@ export function athensTime(iso?: string | null): string {
     minute: "2-digit",
   });
 }
+
+// ── v3 (2026-11-05): every open, every click, one thread per email ──────
+// George: "θέλω να ξέρω πότε το ανοίγει, τι link πάτησε, πότε το ξανάνοιξε,
+// θέλω να τα ξέρω όλα". v2 told him about the FIRST open and the FIRST click
+// and counted the rest in silence. v3 reports every reading session and
+// every click, and files all reports about one email in ONE Gmail thread,
+// so his inbox shows one line per email that moves up when it moves.
+//
+// Bookkeeping rides in email_tracking_hits under kinds that are not "open"
+// or "click" (msg, copy, alert, seen, replied), so no schema change on the
+// live database and nothing that reads hits by kind sees them.
+
+export type MetaKind = "msg" | "copy" | "alert" | "seen" | "replied";
+
+export async function recordMeta(token: string, kind: MetaKind, verdict: string, data: Record<string, unknown> = {}): Promise<void> {
+  try {
+    const sb = createServiceClient();
+    await sb.from("email_tracking_hits").insert({ token, kind, verdict, url: JSON.stringify(data).slice(0, 800) });
+  } catch (err) {
+    console.error("[tracking] meta failed:", err);
+  }
+}
+
+export async function readMeta(token: string, kind: MetaKind): Promise<{ verdict: string; at: string; data: Record<string, string> } | null> {
+  try {
+    const sb = createServiceClient();
+    const { data } = await sb
+      .from("email_tracking_hits")
+      .select("verdict, at, url")
+      .eq("token", token)
+      .eq("kind", kind)
+      .order("at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!data) return null;
+    let parsed: Record<string, string> = {};
+    try { parsed = JSON.parse(data.url || "{}"); } catch { /* keep empty */ }
+    return { verdict: data.verdict, at: data.at, data: parsed };
+  } catch {
+    return null;
+  }
+}
+
+/** Remember which Gmail message carries this token (Helm and Cabin sends). */
+export async function noteSentMessage(token: string | null, messageId: string, threadId?: string): Promise<void> {
+  if (!token || !messageId) return;
+  await recordMeta(token, "msg", "meta", { m: messageId, th: threadId || "" });
+}
+
+// Where a reader was. Gmail and Yahoo fetch images through their own
+// proxies, so for an open the place is the proxy's, never the reader's:
+// we say "Gmail" and stop. A click is the reader's own browser, so city
+// and device are theirs.
+export function deviceFromUa(ua: string | null): string {
+  const u = ua || "";
+  if (/GoogleImageProxy|ggpht\.com/i.test(u)) return "Gmail";
+  if (/YahooMailProxy/i.test(u)) return "Yahoo Mail";
+  if (/Outlook|ms-office|MSOffice/i.test(u)) return "Outlook";
+  if (/iPhone/i.test(u)) return "iPhone";
+  if (/iPad/i.test(u)) return "iPad";
+  if (/Android/i.test(u)) return "Android";
+  if (/Macintosh|Mac OS X/i.test(u)) return "Mac";
+  if (/Windows/i.test(u)) return "Windows";
+  return "";
+}
+
+export function placeFromHeaders(h: Headers): string {
+  const dec = (v: string | null) => {
+    try { return v ? decodeURIComponent(v) : ""; } catch { return v || ""; }
+  };
+  const city = dec(h.get("x-vercel-ip-city"));
+  const region = dec(h.get("x-vercel-ip-country-region"));
+  const country = dec(h.get("x-vercel-ip-country"));
+  return [city, region && region !== city ? region : "", country].filter(Boolean).join(", ");
+}
+
+/** "1.2.3.4 | Miami, FL, US" — the place rides in the ip column. */
+export function ipWithPlace(ip: string | null, place: string): string | null {
+  if (!place) return ip;
+  return `${ip || ""} | ${place}`.slice(0, 200);
+}
+
+function placeOf(ipField: string | null): string {
+  const i = (ipField || "").indexOf(" | ");
+  return i >= 0 ? (ipField || "").slice(i + 3) : "";
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
+function shortUrl(u: string): string {
+  try {
+    const x = new URL(u);
+    for (const k of [...x.searchParams.keys()]) if (k.startsWith("utm_")) x.searchParams.delete(k);
+    return `${x.host}${x.pathname === "/" ? "" : x.pathname}${x.search}`.slice(0, 90);
+  } catch {
+    return u.slice(0, 90);
+  }
+}
+
+type HitRow = { kind: string; at: string; verdict: string; user_agent: string | null; ip: string | null; url: string | null };
+
+export async function timelineFor(token: string, sentAt: string): Promise<{ lines: string[]; humanOpens: number; humanClicks: number; apple: number }> {
+  const sb = createServiceClient();
+  const { data } = await sb
+    .from("email_tracking_hits")
+    .select("kind, at, verdict, user_agent, ip, url")
+    .eq("token", token)
+    .in("kind", ["open", "click"])
+    .order("at", { ascending: true })
+    .limit(300);
+  const hits = (data || []) as HitRow[];
+  const lines = [`  ${athensTime(sentAt)}   sent`];
+  let opens = 0, clicks = 0, apple = 0;
+  for (const h of hits) {
+    if (h.verdict === "apple-mpp") { apple++; continue; }
+    if (h.verdict !== "human") continue;
+    const dev = deviceFromUa(h.user_agent);
+    const place = placeOf(h.ip);
+    if (h.kind === "open") {
+      opens++;
+      lines.push(`  ${athensTime(h.at)}   opened${opens > 1 ? ` (${ordinal(opens)} time)` : ""}${dev ? ` · ${dev}` : ""}`);
+    } else {
+      clicks++;
+      const where = [dev, place].filter(Boolean).join(", ");
+      lines.push(`  ${athensTime(h.at)}   clicked ${shortUrl(h.url || "")}${where ? ` · ${where}` : ""}`);
+    }
+  }
+  return { lines, humanOpens: opens, humanClicks: clicks, apple };
+}
+
+// Has the recipient answered in this thread since the email went out?
+// Once they have, open alerts stop: the reply already proves they read it,
+// and later "opens" are very often George reading their reply, which
+// quotes his email and so carries his pixel. Clicks keep alerting.
+export async function hasReplied(token: string, sentAt: string): Promise<boolean> {
+  const known = await readMeta(token, "replied");
+  if (known) return true;
+  const copy = await readMeta(token, "copy");
+  const msg = copy?.data?.th ? copy : await readMeta(token, "msg");
+  const threadId = msg?.data?.th;
+  if (!threadId) return false;
+  try {
+    const res = await gmailFetch(`/threads/${threadId}?format=metadata&metadataHeaders=From`);
+    if (!res.ok) return false;
+    const t = (await res.json()) as { messages?: { labelIds?: string[]; internalDate?: string; payload?: { headers?: { name: string; value: string }[] } }[] };
+    const sentMs = Date.parse(sentAt);
+    const replied = (t.messages || []).some((m) => {
+      const labels = m.labelIds || [];
+      if (labels.includes("SENT") || labels.includes("DRAFT")) return false;
+      const from = (m.payload?.headers || []).find((h) => h.name.toLowerCase() === "from")?.value || "";
+      if (/@georgeyachts\.com/i.test(from)) return false;
+      return Number(m.internalDate || 0) > sentMs;
+    });
+    if (replied) await recordMeta(token, "replied", "meta", {});
+    return replied;
+  } catch {
+    return false;
+  }
+}
+
+// One Gmail thread per tracked email. The first alert sets a Message-ID we
+// own; every later one replies to it with the same subject and threadId.
+export async function sendThreadedAlert(token: string, subject: string, body: string): Promise<boolean> {
+  try {
+    const prior = await readMeta(token, "alert");
+    const rootId = `<gy-track-${token}@georgeyachts.com>`;
+    const headers = [
+      `From: GY Command <${GEORGE_EMAIL}>`,
+      `To: ${GEORGE_EMAIL}`,
+      `Subject: ${encodeHeaderWord(subject)}`,
+      prior ? `In-Reply-To: ${rootId}` : `Message-ID: ${rootId}`,
+      ...(prior ? [`References: ${rootId}`] : []),
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=UTF-8",
+      "",
+      body,
+    ];
+    const payload: Record<string, string> = { raw: Buffer.from(headers.join("\r\n")).toString("base64url") };
+    if (prior?.data?.th) payload.threadId = prior.data.th;
+    const res = await gmailFetch("/messages/send", { method: "POST", body: JSON.stringify(payload) });
+    if (!res.ok) return false;
+    const sent = (await res.json()) as { threadId?: string };
+    if (!prior && sent.threadId) await recordMeta(token, "alert", "meta", { th: sent.threadId });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function alertSubject(row: { recipient: string | null; subject: string | null }): string {
+  return `\u{1F4EC} ${(row.recipient || "unknown").slice(0, 60)} · ${(row.subject || "(no subject)").slice(0, 70)}`;
+}
+
+// A "seen" mark is George's own Gmail (the GY Track extension) reporting
+// that an email carrying this token is on his screen right now. Opens that
+// land around it are his, not the client's.
+export const SEEN_WINDOW_MS = 120_000;
+
+export async function seenRecently(token: string, nowMs: number): Promise<boolean> {
+  const seen = await readMeta(token, "seen");
+  return !!seen && nowMs - Date.parse(seen.at) < SEEN_WINDOW_MS;
+}
+
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

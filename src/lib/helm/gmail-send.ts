@@ -8,6 +8,7 @@
 import { tagSiteLinks, type Utm } from "@/lib/utm";
 import { gmailFetch } from "@/lib/google-api";
 import { registerTrackedEmail, instrumentHtml } from "@/lib/email-tracking";
+import { afterTrackedSend } from "@/lib/sent-copy";
 
 export type Attachment = { filename: string; mimeType: string; base64: string };
 
@@ -181,5 +182,7 @@ export async function sendHelmEmail(args: {
   const res = await gmailFetch("/messages/send", { method: "POST", body: JSON.stringify(sendBody) });
   if (!res.ok) throw new Error(`gmail send ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
+  // George's Sent copy is swapped for one without the tracker (lib/sent-copy).
+  await afterTrackedSend(token, data.id, data.threadId);
   return { messageId: data.id, threadId: data.threadId };
 }

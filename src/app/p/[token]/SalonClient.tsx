@@ -132,7 +132,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
       fetch(`/p/${view.token}/event`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ t, ...(y ? { y } : {}) }),
+        body: JSON.stringify({ t, ...(y ? { y } : {}), ...houseMark() }),
         keepalive: true,
       }).catch(() => {});
     } catch { /* signal only */ }
@@ -236,7 +236,7 @@ export default function SalonClient({ view }: { view: SalonView }) {
         fetch(`/p/${view.token}/event`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ t: "dwell", y: d.yacht, s: Math.min(secs, 1800) }),
+          body: JSON.stringify({ t: "dwell", y: d.yacht, s: Math.min(secs, 1800), ...houseMark() }),
           keepalive: true,
         }).catch(() => {});
       } catch { /* signal only */ }
@@ -1251,4 +1251,29 @@ function Carousel({ photos, alt, onZoom }: { photos: string[]; alt: string; onZo
       )}
     </div>
   );
+}
+
+// 2026-11-05: George's own copy of the email links here with ?gs=<sig>.
+// Kept for the whole visit (sessionStorage) and sent with every beacon, so
+// the event route can call it the house even in a browser where he has
+// never signed in to Command, such as the Gmail app's. The address bar is
+// tidied so the marker is never copied onwards by accident.
+let _gs: string | null | undefined;
+function houseMark(): { gs?: string } {
+  if (_gs === undefined) {
+    _gs = null;
+    try {
+      const url = new URL(window.location.href);
+      const fromUrl = url.searchParams.get("gs");
+      if (fromUrl) {
+        _gs = fromUrl;
+        try { sessionStorage.setItem("gy_gs", fromUrl); } catch { /* private mode */ }
+        url.searchParams.delete("gs");
+        window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+      } else {
+        try { _gs = sessionStorage.getItem("gy_gs"); } catch { /* private mode */ }
+      }
+    } catch { /* signal only */ }
+  }
+  return _gs ? { gs: _gs } : {};
 }

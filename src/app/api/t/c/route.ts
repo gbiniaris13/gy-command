@@ -4,13 +4,33 @@
 // prefetch / bot — see classifyClick, incl. the 8s burst rule that catches
 // scanners walking every link); only a HUMAN click counts and notifies.
 // The redirect is always served — filtering never breaks the reader's link.
+//
+// v3 (2026-11-05): every human click alerts (the same link again within 10
+// minutes is one click), in the email's own alert thread, with the reader's
+// device and city and the whole timeline. A click from George's own Chrome
+// carries x-gy-self (GY Track) and is filed as "self".
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { verifyClick, emailGeorgeReport, athensTime, classifyClick, selfFooter } from "@/lib/email-tracking";
+import {
+  verifyClick,
+  athensTime,
+  classifyClick,
+  selfFooter,
+  isExtRequest,
+  timelineFor,
+  sendThreadedAlert,
+  alertSubject,
+  deviceFromUa,
+  placeFromHeaders,
+  ipWithPlace,
+} from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+const SAME_LINK_GAP_MS = 10 * 60_000;
 
 export async function GET(req: NextRequest) {
   const p = req.nextUrl.searchParams;
@@ -69,7 +89,7 @@ export async function GET(req: NextRequest) {
         .limit(1)
         .maybeSingle();
 
-      const verdict = classifyClick({
+      let verdict = classifyClick({
         userAgent,
         sentAtMs: Number.isFinite(sentMs) ? sentMs : null,
         nowMs: now,
@@ -78,17 +98,23 @@ export async function GET(req: NextRequest) {
           : null,
         url,
       });
+      if (isExtRequest(req.headers.get("x-gy-self"))) verdict = "self";
 
-      await sb.from("email_tracking_hits").insert({
-        token,
-        kind: "click",
-        user_agent: (userAgent || "").slice(0, 400),
-        ip,
-        url: url.slice(0, 800),
-        verdict,
-      });
+      const place = placeFromHeaders(req.headers);
+      const { data: hit } = await sb
+        .from("email_tracking_hits")
+        .insert({
+          token,
+          kind: "click",
+          user_agent: (userAgent || "").slice(0, 400),
+          ip: ipWithPlace(ip, place),
+          url: url.slice(0, 800),
+          verdict,
+        })
+        .select("id")
+        .single();
 
-      if (verdict === "human") {
+      if (verdict === "human" && hit) {
         const nowIso = new Date(now).toISOString();
         const isFirst = !row.first_click_at;
         await sb
@@ -101,24 +127,38 @@ export async function GET(req: NextRequest) {
           })
           .eq("id", row.id);
 
-        if (isFirst && !row.click_notified) {
-          const body = [
-            `A link in your email was just clicked.`,
-            ``,
-            `To:      ${row.recipient || "unknown"}`,
-            `Subject: ${row.subject || "(no subject)"}`,
-            `Clicked: ${url}`,
-            `At:      ${athensTime(nowIso)} (Athens)`,
-            `Via:     ${row.source}`,
-            ``,
-            `Scanner and prefetch clicks are filtered out - this one classified as a real reader.`,
-            ...selfFooter(token, "click"),
-          ].join("\n");
-          await emailGeorgeReport(
-            `\u{1F517} Clicked: ${(row.subject || "(no subject)").slice(0, 60)} - ${row.recipient || ""}`,
-            body,
-          );
-        }
+        const device = deviceFromUa(userAgent);
+        after(async () => {
+          try {
+            const { data: again } = await sb
+              .from("email_tracking_hits")
+              .select("id")
+              .eq("token", token)
+              .eq("kind", "click")
+              .eq("verdict", "human")
+              .eq("url", url.slice(0, 800))
+              .neq("id", hit.id)
+              .gte("at", new Date(now - SAME_LINK_GAP_MS).toISOString())
+              .limit(1);
+            if (again && again.length) return;
+            const tl = await timelineFor(token, row.sent_at);
+            const where = [device, place].filter(Boolean).join(", ");
+            const body = [
+              `Clicked: ${url}`,
+              ``,
+              `To:      ${row.recipient || "unknown"}`,
+              `Subject: ${row.subject || "(no subject)"}`,
+              `At:      ${athensTime(nowIso)} (Athens)${where ? `, ${where}` : ""}`,
+              ``,
+              `Timeline (Athens)`,
+              ...tl.lines,
+              ...selfFooter(token, "click"),
+            ].join("\n");
+            await sendThreadedAlert(token, alertSubject(row), body);
+          } catch (err) {
+            console.error("[tracking/click] alert failed:", err);
+          }
+        });
       }
     }
   } catch (err) {
