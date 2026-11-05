@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GY Track",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "George Yachts email tracking for the emails George writes in Gmail. Private, no third parties.",
   "permissions": ["storage", "declarativeNetRequest", "alarms"],
   "host_permissions": ["https://mail.google.com/*", "https://command.georgeyachts.com/*"],
