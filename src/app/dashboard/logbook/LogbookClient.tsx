@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DayCounts, DaySnapshot, GscDay, LogbookData, TopVisitor } from "@/lib/logbook";
+import type { DayCounts, DaySnapshot, GscDay, LogbookData, SeoMover, TopVisitor } from "@/lib/logbook";
 
 // THE LOGBOOK. George's brief (6/11/2026): "με μια ματιά να βλέπω πώς
 // πήγε η προηγούμενη μέρα, να κρατάει όλο το ιστορικό και κάθε μήνα να
@@ -148,6 +148,30 @@ function Tile({ label, value, delta, note, spark, big = false }: { label: string
   );
 }
 
+// The small line under a figure: how it moved against the period before.
+// Deliberately quiet (George, 6/11: "πιο μικρά τα ποσοστά, πιο θολά, πιο
+// bold τα άλλα"): the figure is what the eye lands on, the change is there
+// for whoever looks for it.
+const GOOD_SOFT = "rgba(58,107,71,0.78)";
+const BAD_SOFT = "rgba(177,74,58,0.78)";
+function Move({ move, places = false }: { move: number | null; places?: boolean }) {
+  if (move === null || !Number.isFinite(move)) return <span className="mt-0.5 block text-[10px]">&nbsp;</span>;
+  const flat = Math.abs(move) < (places ? 0.05 : 0.5);
+  return (
+    <span className="mt-0.5 block whitespace-nowrap text-[10px] font-normal" style={{ color: flat ? "rgba(13,27,42,0.34)" : move > 0 ? GOOD_SOFT : BAD_SOFT, letterSpacing: "0.01em" }}>
+      {flat ? "ίδιο" : `${move > 0 ? "▲" : "▼"} ${places ? pos(Math.abs(move)) : `${num(Math.abs(move))}%`}`}
+    </span>
+  );
+}
+
+const pct2 = (n: number) => `${n.toLocaleString("el-GR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+// A percentage on a handful is noise ("+740%" from 3 to 27), so a count is
+// only compared when the period before had at least ten. Rates (CTR) are
+// compared whenever there was one.
+const MIN_BASE = 10;
+const rel = (now: number | null, before: number | null, minBase = MIN_BASE) =>
+  now === null || before === null || before <= 0 || before < minBase ? null : ((now - before) / before) * 100;
+
 // Ranked horizontal bars, one hue: sources, countries.
 function RankBars({ rows, total, color = OTHER_BLUE, max = 8 }: { rows: { name: string; n: number; tag?: string }[]; total: number; color?: string; max?: number }) {
   const shown = rows.slice(0, max);
@@ -250,9 +274,9 @@ function Chart({ buckets, series, kind, selected, onSelect, format, lowerIsBette
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setWidth(Math.max(320, el.clientWidth)));
+    const ro = new ResizeObserver(() => setWidth(Math.max(280, el.clientWidth)));
     ro.observe(el);
-    setWidth(Math.max(320, el.clientWidth));
+    setWidth(Math.max(280, el.clientWidth));
     return () => ro.disconnect();
   }, []);
 
@@ -549,7 +573,7 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
       ds.forEach((d) => { if (gsc[d][2] > 0 && gsc[d][1] > 0) { ps += gsc[d][2] * gsc[d][1]; pw += gsc[d][1]; } });
       return { n: ds.length, clicks: ds.reduce((n, d) => n + gsc[d][0], 0), impressions: ds.reduce((n, d) => n + gsc[d][1], 0), position: pw ? ps / pw : null };
     };
-    const pct = (now: number | null, before: number | null) => (now === null || before === null || before <= 0 ? null : ((now - before) / before) * 100);
+    const pct = (now: number | null, before: number | null) => rel(now, before);
 
     const set = new Set<string>([...visitorDates, ...gscDates].map((d) => d.slice(0, 7)));
     return [...set].sort().reverse().map((ym) => {
@@ -867,22 +891,17 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
                 // The number, and under it how it moved against the month before.
                 const cell = (val: number | null, show: boolean, move: number | null, opts: { f?: (n: number) => string; places?: boolean } = {}) => {
                   const f = opts.f || num;
-                  const flat = move !== null && Math.abs(move) < (opts.places ? 0.05 : 0.5);
                   return (
-                    <td className="px-2 py-2.5 text-right align-top tabular-nums" style={{ color: show && val !== null ? NAVY : INK3 }}>
-                      <span className="block">{show && val !== null ? f(val) : "·"}</span>
-                      {show && val !== null && move !== null ? (
-                        <span className="block text-[11px] font-medium" style={{ color: flat ? INK3 : move > 0 ? GOOD : BAD }}>
-                          {flat ? "ίδιο" : `${move > 0 ? "▲" : "▼"} ${opts.places ? pos(Math.abs(move)) : `${num(Math.abs(move))}%`}`}
-                        </span>
-                      ) : null}
+                    <td className="px-2 py-3 text-right align-top tabular-nums" style={{ color: show && val !== null ? NAVY : INK3 }}>
+                      <span className={`block text-[15px] ${show && val !== null ? "font-semibold" : ""}`}>{show && val !== null ? f(val) : "·"}</span>
+                      {show && val !== null ? <Move move={move} places={opts.places} /> : null}
                     </td>
                   );
                 };
                 return (
                   <tr key={r.ym} style={{ borderBottom: `1px solid ${GRID}` }}>
-                    <td className="px-2 py-2.5 align-top" style={{ color: NAVY }}>
-                      <span className="block whitespace-nowrap font-semibold">{monthName(r.ym)}</span>
+                    <td className="px-2 py-3 align-top" style={{ color: NAVY }}>
+                      <span className="block whitespace-nowrap text-[15px] font-semibold">{monthName(r.ym)}</span>
                       {r.notes.length ? <span className="block text-xs" style={{ color: INK3 }}>{r.notes.join(", ")}</span> : null}
                     </td>
                     {cell(r.people, r.hasVisitors, r.change.people)}
@@ -901,7 +920,7 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
           </table>
         </div>
         <p className="mt-3 text-xs leading-relaxed" style={{ color: INK3 }}>
-          Κάτω από κάθε νούμερο γράφει πόσο ανέβηκε ή έπεσε σε σχέση με τον προηγούμενο μήνα. Ο μήνας που τρέχει συγκρίνεται με τις ίδιες μέρες του προηγούμενου, όχι με ολόκληρο. Στη μέση θέση μετράμε θέσεις και όχι ποσοστό, και το πράσινο σημαίνει ότι ανεβήκαμε. Όπου ο προηγούμενος μήνας δεν ήταν ολόκληρος, δεν γίνεται σύγκριση.
+          Κάτω από κάθε νούμερο, με μικρά αχνά γράμματα, γράφει πόσο ανέβηκε ή έπεσε σε σχέση με τον προηγούμενο μήνα. Όπου ο προηγούμενος είχε λιγότερα από 10, δεν γράφεται ποσοστό. Ο μήνας που τρέχει συγκρίνεται με τις ίδιες μέρες του προηγούμενου, όχι με ολόκληρο. Στη μέση θέση μετράμε θέσεις και όχι ποσοστό, και το πράσινο σημαίνει ότι ανεβήκαμε. Όπου ο προηγούμενος μήνας δεν ήταν ολόκληρος, δεν γίνεται σύγκριση.
         </p>
         <p className="mt-2 text-xs leading-relaxed" style={{ color: INK3 }}>
           «Άνθρωποι», «Από ΗΠΑ» και «Από AI» είναι διαφορετικοί άνθρωποι μέσα στον μήνα: όποιος ήρθε δύο μέρες μετράει μία φορά. «Από AI» είναι όσοι ήρθαν από ChatGPT, Perplexity, Copilot, Gemini, Claude και παρόμοια, και είναι το λιγότερο: όποιος ανοίγει το link μέσα από εφαρμογή που δεν αφήνει ίχνος δεν μπορεί να μετρηθεί. Τα αιτήματα είναι όσα έχει το Helm, ένα για κάθε άνθρωπο (ένα email, ένα αίτημα), χωρίς τα δοκιμαστικά, και το Helm άνοιξε στις 30 Μαΐου 2026. Οι υπόλοιπες στήλες είναι άθροισμα των ημερών. Μια τελεία σημαίνει ότι εκείνο τον μήνα δεν υπήρχε ακόμα μέτρηση.
@@ -992,10 +1011,442 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
         </Card>
       ) : null}
 
+      <SeoSection data={data} gsc={gsc} gscDates={gscDates} days={days} visitorDates={visitorDates} />
+
       {/* How it is counted */}
       <p className="px-2 pb-6 text-xs leading-relaxed" style={{ color: INK3 }}>
         Πώς μετράμε. Μια μέρα του ημερολογίου κρατάει 24 ώρες, από τις 07:00 το πρωί ώρα Αθήνας, που τον χειμώνα είναι μεσάνυχτα στη Νέα Υόρκη: είναι η ίδια μέρα με το πρωινό email. «Άνθρωπος» είναι κάθε διαφορετική συσκευή που δεν μοιάζει με πρόγραμμα. «Έμεινε και διάβασε» σημαίνει ότι κουνήθηκε το ποντίκι, άνοιξε δεύτερη σελίδα ή πέρασαν τουλάχιστον 5 δευτερόλεπτα. Ο διαχωρισμός ανθρώπου και μηχανής είναι εκτίμηση, και οι δικές σου επισκέψεις μετράνε κι αυτές. Τα νούμερα της Google έρχονται από το Search Console, με τη μέρα όπως τη μετράει εκείνο (ώρα Καλιφόρνιας). Από 4 έως 8 Ιουνίου 2026 δεν υπάρχουν επισκέπτες, γιατί εκείνες τις μέρες η καταγραφή ήταν εκτός λειτουργίας.
       </p>
     </div>
+  );
+}
+
+
+// ── SEO, GEO and AI search ───────────────────────────────────────
+// George, 6/11: the whole history since the site started, by week or by
+// month, every period in a table that can be sorted, what rose and what
+// fell, and the AI side next to it. Everything here is read from Search
+// Console, from the website's own count of people, and from The Helm.
+
+type SeoRow = {
+  id: string;
+  label: string;
+  tick: string;
+  partial: boolean;
+  v: Record<string, number | null>;
+  move: Record<string, number | null>;
+};
+
+const SEO_METRICS: { id: string; label: string; monthOnly?: boolean }[] = [
+  { id: "clicks", label: "Κλικ" },
+  { id: "impressions", label: "Εμφανίσεις" },
+  { id: "ctr", label: "Πόσοι πάτησαν (CTR)" },
+  { id: "position", label: "Μέση θέση" },
+  { id: "top10", label: "Αναζητήσεις στην 1η σελίδα", monthOnly: true },
+  { id: "pages", label: "Σελίδες που έδειξε", monthOnly: true },
+  { id: "ai", label: "Άνθρωποι από AI", monthOnly: true },
+];
+
+function SeoSection({ data, gsc, gscDates, days, visitorDates }: {
+  data: LogbookData;
+  gsc: Record<string, GscDay>;
+  gscDates: string[];
+  days: Record<string, DayCounts>;
+  visitorDates: string[];
+}) {
+  const seo = data.seo;
+  const idx = useMemo(() => data.index?.months || {}, [data.index]);
+  const [group, setGroup] = useState<"month" | "week">("month");
+  const [metric, setMetric] = useState<string>("clicks");
+  const [sort, setSort] = useState<{ col: string; dir: 1 | -1 }>({ col: "period", dir: -1 });
+  const [allRows, setAllRows] = useState(false);
+
+  const firstDate = gscDates[0];
+  const lastDate = gscDates[gscDates.length - 1];
+
+  const rows: SeoRow[] = useMemo(() => {
+    if (!firstDate) return [];
+    const agg = (ds: string[]) => {
+      let clicks = 0, impressions = 0, us = 0, usImpr = 0, ps = 0, pw = 0, ups = 0, upw = 0;
+      ds.forEach((d) => {
+        const r = gsc[d];
+        if (!r) return;
+        clicks += r[0]; impressions += r[1]; us += r[3]; usImpr += r[4];
+        if (r[2] > 0 && r[1] > 0) { ps += r[2] * r[1]; pw += r[1]; }
+        if (r[5] > 0 && r[4] > 0) { ups += r[5] * r[4]; upw += r[4]; }
+      });
+      return {
+        clicks, impressions, usClicks: us, usImpressions: usImpr,
+        ctr: impressions ? (clicks / impressions) * 100 : null,
+        position: pw ? ps / pw : null,
+        usPosition: upw ? ups / upw : null,
+      } as Record<string, number | null>;
+    };
+    const moves = (now: Record<string, number | null>, before: Record<string, number | null> | null) => {
+      const out: Record<string, number | null> = {};
+      Object.keys(now).forEach((k) => {
+        const a = now[k];
+        const b = before ? before[k] : null;
+        out[k] = k === "position" || k === "usPosition" ? (a !== null && b !== null && b !== undefined ? b - a : null) : rel(a, b ?? null, k === "ctr" ? 0 : MIN_BASE);
+      });
+      return out;
+    };
+
+    if (group === "month") {
+      const yms = [...new Set(gscDates.map((d) => d.slice(0, 7)))].sort();
+      return yms.map((ym, i) => {
+        const end = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).toISOString().slice(0, 10);
+        const ds = gscDates.filter((d) => d.startsWith(ym));
+        const running = i === yms.length - 1 && lastDate < end;
+        const prev = i > 0 ? yms[i - 1] : null;
+        const sm = seo?.months?.[ym] || null;
+        const rec = idx[ym] || null;
+        const v: Record<string, number | null> = {
+          ...agg(ds),
+          queries: sm ? sm.queries : null,
+          top10: sm ? sm.top10 : null,
+          top3: sm ? sm.top3 : null,
+          pages: sm ? sm.pages : null,
+          ai: rec && typeof rec.ai === "number" ? rec.ai : null,
+          googlePeople: rec && typeof rec.google === "number" ? rec.google : null,
+          aiRequests: seo?.aiRequests ? seo.aiRequests[ym] || 0 : null,
+        };
+        // The month before, whole, or its same days when this one is still running.
+        let before: Record<string, number | null> | null = null;
+        if (prev && i > 1) {
+          const cut = running ? `${prev}-${lastDate.slice(8, 10)}` : `${prev}-31`;
+          const psm = running ? (seo?.prevSame && seo.prevSame.ym === prev ? seo.prevSame : null) : seo?.months?.[prev] || null;
+          const prec = idx[prev] || null;
+          const visitorsWhole = `${prev}-01` >= FIRST_FULL_MONTH;
+          before = {
+            ...agg(gscDates.filter((d) => d.startsWith(prev) && d <= cut)),
+            queries: psm ? psm.queries : null,
+            top10: psm ? psm.top10 : null,
+            top3: psm ? psm.top3 : null,
+            pages: psm ? psm.pages : null,
+            ai: !visitorsWhole ? null : running ? rec?.prevSame?.ai ?? null : prec && typeof prec.ai === "number" ? prec.ai : null,
+            googlePeople: !visitorsWhole || running ? null : prec && typeof prec.google === "number" ? prec.google : null,
+            aiRequests: null,
+          };
+        }
+        const tick = atNoon(`${ym}-15`).toLocaleDateString("el-GR", { month: "short", year: "2-digit", timeZone: "UTC" });
+        return { id: ym, label: monthName(ym) + (running ? ` (ως ${dayTiny(lastDate)})` : i === 0 ? ` (από ${dayTiny(firstDate)})` : ""), tick, partial: running || i === 0, v, move: moves(v, before) };
+      });
+    }
+
+    // Weeks, Monday to Sunday.
+    const weeks = new Map<string, string[]>();
+    for (let d = firstDate; d <= lastDate; d = addDays(d, 1)) {
+      const monday = addDays(d, -((atNoon(d).getUTCDay() + 6) % 7));
+      if (!weeks.has(monday)) weeks.set(monday, []);
+      weeks.get(monday)!.push(d);
+    }
+    const list = [...weeks.entries()];
+    return list.map(([monday, ds], i) => {
+      const partial = ds.length < 7;
+      const v = agg(ds);
+      let before: Record<string, number | null> | null = null;
+      if (i > 1 || (i === 1 && list[0][1].length === 7)) {
+        const prevDays = list[i - 1][1];
+        before = agg(partial ? prevDays.slice(0, ds.length) : prevDays);
+      }
+      return { id: monday, label: `Εβδομάδα από ${dayShort(monday)}${partial ? " (όχι ολόκληρη)" : ""}`, tick: dayTiny(monday), partial, v, move: moves(v, before) };
+    });
+  }, [group, gsc, gscDates, firstDate, lastDate, seo, idx]);
+
+  // The last four weeks against the four before them, straight from the days.
+  const fourWeeks = useMemo(() => {
+    if (!lastDate) return null;
+    const span = (to: string) => Array.from({ length: 28 }, (_, i) => addDays(to, -i));
+    const sum = (ds: string[]) => {
+      let c = 0, im = 0, us = 0, ps = 0, pw = 0;
+      ds.forEach((d) => { const r = gsc[d]; if (!r) return; c += r[0]; im += r[1]; us += r[3]; if (r[2] > 0 && r[1] > 0) { ps += r[2] * r[1]; pw += r[1]; } });
+      return { clicks: c, impressions: im, us, ctr: im ? (c / im) * 100 : 0, position: pw ? ps / pw : 0 };
+    };
+    const aiSum = (ds: string[]) => ds.reduce((n, d) => n + (days[d] ? days[d].ai : 0), 0);
+    const now = span(lastDate);
+    const before = span(addDays(lastDate, -28));
+    const lastVisitor = visitorDates[visitorDates.length - 1];
+    return {
+      now: sum(now), before: sum(before),
+      ai: lastVisitor ? aiSum(span(lastVisitor)) : null,
+      aiBefore: lastVisitor ? aiSum(span(addDays(lastVisitor, -28))) : null,
+    };
+  }, [gsc, lastDate, days, visitorDates]);
+
+  if (!firstDate || !fourWeeks) return null;
+
+  const activeMetric = group === "week" && SEO_METRICS.find((m) => m.id === metric)?.monthOnly ? "clicks" : metric;
+  const chartRows = activeMetric === "ai" ? rows.filter((r) => r.v.ai !== null) : rows;
+  const chartSeries: Series[] =
+    activeMetric === "clicks" || activeMetric === "impressions"
+      ? [{ name: "ΗΠΑ", color: US_GOLD }, { name: "Άλλες χώρες", color: OTHER_BLUE }]
+      : activeMetric === "position"
+        ? [{ name: "Όλες οι χώρες", color: OTHER_BLUE }, { name: "ΗΠΑ", color: US_GOLD }]
+        : [{ name: SEO_METRICS.find((m) => m.id === activeMetric)?.label || "", color: OTHER_BLUE }];
+  const chartBuckets: Bucket[] = chartRows.map((r) => {
+    const v = r.v;
+    const values: (number | null)[] =
+      activeMetric === "clicks" ? [v.usClicks, Math.max(0, (v.clicks || 0) - (v.usClicks || 0))]
+      : activeMetric === "impressions" ? [v.usImpressions, Math.max(0, (v.impressions || 0) - (v.usImpressions || 0))]
+      : activeMetric === "position" ? [v.position, v.usPosition]
+      : [v[activeMetric]];
+    return { id: r.id, title: r.label, tick: r.tick, values, selectable: false, partial: r.partial && activeMetric !== "position" && activeMetric !== "ctr" };
+  });
+  const chartFormat = activeMetric === "ctr" ? pct2 : activeMetric === "position" ? pos : num;
+  const chartKind: "stack" | "line" = activeMetric === "position" || activeMetric === "ctr" ? "line" : "stack";
+
+  const columns: { id: string; label: string; f?: (n: number) => string; places?: boolean }[] =
+    group === "month"
+      ? [
+          { id: "clicks", label: "Κλικ" },
+          { id: "impressions", label: "Εμφανίσεις" },
+          { id: "ctr", label: "CTR", f: pct2 },
+          { id: "position", label: "Μέση θέση", f: pos, places: true },
+          { id: "usClicks", label: "Κλικ ΗΠΑ" },
+          { id: "queries", label: "Αναζητήσεις" },
+          { id: "top10", label: "Στην 1η σελίδα" },
+          { id: "top3", label: "Στις 3 πρώτες" },
+          { id: "pages", label: "Σελίδες" },
+        ]
+      : [
+          { id: "clicks", label: "Κλικ" },
+          { id: "impressions", label: "Εμφανίσεις" },
+          { id: "ctr", label: "CTR", f: pct2 },
+          { id: "position", label: "Μέση θέση", f: pos, places: true },
+          { id: "usClicks", label: "Κλικ ΗΠΑ" },
+          { id: "usImpressions", label: "Εμφανίσεις ΗΠΑ" },
+          { id: "usPosition", label: "Θέση ΗΠΑ", f: pos, places: true },
+        ];
+
+  const sorted = [...rows].sort((a, b) => {
+    if (sort.col === "period") return sort.dir * a.id.localeCompare(b.id);
+    const x = a.v[sort.col], y = b.v[sort.col];
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return sort.dir * (x - y);
+  });
+  const shownRows = allRows ? sorted : sorted.slice(0, group === "month" ? 24 : 12);
+  const sortBy = (col: string) => setSort((s) => (s.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: col === "position" || col === "usPosition" ? 1 : -1 }));
+  const th = (col: string, label: string, left = false) => (
+    <th key={col} className={`px-2 py-2 text-xs font-semibold ${left ? "text-left" : "text-right"}`} style={{ color: INK2, borderBottom: `1px solid ${RULE}`, textTransform: "none", letterSpacing: "normal", whiteSpace: "nowrap" }}>
+      <button type="button" onClick={() => sortBy(col)} className="font-semibold" style={{ color: sort.col === col ? NAVY : INK2 }} aria-label={`Ταξινόμηση κατά ${label}`}>
+        {label}{sort.col === col ? (sort.dir === -1 ? " ▾" : " ▴") : ""}
+      </button>
+    </th>
+  );
+
+  const fw = fourWeeks;
+  const tileDelta = (now: number, before: number, opts: { lowerIsBetter?: boolean; places?: boolean } = {}): Delta => {
+    if (!before) return null;
+    const move = opts.places ? before - now : ((now - before) / before) * 100;
+    const flat = Math.abs(move) < (opts.places ? 0.05 : 0.5);
+    if (flat) return { text: "ίδιο με τις 28 μέρες πριν", tone: "flat" };
+    return {
+      text: `${move > 0 ? "▲" : "▼"} ${opts.places ? `${pos(Math.abs(move))} θέσεις` : `${num(Math.abs(move))}%`} από τις 28 μέρες πριν`,
+      tone: move > 0 ? "good" : "bad",
+    };
+  };
+
+  const mv = seo?.movers || null;
+  const moverList = (title: string, list: SeoMover[], kind: "page" | "query", up: boolean) => (
+    <div>
+      <p className="mb-2 text-sm font-semibold" style={{ color: NAVY }}>{title}</p>
+      {list.length ? list.map((m) => (
+        <div key={m.key} className="py-2" style={{ borderBottom: `1px solid ${GRID}` }}>
+          <p className="break-words text-sm" style={{ color: NAVY }}>{m.key}</p>
+          <p className="mt-0.5 text-xs" style={{ color: INK2 }}>
+            {kind === "page" ? (
+              <>κλικ <span className="tabular-nums">{num(m.prevClicks)} → <span className="font-semibold" style={{ color: up ? GOOD : BAD }}>{num(m.clicks)}</span></span>, εμφανίσεις <span className="tabular-nums">{num(m.prevImpressions)} → {num(m.impressions)}</span></>
+            ) : (
+              <>εμφανίσεις <span className="tabular-nums">{num(m.prevImpressions)} → <span className="font-semibold" style={{ color: up ? GOOD : BAD }}>{num(m.impressions)}</span></span>
+                {m.position !== null ? <>, θέση <span className="tabular-nums">{m.prevPosition !== null ? `${pos(m.prevPosition)} → ` : ""}{pos(m.position)}</span></> : m.prevPosition !== null ? <>, ήταν στη θέση <span className="tabular-nums">{pos(m.prevPosition)}</span> και δεν εμφανίστηκε</> : null}
+              </>
+            )}
+          </p>
+        </div>
+      )) : <p className="text-sm" style={{ color: INK3 }}>Τίποτα αξιοσημείωτο.</p>}
+    </div>
+  );
+
+  // The AI side.
+  const aiMonths = Object.keys(idx).filter((m) => typeof idx[m].ai === "number").sort().reverse();
+  const assistants = ["ChatGPT", "Perplexity", "Copilot", "Gemini", "Claude"];
+  const panel = seo?.aiPanel?.length ? seo.aiPanel[seo.aiPanel.length - 1] : null;
+  const bing = seo?.bingAi?.length ? seo.bingAi[seo.bingAi.length - 1] : null;
+  const aiRequestsTotal = Object.values(seo?.aiRequests || {}).reduce((a, b) => a + b, 0);
+
+  return (
+    <Card>
+      <Eyebrow>SEO, GEO και AI αναζήτηση</Eyebrow>
+      <h2 className="mt-1 text-xl font-semibold" style={{ color: NAVY }}>Πώς πάμε στη Google και στα AI, από την αρχή</h2>
+      <p className="mt-1 text-sm" style={{ color: INK2 }}>
+        Όλο το ιστορικό που κρατάει η Google για το site, από {dayLong(firstDate).split(" ").slice(1).join(" ")} {firstDate.slice(0, 4)} έως {dayLong(lastDate).split(" ").slice(1).join(" ")} {lastDate.slice(0, 4)}.
+      </p>
+
+      <p className="mt-6 text-sm font-semibold" style={{ color: NAVY }}>Οι τελευταίες 28 μέρες</p>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <Tile label="Κλικ από Google" value={num(fw.now.clicks)} delta={tileDelta(fw.now.clicks, fw.before.clicks)} />
+        <Tile label="Φορές που μας έδειξε" value={num(fw.now.impressions)} delta={tileDelta(fw.now.impressions, fw.before.impressions)} />
+        <Tile label="Πόσοι πάτησαν (CTR)" value={pct2(fw.now.ctr)} note="στους 100 που μας είδαν" delta={tileDelta(fw.now.ctr, fw.before.ctr)} />
+        <Tile label="Μέση θέση" value={pos(fw.now.position)} note="όσο πιο μικρό, τόσο πιο ψηλά" delta={tileDelta(fw.now.position, fw.before.position, { places: true })} />
+        <Tile label="Κλικ από ΗΠΑ" value={num(fw.now.us)} delta={tileDelta(fw.now.us, fw.before.us)} />
+      </div>
+
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm font-semibold" style={{ color: NAVY }}>Όλη η πορεία</p>
+        <div className="flex gap-2">
+          <Pill active={group === "month"} onClick={() => { setGroup("month"); setAllRows(false); }}>Ανά μήνα</Pill>
+          <Pill active={group === "week"} onClick={() => { setGroup("week"); setAllRows(false); }}>Ανά εβδομάδα</Pill>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {SEO_METRICS.filter((m) => group === "month" || !m.monthOnly).map((m) => (
+          <Pill key={m.id} active={activeMetric === m.id} onClick={() => setMetric(m.id)}>{m.label}</Pill>
+        ))}
+      </div>
+      {chartSeries.length > 1 ? (
+        <div className="mt-4 flex flex-wrap gap-5">
+          {chartSeries.map((sr) => (
+            <p key={sr.name} className="flex items-center gap-2 text-sm" style={{ color: INK2 }}>
+              <span className={chartKind === "line" ? "inline-block h-[3px] w-4 rounded-full" : "inline-block h-3 w-3 rounded-[3px]"} style={{ background: sr.color }} />
+              {sr.name}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-3">
+        <Chart buckets={chartBuckets} series={chartSeries} kind={chartKind} selected={null} onSelect={() => {}} format={chartFormat} lowerIsBetter={activeMetric === "position"} />
+      </div>
+      <p className="mt-2 text-xs" style={{ color: INK3 }}>
+        {activeMetric === "position" ? "Η θέση 1 είναι πάνω: όσο ανεβαίνει η γραμμή, τόσο πιο ψηλά μας δείχνει η Google. " : ""}
+        {activeMetric === "ctr" ? "Στους 100 ανθρώπους που μας είδαν στη Google, πόσοι πάτησαν. " : ""}
+        {activeMetric === "top10" ? "Πόσες διαφορετικές αναζητήσεις μάς είχαν στην πρώτη σελίδα της Google εκείνο τον μήνα. " : ""}
+        {activeMetric === "pages" ? "Πόσες διαφορετικές σελίδες του site εμφάνισε η Google έστω μία φορά. " : ""}
+        {activeMetric === "ai" ? "Διαφορετικοί άνθρωποι που ήρθαν από ChatGPT, Perplexity, Copilot, Gemini και παρόμοια. Μετριούνται από τον Μάιο του 2026. " : ""}
+        {chartKind === "stack" ? "Οι πιο αχνές στήλες είναι περίοδοι που δεν είναι ολόκληρες." : ""}
+      </p>
+
+      <div className="mt-6 overflow-x-auto">
+        <table className="w-full min-w-[860px] text-sm">
+          <thead>
+            <tr>
+              {th("period", group === "month" ? "Μήνας" : "Εβδομάδα", true)}
+              {columns.map((c) => th(c.id, c.label))}
+            </tr>
+          </thead>
+          <tbody>
+            {shownRows.map((r) => (
+              <tr key={r.id} style={{ borderBottom: `1px solid ${GRID}` }}>
+                <td className="px-2 py-3 align-top text-[15px] font-semibold" style={{ color: NAVY, whiteSpace: "nowrap" }}>{r.label}</td>
+                {columns.map((c) => {
+                  const val = r.v[c.id];
+                  return (
+                    <td key={c.id} className="px-2 py-3 text-right align-top tabular-nums" style={{ color: val !== null ? NAVY : INK3 }}>
+                      <span className={`block text-[15px] ${val !== null ? "font-semibold" : ""}`}>{val !== null ? (c.f || num)(val) : "·"}</span>
+                      {val !== null ? <Move move={r.move[c.id] ?? null} places={c.places} /> : null}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {sorted.length > shownRows.length || allRows ? (
+        <button type="button" onClick={() => setAllRows((x) => !x)} className="mt-3 text-sm font-semibold underline" style={{ color: NAVY }}>
+          {allRows ? "Δείξε λιγότερες" : `Δείξε και τις ${sorted.length} ${group === "month" ? "μήνες" : "εβδομάδες"}`}
+        </button>
+      ) : null}
+      <p className="mt-3 text-xs leading-relaxed" style={{ color: INK3 }}>
+        Πάτησε τον τίτλο μιας στήλης για να ταξινομήσεις. Κάτω από κάθε νούμερο, με αχνά γράμματα, η αλλαγή από την προηγούμενη περίοδο. Όπου η προηγούμενη περίοδος είχε λιγότερα από 10, δεν γράφεται ποσοστό, γιατί δεν θα έλεγε κάτι. Η περίοδος που τρέχει συγκρίνεται με τις ίδιες μέρες της προηγούμενης. Στη μέση θέση μετράμε θέσεις, και το πράσινο σημαίνει ότι ανεβήκαμε.
+        {group === "month" ? " «Αναζητήσεις» είναι όσες διαφορετικές αναζητήσεις δείχνει η Google ότι μας εμφάνισαν. Η Google κρύβει τις περισσότερες για λόγους ιδιωτικότητας, άρα είναι λιγότερες από τις πραγματικές, αλλά μετριούνται με τον ίδιο τρόπο κάθε μήνα και δείχνουν σωστά την τάση." : ""}
+        {seo?.sitemapPages ? ` Στον χάρτη του site που δίνουμε στη Google υπάρχουν ${num(seo.sitemapPages)} σελίδες.` : ""}
+      </p>
+
+      {mv ? (
+        <div className="mt-8 pt-6" style={{ borderTop: `1px solid ${RULE}` }}>
+          <p className="text-sm font-semibold" style={{ color: NAVY }}>Τι ανέβηκε και τι έπεσε</p>
+          <p className="mt-1 text-xs" style={{ color: INK3 }}>
+            Οι τελευταίες 28 μέρες ({dayTiny(mv.start)} έως {dayTiny(mv.end)}) δίπλα στις 28 πριν από αυτές. Αυτές οι σελίδες και αυτές οι αναζητήσεις εξηγούν το μεγαλύτερο μέρος της αλλαγής.
+          </p>
+          <div className="mt-4 grid gap-8 md:grid-cols-2">
+            {moverList("Σελίδες που ανέβηκαν", mv.pagesUp, "page", true)}
+            {moverList("Σελίδες που έπεσαν", mv.pagesDown, "page", false)}
+          </div>
+          <div className="mt-6 grid gap-8 md:grid-cols-2">
+            {moverList("Αναζητήσεις που μας δείχνει περισσότερο", mv.queriesUp, "query", true)}
+            {moverList("Αναζητήσεις που μας δείχνει λιγότερο", mv.queriesDown, "query", false)}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-8 pt-6" style={{ borderTop: `1px solid ${RULE}` }}>
+        <p className="text-sm font-semibold" style={{ color: NAVY }}>AI: πόσοι ήρθαν από εκεί και πόσο μας αναφέρουν</p>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {fw.ai !== null ? <Tile label="Άνθρωποι από AI, 28 μέρες" value={num(fw.ai)} delta={fw.aiBefore ? tileDelta(fw.ai, fw.aiBefore) : null} /> : null}
+          <Tile label="Αιτήματα που ήρθαν από AI" value={num(aiRequestsTotal)} note="όσα το είπε ο πελάτης ή το έδειξε η επίσκεψη" />
+          {panel && panel.chatgpt !== null ? <Tile label="Μας ανέφερε το ChatGPT" value={`${panel.chatgpt} στις ${panel.prompts}`} note={`ερωτήσεις, μέτρηση ${dayTiny(panel.date)}`} /> : null}
+          {panel && panel.google !== null ? <Tile label="Μας ανέφερε η Google AI" value={`${panel.google} στις ${panel.prompts}`} note={`ερωτήσεις, μέτρηση ${dayTiny(panel.date)}`} /> : null}
+          {panel && panel.copilot !== null ? <Tile label="Μας ανέφερε το Copilot" value={`${panel.copilot} στις ${panel.prompts}`} note={`ερωτήσεις, μέτρηση ${dayTiny(panel.date)}`} /> : null}
+          {bing ? <Tile label="Αναφορές από το AI της Bing" value={num(bing.total)} note={`${bing.window.replace(/(\d+)\s*D\b/, "$1 μέρες")}, ${num(bing.buying)} σε σελίδες αγοράς (${Math.round(bing.share * 100)}%)`} /> : null}
+        </div>
+
+        {aiMonths.length ? (
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead>
+                <tr>
+                  {["Μήνας", "Από AI", ...assistants, "Άλλα AI", "Από Google", "Αιτήματα από AI"].map((h, i) => (
+                    <th key={h} className={`px-2 py-2 text-xs font-semibold ${i === 0 ? "text-left" : "text-right"}`} style={{ color: INK2, borderBottom: `1px solid ${RULE}`, textTransform: "none", letterSpacing: "normal", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {aiMonths.map((ym) => {
+                  const rec = idx[ym];
+                  const by = new Map(rec.aiBy || []);
+                  const others = (rec.aiBy || []).filter(([n]) => !assistants.includes(n)).reduce((a, [, k]) => a + k, 0);
+                  const row = rows.find((r) => r.id === ym);
+                  const cellN = (n: number | null, move: number | null = null, strong = false) => (
+                    <td className="px-2 py-3 text-right align-top tabular-nums" style={{ color: n === null ? INK3 : NAVY }}>
+                      <span className={`block text-[15px] ${strong && n !== null ? "font-semibold" : ""}`}>{n === null ? "·" : num(n)}</span>
+                      {strong && n !== null ? <Move move={move} /> : null}
+                    </td>
+                  );
+                  return (
+                    <tr key={ym} style={{ borderBottom: `1px solid ${GRID}` }}>
+                      <td className="px-2 py-3 align-top text-[15px] font-semibold" style={{ color: NAVY, whiteSpace: "nowrap" }}>{monthName(ym)}</td>
+                      {cellN(rec.ai ?? null, group === "month" && row ? row.move.ai ?? null : null, true)}
+                      {assistants.map((a) => <td key={a} className="px-2 py-3 text-right align-top text-[15px] tabular-nums" style={{ color: rec.aiBy ? NAVY : INK3 }}>{rec.aiBy ? num(by.get(a) || 0) : "·"}</td>)}
+                      <td className="px-2 py-3 text-right align-top text-[15px] tabular-nums" style={{ color: rec.aiBy ? NAVY : INK3 }}>{rec.aiBy ? num(others) : "·"}</td>
+                      {cellN(typeof rec.google === "number" ? rec.google : null, group === "month" && row ? row.move.googlePeople ?? null : null, true)}
+                      <td className="px-2 py-3 text-right align-top text-[15px] tabular-nums" style={{ color: NAVY }}>{num(seo?.aiRequests?.[ym] || 0)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {seo && seo.aiPanel.length > 1 ? (
+          <div className="mt-5">
+            <p className="mb-2 text-sm font-semibold" style={{ color: NAVY }}>Πόσο μας αναφέρουν, μέτρηση με τη μέτρηση</p>
+            {[...seo.aiPanel].reverse().map((p) => (
+              <p key={p.date} className="py-1 text-sm tabular-nums" style={{ color: NAVY, borderBottom: `1px solid ${GRID}` }}>
+                <span style={{ color: INK3 }}>{dayShort(p.date)}</span>&nbsp;&nbsp;
+                {[p.chatgpt !== null ? `ChatGPT ${p.chatgpt}/${p.prompts}` : "", p.google !== null ? `Google AI ${p.google}/${p.prompts}` : "", p.copilot !== null ? `Copilot ${p.copilot}/${p.prompts}` : ""].filter(Boolean).join(" · ")}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
+        <p className="mt-4 text-xs leading-relaxed" style={{ color: INK3 }}>
+          «Από AI» και «Από Google» είναι διαφορετικοί άνθρωποι που ήρθαν στο site μέσα στον μήνα, μετρημένοι από το ίδιο το site (όχι κλικ). Οι άνθρωποι από AI είναι το λιγότερο: όποιος ανοίγει το link από εφαρμογή που δεν αφήνει ίχνος δεν φαίνεται. Αν κάποιος ήρθε από δύο βοηθούς, μετράει μία φορά στον καθένα. Το «μας ανέφερε» είναι η δοκιμή που κάνεις κάθε Δευτέρα με τις ίδιες ερωτήσεις. Κρατιέται ιστορικό από τις 3/11/2026, και κάθε νέα μέτρηση προστίθεται εδώ.
+        </p>
+      </div>
+    </Card>
   );
 }

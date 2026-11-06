@@ -100,6 +100,10 @@ export type MonthRecord = {
   // Gemini, Claude and the like). A floor: an assistant that opens the
   // link without leaving a trace cannot be counted.
   ai?: number;
+  // Different people who arrived from a Google search (people, not clicks).
+  google?: number;
+  // Different people each assistant sent.
+  aiBy?: [string, number][];
   through: string;
   // How many visits opened each yacht's page in the month.
   yachts?: [string, number][];
@@ -196,12 +200,16 @@ export type HelmRequestLine = { id: string; at: number; label: string };
 const TEST_NAME = /\(TEST\)|\btest\b|\be2e\b/i;
 const TEST_EMAIL = /test\+|@example\.com$|^george@georgeyachts\.com$/i;
 
-// One request per person (George, 6/11: "για κάθε mail ένα αίτημα").
-// The Helm can hold two rows for the same client: a second brief the next
-// day, a returning client months later. A person is their email; without
-// one, their WhatsApp number; without either, their name. Only the first
-// row of each person counts, on the day it arrived. On 6/11/2026 that
-// was 127 people in 130 rows.
+// One request per person (George, 6/11: "για κάθε mail ένα αίτημα"),
+// with one exception he spelled out the same evening: "αν είχε κλείσει
+// ναύλο και ξαναήρθε, μετράει ως νέο αίτημα, σαν repeater. Αν δεν είχε
+// κλείσει και ήρθε πάλι για να συνεχίσουμε, είναι το ίδιο αίτημα."
+//
+// The Helm can hold several rows for the same client. A person is their
+// email; without one, their WhatsApp number; without either, their name.
+// Their first row counts. A later row counts only if a charter was won
+// since their last counted row: then it is a returning client's new
+// request. On 6/11/2026 that was 128 requests in 130 rows.
 const personKey = (r: { client_email?: unknown; client_whatsapp?: unknown; client_name?: unknown }) =>
   String(r.client_email || "").trim().toLowerCase() ||
   String(r.client_whatsapp || "").replace(/\D/g, "") ||
@@ -213,34 +221,49 @@ export async function helmRequestsBetween(sinceIso: string, untilIso: string): P
   // is recognised as already counted.
   const { data, error } = await sb
     .from("helm_requests")
-    .select("id, created_at, client_name, client_email, client_whatsapp, request_type")
+    .select("id, created_at, client_name, client_email, client_whatsapp, request_type, status")
     .lt("created_at", untilIso)
     .order("created_at", { ascending: true })
     .limit(10000);
   if (error) throw new Error(`helm_requests read failed: ${error.message}`);
-  const seen = new Set<string>();
+  // person -> has a charter been won since their last counted request?
+  const wonSince = new Map<string, boolean>();
   const sinceMs = Date.parse(sinceIso);
-  return (data || [])
-    .filter((r) => !TEST_NAME.test(String(r.client_name || "")) && !TEST_EMAIL.test(String(r.client_email || "").trim()))
-    .filter((r) => {
-      const k = personKey(r);
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    })
-    .filter((r) => Date.parse(String(r.created_at)) >= sinceMs)
-    .map((r) => ({
+  const out: HelmRequestLine[] = [];
+  for (const r of data || []) {
+    if (TEST_NAME.test(String(r.client_name || "")) || TEST_EMAIL.test(String(r.client_email || "").trim())) continue;
+    const k = personKey(r);
+    const known = wonSince.has(k);
+    const returning = known && wonSince.get(k) === true;
+    const won = r.status === "won";
+    if (known && !returning) {
+      // The same request, continued. It may itself be the one that closed.
+      if (won) wonSince.set(k, true);
+      continue;
+    }
+    wonSince.set(k, won);
+    const at = Date.parse(String(r.created_at));
+    if (at < sinceMs) continue;
+    const tags = [r.request_type === "travel_agent" ? "ταξιδιωτικό γραφείο" : "", returning ? "πελάτης που ξαναήρθε" : ""].filter(Boolean);
+    out.push({
       id: String(r.id),
-      at: Date.parse(String(r.created_at)),
-      label: `${String(r.client_name || "").trim() || "Χωρίς όνομα"}${r.request_type === "travel_agent" ? " (ταξιδιωτικό γραφείο)" : ""}`,
-    }));
+      at,
+      label: `${String(r.client_name || "").trim() || "Χωρίς όνομα"}${tags.length ? ` (${tags.join(", ")})` : ""}`,
+    });
+  }
+  return out;
 }
 
 // A logbook day runs from 05:00 UTC on its date.
 const dayStartMs = (date: string) => Date.parse(`${date}T05:00:00Z`);
 
 // ── Visitors: ask the website ────────────────────────────────────
-type SiteSpan = { days: DaySnapshot[]; unique: { people: number; us: number; ai: number }; yachts: [string, number][] };
+type SiteSpan = {
+  days: DaySnapshot[];
+  unique: { people: number; us: number; ai: number; google: number };
+  yachts: [string, number][];
+  aiBy: [string, number][];
+};
 
 async function pullSiteDays(from: string, to: string): Promise<SiteSpan> {
   // The secret the site and the CRM already share (the inquiry hook
@@ -258,8 +281,9 @@ async function pullSiteDays(from: string, to: string): Promise<SiteSpan> {
   const u = body.unique || {};
   return {
     days: body.days as DaySnapshot[],
-    unique: { people: Number(u.people) || 0, us: Number(u.us) || 0, ai: Number(u.ai) || 0 },
+    unique: { people: Number(u.people) || 0, us: Number(u.us) || 0, ai: Number(u.ai) || 0, google: Number(u.google) || 0 },
     yachts: Array.isArray(body.yachts) ? (body.yachts as [string, number][]) : [],
+    aiBy: Array.isArray(body.aiBy) ? (body.aiBy as [string, number][]) : [],
   };
 }
 
@@ -306,7 +330,7 @@ export async function refreshVisitors(opts: { backfill?: boolean; months?: strin
   for (const ym of months) {
     const span = monthBounds(ym, lastDay);
     if (!span) continue;
-    const { days, unique, yachts } = await pullSiteDays(span.from, span.to);
+    const { days, unique, yachts, aiBy } = await pullSiteDays(span.from, span.to);
     // The requests of each day come from The Helm, not from the feed.
     if (days.length) {
       const helm = await helmRequestsBetween(
@@ -327,7 +351,7 @@ export async function refreshVisitors(opts: { backfill?: boolean; months?: strin
     }
     if (days.length) {
       const through = days[days.length - 1].date;
-      const record: MonthRecord = { people: unique.people, us: unique.us, ai: unique.ai, through, yachts };
+      const record: MonthRecord = { people: unique.people, us: unique.us, ai: unique.ai, google: unique.google, aiBy, through, yachts };
       // The month still running is compared with the same days of the
       // month before (1st to the same date), when that month was counted
       // whole. Different people cannot be added up from days, so the
@@ -444,6 +468,232 @@ export async function refreshGoogle(): Promise<{ days: number; last: string | nu
   return { days: closed.length, last, queries: rows.length };
 }
 
+// ── SEO, GEO and AI search ───────────────────────────────────────
+// George, 6/11: "κάτω κάτω μια πολύ ολοκληρωμένη ανάλυση για το SEO μας,
+// με πλήρες ιστορικό από τότε που ξεκίνησε το site, ανά εβδομάδα και ανά
+// μήνα, όλοι οι μήνες σαν πίνακας, τι ανέβηκε, τι έπεσε. SEO, GEO, AI
+// search." The daily totals are already in logbook_gsc. This adds what
+// only a per-month question to Search Console can answer, what moved in
+// the last four weeks, and what we know about the AI side.
+//
+// What is NOT here, on purpose: clicks split into "our name" and "the
+// rest". Search Console hides most queries (in August it named the query
+// for 56 of 567 clicks), so that split would be an invention. What it
+// does show reliably is how many different searches it lists us for and
+// where we stand on them, and every page, so those are what is counted.
+
+export type SeoMonth = {
+  // Different searches Search Console lists us for in the month, and how
+  // many of them had us in the first three places / on the first page.
+  queries: number;
+  top3: number;
+  top10: number;
+  // Different pages of the site that were shown at least once.
+  pages: number;
+  through: string;
+};
+
+export type SeoMover = {
+  key: string;
+  clicks: number;
+  prevClicks: number;
+  impressions: number;
+  prevImpressions: number;
+  position: number | null;
+  prevPosition: number | null;
+};
+
+// How many of the weekly test questions each assistant answered with us
+// in it (the Monday panel George keeps), and Bing's own count of how
+// often its AI cited our pages. Kept by date from 6/11/2026 on, so a
+// history builds up; before that only the latest measurement existed.
+export type AiPanelSnap = { date: string; prompts: number; chatgpt: number | null; google: number | null; copilot: number | null };
+export type BingAiSnap = { date: string; window: string; total: number; buying: number; share: number };
+
+export type LogbookSeo = {
+  updated_at: string;
+  months: Record<string, SeoMonth>;
+  // For the month still running: the same counts over the same days of
+  // the month before.
+  prevSame: (SeoMonth & { ym: string }) | null;
+  movers: {
+    start: string;
+    end: string;
+    prevStart: string;
+    prevEnd: string;
+    pagesUp: SeoMover[];
+    pagesDown: SeoMover[];
+    queriesUp: SeoMover[];
+    queriesDown: SeoMover[];
+  } | null;
+  aiPanel: AiPanelSnap[];
+  bingAi: BingAiSnap[];
+  // Requests in The Helm whose client said, or whose visit showed, that an
+  // AI assistant sent them. By month.
+  aiRequests: Record<string, number>;
+  // Pages in the sitemap we hand to Google.
+  sitemapPages: number | null;
+};
+
+async function seoMonth(token: string, start: string, end: string): Promise<SeoMonth> {
+  const [q, pg] = await Promise.all([
+    gscQuery(token, { startDate: start, endDate: end, dimensions: ["query"], dataState: "all", rowLimit: 25000 }),
+    gscQuery(token, { startDate: start, endDate: end, dimensions: ["page"], dataState: "all", rowLimit: 25000 }),
+  ]);
+  return {
+    queries: q.length,
+    top3: q.filter((r) => r.position <= 3).length,
+    top10: q.filter((r) => r.position <= 10).length,
+    pages: pg.length,
+    through: end,
+  };
+}
+
+function movers(now: GscRow[], before: GscRow[], by: "clicks" | "impressions", minVolume: number): { up: SeoMover[]; down: SeoMover[] } {
+  const prev = new Map(before.map((r) => [r.keys[0], r]));
+  const keys = new Set<string>([...now.map((r) => r.keys[0]), ...before.map((r) => r.keys[0])]);
+  const cur = new Map(now.map((r) => [r.keys[0], r]));
+  const rows: (SeoMover & { d: number; d2: number })[] = [];
+  keys.forEach((k) => {
+    const a = cur.get(k);
+    const b = prev.get(k);
+    const m: SeoMover = {
+      key: k.replace(/^https?:\/\/(www\.)?georgeyachts\.com/, "") || "/",
+      clicks: a?.clicks || 0,
+      prevClicks: b?.clicks || 0,
+      impressions: a?.impressions || 0,
+      prevImpressions: b?.impressions || 0,
+      position: a ? round1(a.position) : null,
+      prevPosition: b ? round1(b.position) : null,
+    };
+    if (Math.max(m.impressions, m.prevImpressions) < minVolume) return;
+    const dClicks = m.clicks - m.prevClicks;
+    const dImpr = m.impressions - m.prevImpressions;
+    rows.push({ ...m, d: by === "clicks" ? dClicks : dImpr, d2: by === "clicks" ? dImpr : dClicks });
+  });
+  const strip = ({ d: _d, d2: _d2, ...m }: SeoMover & { d: number; d2: number }): SeoMover => m;
+  const up = rows.filter((r) => r.d > 0).sort((x, y) => y.d - x.d || y.d2 - x.d2).slice(0, 8).map(strip);
+  const down = rows.filter((r) => r.d < 0).sort((x, y) => x.d - y.d || x.d2 - y.d2).slice(0, 8).map(strip);
+  return { up, down };
+}
+
+async function rawSetting(k: string): Promise<string | null> {
+  const sb = createServiceClient();
+  const { data } = await sb.from("settings").select("value").eq("key", k).maybeSingle();
+  return (data?.value as string) ?? null;
+}
+
+export async function refreshSeo(opts: { backfill?: boolean } = {}): Promise<{ months: number; computed: string[] }> {
+  const token = await getAccessToken();
+  const gsc = await readJson<LogbookGsc>("gsc");
+  const dates = Object.keys(gsc?.days || {}).sort();
+  if (!dates.length) throw new Error("no Search Console days stored yet");
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  const stored = await readJson<LogbookSeo>("seo");
+  const seo: LogbookSeo = {
+    updated_at: new Date().toISOString(),
+    months: { ...(stored?.months || {}) },
+    prevSame: null,
+    movers: stored?.movers || null,
+    aiPanel: [...(stored?.aiPanel || [])],
+    bingAi: [...(stored?.bingAi || [])],
+    aiRequests: {},
+    sitemapPages: stored?.sitemapPages ?? null,
+  };
+
+  // Months: all of them on a backfill; otherwise the running month, the
+  // one before it (Search Console still revises its last days) and any
+  // month not stored yet.
+  const all = monthsBetween(first, last);
+  const lastYm = last.slice(0, 7);
+  const prevYm = addDays(`${lastYm}-01`, -1).slice(0, 7);
+  const computed: string[] = [];
+  for (const ym of all) {
+    if (!opts.backfill && ym !== lastYm && ym !== prevYm && seo.months[ym]) continue;
+    const [y, m] = ym.split("-").map(Number);
+    const monthEnd = isoDate(Date.UTC(y, m, 0));
+    const start = `${ym}-01` < first ? first : `${ym}-01`;
+    const end = monthEnd > last ? last : monthEnd;
+    seo.months[ym] = await seoMonth(token, start, end);
+    computed.push(ym);
+  }
+  // The running month against the same days of the month before.
+  const [ly, lm] = lastYm.split("-").map(Number);
+  if (last < isoDate(Date.UTC(ly, lm, 0)) && `${prevYm}-01` >= first) {
+    const prevEnd = addDays(`${lastYm}-01`, -1);
+    const sameDay = `${prevYm}-${last.slice(8, 10)}`;
+    const to = sameDay > prevEnd ? prevEnd : sameDay;
+    seo.prevSame = { ym: prevYm, ...(await seoMonth(token, `${prevYm}-01`, to)) };
+  }
+
+  // What moved: the last 28 days against the 28 before them.
+  const start = addDays(last, -27);
+  const prevEnd = addDays(start, -1);
+  const prevStart = addDays(prevEnd, -27);
+  const span = (s1: string, e1: string, dim: string) =>
+    gscQuery(token, { startDate: s1, endDate: e1, dimensions: [dim], dataState: "all", rowLimit: 25000 });
+  const [pNow, pBefore, qNow, qBefore] = await Promise.all([
+    span(start, last, "page"),
+    span(prevStart, prevEnd, "page"),
+    span(start, last, "query"),
+    span(prevStart, prevEnd, "query"),
+  ]);
+  const pages = movers(pNow, pBefore, "clicks", 10);
+  // Queries move by how often we were shown: Search Console names the
+  // query for too few clicks to rank by them.
+  const queries = movers(qNow, qBefore, "impressions", 20);
+  seo.movers = { start, end: last, prevStart, prevEnd, pagesUp: pages.up, pagesDown: pages.down, queriesUp: queries.up, queriesDown: queries.down };
+
+  // The AI side: the weekly panel and Bing's citation count, kept by date.
+  try {
+    const p = JSON.parse((await rawSetting("ai_panel_latest")) || "null");
+    if (p?.date && !seo.aiPanel.some((x) => x.date === p.date)) {
+      seo.aiPanel.push({ date: String(p.date), prompts: Number(p.prompts) || 0, chatgpt: p.chatgpt ?? null, google: p.google ?? null, copilot: p.copilot ?? null });
+    }
+    const b = JSON.parse((await rawSetting("bing_ai_citations_latest")) || "null");
+    if (b?.date && !seo.bingAi.some((x) => x.date === b.date)) {
+      seo.bingAi.push({ date: String(b.date), window: String(b.window || ""), total: Number(b.total) || 0, buying: Number(b.buying) || 0, share: Number(b.share) || 0 });
+    }
+    seo.aiPanel.sort((x, y) => x.date.localeCompare(y.date));
+    seo.bingAi.sort((x, y) => x.date.localeCompare(y.date));
+  } catch (e) {
+    console.error("logbook: AI panel read failed:", e instanceof Error ? e.message : e);
+  }
+
+  // Requests an AI assistant sent, from The Helm, by month.
+  try {
+    const sb = createServiceClient();
+    const { data } = await sb.from("helm_requests").select("created_at, client_name, client_email, extraction").order("created_at", { ascending: true }).limit(10000);
+    for (const r of data || []) {
+      if (TEST_NAME.test(String(r.client_name || "")) || TEST_EMAIL.test(String(r.client_email || "").trim())) continue;
+      const ex = r.extraction as { ai_source?: { assistant?: string } } | null;
+      if (!ex?.ai_source?.assistant) continue;
+      const ym = String(r.created_at).slice(0, 7);
+      seo.aiRequests[ym] = (seo.aiRequests[ym] || 0) + 1;
+    }
+  } catch (e) {
+    console.error("logbook: AI requests read failed:", e instanceof Error ? e.message : e);
+  }
+
+  // The sitemap we hand to Google.
+  try {
+    const res = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(GSC_SITE)}/sitemaps`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (res.ok) {
+      const j = await res.json();
+      const web = (j.sitemap || []).flatMap((x: { contents?: { type: string; submitted: string }[] }) => x.contents || []).filter((c: { type: string }) => c.type === "web");
+      const n = web.reduce((a: number, c: { submitted: string }) => a + (Number(c.submitted) || 0), 0);
+      if (n) seo.sitemapPages = n;
+    }
+  } catch { /* the page simply shows no sitemap figure */ }
+
+  await writeJson([{ name: "seo", value: seo }]);
+  return { months: Object.keys(seo.months).length, computed };
+}
+
 // ── Read (the page) ──────────────────────────────────────────────
 export async function readDay(date: string): Promise<DaySnapshot | null> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
@@ -454,6 +704,7 @@ export type LogbookData = {
   index: LogbookIndex | null;
   gsc: LogbookGsc | null;
   queries: LogbookQueries | null;
+  seo: LogbookSeo | null;
   latest: DaySnapshot | null;
 };
 
@@ -467,16 +718,20 @@ export async function loadLogbook(): Promise<LogbookData> {
   try {
     const stored = await readJson<LogbookGsc>("gsc");
     const age = stored?.updated_at ? Date.now() - Date.parse(stored.updated_at) : Infinity;
-    if (stored && age > GOOGLE_STALE_MS) await refreshGoogle();
+    if (stored && age > GOOGLE_STALE_MS) {
+      await refreshGoogle();
+      await refreshSeo();
+    }
   } catch (e) {
     console.error("logbook: Google refresh on open failed:", e instanceof Error ? e.message : e);
   }
-  const [index, gsc, queries] = await Promise.all([
+  const [index, gsc, queries, seo] = await Promise.all([
     readJson<LogbookIndex>("index"),
     readJson<LogbookGsc>("gsc"),
     readJson<LogbookQueries>("gsc_queries"),
+    readJson<LogbookSeo>("seo"),
   ]);
   const dates = Object.keys(index?.days || {}).sort();
   const latest = dates.length ? await readDay(dates[dates.length - 1]) : null;
-  return { index, gsc, queries, latest };
+  return { index, gsc, queries, seo, latest };
 }

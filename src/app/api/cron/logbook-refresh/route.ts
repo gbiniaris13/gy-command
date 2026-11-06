@@ -15,7 +15,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/require-user";
 import { observeCron } from "@/lib/cron-observer";
-import { refreshVisitors, refreshGoogle } from "@/lib/logbook";
+import { refreshVisitors, refreshGoogle, refreshSeo } from "@/lib/logbook";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +44,9 @@ async function run(req: Request): Promise<Response> {
   if (only !== "visitors") {
     try {
       out.google = await refreshGoogle();
+      // The SEO history (months, movers, the AI side) is built on the
+      // days just stored, so it runs after them.
+      out.seo = await refreshSeo({ backfill });
     } catch (e) {
       failed += 1;
       out.google_error = e instanceof Error ? e.message : "unknown";
