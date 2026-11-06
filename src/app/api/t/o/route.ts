@@ -39,6 +39,7 @@ import {
   ownCopyGone,
 } from "@/lib/email-tracking";
 import { findAndClean } from "@/lib/sent-copy";
+import { isHouseIp } from "@/lib/house-ip";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,6 +98,9 @@ export async function GET(req: NextRequest) {
     ) {
       verdict = "human";
     }
+    // A mail program on George's own network fetching the pixel directly
+    // (never Gmail's proxy, whose address is Google's) is George.
+    if (verdict === "human" && !viaGoogleProxy(userAgent) && (await isHouseIp(ip))) verdict = "self";
     if (verdict === "human" && (isExtRequest(req.headers.get("x-gy-self")) || (await seenRecently(token, now.getTime())))) {
       verdict = "self";
     }

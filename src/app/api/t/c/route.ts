@@ -33,6 +33,8 @@ import {
   BURST_MS,
 } from "@/lib/email-tracking";
 
+import { isHouseIp } from "@/lib/house-ip";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -106,6 +108,8 @@ export async function GET(req: NextRequest) {
         url,
       });
       if (isExtRequest(req.headers.get("x-gy-self"))) verdict = "self";
+      // His own network (the iPhone on the home wifi, another browser).
+      if (verdict === "human" && (await isHouseIp(ip))) verdict = "self";
 
       const place = placeFromHeaders(req.headers);
       const { data: hit } = await sb

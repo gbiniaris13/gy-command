@@ -14,7 +14,8 @@ import { followUpLabels } from "@/lib/helm/pipeline";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { HelmEmail, LiveRow } from "@/lib/helm/live";
 
 export type FuStepRow = { due: string; done_at: string | null; how: string | null; kind?: "nudge" | "reopen" | "bye" };
 
@@ -46,6 +47,8 @@ export type CrmRow = {
   dwellMin: number | null;
   holdYacht: string | null;
   holdAt: string | null;
+  // 2026-11-06: every tracked email to this client, newest first.
+  emails: HelmEmail[];
   waitingDays: number | null;
   onNewsletter: boolean;
   // 2026-07-24 pipeline upgrade
@@ -474,8 +477,97 @@ function BookingCell({ r }: { r: CrmRow }) {
   );
 }
 
+// ── Emails cell (2026-11-06, George: "την ημερομηνία του mail και δίπλα ένα
+// πράσινο tick... κόκκινο αν όχι... και τι link έχει πατήσει"). One line per
+// email that left for this client: the day it went, a green tick when it was
+// opened (with how many times), a red cross when it was not, and under it
+// the links that were pressed. The three most recent show; the rest unfold.
+function EmailsCell({ emails }: { emails: HelmEmail[] }) {
+  const [all, setAll] = useState(false);
+  if (!emails.length) return <span style={{ color: "#cbd5e1" }}>—</span>;
+  const list = all ? emails : emails.slice(0, 3);
+  return (
+    <div>
+      {list.map((e, i) => {
+        const tip = [
+          e.subject || "(no subject)",
+          `Sent ${fmtSent(e.at)}`,
+          e.state === "opened"
+            ? `Opened ${e.opens}×${e.lastOpenAt ? `, last ${fmtSent(e.lastOpenAt)}` : ""}`
+            : e.state === "apple"
+              ? "Apple Mail loads every email by itself, so an open cannot be told. A pressed link is the sure sign."
+              : "Not opened yet",
+          ...e.clicks.map((c) => `Pressed ${c.url} · ${fmtSent(c.at)}`),
+        ].join("\n");
+        return (
+          <div key={`${e.at}-${i}`} title={tip} style={{ marginBottom: 5 }}>
+            <div style={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ color: "#6b7280" }}>{fmt(e.at)}</span>{" "}
+              {e.state === "opened" ? (
+                <span style={{ color: "#0d6e5a", fontWeight: 600 }}>
+                  ✓ opened{e.opens > 1 ? ` ${e.opens}×` : ""}{e.lastOpenAt ? ` · ${fmt(e.lastOpenAt)}` : ""}
+                </span>
+              ) : e.state === "apple" ? (
+                <span style={{ color: "#b45309" }}>● Apple Mail</span>
+              ) : (
+                <span style={{ color: "#b91c1c", fontWeight: 600 }}>✗ not opened</span>
+              )}
+            </div>
+            {e.clicks.map((c) => (
+              <div key={c.url} style={{ fontSize: 11, color: "#0d6e5a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                ↳ {c.url}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      {emails.length > 3 && (
+        <button
+          type="button"
+          onClick={() => setAll(!all)}
+          style={{ border: 0, background: "transparent", padding: 0, fontSize: 11, color: "#A8873B", cursor: "pointer" }}
+        >
+          {all ? "show fewer" : `+${emails.length - 3} earlier`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
   const router = useRouter();
+
+  // 2026-11-06: the signals and the email ticks stay current without a
+  // reload. Once a minute, while the tab is in front, one light request
+  // (/api/helm/live) brings the latest for every row; a row's own facts
+  // (stage, plan, notes) are never touched by it.
+  const [live, setLive] = useState<Record<string, LiveRow>>({});
+  const [liveAt, setLiveAt] = useState<string | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    const pull = async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch("/api/helm/live", { cache: "no-store" });
+        if (!res.ok) return;
+        const j = (await res.json()) as { ok?: boolean; at?: string; rows?: Record<string, LiveRow> };
+        if (!stopped && j.ok && j.rows) {
+          setLive(j.rows);
+          setLiveAt(j.at || new Date().toISOString());
+        }
+      } catch {
+        /* the next minute tries again */
+      }
+    };
+    const timer = setInterval(pull, 60_000);
+    const onVisible = () => { if (!document.hidden) pull(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
   const [q, setQ] = useState("");
   const [year, setYear] = useState<"all" | number>("all");
   const [stage, setStage] = useState<"all" | "active" | string>("active");
@@ -532,7 +624,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
       </div>
 
       <div style={{ background: "#fff", border: "1px solid rgba(13,27,42,0.08)", overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 1750, tableLayout: "fixed" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 1976, tableLayout: "fixed" }}>
           {/* Fixed widths so every column stays on screen; long free-text
               (guests, route, budget) wraps inside its box instead of shoving
               the later columns off the right edge. 2026-07-24: Sent rides
@@ -548,6 +640,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
             <col style={{ width: 118 }} />
             <col style={{ width: 196 }} />
             <col style={{ width: 130 }} />
+            <col style={{ width: 226 }} />
             <col style={{ width: 164 }} />
             <col style={{ width: 170 }} />
           </colgroup>
@@ -563,17 +656,19 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
               <th style={th}>Status</th>
               <th style={th}>Follow-ups</th>
               <th style={th}>Signals</th>
+              <th style={th} title="Every email that left for this client: opened or not, and the links pressed">Emails</th>
               <th style={th}>Notes</th>
               <th style={th} title="Won: the yacht they took, the owning house (internal), payment, papers">Booking</th>
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 && (
-              <tr><td colSpan={12} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
+              <tr><td colSpan={13} style={{ padding: 32, textAlign: "center", color: "#6b7280", fontStyle: "italic" }}>
                 Nothing matches. Clear the search or filters.
               </td></tr>
             )}
-            {shown.map((r) => {
+            {shown.map((row) => {
+              const r = live[row.id] ? { ...row, ...live[row.id] } : row;
               const futureYear = !!r.year && r.year > thisYear;
               return (
               <tr
@@ -733,6 +828,11 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
                   )}
                 </td>
 
+                {/* Emails - what left for this client, opened or not, links pressed */}
+                <td style={td} onClick={(e) => e.stopPropagation()}>
+                  <EmailsCell emails={r.emails} />
+                </td>
+
                 {/* George's own notes - typed here, saved here */}
                 <td style={td} onClick={(e) => e.stopPropagation()}>
                   <NotesCell id={r.id} initial={r.notes} />
@@ -750,6 +850,7 @@ export default function HelmCrmTable({ rows }: { rows: CrmRow[] }) {
       </div>
       <div style={{ marginTop: 8, fontSize: 11.5, color: "#9CA3AF" }}>
         {shown.length} of {rows.length} requests · click a row to open it · search matches names, emails, areas and Ref codes
+        {" · "}signals and emails refresh every minute{liveAt ? ` (last ${new Date(liveAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Athens" })})` : ""}
       </div>
     </>
   );

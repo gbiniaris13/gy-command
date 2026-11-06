@@ -7,12 +7,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/require-user";
 import { extKey, trackingBaseUrl } from "@/lib/email-tracking";
 
+import { ipFrom, noteHouseIp } from "@/lib/house-ip";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest): Promise<Response> {
   const denied = await requireUser(req);
   if (denied) return denied;
+  await noteHouseIp(ipFrom(req.headers), req.headers.get("user-agent"));
   return NextResponse.json(
     { key: extKey(), base: trackingBaseUrl() },
     { headers: { "Cache-Control": "no-store" } },

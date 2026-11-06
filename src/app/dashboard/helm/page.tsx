@@ -9,6 +9,7 @@ import { helmDisplayName } from "@/lib/helm/addressing";
 import { phoneCountry } from "@/lib/phone-country";
 import { isFlexibleWindow, extendPlan } from "@/lib/helm/pipeline";
 import { mergePipeline } from "@/lib/helm-admin";
+import { signalsFromSalon, emailsByAddress, emailsForRequests, type HelmEmail } from "@/lib/helm/live";
 import HelmCrmTable, { type CrmRow } from "./HelmCrmTable";
 
 export const dynamic = "force-dynamic";
@@ -77,6 +78,18 @@ export default async function HelmListPage() {
     }),
   );
 
+  // 2026-11-06: every tracked email to each client (opened or not, links
+  // pressed). Best-effort: the pipeline must render even if this read fails.
+  let emailsById: Record<string, HelmEmail[]> = {};
+  try {
+    emailsById = emailsForRequests(
+      sorted.map((r) => ({ id: r.id, client_email: r.client_email, created_at: r.created_at })),
+      await emailsByAddress(),
+    );
+  } catch {
+    emailsById = {};
+  }
+
   const rows: CrmRow[] = sorted.map((r) => {
     const nights = nightsBetween(r.dates_from, r.dates_to);
     const pc = phoneCountry(r.client_whatsapp);
@@ -84,21 +97,9 @@ export default async function HelmListPage() {
       && ["sent", "in_conversation", "negotiating"].includes(r.status)
       && new Date(r.follow_up_at).getTime() <= Date.now();
     // Engagement from the Salon (the client actually opened / pressed interest).
-    // The single strongest "call this one" signal a broker can have.
-    const salonViews = r.salon?.views ?? 0;
-    const salonLastAt = r.salon?.last_at ?? null;
-    const interest = r.salon?.yachts
-      ? Object.entries(r.salon.yachts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
-      : null;
-    // 2026-10-02: the yacht they stared at longest, and a 48-hour hold request
-    // (the strongest call-now cue the Salon can send).
-    const dwellTop = r.salon?.dwell
-      ? Object.entries(r.salon.dwell).sort((a, b) => b[1] - a[1])[0] ?? null
-      : null;
-    const dwellYacht = dwellTop && dwellTop[1] >= 20 ? dwellTop[0] : null;
-    const dwellMin = dwellTop ? Math.max(1, Math.round(dwellTop[1] / 60)) : null;
-    const holdYacht = r.salon?.hold?.yacht ?? null;
-    const holdAt = r.salon?.hold?.at ?? null;
+    // The single strongest "call this one" signal a broker can have. Shared
+    // with the minute poll (lib/helm/live.ts) so both read it the same way.
+    const { salonViews, salonLastAt, interest, dwellYacht, dwellMin, holdYacht, holdAt } = signalsFromSalon(r.salon);
     // How long an un-worked request has been sitting (new/drafted only). Lets
     // George see at a glance which leads are going cold (George 2026-07-17).
     const waitingDays = ["new", "drafted"].includes(r.status) && r.created_at
@@ -137,6 +138,7 @@ export default async function HelmListPage() {
       dwellMin,
       holdYacht,
       holdAt,
+      emails: emailsById[r.id] || [],
       waitingDays,
       onNewsletter: r.on_newsletter,
       sentAt: p.sent_at ?? null,

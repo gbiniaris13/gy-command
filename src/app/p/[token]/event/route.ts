@@ -17,6 +17,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { getRequest, saveExtraction } from "@/lib/helm-admin";
 import { resolveEditionRef } from "@/lib/helm/edition-link";
 import { staffSig } from "@/lib/email-tracking";
+import { ipFrom, isHouseIp, noteHouseIp } from "@/lib/house-ip";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,7 +77,10 @@ export async function POST(
   // 2026-11-05: opened from George's own copy of the email (?gs=, see
   // lib/sent-copy.ts). The house, whatever the browser: record nothing and
   // stamp the durable marker here too, so later visits need no link.
+  const ip = ipFrom(req.headers);
+  const ua = req.headers.get("user-agent");
   if (typeof body.gs === "string" && body.gs === staffSig(id)) {
+    await noteHouseIp(ip, ua);
     const res = NextResponse.json({ ok: true, self: true });
     res.cookies.set("gy_staff", "1", {
       maxAge: 60 * 60 * 24 * 365,
@@ -89,7 +93,14 @@ export async function POST(
   }
 
   // George previewing his own edition is not a client signal — record nothing.
-  if (await isAdminViewer()) return NextResponse.json({ ok: true, self: true });
+  if (await isAdminViewer()) {
+    await noteHouseIp(ip, ua);
+    return NextResponse.json({ ok: true, self: true });
+  }
+
+  // 2026-11-06: nor is anything else on his own network (his iPhone, the
+  // Gmail and WhatsApp in-app browsers, Safari). See lib/house-ip.ts.
+  if (await isHouseIp(ip)) return NextResponse.json({ ok: true, self: true });
 
   try {
     const t = String(body.t || "");

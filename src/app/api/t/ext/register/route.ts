@@ -9,6 +9,8 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { isExtRequest, isInternalOnly, sleep } from "@/lib/email-tracking";
 import { findAndClean } from "@/lib/sent-copy";
 
+import { ipFrom, noteHouseIp } from "@/lib/house-ip";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -17,6 +19,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!isExtRequest(req.headers.get("x-gy-ext"))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  await noteHouseIp(ipFrom(req.headers), req.headers.get("user-agent"));
   const body = (await req.json().catch(() => ({}))) as { token?: string; to?: string; subject?: string };
   const token = String(body.token || "");
   const to = String(body.to || "").slice(0, 300);
