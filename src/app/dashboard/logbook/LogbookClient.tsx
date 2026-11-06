@@ -27,6 +27,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const FIRST_VISITOR_DAY = "2026-05-15";
 // The Helm opened on this day; requests before it were never recorded.
 const HELM_FIRST_DAY = "2026-05-30";
+// The first months counted from their first day to their last. A month
+// is only compared with the one before it when that one was whole.
+const FIRST_FULL_MONTH = "2026-06-01";
+const FIRST_FULL_GOOGLE_MONTH = "2025-12-01";
 
 // ── Formatting ───────────────────────────────────────────────────
 const num = (n: number) => Math.round(n).toLocaleString("el-GR");
@@ -429,6 +433,8 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
   const [loadError, setLoadError] = useState(false);
   const [showTable, setShowTable] = useState(false);
   const [moreQueries, setMoreQueries] = useState(false);
+  const [yachtScope, setYachtScope] = useState<string>("all");
+  const [moreYachts, setMoreYachts] = useState(false);
 
   useEffect(() => {
     if (!selected || cache[selected]) return;
@@ -529,38 +535,96 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
   const fmt = metric === "position" ? pos : num;
 
   // ── Months ──
+  // Each month's numbers, and under each one how it moved against the
+  // month before. The month still running is compared with the same days
+  // of the month before, never with the whole of it.
   const months = useMemo(() => {
+    const endOf = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).toISOString().slice(0, 10);
+    const prevOf = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 0)).toISOString().slice(0, 7);
+    const visitorSum = (from: string, to: string, k: keyof DayCounts) =>
+      visitorDates.filter((d) => d >= from && d <= to).reduce((n, d) => n + days[d][k], 0);
+    const google = (from: string, to: string) => {
+      const ds = gscDates.filter((d) => d >= from && d <= to);
+      let ps = 0, pw = 0;
+      ds.forEach((d) => { if (gsc[d][2] > 0 && gsc[d][1] > 0) { ps += gsc[d][2] * gsc[d][1]; pw += gsc[d][1]; } });
+      return { n: ds.length, clicks: ds.reduce((n, d) => n + gsc[d][0], 0), impressions: ds.reduce((n, d) => n + gsc[d][1], 0), position: pw ? ps / pw : null };
+    };
+    const pct = (now: number | null, before: number | null) => (now === null || before === null || before <= 0 ? null : ((now - before) / before) * 100);
+
     const set = new Set<string>([...visitorDates, ...gscDates].map((d) => d.slice(0, 7)));
     return [...set].sort().reverse().map((ym) => {
+      const first = `${ym}-01`;
+      const end = endOf(ym);
+      const prev = prevOf(ym);
       const vd = visitorDates.filter((d) => d.startsWith(ym));
-      const gd = gscDates.filter((d) => d.startsWith(ym));
-      const sum = (k: keyof DayCounts) => vd.reduce((a, d) => a + days[d][k], 0);
-      const clicks = gd.reduce((a, d) => a + gsc[d][0], 0);
-      const impressions = gd.reduce((a, d) => a + gsc[d][1], 0);
-      let ps = 0, pw = 0;
-      gd.forEach((d) => { if (gsc[d][2] > 0 && gsc[d][1] > 0) { ps += gsc[d][2] * gsc[d][1]; pw += gsc[d][1]; } });
-      const uniq = data.index?.months?.[ym] || null;
-      const lastOfMonth = [...vd, ...gd].sort().pop() || `${ym}-01`;
-      const monthEnd = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).toISOString().slice(0, 10);
+      const g = google(first, end);
+      const rec = data.index?.months?.[ym] || null;
+      const prevRec = data.index?.months?.[prev] || null;
+      const lastVisitorDay = vd[vd.length - 1] || null;
+      const lastGoogleDay = gscDates.filter((d) => d.startsWith(ym)).pop() || null;
+      const running = ym === latest.slice(0, 7) && !!lastVisitorDay && lastVisitorDay < end;
+
       const notes: string[] = [];
-      if (vd.length && vd[0] === FIRST_VISITOR_DAY && ym === FIRST_VISITOR_DAY.slice(0, 7)) notes.push(`επισκέπτες από ${dayTiny(FIRST_VISITOR_DAY)}`);
-      if (lastOfMonth < monthEnd && ym === (latest || "").slice(0, 7)) notes.push(`ως ${dayTiny(lastOfMonth)}`);
+      if (ym === FIRST_VISITOR_DAY.slice(0, 7)) notes.push(`επισκέπτες από ${dayTiny(FIRST_VISITOR_DAY)}`);
+      if (running && lastVisitorDay) notes.push(`ως ${dayTiny(lastVisitorDay)}`);
+
+      // What the month is measured against.
+      const sameDay = (day: string | null) => {
+        if (!day) return null;
+        const d = `${prev}-${day.slice(8, 10)}`;
+        return d > endOf(prev) ? endOf(prev) : d;
+      };
+      const vTo = running ? sameDay(lastVisitorDay) : endOf(prev);
+      const gTo = running ? sameDay(lastGoogleDay) : endOf(prev);
+      const visitorsComparable = `${prev}-01` >= FIRST_FULL_MONTH && vd.length > 0;
+      const requestsComparable = `${prev}-01` >= FIRST_FULL_MONTH && vd.length > 0;
+      const googleComparable = `${prev}-01` >= FIRST_FULL_GOOGLE_MONTH && g.n > 0;
+      const uniqueBefore = running ? rec?.prevSame || null : prevRec;
+      const gBefore = gTo ? google(`${prev}-01`, gTo) : null;
+      const vBefore = (k: keyof DayCounts) => (vTo && visitorsComparable ? visitorSum(`${prev}-01`, vTo, k) : null);
+
+      const engaged = visitorSum(first, end, "engaged");
+      const yachtViewers = visitorSum(first, end, "yachtViewers");
+      const requests = visitorSum(first, end, "requests");
       return {
         ym,
         notes,
+        running,
         hasVisitors: vd.length > 0,
-        people: uniq ? uniq.people : null,
-        us: uniq ? uniq.us : null,
-        engaged: sum("engaged"),
-        yachtViewers: sum("yachtViewers"),
-        requests: sum("requests"),
-        hasGoogle: gd.length > 0,
-        clicks,
-        impressions,
-        position: pw ? ps / pw : null,
+        hasGoogle: g.n > 0,
+        people: rec ? rec.people : null,
+        us: rec ? rec.us : null,
+        ai: rec && typeof rec.ai === "number" ? rec.ai : null,
+        engaged,
+        yachtViewers,
+        requests,
+        clicks: g.clicks,
+        impressions: g.impressions,
+        position: g.position,
+        change: {
+          people: visitorsComparable && uniqueBefore ? pct(rec ? rec.people : null, uniqueBefore.people) : null,
+          us: visitorsComparable && uniqueBefore ? pct(rec ? rec.us : null, uniqueBefore.us) : null,
+          ai: visitorsComparable && uniqueBefore && typeof uniqueBefore.ai === "number" ? pct(rec && typeof rec.ai === "number" ? rec.ai : null, uniqueBefore.ai) : null,
+          engaged: pct(engaged, vBefore("engaged")),
+          yachtViewers: pct(yachtViewers, vBefore("yachtViewers")),
+          requests: requestsComparable ? pct(requests, vBefore("requests")) : null,
+          clicks: googleComparable && gBefore ? pct(g.clicks, gBefore.clicks) : null,
+          impressions: googleComparable && gBefore ? pct(g.impressions, gBefore.impressions) : null,
+          // Places gained (a smaller position is higher up), not a percentage.
+          position: googleComparable && gBefore && gBefore.position !== null && g.position !== null ? gBefore.position - g.position : null,
+        },
       };
     });
   }, [visitorDates, gscDates, days, gsc, data.index, latest]);
+
+  // ── Yachts ──
+  const yachtMonths = useMemo(() => Object.keys(data.index?.months || {}).filter((m) => (data.index?.months?.[m]?.yachts || []).length).sort(), [data.index]);
+  const yachtRows = useMemo(() => {
+    const total = new Map<string, number>();
+    const use = yachtScope === "all" ? yachtMonths : yachtMonths.filter((m) => m === yachtScope);
+    use.forEach((m) => (data.index?.months?.[m]?.yachts || []).forEach(([name, n]) => total.set(name, (total.get(name) || 0) + n)));
+    return [...total.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([name, n]) => ({ name, n }));
+  }, [data.index, yachtMonths, yachtScope]);
 
   const totals = useMemo(() => ({
     people: months.reduce((a, r) => a + (r.people || 0), 0),
@@ -790,33 +854,46 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
           <Tile label="Φορές που μας έδειξε" value={num(totals.impressions)} note={gscDates[0] ? `από ${dayTiny(gscDates[0])}/${gscDates[0].slice(2, 4)}` : undefined} />
         </div>
         <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[900px] text-sm">
             <thead>
               <tr>
-                {["Μήνας", "Άνθρωποι", "Από ΗΠΑ", "Διάβασαν", "Άνοιξαν σκάφος", "Αιτήματα", "Κλικ Google", "Εμφανίσεις", "Μέση θέση"].map((h, i) => (
+                {["Μήνας", "Άνθρωποι", "Από ΗΠΑ", "Διάβασαν", "Άνοιξαν σκάφος", "Αιτήματα", "Από AI", "Κλικ Google", "Εμφανίσεις", "Μέση θέση"].map((h, i) => (
                   <th key={h} className={`px-2 py-2 text-xs font-semibold ${i === 0 ? "text-left" : "text-right"}`} style={{ color: INK2, borderBottom: `1px solid ${RULE}`, textTransform: "none", letterSpacing: "normal", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {months.map((r) => {
-                const cell = (val: number | null, show: boolean, f: (n: number) => string = num) => (
-                  <td className="px-2 py-2.5 text-right tabular-nums" style={{ color: show && val !== null ? NAVY : INK3 }}>{show && val !== null ? f(val) : "·"}</td>
-                );
+                // The number, and under it how it moved against the month before.
+                const cell = (val: number | null, show: boolean, move: number | null, opts: { f?: (n: number) => string; places?: boolean } = {}) => {
+                  const f = opts.f || num;
+                  const flat = move !== null && Math.abs(move) < (opts.places ? 0.05 : 0.5);
+                  return (
+                    <td className="px-2 py-2.5 text-right align-top tabular-nums" style={{ color: show && val !== null ? NAVY : INK3 }}>
+                      <span className="block">{show && val !== null ? f(val) : "·"}</span>
+                      {show && val !== null && move !== null ? (
+                        <span className="block text-[11px] font-medium" style={{ color: flat ? INK3 : move > 0 ? GOOD : BAD }}>
+                          {flat ? "ίδιο" : `${move > 0 ? "▲" : "▼"} ${opts.places ? pos(Math.abs(move)) : `${num(Math.abs(move))}%`}`}
+                        </span>
+                      ) : null}
+                    </td>
+                  );
+                };
                 return (
                   <tr key={r.ym} style={{ borderBottom: `1px solid ${GRID}` }}>
-                    <td className="px-2 py-2.5" style={{ color: NAVY }}>
+                    <td className="px-2 py-2.5 align-top" style={{ color: NAVY }}>
                       <span className="block whitespace-nowrap font-semibold">{monthName(r.ym)}</span>
                       {r.notes.length ? <span className="block text-xs" style={{ color: INK3 }}>{r.notes.join(", ")}</span> : null}
                     </td>
-                    {cell(r.people, r.hasVisitors)}
-                    {cell(r.us, r.hasVisitors)}
-                    {cell(r.engaged, r.hasVisitors)}
-                    {cell(r.yachtViewers, r.hasVisitors)}
-                    {cell(r.requests, r.hasVisitors)}
-                    {cell(r.clicks, r.hasGoogle)}
-                    {cell(r.impressions, r.hasGoogle)}
-                    {cell(r.position, r.hasGoogle, pos)}
+                    {cell(r.people, r.hasVisitors, r.change.people)}
+                    {cell(r.us, r.hasVisitors, r.change.us)}
+                    {cell(r.engaged, r.hasVisitors, r.change.engaged)}
+                    {cell(r.yachtViewers, r.hasVisitors, r.change.yachtViewers)}
+                    {cell(r.requests, r.hasVisitors, r.change.requests)}
+                    {cell(r.ai, r.hasVisitors, r.change.ai)}
+                    {cell(r.clicks, r.hasGoogle, r.change.clicks)}
+                    {cell(r.impressions, r.hasGoogle, r.change.impressions)}
+                    {cell(r.position, r.hasGoogle, r.change.position, { f: pos, places: true })}
                   </tr>
                 );
               })}
@@ -824,9 +901,53 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
           </table>
         </div>
         <p className="mt-3 text-xs leading-relaxed" style={{ color: INK3 }}>
-          «Άνθρωποι» και «Από ΗΠΑ» είναι διαφορετικοί άνθρωποι μέσα στον μήνα: όποιος ήρθε δύο μέρες μετράει μία φορά. Οι υπόλοιπες στήλες είναι άθροισμα των ημερών. Τα αιτήματα είναι όσα έχει το Helm, όπως κι αν ήρθαν (φόρμα, email, WhatsApp, ταξιδιωτικό γραφείο), και το Helm άνοιξε στις 30 Μαΐου 2026. Μια τελεία σημαίνει ότι εκείνο τον μήνα δεν υπήρχε ακόμα μέτρηση.
+          Κάτω από κάθε νούμερο γράφει πόσο ανέβηκε ή έπεσε σε σχέση με τον προηγούμενο μήνα. Ο μήνας που τρέχει συγκρίνεται με τις ίδιες μέρες του προηγούμενου, όχι με ολόκληρο. Στη μέση θέση μετράμε θέσεις και όχι ποσοστό, και το πράσινο σημαίνει ότι ανεβήκαμε. Όπου ο προηγούμενος μήνας δεν ήταν ολόκληρος, δεν γίνεται σύγκριση.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed" style={{ color: INK3 }}>
+          «Άνθρωποι», «Από ΗΠΑ» και «Από AI» είναι διαφορετικοί άνθρωποι μέσα στον μήνα: όποιος ήρθε δύο μέρες μετράει μία φορά. «Από AI» είναι όσοι ήρθαν από ChatGPT, Perplexity, Copilot, Gemini, Claude και παρόμοια, και είναι το λιγότερο: όποιος ανοίγει το link μέσα από εφαρμογή που δεν αφήνει ίχνος δεν μπορεί να μετρηθεί. Τα αιτήματα είναι όσα έχει το Helm, ένα για κάθε άνθρωπο (ένα email, ένα αίτημα), χωρίς τα δοκιμαστικά, και το Helm άνοιξε στις 30 Μαΐου 2026. Οι υπόλοιπες στήλες είναι άθροισμα των ημερών. Μια τελεία σημαίνει ότι εκείνο τον μήνα δεν υπήρχε ακόμα μέτρηση.
         </p>
       </Card>
+
+      {/* The yachts people open */}
+      {yachtMonths.length ? (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <Eyebrow>Σκάφη</Eyebrow>
+              <h2 className="mt-1 text-xl font-semibold" style={{ color: NAVY }}>Τα σκάφη που ανοίγουν περισσότερο</h2>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Pill active={yachtScope === "all"} onClick={() => setYachtScope("all")}>Από την αρχή</Pill>
+              {yachtMonths.slice(-3).reverse().map((m) => (
+                <Pill key={m} active={yachtScope === m} onClick={() => setYachtScope(m)}>{monthName(m).split(" ")[0]}</Pill>
+              ))}
+            </div>
+          </div>
+          <p className="mt-1 text-sm" style={{ color: INK2 }}>
+            Πόσες επισκέψεις ανθρώπων άνοιξαν τη σελίδα κάθε σκάφους{yachtScope === "all" ? `, από ${dayTiny(FIRST_VISITOR_DAY)}` : ""}. {num(yachtRows.length)} σκάφη έχουν ανοιχτεί έστω μία φορά.
+          </p>
+          <div className="mt-5 space-y-2">
+            {yachtRows.slice(0, moreYachts ? 60 : 20).map((r, i) => (
+              <div key={r.name} className="grid items-center gap-3" style={{ gridTemplateColumns: "28px minmax(0,34%) minmax(0,1fr) 52px" }}>
+                <p className="text-right text-xs tabular-nums" style={{ color: INK3 }}>{i + 1}</p>
+                <p className="truncate text-sm" style={{ color: NAVY }} title={r.name}>{r.name}</p>
+                <div className="h-2 rounded-full" style={{ background: "rgba(13,27,42,0.06)" }}>
+                  <div className="h-2 rounded-full" style={{ width: `${Math.max(2, (r.n / Math.max(1, yachtRows[0].n)) * 100)}%`, background: OTHER_BLUE }} />
+                </div>
+                <p className="text-right text-sm tabular-nums" style={{ color: NAVY }}>{num(r.n)}</p>
+              </div>
+            ))}
+          </div>
+          {yachtRows.length > 20 ? (
+            <button type="button" onClick={() => setMoreYachts((v) => !v)} className="mt-4 text-sm font-semibold underline" style={{ color: NAVY }}>
+              {moreYachts ? "Δείξε τα πρώτα 20" : "Δείξε περισσότερα"}
+            </button>
+          ) : null}
+          <p className="mt-3 text-xs leading-relaxed" style={{ color: INK3 }}>
+            Μετράνε μόνο άνθρωποι, όχι μηχανές. Αν κάποιος άνοιξε το ίδιο σκάφος πέντε φορές μέσα στην ίδια επίσκεψη, μετράει μία. Αν ξαναήρθε άλλη μέρα και το άνοιξε πάλι, μετράει ξανά.
+          </p>
+        </Card>
+      ) : null}
 
       {/* What people typed into Google */}
       {queries.length ? (

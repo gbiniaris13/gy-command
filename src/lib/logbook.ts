@@ -40,6 +40,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // The tracker has recorded network and browser details since this day;
 // before it a person cannot be told from a machine.
 export const LOGBOOK_FIRST_DAY = "2026-05-15";
+// The first month counted from its first day to its last.
+export const LOGBOOK_FIRST_FULL_MONTH = "2026-06-01";
 
 export type DayCounts = {
   people: number;
@@ -91,12 +93,27 @@ export type DaySnapshot = {
   top: TopVisitor[];
 };
 
+export type MonthRecord = {
+  people: number;
+  us: number;
+  // Different people an AI assistant sent (ChatGPT, Perplexity, Copilot,
+  // Gemini, Claude and the like). A floor: an assistant that opens the
+  // link without leaving a trace cannot be counted.
+  ai?: number;
+  through: string;
+  // How many visits opened each yacht's page in the month.
+  yachts?: [string, number][];
+  // Only for the month still running: the same counts over the same days
+  // of the month before, so "up or down" compares like with like.
+  prevSame?: { people: number; us: number; ai: number; through: string };
+};
+
 export type LogbookIndex = {
   updated_at: string;
   days: Record<string, DayCounts>;
   // Different people in the month so far (a sum of days counts a person
   // who came on two days twice; this does not).
-  months: Record<string, { people: number; us: number; through: string }>;
+  months: Record<string, MonthRecord>;
 };
 
 // [clicks, impressions, average position, US clicks, US impressions, US position]
@@ -179,18 +196,39 @@ export type HelmRequestLine = { id: string; at: number; label: string };
 const TEST_NAME = /\(TEST\)|\btest\b|\be2e\b/i;
 const TEST_EMAIL = /test\+|@example\.com$|^george@georgeyachts\.com$/i;
 
+// One request per person (George, 6/11: "για κάθε mail ένα αίτημα").
+// The Helm can hold two rows for the same client: a second brief the next
+// day, a returning client months later. A person is their email; without
+// one, their WhatsApp number; without either, their name. Only the first
+// row of each person counts, on the day it arrived. On 6/11/2026 that
+// was 127 people in 130 rows.
+const personKey = (r: { client_email?: unknown; client_whatsapp?: unknown; client_name?: unknown }) =>
+  String(r.client_email || "").trim().toLowerCase() ||
+  String(r.client_whatsapp || "").replace(/\D/g, "") ||
+  `name:${String(r.client_name || "").trim().toLowerCase()}`;
+
 export async function helmRequestsBetween(sinceIso: string, untilIso: string): Promise<HelmRequestLine[]> {
   const sb = createServiceClient();
+  // Everything up to `until`, so a person who first wrote before the span
+  // is recognised as already counted.
   const { data, error } = await sb
     .from("helm_requests")
-    .select("id, created_at, client_name, client_email, request_type")
-    .gte("created_at", sinceIso)
+    .select("id, created_at, client_name, client_email, client_whatsapp, request_type")
     .lt("created_at", untilIso)
     .order("created_at", { ascending: true })
-    .limit(5000);
+    .limit(10000);
   if (error) throw new Error(`helm_requests read failed: ${error.message}`);
+  const seen = new Set<string>();
+  const sinceMs = Date.parse(sinceIso);
   return (data || [])
     .filter((r) => !TEST_NAME.test(String(r.client_name || "")) && !TEST_EMAIL.test(String(r.client_email || "").trim()))
+    .filter((r) => {
+      const k = personKey(r);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .filter((r) => Date.parse(String(r.created_at)) >= sinceMs)
     .map((r) => ({
       id: String(r.id),
       at: Date.parse(String(r.created_at)),
@@ -202,7 +240,9 @@ export async function helmRequestsBetween(sinceIso: string, untilIso: string): P
 const dayStartMs = (date: string) => Date.parse(`${date}T05:00:00Z`);
 
 // ── Visitors: ask the website ────────────────────────────────────
-async function pullSiteDays(from: string, to: string): Promise<{ days: DaySnapshot[]; unique: { people: number; us: number } }> {
+type SiteSpan = { days: DaySnapshot[]; unique: { people: number; us: number; ai: number }; yachts: [string, number][] };
+
+async function pullSiteDays(from: string, to: string): Promise<SiteSpan> {
   // The secret the site and the CRM already share (the inquiry hook
   // uses it in the other direction).
   const secret = process.env.LOGBOOK_SITE_SECRET || process.env.NEWSLETTER_PROXY_SECRET;
@@ -215,7 +255,12 @@ async function pullSiteDays(from: string, to: string): Promise<{ days: DaySnapsh
   if (!res.ok) throw new Error(`website feed answered ${res.status} for ${from}..${to}`);
   const body = await res.json();
   if (!body?.ok || !Array.isArray(body.days)) throw new Error("website feed returned no days");
-  return { days: body.days as DaySnapshot[], unique: body.unique || { people: 0, us: 0 } };
+  const u = body.unique || {};
+  return {
+    days: body.days as DaySnapshot[],
+    unique: { people: Number(u.people) || 0, us: Number(u.us) || 0, ai: Number(u.ai) || 0 },
+    yachts: Array.isArray(body.yachts) ? (body.yachts as [string, number][]) : [],
+  };
 }
 
 function monthBounds(ym: string, lastDay: string): { from: string; to: string } | null {
@@ -261,7 +306,7 @@ export async function refreshVisitors(opts: { backfill?: boolean; months?: strin
   for (const ym of months) {
     const span = monthBounds(ym, lastDay);
     if (!span) continue;
-    const { days, unique } = await pullSiteDays(span.from, span.to);
+    const { days, unique, yachts } = await pullSiteDays(span.from, span.to);
     // The requests of each day come from The Helm, not from the feed.
     if (days.length) {
       const helm = await helmRequestsBetween(
@@ -280,7 +325,29 @@ export async function refreshVisitors(opts: { backfill?: boolean; months?: strin
       stored += 1;
       if (!last || d.date > last) last = d.date;
     }
-    if (days.length) index.months[ym] = { people: unique.people, us: unique.us, through: days[days.length - 1].date };
+    if (days.length) {
+      const through = days[days.length - 1].date;
+      const record: MonthRecord = { people: unique.people, us: unique.us, ai: unique.ai, through, yachts };
+      // The month still running is compared with the same days of the
+      // month before (1st to the same date), when that month was counted
+      // whole. Different people cannot be added up from days, so the
+      // website is asked for that span too.
+      const [y, m] = ym.split("-").map(Number);
+      const monthEnd = isoDate(Date.UTC(y, m, 0));
+      const prevYm = isoDate(Date.UTC(y, m - 1, 0)).slice(0, 7);
+      if (through < monthEnd && `${prevYm}-01` >= LOGBOOK_FIRST_FULL_MONTH) {
+        const prevEnd = isoDate(Date.UTC(y, m - 1, 0));
+        const sameDay = `${prevYm}-${through.slice(8, 10)}`;
+        const prevTo = sameDay > prevEnd ? prevEnd : sameDay;
+        try {
+          const prev = await pullSiteDays(`${prevYm}-01`, prevTo);
+          record.prevSame = { people: prev.unique.people, us: prev.unique.us, ai: prev.unique.ai, through: prevTo };
+        } catch (e) {
+          console.error("logbook: same-days comparison failed:", e instanceof Error ? e.message : e);
+        }
+      }
+      index.months[ym] = record;
+    }
   }
   index.updated_at = new Date().toISOString();
   await writeJson([{ name: "index", value: index }]);
