@@ -25,6 +25,8 @@ const GOOD = "#3A6B47";
 const BAD = "#B14A3A";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIRST_VISITOR_DAY = "2026-05-15";
+// The Helm opened on this day; requests before it were never recorded.
+const HELM_FIRST_DAY = "2026-05-30";
 
 // ── Formatting ───────────────────────────────────────────────────
 const num = (n: number) => Math.round(n).toLocaleString("el-GR");
@@ -676,7 +678,8 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
             : range === "all"
               ? "Κάθε στήλη είναι μια εβδομάδα, Δευτέρα με Κυριακή. Οι πιο αχνές στήλες είναι εβδομάδες που δεν είναι ολόκληρες."
               : "Πάτησε μια μέρα για να δεις την ανάλυσή της πιο κάτω."}
-          {(metric === "people" || metric === "requests") ? ` Οι επισκέπτες μετριούνται αξιόπιστα από ${dayTiny(FIRST_VISITOR_DAY)}.` : ""}
+          {metric === "people" ? ` Οι επισκέπτες μετριούνται αξιόπιστα από ${dayTiny(FIRST_VISITOR_DAY)}.` : ""}
+          {metric === "requests" ? ` Τα αιτήματα είναι όσα έχει το Helm, που άνοιξε στις ${dayTiny(HELM_FIRST_DAY)}.` : ""}
         </p>
 
         <button type="button" onClick={() => setShowTable((s) => !s)} className="mt-3 text-sm font-semibold underline" style={{ color: NAVY }}>
@@ -713,9 +716,13 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
         ) : (
           <div className="mt-5 space-y-8">
             <div>
-              <p className="mb-3 text-sm font-semibold" style={{ color: NAVY }}>Αιτήματα</p>
+              <p className="text-sm font-semibold" style={{ color: NAVY }}>Αιτήματα</p>
+              <p className="mb-3 text-xs" style={{ color: INK3 }}>Όπως είναι στο Helm. Πάτησε ένα όνομα για να ανοίξει.</p>
               {snap.requests.length ? snap.requests.map((r, i) => (
-                <p key={i} className="py-1 text-sm" style={{ color: NAVY }}><span className="tabular-nums" style={{ color: INK3 }}>{clock(r.at, "Europe/Athens")}</span>&nbsp;&nbsp;{r.label}</p>
+                <p key={i} className="py-1 text-sm" style={{ color: NAVY }}>
+                  <span className="tabular-nums" style={{ color: INK3 }}>{clock(r.at, "Europe/Athens")}</span>&nbsp;&nbsp;
+                  {r.id ? <a href={`/dashboard/helm/${r.id}`} className="font-semibold underline">{r.label}</a> : r.label}
+                </p>
               )) : <p className="text-sm" style={{ color: INK3 }}>Κανένα αίτημα αυτή τη μέρα.</p>}
             </div>
 
@@ -778,7 +785,7 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
         <h2 className="mt-1 text-xl font-semibold" style={{ color: NAVY }}>Ο κάθε μήνας, μαζεμένος</h2>
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Tile label="Άνθρωποι από την αρχή" value={num(totals.people)} note={`από ${dayTiny(FIRST_VISITOR_DAY)}, άθροισμα μηνών`} />
-          <Tile label="Αιτήματα από την αρχή" value={num(totals.requests)} note={`από ${dayTiny(FIRST_VISITOR_DAY)}`} />
+          <Tile label="Αιτήματα από την αρχή" value={num(totals.requests)} note={`όσα έχει το Helm, από ${dayTiny(HELM_FIRST_DAY)}`} />
           <Tile label="Κλικ από Google" value={num(totals.clicks)} note={gscDates[0] ? `από ${dayTiny(gscDates[0])}/${gscDates[0].slice(2, 4)}` : undefined} />
           <Tile label="Φορές που μας έδειξε" value={num(totals.impressions)} note={gscDates[0] ? `από ${dayTiny(gscDates[0])}/${gscDates[0].slice(2, 4)}` : undefined} />
         </div>
@@ -817,7 +824,7 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
           </table>
         </div>
         <p className="mt-3 text-xs leading-relaxed" style={{ color: INK3 }}>
-          «Άνθρωποι» και «Από ΗΠΑ» είναι διαφορετικοί άνθρωποι μέσα στον μήνα: όποιος ήρθε δύο μέρες μετράει μία φορά. Οι υπόλοιπες στήλες είναι άθροισμα των ημερών. Μια τελεία σημαίνει ότι εκείνο τον μήνα δεν υπήρχε ακόμα μέτρηση.
+          «Άνθρωποι» και «Από ΗΠΑ» είναι διαφορετικοί άνθρωποι μέσα στον μήνα: όποιος ήρθε δύο μέρες μετράει μία φορά. Οι υπόλοιπες στήλες είναι άθροισμα των ημερών. Τα αιτήματα είναι όσα έχει το Helm, όπως κι αν ήρθαν (φόρμα, email, WhatsApp, ταξιδιωτικό γραφείο), και το Helm άνοιξε στις 30 Μαΐου 2026. Μια τελεία σημαίνει ότι εκείνο τον μήνα δεν υπήρχε ακόμα μέτρηση.
         </p>
       </Card>
 

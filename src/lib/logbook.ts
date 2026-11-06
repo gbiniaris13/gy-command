@@ -86,7 +86,8 @@ export type DaySnapshot = {
   read: [string, number][];
   googleLanding: [string, number][];
   machinesBy: [string, number][];
-  requests: { at: number; label: string }[];
+  // From The Helm (see helmRequestsBetween). `id` opens the request.
+  requests: { at: number; label: string; id?: string }[];
   top: TopVisitor[];
 };
 
@@ -159,6 +160,47 @@ async function writeJson(rows: { name: string; value: unknown }[]): Promise<void
   if (error) throw new Error(`settings write failed: ${error.message}`);
 }
 
+// ── Requests: The Helm ───────────────────────────────────────────
+// 6/11/2026, the same evening the page went live. George looked at the
+// months and said the requests could not be right: August the same as
+// October, May above both. He was right. The first version took the
+// requests from the website's feed, which counts the notes two of the
+// site's forms leave in the site's own database: July showed 6 where The
+// Helm holds 23, August 13 where it holds 35. A request is what is in The
+// Helm, however it arrived (a form, an email, WhatsApp, a travel agent),
+// so that is where the Logbook now reads them, and the morning email asks
+// for the same list (/api/hooks/logbook-requests).
+//
+// The Helm opened on 30/5/2026; before that day there is nothing to count.
+export const HELM_FIRST_DAY = "2026-05-30";
+
+export type HelmRequestLine = { id: string; at: number; label: string };
+
+const TEST_NAME = /\(TEST\)|\btest\b|\be2e\b/i;
+const TEST_EMAIL = /test\+|@example\.com$|^george@georgeyachts\.com$/i;
+
+export async function helmRequestsBetween(sinceIso: string, untilIso: string): Promise<HelmRequestLine[]> {
+  const sb = createServiceClient();
+  const { data, error } = await sb
+    .from("helm_requests")
+    .select("id, created_at, client_name, client_email, request_type")
+    .gte("created_at", sinceIso)
+    .lt("created_at", untilIso)
+    .order("created_at", { ascending: true })
+    .limit(5000);
+  if (error) throw new Error(`helm_requests read failed: ${error.message}`);
+  return (data || [])
+    .filter((r) => !TEST_NAME.test(String(r.client_name || "")) && !TEST_EMAIL.test(String(r.client_email || "").trim()))
+    .map((r) => ({
+      id: String(r.id),
+      at: Date.parse(String(r.created_at)),
+      label: `${String(r.client_name || "").trim() || "Χωρίς όνομα"}${r.request_type === "travel_agent" ? " (ταξιδιωτικό γραφείο)" : ""}`,
+    }));
+}
+
+// A logbook day runs from 05:00 UTC on its date.
+const dayStartMs = (date: string) => Date.parse(`${date}T05:00:00Z`);
+
 // ── Visitors: ask the website ────────────────────────────────────
 async function pullSiteDays(from: string, to: string): Promise<{ days: DaySnapshot[]; unique: { people: number; us: number } }> {
   // The secret the site and the CRM already share (the inquiry hook
@@ -220,6 +262,18 @@ export async function refreshVisitors(opts: { backfill?: boolean; months?: strin
     const span = monthBounds(ym, lastDay);
     if (!span) continue;
     const { days, unique } = await pullSiteDays(span.from, span.to);
+    // The requests of each day come from The Helm, not from the feed.
+    if (days.length) {
+      const helm = await helmRequestsBetween(
+        new Date(dayStartMs(days[0].date)).toISOString(),
+        new Date(dayStartMs(days[days.length - 1].date) + DAY_MS).toISOString(),
+      );
+      for (const d of days) {
+        const from = dayStartMs(d.date);
+        d.requests = helm.filter((r) => r.at >= from && r.at < from + DAY_MS).map((r) => ({ at: r.at, label: r.label, id: r.id }));
+        d.counts.requests = d.requests.length;
+      }
+    }
     await writeJson(days.map((d) => ({ name: `day_${d.date}`, value: d })));
     for (const d of days) {
       index.days[d.date] = d.counts;
