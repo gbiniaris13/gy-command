@@ -12,6 +12,10 @@
 // his Gmail reported the email on his screen a moment ago ("seen"). The
 // verdict is re-read a few seconds later before anything counts, so a
 // "seen" that arrives just after the pixel still wins.
+//
+// 2026-11-06: an unsent draft's pixel never counts (see knownSent), and after
+// the client has replied only Gmail-proxy opens are silenced, so a re-open
+// from the client's own mail program still reaches George.
 
 import { NextRequest, NextResponse, after } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
@@ -28,7 +32,11 @@ import {
   placeFromHeaders,
   ipWithPlace,
   sleep,
+  knownSent,
+  viaGoogleProxy,
+  DELIVERY_GRACE_MS,
 } from "@/lib/email-tracking";
+import { findAndClean } from "@/lib/sent-copy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,7 +102,7 @@ export async function GET(req: NextRequest) {
       .single();
 
     if (verdict === "human" && hit) {
-      after(() => countAndAlert(token, row, hit.id, now));
+      after(() => countAndAlert(token, row, hit.id, now, userAgent));
     }
   } catch (err) {
     console.error("[tracking/open] failed:", err);
@@ -107,6 +115,7 @@ async function countAndAlert(
   row: { id: string; sent_at: string; subject: string | null; recipient: string | null; source: string },
   hitId: string,
   now: Date,
+  userAgent: string | null,
 ): Promise<void> {
   try {
     // Give a "seen" from George's own Gmail a moment to land and relabel it.
@@ -114,6 +123,29 @@ async function countAndAlert(
     const sb = createServiceClient();
     const { data: still } = await sb.from("email_tracking_hits").select("verdict").eq("id", hitId).maybeSingle();
     if (still?.verdict !== "human") return;
+
+    // Written, not sent: a Helm draft (or a Gmail draft after Undo send)
+    // carries its pixel while it waits in George's Drafts, and fires when he
+    // opens the conversation it sits in. Only an email found in Sent counts.
+    if (row.source === "helm-draft" || row.source === "gmail") {
+      if (!(await knownSent(token))) {
+        const found = await findAndClean({ token, recipient: row.recipient, sent_at: row.sent_at });
+        // "failed" = Gmail did not answer: unknown, so the open is kept
+        // (a missed lead costs more than a false alarm).
+        if (found !== "failed" && !(await knownSent(token))) {
+          await sb.from("email_tracking_hits").update({ verdict: "draft" }).eq("id", hitId);
+          return;
+        }
+      }
+      // It did leave. A fetch in the first two minutes after the real send
+      // (the row's time was the draft's until now) is the delivery machine.
+      const { data: fresh } = await sb.from("email_tracking").select("sent_at").eq("id", row.id).maybeSingle();
+      const sentMs = Date.parse(fresh?.sent_at || row.sent_at);
+      if (Number.isFinite(sentMs) && now.getTime() - sentMs < DELIVERY_GRACE_MS) {
+        await sb.from("email_tracking_hits").update({ verdict: "prefetch" }).eq("id", hitId);
+        return;
+      }
+    }
 
     const { data: cur } = await sb
       .from("email_tracking")
@@ -142,7 +174,9 @@ async function countAndAlert(
       .limit(1);
     if (recent && recent.length) return;
 
-    if (await hasReplied(token, row.sent_at)) return;
+    // After the client has answered, a Gmail-proxy open is most often George
+    // reading their reply (it quotes his email). Any other reader is theirs.
+    if (viaGoogleProxy(userAgent) && (await hasReplied(token, row.sent_at))) return;
 
     const tl = await timelineFor(token, row.sent_at);
     const n = Math.max(1, tl.humanOpens);

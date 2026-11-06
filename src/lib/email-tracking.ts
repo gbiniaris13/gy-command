@@ -193,7 +193,7 @@ export const DELIVERY_GRACE_MS = 120_000;
 //              the grace window, which is how a real Gmail display fetches.
 //
 // Only `human` updates counts and triggers notifications.
-export type HitVerdict = "human" | "prefetch" | "bot" | "apple-mpp" | "self";
+export type HitVerdict = "human" | "prefetch" | "bot" | "apple-mpp" | "self" | "draft";
 
 const BOT_UA = new RegExp(
   [
@@ -440,10 +440,37 @@ export async function timelineFor(token: string, sentAt: string): Promise<{ line
   return { lines, humanOpens: opens, humanClicks: clicks, apple };
 }
 
+// Do we have proof this email actually left? A Helm draft is registered
+// the moment it is written, and Helm leaves follow-up drafts inside the
+// client's conversation: every time George opened that conversation the
+// draft's pixel fired and he was told the client had "opened again"
+// (2026-11-05, the Patti thread, twice). A draft's opens only count once
+// the message has been found in Sent (a `copy` or `msg` record naming it).
+export async function knownSent(token: string): Promise<boolean> {
+  try {
+    const sb = createServiceClient();
+    const { data } = await sb
+      .from("email_tracking_hits")
+      .select("url")
+      .eq("token", token)
+      .in("kind", ["copy", "msg"])
+      .limit(20);
+    return (data || []).some((d) => /"(o|m)":"[^"]+"/.test(d.url || ""));
+  } catch {
+    return false;
+  }
+}
+
+export function viaGoogleProxy(ua: string | null): boolean {
+  return /GoogleImageProxy|ggpht\.com/i.test(ua || "");
+}
+
 // Has the recipient answered in this thread since the email went out?
-// Once they have, open alerts stop: the reply already proves they read it,
-// and later "opens" are very often George reading their reply, which
-// quotes his email and so carries his pixel. Clicks keep alerting.
+// Their reply quotes George's email, pixel included, so once they have
+// answered, an open that arrives through Gmail's image proxy is very often
+// George reading that reply, and it stays silent. An open from the
+// recipient's own mail program (a real browser or Outlook signature) is
+// theirs for certain and still alerts. Clicks always alert.
 export async function hasReplied(token: string, sentAt: string): Promise<boolean> {
   const known = await readMeta(token, "replied");
   if (known) return true;

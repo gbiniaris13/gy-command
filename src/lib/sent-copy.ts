@@ -234,7 +234,7 @@ export async function houseHtml(html: string): Promise<string> {
 
 // ── Swap ────────────────────────────────────────────────────────────────
 
-type RawMessage = { id: string; threadId: string; labelIds?: string[]; raw?: string; sizeEstimate?: number };
+type RawMessage = { id: string; threadId: string; labelIds?: string[]; raw?: string; sizeEstimate?: number; internalDate?: string };
 
 async function getRaw(id: string): Promise<RawMessage | null> {
   const res = await gmailFetch(`/messages/${id}?format=raw`);
@@ -282,6 +282,18 @@ export async function cleanSentCopy(token: string, messageId: string): Promise<C
 
     const binary = toBinary(msg.raw);
     if (!carriesToken(binary, token)) return "not-found";
+
+    // A Helm draft was registered when it was written. Now that it is in
+    // Sent, the row takes the time it really left, so the delivery window,
+    // the timeline and the digest all speak of the send, not the draft.
+    const leftMs = Number(msg.internalDate || 0);
+    if (leftMs > 0) {
+      await sb0
+        .from("email_tracking")
+        .update({ sent_at: new Date(leftMs).toISOString() })
+        .eq("token", token)
+        .eq("source", "helm-draft");
+    }
 
     // walk() needs async-free fn: precompute each html part's house version.
     const originals = htmlParts(binary);
@@ -366,16 +378,40 @@ export async function findAndClean(row: { token: string; recipient: string | nul
   if (!to) return "not-found";
   const after = Math.floor(Date.parse(row.sent_at) / 1000) - 3600;
   const q = `in:sent to:${to} after:${after}`;
-  const res = await gmailFetch(`/messages?${new URLSearchParams({ q, maxResults: "8" })}`);
+  const res = await gmailFetch(`/messages?${new URLSearchParams({ q, maxResults: "30" })}`);
   if (!res.ok) return "failed";
   const list = ((await res.json()) as { messages?: { id: string }[] }).messages || [];
   // Oldest first: a later reply that quotes this email carries its pixel
   // too, and the email itself is always older than anything quoting it.
+  // The look is cheap (format=full leaves attachments out); only the one
+  // message that carries the token is fetched whole.
   for (const m of [...list].reverse()) {
+    if (!(await htmlCarriesToken(m.id, row.token))) continue;
     const r = await cleanSentCopy(row.token, m.id);
     if (r !== "not-found") return r;
   }
   return "not-found";
+}
+
+type Part = { mimeType?: string; body?: { data?: string }; parts?: Part[] };
+
+async function htmlCarriesToken(messageId: string, token: string): Promise<boolean> {
+  try {
+    const res = await gmailFetch(`/messages/${messageId}?format=full`);
+    if (!res.ok) return false;
+    const msg = (await res.json()) as { payload?: Part };
+    const needle = `/api/t/o?t=${token}`;
+    const walkParts = (p?: Part): boolean => {
+      if (!p) return false;
+      if ((p.mimeType || "").toLowerCase() === "text/html" && p.body?.data) {
+        if (Buffer.from(p.body.data, "base64url").toString("utf8").includes(needle)) return true;
+      }
+      return (p.parts || []).some(walkParts);
+    };
+    return walkParts(msg.payload);
+  } catch {
+    return false;
+  }
 }
 
 /**

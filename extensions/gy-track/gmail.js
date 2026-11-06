@@ -28,6 +28,19 @@
 
   const inQuote = (el) => !!(el.closest && el.closest(".gmail_quote, blockquote"));
 
+  // Only the company mailbox. In another Gmail account open in this Chrome
+  // (George's personal one) nothing is tracked and nothing is reported as
+  // "seen": an email he sends himself there as a test must count as opened.
+  let ACCOUNT = null;
+  function account() {
+    if (ACCOUNT) return ACCOUNT;
+    const el = document.querySelector('a[aria-label^="Google Account:"], [aria-label^="Google Account:"]');
+    const m = ((el && el.getAttribute("aria-label")) || "").match(EMAIL) || document.title.match(EMAIL);
+    if (m) ACCOUNT = m[0].toLowerCase();
+    return ACCOUNT;
+  }
+  const otherAccount = () => { const a = account(); return !!a && !OURS.test(a); };
+
   // ── Finding things in Gmail, each with fallbacks ──
   const BODY_SEL = '[g_editable="true"], div[contenteditable="true"][role="textbox"], div.editable[contenteditable="true"], div[contenteditable="true"][aria-label="Message Body"]';
   function isSendButton(el) {
@@ -136,6 +149,7 @@
 
   // What would happen to this draft, without touching it.
   function verdict(root) {
+    if (otherAccount()) return { track: false, why: `This Gmail is ${account()}, not the company mailbox.` };
     if (!KEY) return { track: false, why: "GY Track has no key yet. Open GY Command once in this Chrome." };
     const body = root && bodyOf(root);
     if (!root || !body) return { track: false, why: "Could not find the draft in this Gmail window." };
@@ -225,7 +239,7 @@
       for (const btn of sendButtons()) {
         const root = composeRoot(btn);
         const v = verdict(root);
-        btn.style.boxShadow = v.track ? "0 0 0 2px #b08d57" : "";
+        btn.style.boxShadow = v.track ? "0 0 0 2px #fff, 0 0 0 4px #b08d57" : "";
         const base = (btn.getAttribute("data-tooltip") || "").replace(/\s*·\s*GY Track.*$/, "");
         if (base) btn.setAttribute("data-tooltip", `${base} · GY Track: ${v.track ? "tracked" : "not tracked"}`);
         let line = v.track ? `will track, ${v.to.length} recipient(s) read from the ${v.via}, subject field ${root.querySelector(SUBJECT_SEL) ? "found" : "not found"}` : `not tracked: ${v.why}`;
@@ -247,7 +261,7 @@
         diag.setAttribute("style", "position:absolute;left:-9999px;top:0;width:1px;height:1px;overflow:hidden");
         document.body.appendChild(diag);
       }
-      const text = `GY Track diag: key ${KEY ? "yes" : "no"}; drafts ${lines.length}${lines.length ? "; " + lines.join(" || ") : ""}`;
+      const text = `GY Track diag: account ${account() || "unknown"}; key ${KEY ? "yes" : "no"}; drafts ${lines.length}${lines.length ? "; " + lines.join(" || ") : ""}`;
       if (diag.textContent !== text) { diag.textContent = text; diag.setAttribute("aria-label", text); }
     } catch { /* never in Gmail's way */ }
   }
@@ -259,7 +273,7 @@
   function scan() {
     scanTimer = null;
     try {
-      if (!KEY) return;
+      if (!KEY || otherAccount()) return;
       const tokens = [];
       document.querySelectorAll('img[src*="/api/t/o?t="]').forEach((img) => {
         if (img.closest(BODY_SEL)) return;
