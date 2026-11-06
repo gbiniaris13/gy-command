@@ -59,8 +59,8 @@
   // and Send live in one block and the recipients and subject in a sibling
   // form, so the root is the nearest ancestor that holds the body, a Send
   // button AND the subject field; while climbing it must still hold a
-  // single Send button. Without a subject field in reach, the body+Send
-  // block is the root.
+  // single body. Without a subject field in reach, the body+Send block is
+  // the root.
   const SUBJECT_SEL = 'input[name="subjectbox"]';
   function composeRoot(from) {
     const sends = sendButtons();
@@ -71,7 +71,9 @@
         if (el.querySelector(BODY_SEL) && sends.some((b) => el.contains(b))) inner = el;
         else continue;
       }
-      if (sends.filter((b) => el.contains(b)).length > 1) break;
+      // Two bodies = two drafts: too far. (An inline reply has two Send
+      // buttons, "Send" and "Send + archive", for one body.)
+      if (el.querySelectorAll(BODY_SEL).length > 1) break;
       if (el.querySelector(SUBJECT_SEL)) return el;
     }
     return inner;
@@ -236,9 +238,12 @@
   function tick() {
     try {
       const lines = [];
+      const seenRoots = new Set();
       for (const btn of sendButtons()) {
         const root = composeRoot(btn);
         const v = verdict(root);
+        const first = !seenRoots.has(root);
+        seenRoots.add(root);
         btn.style.boxShadow = v.track ? "0 0 0 2px #fff, 0 0 0 4px #b08d57" : "";
         const base = (btn.getAttribute("data-tooltip") || "").replace(/\s*·\s*GY Track.*$/, "");
         if (base) btn.setAttribute("data-tooltip", `${base} · GY Track: ${v.track ? "tracked" : "not tracked"}`);
@@ -253,7 +258,7 @@
         } else if (root && root.dataset.gySelftest) {
           line = root.dataset.gySelftest;
         }
-        lines.push(line);
+        if (first) lines.push(line);
       }
       if (!diag) {
         diag = document.createElement("div");
