@@ -35,6 +35,8 @@ import {
   knownSent,
   viaGoogleProxy,
   DELIVERY_GRACE_MS,
+  SCANNER_WINDOW_MS,
+  ownCopyGone,
 } from "@/lib/email-tracking";
 import { findAndClean } from "@/lib/sent-copy";
 
@@ -84,6 +86,17 @@ export async function GET(req: NextRequest) {
       sentAtMs: Number.isFinite(sentMs) ? sentMs : null,
       nowMs: now.getTime(),
     });
+    // A Gmail-proxy fetch in the first two minutes is only doubted while
+    // George's own copy still carries the pixel. Once that copy is clean,
+    // the fetch is the recipient's Gmail: a reader.
+    if (
+      verdict === "prefetch" &&
+      viaGoogleProxy(userAgent) &&
+      now.getTime() - sentMs >= SCANNER_WINDOW_MS &&
+      (await ownCopyGone(token, now.getTime()))
+    ) {
+      verdict = "human";
+    }
     if (verdict === "human" && (isExtRequest(req.headers.get("x-gy-self")) || (await seenRecently(token, now.getTime())))) {
       verdict = "self";
     }
@@ -137,11 +150,17 @@ async function countAndAlert(
           return;
         }
       }
-      // It did leave. A fetch in the first two minutes after the real send
-      // (the row's time was the draft's until now) is the delivery machine.
+      // It did leave. The row's time may have been the draft's until a
+      // moment ago, so the delivery rules are applied again to the real
+      // send time: machines in the first seconds, and a Gmail-proxy fetch
+      // only once George's own copy was already clean.
       const { data: fresh } = await sb.from("email_tracking").select("sent_at").eq("id", row.id).maybeSingle();
-      const sentMs = Date.parse(fresh?.sent_at || row.sent_at);
-      if (Number.isFinite(sentMs) && now.getTime() - sentMs < DELIVERY_GRACE_MS) {
+      const age = now.getTime() - Date.parse(fresh?.sent_at || row.sent_at);
+      const machine =
+        Number.isFinite(age) &&
+        (age < SCANNER_WINDOW_MS ||
+          (age < DELIVERY_GRACE_MS && viaGoogleProxy(userAgent) && !(await ownCopyGone(token, now.getTime()))));
+      if (machine) {
         await sb.from("email_tracking_hits").update({ verdict: "prefetch" }).eq("id", hitId);
         return;
       }

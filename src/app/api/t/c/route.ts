@@ -9,6 +9,11 @@
 // minutes is one click), in the email's own alert thread, with the reader's
 // device and city and the whole timeline. A click from George's own Chrome
 // carries x-gy-self (GY Track) and is filed as "self".
+//
+// 2026-11-06: the two-minute silence after a send is gone (it hid George's
+// own test click at 38 seconds). Only the first 15 seconds are a machine;
+// scanners are caught by what they do instead: they walk the links, so a
+// click is counted nine seconds later, once no other link was touched.
 
 import { NextRequest, NextResponse, after } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
@@ -24,6 +29,8 @@ import {
   deviceFromUa,
   placeFromHeaders,
   ipWithPlace,
+  sleep,
+  BURST_MS,
 } from "@/lib/email-tracking";
 
 export const runtime = "nodejs";
@@ -116,20 +123,49 @@ export async function GET(req: NextRequest) {
 
       if (verdict === "human" && hit) {
         const nowIso = new Date(now).toISOString();
-        const isFirst = !row.first_click_at;
-        await sb
-          .from("email_tracking")
-          .update({
-            click_count: (row.click_count || 0) + 1,
-            last_click_at: nowIso,
-            last_click_url: url.slice(0, 800),
-            ...(isFirst ? { first_click_at: nowIso, click_notified: true } : {}),
-          })
-          .eq("id", row.id);
-
         const device = deviceFromUa(userAgent);
         after(async () => {
           try {
+            // A scanner walks every link of the email within seconds. Wait
+            // out that window and look both ways: a DIFFERENT link clicked
+            // just before or just after this one means machine, and neither
+            // click is counted or reported.
+            await sleep(BURST_MS + 1_000);
+            const { data: around } = await sb
+              .from("email_tracking_hits")
+              .select("id, url")
+              .eq("token", token)
+              .eq("kind", "click")
+              .neq("id", hit.id)
+              .gte("at", new Date(now - BURST_MS).toISOString())
+              .lte("at", new Date(now + BURST_MS).toISOString());
+            const walked = (around || []).filter((h) => (h.url || "") !== url.slice(0, 800));
+            if (walked.length) {
+              await sb
+                .from("email_tracking_hits")
+                .update({ verdict: "bot" })
+                .in("id", [hit.id, ...walked.map((h) => h.id)]);
+              return;
+            }
+            const { data: still } = await sb.from("email_tracking_hits").select("verdict").eq("id", hit.id).maybeSingle();
+            if (still?.verdict !== "human") return;
+
+            const { data: cur } = await sb
+              .from("email_tracking")
+              .select("click_count, first_click_at")
+              .eq("id", row.id)
+              .maybeSingle();
+            const isFirst = !cur?.first_click_at;
+            await sb
+              .from("email_tracking")
+              .update({
+                click_count: (cur?.click_count || 0) + 1,
+                last_click_at: nowIso,
+                last_click_url: url.slice(0, 800),
+                ...(isFirst ? { first_click_at: nowIso, click_notified: true } : {}),
+              })
+              .eq("id", row.id);
+
             const { data: again } = await sb
               .from("email_tracking_hits")
               .select("id")
@@ -139,6 +175,7 @@ export async function GET(req: NextRequest) {
               .eq("url", url.slice(0, 800))
               .neq("id", hit.id)
               .gte("at", new Date(now - SAME_LINK_GAP_MS).toISOString())
+              .lt("at", nowIso)
               .limit(1);
             if (again && again.length) return;
             const tl = await timelineFor(token, row.sent_at);
@@ -166,4 +203,25 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.redirect(url, 302);
+}
+
+// Link checkers probe with HEAD. Never a reader: the destination is given
+// and nothing is logged.
+export async function HEAD(req: NextRequest) {
+  const p = req.nextUrl.searchParams;
+  const token = p.get("t") || "";
+  const sig = p.get("s") || "";
+  let url = "";
+  try {
+    url = Buffer.from(p.get("u") || "", "base64url").toString("utf8");
+  } catch {
+    /* fallthrough */
+  }
+  let ok = false;
+  try {
+    ok = !!token && url.startsWith("http") && !!sig && verifyClick(token, url, sig);
+  } catch {
+    ok = false;
+  }
+  return NextResponse.redirect(ok ? url : "https://georgeyachts.com", 302);
 }

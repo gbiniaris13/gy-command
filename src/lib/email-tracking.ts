@@ -175,6 +175,19 @@ export function instrumentHtml(html: string, token: string): string {
 // send are machines, not humans - ignored for opens AND clicks.
 export const DELIVERY_GRACE_MS = 120_000;
 
+// 2026-11-06: the two-minute window was swallowing real readers. George
+// sent himself a test, opened it 31 seconds later and tapped the link at 38
+// seconds, on his iPhone, and heard nothing: both were filed as "prefetch".
+// What actually fetches in the first moments after a send is narrower:
+//   - scanners at the recipient's gateway, within seconds of delivery;
+//   - George's own Gmail showing him his own copy, through Google's proxy,
+//     until that copy has been swapped for the one without a tracker.
+// So: everything in the first 20 seconds is a machine (15 for clicks);
+// after that a Gmail-proxy open is only doubted while George's own copy
+// still carries the pixel (see ownCopyGone); anything else is a reader.
+export const SCANNER_WINDOW_MS = 20_000;
+export const CLICK_SCANNER_WINDOW_MS = 15_000;
+
 // ── Hit classification, v2 (2026-07-24) ─────────────────────────────────
 // George: "don't stop at the 2-minute window - see what HubSpot does and
 // beat it". HubSpot layers a known-bot list over custom rules; GMass and
@@ -219,16 +232,15 @@ export function classifyOpen(args: {
   nowMs: number;
 }): HitVerdict {
   const ua = (args.userAgent || "").trim();
-  if (
-    args.sentAtMs != null &&
-    Number.isFinite(args.sentAtMs) &&
-    args.nowMs - args.sentAtMs < DELIVERY_GRACE_MS
-  ) {
-    return "prefetch";
-  }
+  const age =
+    args.sentAtMs != null && Number.isFinite(args.sentAtMs) ? args.nowMs - args.sentAtMs : Infinity;
+  if (age < SCANNER_WINDOW_MS) return "prefetch";
   if (!ua) return "bot";
   if (BOT_UA.test(ua)) return "bot";
   if (isAppleMpp(ua)) return "apple-mpp";
+  // Provisional: the pixel route lifts this to "human" when George's own
+  // copy is already clean, so the fetch cannot be his.
+  if (age < DELIVERY_GRACE_MS && viaGoogleProxy(ua)) return "prefetch";
   return "human";
 }
 
@@ -244,22 +256,33 @@ export function classifyClick(args: {
   if (
     args.sentAtMs != null &&
     Number.isFinite(args.sentAtMs) &&
-    args.nowMs - args.sentAtMs < DELIVERY_GRACE_MS
+    args.nowMs - args.sentAtMs < CLICK_SCANNER_WINDOW_MS
   ) {
     return "prefetch";
   }
   if (!ua) return "bot";
   if (BOT_UA.test(ua)) return "bot";
   // Burst rule: a second DIFFERENT link inside 8 seconds is a scanner
-  // walking the link list, not a reader.
+  // walking the link list, not a reader. The click route also looks the
+  // other way (a different link shortly AFTER this one) before it counts.
   if (
     args.prevClick &&
-    args.nowMs - args.prevClick.atMs < 8_000 &&
+    args.nowMs - args.prevClick.atMs < BURST_MS &&
     args.prevClick.url !== args.url
   ) {
     return "bot";
   }
   return "human";
+}
+
+export const BURST_MS = 8_000;
+
+// Is George's own copy of this email already the one without a tracker,
+// and was it so before `atMs`? Then a Gmail-proxy fetch at `atMs` cannot be
+// his Sent copy; it is the recipient's Gmail.
+export async function ownCopyGone(token: string, atMs: number): Promise<boolean> {
+  const c = await readMeta(token, "copy");
+  return !!c && c.verdict === "done" && Date.parse(c.at) <= atMs;
 }
 
 // RFC 2047 encoding for header values. Raw UTF-8 (emoji included) in a

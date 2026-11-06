@@ -4,12 +4,14 @@
 // gives the token its row. A repeat (Undo send, then Send again) moves the
 // send time forward and keeps the row.
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
-import { isExtRequest, isInternalOnly } from "@/lib/email-tracking";
+import { isExtRequest, isInternalOnly, sleep } from "@/lib/email-tracking";
+import { findAndClean } from "@/lib/sent-copy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest): Promise<Response> {
   if (!isExtRequest(req.headers.get("x-gy-ext"))) {
@@ -33,5 +35,15 @@ export async function POST(req: NextRequest): Promise<Response> {
     const { error } = await sb.from("email_tracking").insert({ token, source: "gmail", recipient: to, subject, sent_at: now });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  // George's own copy is swapped as soon as Gmail has filed it (Undo send
+  // holds it back 5 to 30 seconds). Until then a Gmail-proxy open cannot be
+  // told from his own, so the sooner the better; the cron is the fallback.
+  after(async () => {
+    for (const wait of [7_000, 10_000, 15_000, 18_000]) {
+      await sleep(wait);
+      const r = await findAndClean({ token, recipient: to, sent_at: now });
+      if (r !== "not-found" && r !== "failed") break;
+    }
+  });
   return NextResponse.json({ ok: true });
 }
