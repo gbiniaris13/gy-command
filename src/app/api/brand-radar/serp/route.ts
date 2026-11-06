@@ -65,6 +65,41 @@ const DEFAULT_QUERIES = [
 // purpose is not re-added because removals are recorded separately.
 const REMOVED_KEY = "serp_tracker_removed";
 
+// 2026-11-06: where a result really points. From 2 November Google began
+// handing its results out behind its own redirect (google.com/goto?url=…),
+// and DataForSEO then reports the domain of EVERY result as "google.com".
+// The tracker looked for georgeyachts.com in that field, found nothing,
+// and by 6 November the morning report read "0 of 24 in the top 100" while
+// Search Console showed the best US week since June. The address Google
+// prints under each title (the breadcrumb, "https://site.com › Section")
+// is still the true one, so the site is read from there first, then from
+// the reported domain when that is a real one, and the site name is the
+// last resort so a row is never silently called "google.com".
+const OUR_SITE_NAME = "george yachts";
+const isGoogleHost = (d) => /(^|\.)google\.[a-z.]+$/i.test(d || "");
+function realDomain(item) {
+  const crumb = String(item?.breadcrumb || "").match(/^https?:\/\/([^\s›\/]+)/i);
+  if (crumb) return crumb[1].toLowerCase();
+  const d = String(item?.domain || "").toLowerCase();
+  if (d && !isGoogleHost(d)) return d;
+  const name = String(item?.website_name || item?.source || "").trim();
+  return name ? name.toLowerCase() : null;
+}
+function isOurs(item) {
+  const d = realDomain(item) || "";
+  if (d.includes(OUR_DOMAIN)) return true;
+  // The site name alone counts only when it is exactly ours: our Facebook
+  // page reads "Facebook · George Yachts Bro…" and is not the site.
+  return String(item?.website_name || "").trim().toLowerCase() === OUR_SITE_NAME;
+}
+// A result whose site could not be read at all: Google's redirect in the
+// domain field and no printed address under the title.
+function unreadable(item) {
+  const crumb = /^https?:\/\//i.test(String(item?.breadcrumb || ""));
+  const d = String(item?.domain || "");
+  return !crumb && (!d || isGoogleHost(d));
+}
+
 async function loadQueries(): Promise<string[]> {
   const raw = await getSetting(QUERIES_KEY);
   if (raw) {
@@ -152,11 +187,14 @@ export async function POST() {
     const keyword = task?.data?.keyword;
     const all = task?.result?.[0]?.items ?? [];
     const items = all.filter((i) => i.type === "organic");
-    const ours = items.find((i) => (i.domain || "").includes(OUR_DOMAIN));
+    const ours = items.find(isOurs);
     const position = ours ? ours.rank_absolute : null;
     const above = ours
-      ? items.filter((i) => i.rank_absolute < ours.rank_absolute).map((i) => i.domain)
-      : items.slice(0, 10).map((i) => i.domain);
+      ? items.filter((i) => i.rank_absolute < ours.rank_absolute).map(realDomain).filter(Boolean)
+      : items.slice(0, 10).map(realDomain).filter(Boolean);
+    // If most of the page could not be read, "not found" is not a fact
+    // about us, it is a blind scan. Say so instead of writing an absence.
+    const blind = !ours && items.length > 0 && items.filter(unreadable).length > items.length / 2;
     // 2026-09-25: Google's own AI Overview. On 25/9 it sat on top of
     // "yacht charter greece cost" and "cost to charter a yacht in greece"
     // citing georgeyachts.com twice while the organic result was #20, and
@@ -165,7 +203,7 @@ export async function POST() {
     // measure is "keep our place in the AI", so it is recorded per query.
     const aio = all.find((i) => i.type === "ai_overview");
     const aioRefs = aio
-      ? [...new Set((aio.references ?? []).map((r) => r.domain).filter(Boolean))]
+      ? [...new Set((aio.references ?? []).map((r) => (isOurs(r) ? OUR_DOMAIN : realDomain(r))).filter(Boolean))]
       : [];
     const p = prevByQuery.get(keyword);
     results.push({
@@ -175,7 +213,8 @@ export async function POST() {
       // Who owns the ground above us (or the whole first page when we
       // are absent) — deduped, keeps SERP order.
       above: [...new Set(above)].slice(0, 10),
-      top3: items.slice(0, 3).map((i) => ({ rank: i.rank_absolute, domain: i.domain })),
+      top3: items.slice(0, 3).map((i) => ({ rank: i.rank_absolute, domain: realDomain(i) })),
+      blind,
       ai_overview: aio
         ? { present: true, cites_us: aioRefs.some((d) => d.includes(OUR_DOMAIN)), refs: aioRefs.slice(0, 8) }
         : { present: false, cites_us: false, refs: [] },
@@ -203,6 +242,10 @@ export async function POST() {
     ai_overview_cites_us: results.filter((r) => r.ai_overview.cites_us).length,
     cost_usd: data.cost ?? null,
     failed_queries: errors,
+    // Queries whose page could not be read (see realDomain above). When
+    // this is most of the list the scan says nothing about our positions
+    // and the digest prints that, not "0 of 24".
+    blind_queries: results.filter((r) => r.blind).length,
     results,
   };
   await setSetting(SNAP_KEY, JSON.stringify(snapshot));

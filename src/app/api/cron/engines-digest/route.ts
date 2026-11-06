@@ -125,9 +125,15 @@ async function engineReport(cron, now) {
       const s = JSON.parse((await getSetting("serp_tracker_latest")) || "null");
       if (!s) return { at: null, lines: ["καμία σάρωση αποθηκευμένη ακόμα"] };
       const best = (s.results || []).filter((r) => r.position !== null).slice(0, 3);
+      // 2026-11-06: a blind scan is said to be blind. When Google hides the
+      // addresses of its results the tracker cannot tell which row is ours,
+      // and "0/24" printed as a fact frightened George for nothing.
+      const blindScan = (s.blind_queries ?? 0) > (s.queries || 0) / 2;
       const lines = [
-        `${s.found_in_top30}/${s.queries} ερωτήματα στο top 30 της αμερικανικής Google, μέση θέση όπου υπάρχουμε ${s.avg_position_when_found ?? "-"}` +
-          (s.found_in_top100 != null ? ` · στο top 100: ${s.found_in_top100}/${s.queries}, μέση θέση ${s.avg_position_top100 ?? "-"}` : ""),
+        blindScan
+          ? `Σήμερα το εργαλείο δεν μπόρεσε να διαβάσει τις διευθύνσεις στα αποτελέσματα της Google (${s.blind_queries}/${s.queries} ερωτήματα). Η μέτρηση θέσεων δεν ισχύει σήμερα, δεν είναι πτώση.`
+          : `${s.found_in_top30}/${s.queries} ερωτήματα στο top 30 της αμερικανικής Google, μέση θέση όπου υπάρχουμε ${s.avg_position_when_found ?? "-"}` +
+            (s.found_in_top100 != null ? ` · στο top 100: ${s.found_in_top100}/${s.queries}, μέση θέση ${s.avg_position_top100 ?? "-"}` : ""),
       ];
       // 2026-09-25: the AI Overview line. Google's own AI answer sits on
       // top of the cost queries and cites us; that is a position too.

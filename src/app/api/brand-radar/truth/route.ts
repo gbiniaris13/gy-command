@@ -122,29 +122,38 @@ export async function GET() {
         prev_impressions: a.impressions,
         impressions: b.impressions,
         weight: a.impressions + b.impressions,
+        // The weight this query carries in BOTH weeks' averages: the
+        // impressions it had in the quieter of the two.
+        fixed: Math.min(a.impressions, b.impressions),
       });
     }
     movers.sort((a, b) => b.weight - a.weight);
 
     const wSum = (rows, get) =>
       rows.reduce((s, m) => s + get(m), 0);
-    const cohortImpCur = wSum(movers, (m) => m.impressions) || 1;
-    const cohortImpPrev = wSum(movers, (m) => m.prev_impressions) || 1;
-    const cohortPosCur =
-      wSum(movers, (m) => m.position * m.impressions) / cohortImpCur;
-    const cohortPosPrev =
-      wSum(movers, (m) => m.prev_position * m.prev_impressions) / cohortImpPrev;
+    // 2026-11-06: ONE set of weights for both weeks. Until today each week
+    // was weighted by its own impressions, which let the mix effect this
+    // endpoint exists to remove back in through the weights: when Google
+    // shows us five times more often on a query where we sit at 50, that
+    // query pulls this week's average down although no position moved. On
+    // 6 November the digest read "we are losing 1.2 positions" (22.7 to
+    // 23.9) with 118 queries up and 104 down; on equal weights the same
+    // queries were 22.9 to 22.0. The same rule now holds for the clusters.
+    const cohortW = wSum(movers, (m) => m.fixed) || 1;
+    const cohortPosCur = wSum(movers, (m) => m.position * m.fixed) / cohortW;
+    const cohortPosPrev = wSum(movers, (m) => m.prev_position * m.fixed) / cohortW;
 
     // ── Cluster check: a topic token whose queries dropped TOGETHER ──
     const clusterAgg = new Map();
     for (const m of movers) {
       for (const t of new Set(significantTokens(m.query))) {
-        const c = clusterAgg.get(t) ?? { token: t, queries: 0, impCur: 0, impPrev: 0, posCur: 0, posPrev: 0 };
+        const c = clusterAgg.get(t) ?? { token: t, queries: 0, impCur: 0, impPrev: 0, w: 0, posCur: 0, posPrev: 0 };
         c.queries += 1;
         c.impCur += m.impressions;
         c.impPrev += m.prev_impressions;
-        c.posCur += m.position * m.impressions;
-        c.posPrev += m.prev_position * m.prev_impressions;
+        c.w += m.fixed;
+        c.posCur += m.position * m.fixed;
+        c.posPrev += m.prev_position * m.fixed;
         clusterAgg.set(t, c);
       }
     }
@@ -154,8 +163,8 @@ export async function GET() {
         token: c.token,
         queries: c.queries,
         impressions: c.impCur,
-        position: Math.round((c.posCur / c.impCur) * 10) / 10,
-        prev_position: Math.round((c.posPrev / c.impPrev) * 10) / 10,
+        position: Math.round((c.posCur / c.w) * 10) / 10,
+        prev_position: Math.round((c.posPrev / c.w) * 10) / 10,
       }))
       .map((c) => ({ ...c, delta: Math.round((c.position - c.prev_position) * 10) / 10 }))
       .sort((a, b) => b.delta - a.delta);
@@ -192,7 +201,8 @@ export async function GET() {
         up,
         down,
         flat,
-        movers: movers.slice(0, 15),
+        weighting: "fixed: min(impressions this week, impressions last week)",
+        movers: movers.slice(0, 15).map(({ fixed, ...m }) => m),
       },
       cluster_alerts: alerts,
       cluster_winners: winners,
