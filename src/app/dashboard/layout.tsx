@@ -114,6 +114,20 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: "The Logbook",
+    href: "/dashboard/logbook",
+    group: "operate",
+    // An open logbook: how the site did, day by day. The real visitors
+    // and our place on Google, yesterday at a glance, every day kept and
+    // every month added up (6/11/2026). First of the house rooms, because
+    // it is the one George opens every morning.
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.5C10.4 5.3 8.2 4.8 4 5v13c4.2-.2 6.4.3 8 1.5m0-13c1.6-1.2 3.800-1.700 8-1.500v13c-4.200-.200-6.400.300-8 1.500m0-13v13M7 9.500h2M7 12.500h2M15 9.500h2M15 12.500h2" />
+      </svg>
+    ),
+  },
+  {
     label: "The Helm",
     href: "/dashboard/helm",
     group: "operate",

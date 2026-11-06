@@ -5,6 +5,10 @@
       "schedule": "5 7 * * *"
     },
     {
+      "path": "/api/cron/logbook-refresh",
+      "schedule": "25 5 * * *"
+    },
+    {
       "path": "/api/cron/idle-leads",
       "schedule": "0 7 * * *"
     },
