@@ -31,12 +31,12 @@ import {
 // country fills the silence. Kinds reference pillar3 holiday kinds.
 const WESTERN = ["western_christmas", "western_easter", "new_year"];
 const COUNTRY_POLICY = [
-  { match: ["united states", "usa", "us", "america"], kinds: [...WESTERN, "us_independence_day", "thanksgiving", "memorial_day", "labor_day"] },
-  { match: ["united kingdom", "uk", "gb", "england", "scotland", "britain"], kinds: WESTERN },
+  { match: ["united states", "usa", "us", "america", "american", "u.s.", "u.s.a."], kinds: [...WESTERN, "us_independence_day", "thanksgiving", "memorial_day", "labor_day"] },
+  { match: ["united kingdom", "uk", "gb", "england", "scotland", "wales", "britain", "british"], kinds: WESTERN },
   { match: ["canada", "australia", "new zealand", "ireland", "germany", "france", "italy", "spain", "netherlands", "austria", "switzerland", "belgium", "sweden", "norway", "denmark", "poland", "portugal", "mexico", "brazil", "argentina"], kinds: WESTERN },
-  { match: ["greece", "gr", "cyprus"], kinds: ["western_christmas", "orthodox_easter", "new_year", "greek_independence_day"] },
+  { match: ["greece", "gr", "greek", "cyprus", "cypriot"], kinds: ["western_christmas", "orthodox_easter", "new_year", "greek_independence_day"] },
   { match: ["russia", "serbia", "ukraine", "georgia", "romania", "bulgaria"], kinds: ["orthodox_christmas", "orthodox_easter", "new_year"] },
-  { match: ["israel", "il"], kinds: ["hanukkah_first_night", "rosh_hashanah", "new_year"] },
+  { match: ["israel", "il", "israeli"], kinds: ["hanukkah_first_night", "rosh_hashanah", "new_year"] },
   { match: ["saudi", "uae", "emirates", "qatar", "kuwait", "bahrain", "oman", "egypt", "turkey", "jordan", "lebanon", "morocco"], kinds: ["eid_al_fitr", "eid_al_adha", "new_year"] },
   { match: ["india"], kinds: ["diwali", "new_year"] },
 ];
@@ -175,13 +175,26 @@ export function nameDayFor(name: string, country: string | null | undefined, yea
   return null;
 }
 
+// 2026-11-09: whole words only. The old substring test read "us" inside
+// "Australia", "Austria", "Cyprus" and "Russia", so four Australians sat
+// in the Thanksgiving list (and would have had the 4th of July); "uk"
+// inside "Ukraine", "il" inside "Chile", "gr" inside "Montenegro".
+// Two- and three-letter codes must be the whole value; names must be
+// whole words ("united states of america" still matches).
+function countryMatches(c: string, m: string): boolean {
+  if (c === m) return true;
+  if (m.length <= 3) return false;
+  const esc = m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z])${esc}([^a-z]|$)`).test(c);
+}
+
 export function kindsForPerson(p: { country?: string; religion?: string; religion_overridden?: boolean }): string[] {
   const rel = (p.religion || "").toLowerCase();
   if (p.religion_overridden && RELIGION_KINDS[rel]) return RELIGION_KINDS[rel];
   const c = (p.country || "").toLowerCase().trim();
   if (c) {
     for (const pol of COUNTRY_POLICY) {
-      if (pol.match.some((m) => c === m || c.includes(m))) return pol.kinds;
+      if (pol.match.some((m) => countryMatches(c, m))) return pol.kinds;
     }
   }
   if (RELIGION_KINDS[rel]) return RELIGION_KINDS[rel];
@@ -311,11 +324,23 @@ export async function loadPeople() {
     ["974", "Qatar"], ["965", "Kuwait"], ["973", "Bahrain"], ["968", "Oman"],
     ["20", "Egypt"], ["90", "Turkey"], ["91", "India"], ["7", "Russia"],
     ["81", "Japan"], ["65", "Singapore"], ["27", "South Africa"],
+    // 2026-11-09: numbers George actually received that the table missed.
+    ["357", "Cyprus"], ["358", "Finland"], ["371", "Latvia"], ["372", "Estonia"],
+    ["370", "Lithuania"], ["216", "Tunisia"], ["66", "Thailand"], ["54", "Argentina"],
+    ["56", "Chile"], ["57", "Colombia"], ["356", "Malta"], ["377", "Monaco"],
+    ["352", "Luxembourg"], ["354", "Iceland"], ["385", "Croatia"], ["420", "Czech Republic"],
+    ["36", "Hungary"], ["40", "Romania"], ["359", "Bulgaria"], ["380", "Ukraine"],
+    ["381", "Serbia"], ["962", "Jordan"], ["961", "Lebanon"], ["212", "Morocco"],
+    ["852", "Hong Kong"], ["86", "China"], ["82", "South Korea"], ["60", "Malaysia"],
   ].sort((a, b) => b[0].length - a[0].length);
   const countryFromPhone = (phone) => {
     const digits = String(phone || "").replace(/[^\d+]/g, "");
-    if (!digits.startsWith("+")) return null;
-    const n = digits.slice(1);
+    // "+357..." and the European "00357..." are the same number. A bare
+    // national number ("6932652841", "9992179537") stays unknown: no guessing.
+    let n = null;
+    if (digits.startsWith("+")) n = digits.slice(1);
+    else if (digits.startsWith("00")) n = digits.slice(2);
+    if (!n) return null;
     for (const [code, country] of DIAL) if (n.startsWith(code)) return country;
     return null;
   };
@@ -381,6 +406,14 @@ export async function loadPeople() {
         existing.area = r.area || existing.area;
       }
       if (r.bcabin && !existing.cabin_id) existing.cabin_id = r.bcabin;
+      // A second request may carry the number the first one lacked
+      // (Karen Elliott: "447760181011" then "+447760181011").
+      if (r.client_whatsapp && (!existing.phone || !countryFromPhone(existing.phone))) {
+        if (!existing.country && countryFromPhone(r.client_whatsapp)) {
+          existing.phone = r.client_whatsapp;
+          existing.country = countryFromPhone(r.client_whatsapp);
+        } else if (!existing.phone) existing.phone = r.client_whatsapp;
+      }
       continue;
     }
     const c = (r.contact_id && contactById.get(r.contact_id)) || contactByEmail.get(email) || {};
