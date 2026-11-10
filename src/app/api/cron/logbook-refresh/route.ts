@@ -15,7 +15,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/require-user";
 import { observeCron } from "@/lib/cron-observer";
-import { refreshVisitors, refreshGoogle, refreshSeo } from "@/lib/logbook";
+import { refreshVisitors, refreshGoogle, refreshSeo, syncRequests } from "@/lib/logbook";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +39,14 @@ async function run(req: Request): Promise<Response> {
       failed += 1;
       out.visitors_error = e instanceof Error ? e.message : "unknown";
       console.error("logbook-refresh: visitors failed:", out.visitors_error);
+    }
+    // Every stored day against The Helm: a request deleted or marked as
+    // spam in an older month stops counting on the next run.
+    try {
+      out.requests = await syncRequests();
+    } catch (e) {
+      out.requests_error = e instanceof Error ? e.message : "unknown";
+      console.error("logbook-refresh: requests sync failed:", out.requests_error);
     }
   }
   if (only !== "visitors") {

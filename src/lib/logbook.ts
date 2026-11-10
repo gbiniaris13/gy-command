@@ -200,6 +200,46 @@ export type HelmRequestLine = { id: string; at: number; label: string };
 const TEST_NAME = /\(TEST\)|\btest\b|\be2e\b/i;
 const TEST_EMAIL = /test\+|@example\.com$|^george@georgeyachts\.com$/i;
 
+// What is in The Helm but is not a charter request (George, 10/11: "το ένα
+// ήταν τεστ και το άλλο ένας σκάμερ που πουλούσε κρυπτό, να μην μπερδεύεται
+// η μηχανή"). The site's forms put everything into The Helm, and that is
+// right: George sees it and decides. The Logbook and the morning email just
+// do not count it. Four kinds, checked against all 139 rows on 10/11/2026
+// with no real client caught:
+//   - tests: the weekly form check and hand tests ("(TEST)", test+ emails),
+//     by name, email or by the brief itself;
+//   - George's own: his name in the client field (on 2/11 he tested the
+//     contact form as "George P. Biniaris");
+//   - sales pitches sent through the enquiry form: the brief is about
+//     selling something to us (crypto payments, SEO, web design...). One
+//     clear phrase ("this is a business proposal", "SEO services"), or two
+//     such subjects. Never one subject alone, and never "not a booking";
+//   - anything George marked lost as spam, a scam, or not a client.
+const OWN_NAME = /biniaris|μπινιάρη|μπινιαρη/i;
+const TEST_BRIEF = /\(TEST\)|health e2e|end-to-end check/i;
+// No rule on "not a booking": a client who has already booked can write
+// exactly that ("not a new booking, it is our anniversary, could we have
+// caviar on board?"). George, 10/11.
+const PITCH_CLEAR = /this is (a )?business proposal|(seo|marketing|web ?design|lead gen(eration)?|app development) (services|agency|package)|guest post|link ?building/i;
+const PITCH_SUBJECT = /\b(crypto(currency)?|bitcoin|btc|usdc|usdt|ethereum|stablecoin|blockchain|nft|merchant (account|services)|payment processing|card processing|chargebacks?|seo|backlinks?|rank (your|on) google|web ?design|website redesign|lead generation|cold email|virtual assistant|domain authority|forex|investment opportunity|loan offer)\b/gi;
+const MARKED_SPAM = /spam|scam|σπαμ|σκαμ|απάτη|not a (real )?client|δεν (είναι|ήταν) πελάτ|πουλούσε|sales pitch|solicitation/i;
+
+type HelmRowLike = { client_name?: unknown; client_email?: unknown; brief?: unknown; status?: unknown; lost_reason?: unknown };
+
+export function notARequest(r: HelmRowLike): "test" | "own" | "pitch" | "marked" | null {
+  const name = String(r.client_name || "");
+  const email = String(r.client_email || "").trim();
+  const brief = String(r.brief || "");
+  if (TEST_NAME.test(name) || TEST_EMAIL.test(email) || TEST_BRIEF.test(brief)) return "test";
+  if (OWN_NAME.test(name)) return "own";
+  const text = `${name}\n${brief}`;
+  if (PITCH_CLEAR.test(text)) return "pitch";
+  const subjects = new Set((text.match(PITCH_SUBJECT) || []).map((t) => t.toLowerCase()));
+  if (subjects.size >= 2) return "pitch";
+  if (r.status === "lost" && MARKED_SPAM.test(String(r.lost_reason || ""))) return "marked";
+  return null;
+}
+
 // One request per person (George, 6/11: "για κάθε mail ένα αίτημα"),
 // with one exception he spelled out the same evening: "αν είχε κλείσει
 // ναύλο και ξαναήρθε, μετράει ως νέο αίτημα, σαν repeater. Αν δεν είχε
@@ -221,9 +261,11 @@ export async function helmRequestsBetween(sinceIso: string, untilIso: string): P
   // is recognised as already counted.
   const { data, error } = await sb
     .from("helm_requests")
-    .select("id, created_at, client_name, client_email, client_whatsapp, request_type, status")
+    .select("id, created_at, client_name, client_email, client_whatsapp, request_type, status, brief, lost_reason")
     .lt("created_at", untilIso)
     .order("created_at", { ascending: true })
+    // Rows with the same time (imported together) keep one fixed order.
+    .order("id", { ascending: true })
     .limit(10000);
   if (error) throw new Error(`helm_requests read failed: ${error.message}`);
   // person -> has a charter been won since their last counted request?
@@ -231,7 +273,7 @@ export async function helmRequestsBetween(sinceIso: string, untilIso: string): P
   const sinceMs = Date.parse(sinceIso);
   const out: HelmRequestLine[] = [];
   for (const r of data || []) {
-    if (TEST_NAME.test(String(r.client_name || "")) || TEST_EMAIL.test(String(r.client_email || "").trim())) continue;
+    if (notARequest(r)) continue;
     const k = personKey(r);
     const known = wonSince.has(k);
     const returning = known && wonSince.get(k) === true;
@@ -376,6 +418,49 @@ export async function refreshVisitors(opts: { backfill?: boolean; months?: strin
   index.updated_at = new Date().toISOString();
   await writeJson([{ name: "index", value: index }]);
   return { months, days: stored, last };
+}
+
+// ── Keep every stored day in step with The Helm ──────────────────
+// The daily refresh rebuilds only the running month from the website. A
+// request deleted from The Helm, or marked as spam, in an older month
+// would otherwise stay counted for ever. The Helm lives in this app's own
+// database, so every stored day is checked against it on each run (one
+// query) and only the days that changed are rewritten.
+export async function syncRequests(): Promise<{ checked: number; changed: string[] }> {
+  const index = await readJson<LogbookIndex>("index");
+  const dates = Object.keys(index?.days || {}).sort();
+  if (!index || !dates.length) return { checked: 0, changed: [] };
+  const from = dayStartMs(dates[0]);
+  const lines = await helmRequestsBetween(new Date(from).toISOString(), new Date(dayStartMs(dates[dates.length - 1]) + DAY_MS).toISOString());
+  const byDay = new Map<string, HelmRequestLine[]>();
+  for (const l of lines) {
+    const date = isoDate(l.at - 5 * 60 * 60 * 1000);
+    if (!byDay.has(date)) byDay.set(date, []);
+    byDay.get(date)!.push(l);
+  }
+  const changed: string[] = [];
+  const writes: { name: string; value: unknown }[] = [];
+  for (const date of dates) {
+    const want = byDay.get(date) || [];
+    const ids = want.map((l) => l.id).join(",");
+    const had = index.days[date].requests;
+    if (had === want.length && !want.length) continue;
+    const day = await readDay(date);
+    if (!day) continue;
+    const haveIds = (day.requests || []).map((r) => r.id || "").join(",");
+    if (haveIds === ids && had === want.length) continue;
+    day.requests = want.map((l) => ({ at: l.at, label: l.label, id: l.id }));
+    day.counts.requests = want.length;
+    index.days[date].requests = want.length;
+    writes.push({ name: `day_${date}`, value: day });
+    changed.push(date);
+  }
+  if (changed.length) {
+    index.updated_at = new Date().toISOString();
+    writes.push({ name: "index", value: index });
+    await writeJson(writes);
+  }
+  return { checked: dates.length, changed };
 }
 
 // ── Google: ask Search Console ───────────────────────────────────
@@ -664,9 +749,9 @@ export async function refreshSeo(opts: { backfill?: boolean } = {}): Promise<{ m
   // Requests an AI assistant sent, from The Helm, by month.
   try {
     const sb = createServiceClient();
-    const { data } = await sb.from("helm_requests").select("created_at, client_name, client_email, extraction").order("created_at", { ascending: true }).limit(10000);
+    const { data } = await sb.from("helm_requests").select("created_at, client_name, client_email, brief, status, lost_reason, extraction").order("created_at", { ascending: true }).limit(10000);
     for (const r of data || []) {
-      if (TEST_NAME.test(String(r.client_name || "")) || TEST_EMAIL.test(String(r.client_email || "").trim())) continue;
+      if (notARequest(r)) continue;
       const ex = r.extraction as { ai_source?: { assistant?: string } } | null;
       if (!ex?.ai_source?.assistant) continue;
       const ym = String(r.created_at).slice(0, 7);
