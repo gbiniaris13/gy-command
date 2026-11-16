@@ -82,6 +82,9 @@ export function checkDraft(d: DraftLike, ctx: CheckContext): string[] {
   const lower = all.toLowerCase();
   for (const b of BANNED_PHRASES) if (lower.includes(b)) p.push(`banned phrase "${b}"`);
   if (EM_DASH.test(all)) p.push("contains an em/en dash (use a hyphen or a comma)");
+  // Line 1 after the greeting must be personal or new information (SKILL STEP 6).
+  const firstLine = body.split("\n").map((l) => l.trim()).filter(Boolean).find((l, i) => i > 0 || !/^(dear|hi|hey|hello|good (morning|afternoon|evening))\b/i.test(l)) ?? "";
+  if (/^i hope\b/i.test(firstLine)) p.push(`opens with "${firstLine.slice(0, 40)}…": line 1 must be personal or new information, not "I hope…"`);
   if (/[\u0370-\u03FF\u1F00-\u1FFF]/.test(all)) p.push("client-facing text contains Greek; write it in English (Greek is only for the _el fields)");
   const ch = d.channel ?? "email";
   if (ch === "email") {
@@ -111,7 +114,10 @@ export function checkDraft(d: DraftLike, ctx: CheckContext): string[] {
 }
 
 export function deDash(s: string): string {
-  return s.replace(/\s?[—–]\s?/g, ", ").replace(/,\s*,/g, ",");
+  return s
+    .replace(/\s?[—–]\s?/g, ", ").replace(/,\s*,/g, ",")
+    .replace(/^[ \t]*[*•][ \t]+/gm, "- ") // markdown bullets read badly in a plain email
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1"); // and so does **bold**
 }
 
 export const OPT_OUT = /\b(unsubscribe|stop (emailing|contacting|messaging)|remove me|take me off|not interested|please (do not|don'?t) (contact|email|write)|no longer (interested|looking))\b/i;

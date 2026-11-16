@@ -155,6 +155,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: true, followup });
   }
 
+  // ── 2026-11-16 THE PAIR: George sent the WhatsApp version of a follow-up
+  // from his phone. Record it in the conversation (so the next Generate sees
+  // it and the WhatsApp limits can be counted). It does not tick a plan step:
+  // the email Send does that, one touch = email + WhatsApp. ──────────────
+  if (action === "wa-sent") {
+    const text = (body?.body ?? "").toString().trim().slice(0, 2000);
+    if (!text) return NextResponse.json({ error: "empty" }, { status: 400 });
+    await logHelmMessage(id, { direction: "outbound", channel: "whatsapp", body: text });
+    try { await mergeFollowup(id, { whatsapp_ok: true }); } catch {}
+    const tick = !!body?.tick; // a WhatsApp-only touch (no email today): tick the step too
+    if (tick) {
+      const pipeline = readPipeline(r.extraction);
+      const idx = (pipeline.fu ?? []).findIndex((s) => !s.done_at);
+      if (idx >= 0) {
+        pipeline.fu![idx] = { ...pipeline.fu![idx], done_at: new Date().toISOString(), how: "whatsapp", ...(typeof body?.touch_type === "string" ? { touch: body.touch_type.slice(0, 40) } : {}) };
+        await mergePipeline(id, { fu: pipeline.fu }, { syncFollowUpAt: true });
+      }
+    }
+    return NextResponse.json({ ok: true });
+  }
+
   // ── 2026-11-16 GENERATE (research engine). Reads Gmail by address (every
   // thread), the pasted WhatsApp and the Helm notes, computes dates and
   // windows in code, writes with the playbook in SKILL.md, checks in code.

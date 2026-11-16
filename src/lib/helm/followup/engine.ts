@@ -61,6 +61,7 @@ type ModelOut = {
   scenario?: string;
   we_owe_client?: string | null;
   next_touch?: Draft & { touch_number?: number; recipient_role?: string; rationale_el?: string };
+  whatsapp_companion?: { body?: string } | string | null;
   alternatives?: Draft[];
   stage_change?: string | null;
   set_client_requested_followup_date?: string | null;
@@ -78,6 +79,10 @@ export type FollowUpResult = {
   scenario_code: string;
   we_owe_client: string | null;
   next_touch: Draft & { touch_number: number; recipient_role: string; rationale_el: string; slot: SendSlot | null };
+  // 16/11 George: the same idea on WhatsApp, written for WhatsApp. Empty when
+  // WhatsApp is not allowed for this client. `hold` = the research limits say
+  // send the email alone today (one unanswered WhatsApp per 72 h, three in a row).
+  whatsapp_companion: { body: string; hold: boolean; hold_reason_el: string; slot: SendSlot | null; wa_link_digits: string } | null;
   alternatives: Draft[];
   forward_plan: { date: string; touch: string; anchor: string; kind: string }[];
   stage_change: string | null;
@@ -227,6 +232,9 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
     },
     constraints: {
       allowed_channels: allowed,
+      whatsapp_pair: waOk && allowed.includes("email")
+        ? "REQUIRED: next_touch.channel = email, plus whatsapp_companion.body with the same idea in WhatsApp shape (see STEP 4, the PAIR)"
+        : "none: leave whatsapp_companion empty",
       send_slot_email: emailSlot,
       forbidden_touch_types: lastTouch ? [lastTouch] : [],
       used_subjects: usedSubjects,
@@ -257,6 +265,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
 - Never reuse a subject from constraints.used_subjects and never the touch type in forbidden_touch_types.
 - LANGUAGE: subject, body, voice_note_script and call_talking_points are written to the client in ENGLISH (American), always, even though you think in Greek for George. Only snapshot_el, rationale_el, angle_el, warnings_el and requires_human_reason_el are Greek, plain, no em dash.
 - Each alternative must be a genuinely different angle (different touch_type), same channel rules.
+- THE PAIR: when constraints.whatsapp_pair is REQUIRED, next_touch is the email and whatsapp_companion.body is the same idea for WhatsApp: 1 to 3 short lines, at most 45 words, the client's first name or a warm short greeting (never "Dear Ms."), no subject, no sign-off block, one light question, English. Rewrite it for WhatsApp; do not shorten the email.
 - Output the strict JSON from OUTPUT and nothing else. forward_plan may be left empty (the code owns the plan).`;
 
   const system = loadPlaybook() + house;
@@ -276,6 +285,11 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
     allowedChannels: [...allowed, "none"], isAgent,
   };
 
+  const pairWanted = waOk && allowed.includes("email");
+  const companionText = (o: ModelOut): string => {
+    const c = o?.whatsapp_companion;
+    return typeof c === "string" ? c : (c?.body ?? "");
+  };
   const ask = async (extra?: string): Promise<ModelOut> => {
     const raw = await aiChat(system, JSON.stringify(pkg) + (extra ? `\n\nFIX THESE PROBLEMS IN YOUR PREVIOUS ANSWER AND RETURN THE FULL JSON AGAIN:\n${extra}` : ""), { maxTokens: 8192, temperature: 0.6, model });
     return parseLooseJson(raw) as ModelOut;
@@ -290,6 +304,11 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
     const fix = (d: Draft): Draft => ({ ...d, subject: deDash(d.subject ?? ""), body: deDash(d.body ?? ""), voice_note_script: deDash(d.voice_note_script ?? "") });
     if (ch !== "none") out.push(...checkDraft(fix(o.next_touch), ctx).map((x) => `next_touch: ${x}`));
     (o.alternatives ?? []).forEach((a, i) => out.push(...checkDraft(fix(a), ctx).map((x) => `alternative ${i + 1}: ${x}`)));
+    if (pairWanted) {
+      const wb = companionText(o);
+      if (!wb.trim()) out.push("missing whatsapp_companion.body (the WhatsApp version of the same idea)");
+      else out.push(...checkDraft({ channel: "whatsapp", body: deDash(wb) }, ctx).map((x) => `whatsapp_companion: ${x}`));
+    }
     return out;
   };
 
@@ -338,6 +357,23 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
   const requiresHuman = !!out.requires_human || finalCode === "S4" || hint.code === "S4" || humanTopic;
 
   const warnings: string[] = (out.warnings_el ?? []).map(clean).filter(Boolean);
+  let companion: FollowUpResult["whatsapp_companion"] = null;
+  const compBody = clean(companionText(out)).trim();
+  if (pairWanted && !s0 && compBody && channel === "email") {
+    const since72 = stats.last_wa_out_at ? (now.getTime() - Date.parse(stats.last_wa_out_at)) / 3600000 : Infinity;
+    const holdReason = stats.wa_consecutive_unanswered >= 3
+      ? `Τρία WhatsApp στη σειρά χωρίς απάντηση: η έρευνα λέει σήμερα μόνο email.`
+      : since72 < 72
+        ? `Το τελευταίο WhatsApp έφυγε πριν ${Math.round(since72)} ώρες χωρίς απάντηση: η έρευνα λέει ένα αναπάντητο WhatsApp ανά 72 ώρες. Σήμερα μόνο email.`
+        : "";
+    companion = {
+      body: compBody,
+      hold: !!holdReason,
+      hold_reason_el: holdReason,
+      slot: nextSendSlot(answerNow ? today : dueForSlot, "whatsapp", tz, now.getTime(), weekendOk),
+      wa_link_digits: (r.client_whatsapp ?? "").replace(/[^\d]/g, ""),
+    };
+  }
   if (tzSource !== "stored") warnings.push(tzSource === "phone" ? `Ζώνη ώρας πελάτη: ${tz}, από το τηλέφωνο. Διόρθωσέ τη αν δεν είναι σωστή.` : `Ζώνη ώρας άγνωστη, βάζω ${tz}. Όρισέ τη για σωστές ώρες.`);
   if (!urgency.exists) warnings.push("Δεν υπάρχει αποθηκευμένη λήξη option ή early-booking, άρα το κείμενο δεν πιέζει με προθεσμία.");
   if (!gm.ok) warnings.push("Δεν διάβασα το Gmail (σύνδεση). Το κείμενο βασίζεται μόνο στο Helm. Μην το στείλεις πριν δεις το thread.");
@@ -368,6 +404,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
       rationale_el: clean(nt.rationale_el),
       slot,
     },
+    whatsapp_companion: companion,
     alternatives: (out.alternatives ?? [])
       .map((a) => ({
         touch_type: clean(a.touch_type), channel: allowed.includes(a.channel ?? "") ? a.channel : "email",

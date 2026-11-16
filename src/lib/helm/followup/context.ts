@@ -129,7 +129,9 @@ export type TimelineStats = {
   last_outbound_at: string | null;
   first_outbound_at: string | null;
   had_inbound_after_first_outbound: boolean;
-  consecutive_unanswered: number; // George's messages since the client last wrote (bursts < 10 min = one)
+  consecutive_unanswered: number; // George's TOUCHES since the client last wrote (an email + its WhatsApp within 6 h = one touch)
+  wa_consecutive_unanswered: number; // WhatsApp messages from George since the client last wrote anywhere
+  last_wa_out_at: string | null;
   ball: "client_owes" | "we_owe" | "none";
   latest_thread: { thread_id: string; subject: string; rfc_message_id?: string } | null;
 };
@@ -139,10 +141,12 @@ export function timelineStats(items: TimelineItem[]): TimelineStats {
   const lastIn = [...conv].reverse().find((i) => i.direction === "in") ?? null;
   const outs = conv.filter((i) => i.direction === "out");
   const firstOut = outs[0] ?? null;
-  let run = 0; let prevOutTs: string | null = null;
+  let run = 0; let prevOutTs: string | null = null; let waRun = 0; let lastWaOut: string | null = null;
   for (const i of conv) {
-    if (i.direction === "in") { run = 0; prevOutTs = null; continue; }
-    if (prevOutTs && Date.parse(i.ts) - Date.parse(prevOutTs) < 10 * 60000) continue;
+    if (i.direction === "in") { run = 0; waRun = 0; prevOutTs = null; continue; }
+    if (i.channel === "whatsapp") { waRun++; lastWaOut = i.ts; }
+    // One touch = the email and its WhatsApp companion sent the same morning.
+    if (prevOutTs && Date.parse(i.ts) - Date.parse(prevOutTs) < 6 * 3600000) continue;
     run++; prevOutTs = i.ts;
   }
   const last = conv.at(-1) ?? null;
@@ -156,6 +160,8 @@ export function timelineStats(items: TimelineItem[]): TimelineStats {
     first_outbound_at: firstOut?.ts ?? null,
     had_inbound_after_first_outbound: !!(firstOut && lastIn && lastIn.ts > firstOut.ts),
     consecutive_unanswered: run,
+    wa_consecutive_unanswered: waRun,
+    last_wa_out_at: lastWaOut,
     ball: !last ? "none" : last.direction === "in" ? "we_owe" : "client_owes",
     latest_thread: lastEmail
       ? { thread_id: lastEmail.thread_id!, subject: (threadMsgs[0]?.subject || lastEmail.subject || "").trim(), rfc_message_id: tail?.rfc_message_id }

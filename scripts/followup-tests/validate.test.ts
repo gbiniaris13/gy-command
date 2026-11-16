@@ -3,7 +3,7 @@
 // scenario reader (3, 4).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkDraft, scenarioHint, featureClaims, type CheckContext } from "../../src/lib/helm/followup/validate.ts";
+import { checkDraft, scenarioHint, featureClaims, deDash, type CheckContext } from "../../src/lib/helm/followup/validate.ts";
 
 const ctx: CheckContext = {
   realUrgency: false, availabilityKnown: false, knownAmounts: ["38500", "42000"],
@@ -86,4 +86,10 @@ test("soft scarcity and 'my team' are refused", () => {
 test("George's own breakup is not an opt-out: it moves the lead to nurture", () => {
   const h = scenarioHint({ ...base, hadInbound: true, lastInboundAt: "2026-09-14T10:00:00Z", lastOutboundText: "Have you set the Greece plan aside for this year? Totally fine if so. I'll close the file on my side." });
   assert.equal(h.code, "S10");
+});
+
+test("line 1 is never 'I hope…', and markdown is cleaned for a plain email", () => {
+  const p = checkDraft({ channel: "email", subject: "Your July week", body: good.replace("Hi Michael, a small idea", "Hi Michael,\nI hope you and your group are well. A small idea") }, ctx);
+  assert.ok(p.some((x) => x.startsWith("opens with")));
+  assert.equal(deDash("Note:\n*   RED ROSE has **stabilisers**"), "Note:\n- RED ROSE has stabilisers");
 });

@@ -21,6 +21,7 @@ type Gen = {
   generated_at: string; model: string; snapshot_el: string; temperature: string; scenario: string; scenario_code: string;
   we_owe_client: string | null;
   next_touch: Draft & { touch_number: number; recipient_role: string; rationale_el: string; slot: Slot };
+  whatsapp_companion: { body: string; hold: boolean; hold_reason_el: string; slot: Slot; wa_link_digits: string } | null;
   alternatives: Draft[];
   forward_plan: { date: string; touch: string; anchor: string; kind: string }[];
   requires_human: boolean; requires_human_reason_el: string; warnings_el: string[]; checks: string[];
@@ -86,6 +87,9 @@ export default function HelmFollowUp({
   const [touch, setTouch] = useState<string | undefined>(undefined);
   const [draftBody, setDraftBody] = useState<string | null>(null);
   const [needsRegen, setNeedsRegen] = useState(false);
+  const [waText, setWaText] = useState("");
+  const [waDone, setWaDone] = useState(false);
+  const [emailDone, setEmailDone] = useState(false);
   // follow-up facts
   const [tz, setTz] = useState(settings.tz || tzInfo.tz);
   const [optExp, setOptExp] = useState(settings.option_expires_at || "");
@@ -167,6 +171,8 @@ export default function HelmFollowUp({
       const g = j as Gen;
       setGen(g);
       applyDraft(g.next_touch);
+      setWaText(g.whatsapp_companion?.body || "");
+      setWaDone(false); setEmailDone(false);
       setAsNew(false);
       if (g.next_touch.channel !== "none" && !(g.next_touch.body || g.next_touch.voice_note_script || "").trim()) {
         setErr("The draft came back empty. Press Generate again, or write it yourself in the box.");
@@ -193,8 +199,26 @@ export default function HelmFollowUp({
       const j = await r.json();
       if (r.status === 409 && j.code === "inbound-since") { setNeedsRegen(true); throw new Error(j.error); }
       if (!r.ok) throw new Error(j.error || "send-failed");
-      setMsg(`Follow-up sent to ${who}. The plan moved on${j.next ? ` (next: ${fmtDate(j.next)})` : ""}.`);
-      setBody(""); setGen(null); setDraftBody(null); setSubject("");
+      const pairPending = !!gen?.whatsapp_companion && !waDone;
+      setMsg(`Email sent to ${who}. The plan moved on${j.next ? ` (next: ${fmtDate(j.next)})` : ""}.${pairPending ? " Now the WhatsApp version below." : ""}`);
+      setEmailDone(true);
+      if (!pairPending) { setBody(""); setGen(null); setDraftBody(null); setSubject(""); }
+      router.refresh();
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+  }
+
+  // THE PAIR: the WhatsApp version went from George's phone; record it.
+  async function waSent() {
+    setBusy("wa"); setErr(null);
+    try {
+      const r = await fetch(`/api/helm/${requestId}/followup`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "wa-sent", body: waText, tick: false, touch_type: touch }),
+      });
+      if (!r.ok) throw new Error("record-failed");
+      setWaDone(true);
+      setMsg(emailDone ? "Email and WhatsApp both recorded. Done for today." : "WhatsApp recorded. Now send the email above.");
+      if (emailDone) { setBody(""); setGen(null); setDraftBody(null); setSubject(""); }
       router.refresh();
     } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
@@ -405,6 +429,31 @@ export default function HelmFollowUp({
           )}
           {needsRegen && <button type="button" onClick={() => generate()} style={ghostBtn}>Generate again</button>}
         </div>
+
+        {gen?.whatsapp_companion && (
+          <div style={{ ...noteBox, marginTop: 14, borderColor: "rgba(37,211,102,0.45)", background: "rgba(37,211,102,0.04)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+              <span style={{ ...fieldLabel, color: "#1f7a46" }}>WhatsApp · same idea{waDone ? " · recorded ✓" : ""}</span>
+              {gen.whatsapp_companion.slot && (
+                <span style={{ fontSize: 11.5, color: "#6b7280" }}>best {gen.whatsapp_companion.slot.window_athens} Athens</span>
+              )}
+            </div>
+            {gen.whatsapp_companion.hold && (
+              <div style={{ fontSize: 12, color: "#8a5a00", marginBottom: 6 }}>{gen.whatsapp_companion.hold_reason_el}</div>
+            )}
+            <textarea value={waText} onChange={(e) => setWaText(e.target.value)} rows={4} style={textarea} />
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+              {gen.whatsapp_companion.wa_link_digits && (
+                <a href={`https://wa.me/${gen.whatsapp_companion.wa_link_digits}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer"
+                  style={{ ...primaryBtn, textDecoration: "none", background: "#1f7a46", borderColor: "#1f7a46" }}>Open in WhatsApp</a>
+              )}
+              <button type="button" onClick={() => navigator.clipboard?.writeText(waText)} style={ghostBtn}>Copy</button>
+              <button type="button" onClick={waSent} disabled={busy !== null || waDone || !waText.trim()} style={ghostBtn}>
+                {busy === "wa" ? "…" : waDone ? "Recorded" : "I sent it on WhatsApp"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {gen && gen.alternatives.length > 0 && (
           <div style={{ marginTop: 14 }}>

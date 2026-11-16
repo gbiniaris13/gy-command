@@ -124,6 +124,8 @@ No sales touches on US blackouts: Thanksgiving Wed–Sun, 23 Dec–1 Jan (a gree
 - WhatsApp: max 1 unanswered per 72 h, max 3 consecutive unanswered.
 - **Assistant / family office / travel advisor:** treat them as partners. Send a forwardable summary (1 paragraph, ≤3 options, 1 question). Never bypass a travel advisor to reach the principal.
 
+**George's standing preference (16/11/2026): the PAIR.** When WhatsApp is allowed for a client, every follow-up is written twice, with ONE idea: the email (`next_touch`, the record, fuller) and a WhatsApp companion (`whatsapp_companion`) carrying the same idea in WhatsApp shape: 1–3 short lines, ≤45 words, first name or a warm short greeting, no subject, no sign-off block, one light question. Not the email cut down: rewritten for the platform. It may say the details are in the email only if that reads naturally. The code still applies the WhatsApp limits above (one unanswered per 72 h, three in a row) and tells George when to send the email alone.
+
 ---
 
 ## STEP 5: TOUCH TYPES AND VARIATION
@@ -324,6 +326,7 @@ Example:
     "call_talking_points": [],
     "rationale_el": "1-2 lines in Greek: why this touch, channel and time"
   },
+  "whatsapp_companion": { "body": "≤45 words, same idea as next_touch, WhatsApp shape; empty string if WhatsApp is not allowed" },
   "alternatives": [
     { "touch_type": "", "channel": "", "subject": "", "body": "", "angle_el": "" },
     { "touch_type": "", "channel": "", "subject": "", "body": "", "angle_el": "" }
