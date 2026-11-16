@@ -31,6 +31,9 @@ type Gen = {
   phone_channels?: { synced_at: string | null; fresh: boolean; must_confirm: boolean; note_el: string };
 };
 const nice = (t?: string) => (t || "").replace(/_/g, " ");
+// 16/11 (George): WhatsApp goes out from the WhatsApp app on the MacBook, not
+// the browser. whatsapp:// opens that app on the chat with the text in place.
+const waApp = (digits: string, text: string) => `whatsapp://send?phone=${digits}&text=${encodeURIComponent(text)}`;
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", imessage: "iMessage", call: "Phone call", voice_note: "Voice note", none: "No contact" };
 
 type Entry = { at: string; how: string; byHand: boolean };
@@ -226,20 +229,13 @@ export default function HelmFollowUp({
     } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
 
-  // THE PAIR: the WhatsApp version went from George's phone; record it.
-  async function waSent() {
-    setBusy("wa"); setErr(null);
-    try {
-      const r = await fetch(`/api/helm/${requestId}/followup`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "wa-sent", body: waText, tick: false, touch_type: touch }),
-      });
-      if (!r.ok) throw new Error("record-failed");
-      setWaDone(true);
-      setMsg(emailDone ? "Email and WhatsApp both recorded. Done for today." : "WhatsApp recorded. Now send the email above.");
-      if (emailDone) { setBody(""); setGen(null); setDraftBody(null); setSubject(""); }
-      router.refresh();
-    } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+  // THE PAIR. 16/11: no record is written on a click any more (a click once
+  // recorded a WhatsApp that never left). The real message reaches the Helm
+  // from the Mac (GY Sync, every 10 minutes) once it is actually sent.
+  function waSent() {
+    setWaDone(true);
+    setMsg("Εντάξει. Το Helm θα δει το μήνυμα από το WhatsApp του Mac μέσα σε 10 λεπτά. Αν δεν εμφανιστεί στη συζήτηση, δεν έφυγε.");
+    if (emailDone) { setBody(""); setGen(null); setDraftBody(null); setSubject(""); }
   }
 
   // WhatsApp / call / voice note are done by George by hand; one click records it.
@@ -459,7 +455,7 @@ export default function HelmFollowUp({
           ) : gen?.next_touch.channel === "none" ? null : (
             <>
               {gen?.next_touch.channel === "whatsapp" && waDigits && (
-                <a href={`https://wa.me/${waDigits}?text=${encodeURIComponent(body)}`} target="_blank" rel="noreferrer" style={{ ...primaryBtn, textDecoration: "none" }}>Open in WhatsApp</a>
+                <a href={waApp(waDigits, body)} style={{ ...primaryBtn, textDecoration: "none" }}>Open in WhatsApp</a>
               )}
               <button type="button" onClick={() => navigator.clipboard?.writeText(body)} style={ghostBtn}>Copy</button>
               <button type="button" onClick={() => markDoneBy(gen?.next_touch.channel === "whatsapp" ? "whatsapp" : gen?.next_touch.channel === "call" ? "phone call" : "voice note")} disabled={busy !== null} style={ghostBtn}>
@@ -484,12 +480,12 @@ export default function HelmFollowUp({
             <textarea value={waText} onChange={(e) => setWaText(e.target.value)} rows={4} style={textarea} />
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
               {gen.whatsapp_companion.wa_link_digits && (
-                <a href={gateOpen ? `https://wa.me/${gen.whatsapp_companion.wa_link_digits}?text=${encodeURIComponent(waText)}` : undefined} target="_blank" rel="noreferrer" aria-disabled={!gateOpen}
+                <a href={gateOpen ? waApp(gen.whatsapp_companion.wa_link_digits, waText) : undefined} aria-disabled={!gateOpen}
                   style={{ ...primaryBtn, textDecoration: "none", background: "#1f7a46", borderColor: "#1f7a46" }}>Open in WhatsApp</a>
               )}
               <button type="button" onClick={() => navigator.clipboard?.writeText(waText)} style={ghostBtn}>Copy</button>
               <button type="button" onClick={waSent} disabled={busy !== null || waDone || !waText.trim()} style={ghostBtn}>
-                {busy === "wa" ? "…" : waDone ? "Recorded" : "I sent it on WhatsApp"}
+                {waDone ? "OK ✓" : "I sent it on WhatsApp"}
               </button>
             </div>
           </div>

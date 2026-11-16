@@ -34,7 +34,8 @@ export default function HelmWhatsApp({
   const [err, setErr] = useState<string | null>(null);
 
   const digits = (clientWhatsapp || "").replace(/[^\d]/g, "");
-  const waLink = digits && text ? `https://wa.me/${digits}?text=${encodeURIComponent(text)}` : null;
+  // 16/11: open the WhatsApp app on the Mac (whatsapp://), not the browser.
+  const waLink = digits && text ? `whatsapp://send?phone=${digits}&text=${encodeURIComponent(text)}` : null;
 
   async function generate() {
     setBusy(true); setErr(null); setMsg(null);
@@ -70,7 +71,7 @@ export default function HelmWhatsApp({
           <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} style={textarea} />
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
             {waLink && (
-              <a href={waLink} target="_blank" rel="noopener noreferrer" style={{ ...primaryBtn, textDecoration: "none", display: "inline-block" }}>
+              <a href={waLink} style={{ ...primaryBtn, textDecoration: "none", display: "inline-block" }}>
                 Open WhatsApp
               </a>
             )}
