@@ -7,7 +7,7 @@
 //
 //   ?backfill=1        every month since the first reliable day
 //   ?months=2026-09    one or more months, comma separated
-//   ?only=visitors     or only=google
+//   ?only=visitors     or only=google, or only=clean
 //
 // The two halves are independent: if the website cannot be reached the
 // Google numbers are still refreshed, and the other way round.
@@ -16,10 +16,13 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/require-user";
 import { observeCron } from "@/lib/cron-observer";
 import { refreshVisitors, refreshGoogle, refreshSeo, syncRequests } from "@/lib/logbook";
+import { refreshClean } from "@/lib/logbookClean";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// 300 since 16/11/2026: the clean numbers read every visit of the month
+// (and of the whole history on a backfill) from the tracker.
+export const maxDuration = 300;
 
 async function run(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -32,7 +35,7 @@ async function run(req: Request): Promise<Response> {
 
   const out: Record<string, unknown> = {};
   let failed = 0;
-  if (only !== "google") {
+  if (!only || only === "visitors") {
     try {
       out.visitors = await refreshVisitors({ backfill, months });
     } catch (e) {
@@ -49,7 +52,7 @@ async function run(req: Request): Promise<Response> {
       console.error("logbook-refresh: requests sync failed:", out.requests_error);
     }
   }
-  if (only !== "visitors") {
+  if (!only || only === "google") {
     try {
       out.google = await refreshGoogle();
       // The SEO history (months, movers, the AI side) is built on the
@@ -59,6 +62,19 @@ async function run(req: Request): Promise<Response> {
       failed += 1;
       out.google_error = e instanceof Error ? e.message : "unknown";
       console.error("logbook-refresh: google failed:", out.google_error);
+    }
+  }
+  // The clean numbers (16/11/2026, src/lib/logbookClean.ts): counted here
+  // from the tracker's visits with a copy of the website's rule, and checked
+  // against the numbers just stored above. Runs last and on its own: if it
+  // fails, everything above is already stored as before.
+  if (!only || only === "clean") {
+    try {
+      out.clean = await refreshClean({ backfill, months });
+    } catch (e) {
+      out.clean_error = e instanceof Error ? e.message : "unknown";
+      console.error("logbook-refresh: clean failed:", out.clean_error);
+      if (only === "clean") failed += 1;
     }
   }
   const asked = only ? 1 : 2;

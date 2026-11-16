@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DayCounts, DaySnapshot, GscDay, LogbookData, SeoMover, TopVisitor } from "@/lib/logbook";
+import type { CleanMark, LogbookClean } from "@/lib/logbookClean";
 
 // THE LOGBOOK. George's brief (6/11/2026): "με μια ματιά να βλέπω πώς
 // πήγε η προηγούμενη μέρα, να κρατάει όλο το ιστορικό και κάθε μήνα να
@@ -259,7 +260,13 @@ function roundedTop(x: number, y: number, w: number, h: number, r: number) {
   return `M${x},${y + h} L${x},${y + k} Q${x},${y} ${x + k},${y} L${x + w - k},${y} Q${x + w},${y} ${x + w},${y + k} L${x + w},${y + h} Z`;
 }
 
-function Chart({ buckets, series, kind, selected, onSelect, format, lowerIsBetter = false }: {
+// marks (16/11/2026): notes on a bucket, by bucket id. A small navy
+// triangle over the bucket for a change to the website's code, a pale red
+// band behind it for a day the counts are marked (a gap, an undercount).
+// The notes are listed in the tooltip.
+type ChartMark = { deploys: number; notes: string[]; flagged: boolean };
+
+function Chart({ buckets, series, kind, selected, onSelect, format, lowerIsBetter = false, marks }: {
   buckets: Bucket[];
   series: Series[];
   kind: "stack" | "line";
@@ -267,6 +274,7 @@ function Chart({ buckets, series, kind, selected, onSelect, format, lowerIsBette
   onSelect: (id: string) => void;
   format: (n: number) => string;
   lowerIsBetter?: boolean;
+  marks?: Record<string, ChartMark>;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(880);
@@ -312,6 +320,12 @@ function Chart({ buckets, series, kind, selected, onSelect, format, lowerIsBette
             </text>
           </g>
         ))}
+
+        {marks
+          ? buckets.map((b, i) =>
+              marks[b.id]?.flagged ? <rect key={`f-${b.id}`} x={m.l + band * i} y={m.t} width={band} height={ih} fill="rgba(177,74,58,0.10)" /> : null,
+            )
+          : null}
 
         {selected && buckets.some((b) => b.id === selected) ? (
           <rect x={m.l + band * buckets.findIndex((b) => b.id === selected)} y={m.t} width={band} height={ih} fill="rgba(13,27,42,0.06)" />
@@ -366,6 +380,14 @@ function Chart({ buckets, series, kind, selected, onSelect, format, lowerIsBette
 
         <line x1={m.l} x2={width - m.r} y1={lowerIsBetter ? m.t : m.t + ih} y2={lowerIsBetter ? m.t : m.t + ih} stroke="rgba(13,27,42,0.22)" strokeWidth={1} />
 
+        {marks
+          ? buckets.map((b, i) =>
+              marks[b.id]?.deploys ? (
+                <path key={`d-${b.id}`} d={`M${(cx(i) - 4).toFixed(1)},${m.t - 9} L${(cx(i) + 4).toFixed(1)},${m.t - 9} L${cx(i).toFixed(1)},${m.t - 3} Z`} fill={NAVY} opacity={0.75} />
+              ) : null,
+            )
+          : null}
+
         {buckets.map((b, i) =>
           i % every === 0 || i === n - 1 ? (
             (i === n - 1 && (n - 1) % every !== 0 && (n - 1) % every < every / 2) ? null : (
@@ -409,10 +431,271 @@ function Chart({ buckets, series, kind, selected, onSelect, format, lowerIsBette
               <span style={{ color: "rgba(248,245,240,0.7)" }}>{s.name}</span>
             </p>
           ))}
+          {marks?.[hv.id]?.deploys ? (
+            <p className="mt-1 text-[11px]" style={{ color: "rgba(248,245,240,0.85)" }}>▼ {marks[hv.id].deploys === 1 ? "1 αλλαγή" : `${marks[hv.id].deploys} αλλαγές`} κώδικα στο site</p>
+          ) : null}
+          {(marks?.[hv.id]?.notes || []).map((t) => (
+            <p key={t} className="mt-1 text-[11px] leading-snug" style={{ color: "#F3C9C0" }}>{t}</p>
+          ))}
           {hv.selectable ? <p className="mt-1 text-[11px]" style={{ color: "rgba(248,245,240,0.55)" }}>Πάτησε για την ανάλυση της μέρας</p> : null}
         </div>
       ) : null}
     </div>
+  );
+}
+
+// ── The clean numbers (16/11/2026) ───────────────────────────────
+// src/lib/logbookClean.ts and docs/LOGBOOK-CLEAN-RULES.md. Everything in
+// this section is read from `logbook_clean`; nothing above it changed.
+
+type MarkKind = CleanMark["kind"];
+const PEOPLE_KINDS: MarkKind[] = ["gap", "ai-undercount", "parity"];
+const GOOGLE_KINDS: MarkKind[] = ["gap", "gsc-automation"];
+
+// Notes for chart buckets that are days, weeks (id = Monday) or months
+// (id = YYYY-MM): the website's code changes and the marked days inside.
+function buildMarks(clean: LogbookClean | null, ids: string[], kinds: MarkKind[]): Record<string, ChartMark> | undefined {
+  if (!clean) return undefined;
+  const out: Record<string, ChartMark> = {};
+  const spanOf = (id: string, i: number): [string, string] => {
+    if (/^\d{4}-\d{2}$/.test(id)) {
+      const [y, m] = id.split("-").map(Number);
+      return [`${id}-01`, new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)];
+    }
+    const next = ids[i + 1];
+    const isWeek = next ? Date.parse(next) - Date.parse(id) >= 6 * DAY_MS : false;
+    return [id, isWeek ? addDays(id, 6) : id];
+  };
+  ids.forEach((id, i) => {
+    const [a, b] = spanOf(id, i);
+    let deploys = 0;
+    for (const [d, v] of Object.entries(clean.deploys?.days || {})) if (d >= a && d <= b) deploys += v.n;
+    const ms = (clean.marks || []).filter((mk) => mk.date >= a && mk.date <= b && kinds.includes(mk.kind));
+    const notes = a === b ? ms.map((mk) => mk.label) : [...new Set(ms.map((mk) => `${dayTiny(mk.date)}: ${mk.label.split(":")[0]}`))].slice(0, 6);
+    if (deploys || notes.length) out[id] = { deploys, notes, flagged: ms.length > 0 };
+  });
+  return out;
+}
+
+type CleanMetric = "people" | "ai" | "google" | "direct" | "yachtViewers";
+const CLEAN_METRICS: { id: CleanMetric; label: string }[] = [
+  { id: "people", label: "Άνθρωποι" },
+  { id: "ai", label: "Από AI" },
+  { id: "google", label: "Από Google" },
+  { id: "direct", label: "Απευθείας" },
+  { id: "yachtViewers", label: "Άνοιξαν σκάφος" },
+];
+
+function SplitCell({ v }: { v: [number, number] | null }) {
+  if (!v) return <td className="px-2 py-3 text-right align-top" style={{ color: INK3 }}>·</td>;
+  return (
+    <td className="px-2 py-3 text-right align-top tabular-nums">
+      <span className="block text-[15px] font-semibold" style={{ color: NAVY }}>{num(v[0] + v[1])}</span>
+      <span className="block text-xs whitespace-nowrap">
+        <span style={{ color: US_GOLD }}>ΗΠΑ {num(v[0])}</span>
+        <span style={{ color: INK3 }}> · </span>
+        <span style={{ color: OTHER_BLUE }}>εκτός {num(v[1])}</span>
+      </span>
+    </td>
+  );
+}
+
+function daysLabel(dates: string[]): string {
+  // 4, 5, 6/6 or 9-15/10, compact.
+  if (!dates.length) return "";
+  const sorted = [...dates].sort();
+  const runs: string[][] = [];
+  for (const d of sorted) {
+    const last = runs[runs.length - 1];
+    if (last && addDays(last[last.length - 1], 1) === d) last.push(d);
+    else runs.push([d]);
+  }
+  return runs
+    .map((r) => (r.length > 2 ? `${Number(r[0].slice(8))}-${dayTiny(r[r.length - 1])}` : r.map(dayTiny).join(", ")))
+    .join(", ");
+}
+
+const KIND_LABEL: Record<MarkKind, string> = {
+  gap: "κενό μέτρησης",
+  "ai-undercount": "«Από AI» υποεκτίμηση",
+  "gsc-automation": "πιθανά κλικ αυτοματισμού στο Search Console",
+  parity: "δεν ταιριάζει με το site",
+};
+
+function CleanSection({ clean, days, gsc }: { clean: LogbookClean | null; days: Record<string, DayCounts>; gsc: Record<string, GscDay> }) {
+  const [metric, setMetric] = useState<CleanMetric>("people");
+  const [range, setRange] = useState<"90" | "all">("90");
+
+  const dates = useMemo(() => Object.keys(clean?.days || {}).sort(), [clean]);
+  const buckets: Bucket[] = useMemo(() => {
+    if (!clean || !dates.length) return [];
+    const last = dates[dates.length - 1];
+    if (range === "90") {
+      return dates
+        .filter((d) => d > addDays(last, -90))
+        .map((d) => ({ id: d, title: dayLong(d), tick: dayTiny(d), values: [...clean.days[d][metric]], selectable: false }));
+    }
+    const weeks = new Map<string, string[]>();
+    for (const d of dates) {
+      const monday = addDays(d, -((atNoon(d).getUTCDay() + 6) % 7));
+      if (!weeks.has(monday)) weeks.set(monday, []);
+      weeks.get(monday)!.push(d);
+    }
+    return [...weeks.entries()].map(([monday, ds]) => ({
+      id: monday,
+      title: `Εβδομάδα από ${dayShort(monday)}${ds.length < 7 ? " (όχι ολόκληρη)" : ""}`,
+      tick: dayTiny(monday),
+      values: [ds.reduce((a, d) => a + clean.days[d][metric][0], 0), ds.reduce((a, d) => a + clean.days[d][metric][1], 0)],
+      selectable: false,
+      partial: ds.length < 7,
+    }));
+  }, [clean, dates, metric, range]);
+
+  if (!clean) {
+    return (
+      <Card>
+        <Eyebrow>Τα καθαρά νούμερα</Eyebrow>
+        <p className="mt-2 text-sm" style={{ color: INK2 }}>Δεν έχουν υπολογιστεί ακόμα. Υπολογίζονται κάθε πρωί μαζί με το υπόλοιπο ημερολόγιο.</p>
+      </Card>
+    );
+  }
+
+  const months = Object.keys(clean.months).sort().reverse();
+  const marksBy = (ym: string) => (clean.marks || []).filter((mk) => mk.date.startsWith(ym));
+  const okParity = clean.parity.mismatches.length === 0;
+  const chartMarks = buildMarks(clean, buckets.map((b) => b.id), PEOPLE_KINDS);
+  const deployDays = Object.keys(clean.deploys?.days || {}).sort().reverse();
+
+  return (
+    <Card>
+      <Eyebrow>Τα καθαρά νούμερα</Eyebrow>
+      <h2 className="mt-1 text-xl font-semibold" style={{ color: NAVY }}>Άνθρωποι, όχι μηχανές, χωρισμένοι σε ΗΠΑ και εκτός ΗΠΑ</h2>
+      <p className="mt-2 text-sm leading-relaxed" style={{ color: INK2 }}>
+        Κανόνες {clean.rules.version} της {dayTiny(clean.rules.date)}/{clean.rules.date.slice(2, 4)}, γραμμένοι πριν υπολογιστεί οποιοδήποτε νούμερο και ίδιοι για όλους τους μήνες. Ο κανόνας «άνθρωπος ή μηχανή» είναι αντίγραφο του κανόνα του site ({clean.rules.siteRulesFrom}).
+      </p>
+      <p className="mt-2 text-sm font-semibold" style={{ color: okParity ? GOOD : BAD }}>
+        {okParity
+          ? `✓ Ίδια με τα νούμερα του site (πρωινό email) σε όλες τις ${num(clean.parity.checkedDays)} μέρες και τους ${num(clean.parity.checkedMonths)} μήνες που ελέγχθηκαν.`
+          : `✗ Δεν ταιριάζουν με το site σε ${clean.parity.mismatches.length} σημεία. Μέχρι να εξηγηθεί, τα νούμερα αυτής της ενότητας δεν θεωρούνται καθαρά.`}
+      </p>
+      {!okParity ? (
+        <ul className="mt-1 list-disc pl-5 text-xs" style={{ color: BAD }}>
+          {clean.parity.mismatches.slice(0, 12).map((mm) => (
+            <li key={mm.at}>{mm.at}: {mm.lines.map((l) => `${l.what} ${l.clean} έναντι ${l.site} στο site`).join(", ")}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[980px] text-sm">
+          <thead>
+            <tr>
+              {["Μήνας", "Άνθρωποι", "Από AI", "Από Google", "Απευθείας", "Άνοιξαν σκάφος", "Αιτήματα (Helm)", "Ακατέργαστα"].map((h, i) => (
+                <th key={h} className={`px-2 py-2 text-xs font-semibold ${i === 0 ? "text-left" : "text-right"}`} style={{ color: INK2, borderBottom: `1px solid ${RULE}`, whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {months.map((ym) => {
+              const m = clean.months[ym];
+              const first = Object.keys(clean.days).filter((d) => d.startsWith(ym)).sort()[0];
+              const [y, mo] = ym.split("-").map(Number);
+              const monthEnd = new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10);
+              const partial = first !== `${ym}-01` || m.through !== monthEnd;
+              let requests = 0;
+              let gscClicks = 0;
+              let gscUs = 0;
+              for (const [d, c] of Object.entries(days)) if (d.startsWith(ym) && d <= m.through) requests += c.requests || 0;
+              for (const [d, g] of Object.entries(gsc)) if (d.startsWith(ym) && d <= m.through) { gscClicks += g[0]; gscUs += g[3]; }
+              const mk = marksBy(ym);
+              const byKind = (k: MarkKind) => [...new Set(mk.filter((x) => x.kind === k).map((x) => x.date))];
+              const notes = (Object.keys(KIND_LABEL) as MarkKind[]).map((k) => (byKind(k).length ? `${KIND_LABEL[k]}: ${daysLabel(byKind(k))}` : "")).filter(Boolean);
+              const helmBefore = ym <= HELM_FIRST_DAY.slice(0, 7);
+              return (
+                <tr key={ym} style={{ borderBottom: `1px solid ${GRID}` }}>
+                  <td className="px-2 py-3 align-top" style={{ color: NAVY }}>
+                    <span className="block whitespace-nowrap text-[15px] font-semibold">{monthName(ym)}</span>
+                    {partial ? <span className="block text-xs" style={{ color: INK3 }}>{dayTiny(first)} έως {dayTiny(m.through)}</span> : null}
+                    {notes.map((t) => <span key={t} className="block text-xs" style={{ color: BAD }}>{t}</span>)}
+                  </td>
+                  <SplitCell v={m.people} />
+                  <SplitCell v={m.ai} />
+                  <SplitCell v={m.google} />
+                  <SplitCell v={m.direct} />
+                  <SplitCell v={m.yachtViewers} />
+                  <td className="px-2 py-3 text-right align-top tabular-nums">
+                    <span className="block text-[15px] font-semibold" style={{ color: NAVY }}>{num(requests)}</span>
+                    {helmBefore ? <span className="block text-xs" style={{ color: INK3 }}>Helm από 30/5</span> : null}
+                  </td>
+                  <td className="px-2 py-3 text-right align-top text-xs tabular-nums" style={{ color: INK2, whiteSpace: "nowrap" }}>
+                    <span className="block">{num(m.raw.visits)} επισκέψεις</span>
+                    <span className="block">{num(m.raw.machineVisits)} μηχανές</span>
+                    {m.raw.ownVisits ? <span className="block">{num(m.raw.ownVisits)} δικές σου</span> : null}
+                    <span className="block">{num(gscClicks)} κλικ GSC ({num(gscUs)} ΗΠΑ)</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-xs leading-relaxed" style={{ color: INK3 }}>
+        Κάθε στήλη είναι διαφορετικοί άνθρωποι μέσα στον μήνα, και ΗΠΑ + εκτός ΗΠΑ = σύνολο. «ΗΠΑ» στον μήνα είναι όποιος ήρθε έστω μία φορά από ΗΠΑ. «Από Google» είναι άνθρωποι, όχι κλικ· τα κλικ του Search Console είναι στα ακατέργαστα, όπως ήρθαν. Τα αιτήματα είναι όσα έχει το Helm χωρίς τα δοκιμαστικά, και δεν χωρίζονται σε ΗΠΑ / εκτός, γιατί το Helm δεν κρατά χώρα. Όπου γράφει κενό ή υποεκτίμηση, το νούμερο μένει όπως μετρήθηκε· καμία εκτίμηση δεν προστίθεται.
+      </p>
+
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        {CLEAN_METRICS.map((x) => <Pill key={x.id} active={metric === x.id} onClick={() => setMetric(x.id)}>{x.label}</Pill>)}
+        <span className="mx-1" />
+        <Pill active={range === "90"} onClick={() => setRange("90")}>90 μέρες</Pill>
+        <Pill active={range === "all"} onClick={() => setRange("all")}>Όλα, ανά εβδομάδα</Pill>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-4 text-xs" style={{ color: INK2 }}>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-[3px]" style={{ background: US_GOLD }} />ΗΠΑ</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-[3px]" style={{ background: OTHER_BLUE }} />Εκτός ΗΠΑ</span>
+        <span className="flex items-center gap-1.5"><span style={{ color: NAVY }}>▼</span>αλλαγή κώδικα στο site</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3" style={{ background: "rgba(177,74,58,0.18)" }} />σημειωμένη μέρα</span>
+      </div>
+      <div className="mt-2">
+        <Chart buckets={buckets} series={[{ name: "ΗΠΑ", color: US_GOLD }, { name: "Εκτός ΗΠΑ", color: OTHER_BLUE }]} kind="stack" selected={null} onSelect={() => {}} format={num} marks={chartMarks} />
+      </div>
+
+      <details className="mt-5">
+        <summary className="cursor-pointer text-sm font-semibold" style={{ color: NAVY }}>Σημειωμένες μέρες ({(clean.marks || []).length})</summary>
+        <ul className="mt-2 space-y-1 text-xs" style={{ color: INK2 }}>
+          {(clean.marks || []).map((mk, i) => <li key={`${mk.date}-${i}`}><span className="font-semibold" style={{ color: NAVY }}>{dayShort(mk.date)}</span>: {mk.label}</li>)}
+        </ul>
+      </details>
+      <details className="mt-3">
+        <summary className="cursor-pointer text-sm font-semibold" style={{ color: NAVY }}>Αλλαγές κώδικα στο site ({deployDays.reduce((a, d) => a + clean.deploys.days[d].n, 0)} σε {deployDays.length} μέρες)</summary>
+        <p className="mt-2 text-xs" style={{ color: INK3 }}>
+          Από το GitHub (commits στο main). Η ημερομηνία είναι του commit· το deploy γινόταν με το push, συνήθως την ίδια μέρα. Έως {dayTiny(clean.lockDay)} κάθε push στο main έβγαινε live αμέσως· από {dayTiny(clean.lockDay)} βγαίνει live μόνο όταν το εγκρίνεις (Promote).
+          {clean.deploys.error ? ` Τελευταία ανάγνωση απέτυχε (${clean.deploys.error}), δείχνεται η προηγούμενη λίστα.` : ""}
+        </p>
+        <ul className="mt-2 space-y-1 text-xs" style={{ color: INK2 }}>
+          {deployDays.map((d) => (
+            <li key={d}><span className="font-semibold" style={{ color: NAVY }}>{dayShort(d)}</span> ({clean.deploys.days[d].n}): {clean.deploys.days[d].subjects.join(" · ")}</li>
+          ))}
+        </ul>
+      </details>
+      <details className="mt-3">
+        <summary className="cursor-pointer text-sm font-semibold" style={{ color: NAVY }}>Οι κανόνες ({clean.rules.version})</summary>
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-relaxed" style={{ color: INK2 }}>
+          <li>Άνθρωπος ή μηχανή: ακριβές αντίγραφο του κανόνα του site, χωρίς προσθήκες.</li>
+          <li>Από πού ήρθε: ο κανόνας του site (utm, μετά η διεύθυνση προέλευσης, αλλιώς το referrer).</li>
+          <li>Μέρα = 24 ώρες από 05:00 UTC, όπως το πρωινό email. Πρώτη μέρα 15/5/2026.</li>
+          <li>ΗΠΑ / εκτός ΗΠΑ σε κάθε στήλη· ανά μέρα με τη χώρα της πρώτης επίσκεψης, ανά μήνα «ΗΠΑ» όποιος ήρθε έστω μία φορά από ΗΠΑ.</li>
+          <li>Κάθε μέρα και μήνας ελέγχεται απέναντι στα νούμερα του site· οποιαδήποτε διαφορά φαίνεται με κόκκινο.</li>
+          <li>Αιτήματα = Helm χωρίς δοκιμαστικά, δικά σου και πωλητές.</li>
+          <li>Κενό μέτρησης: μέρα με λιγότερο από 20% του διάμεσου των 14 προηγούμενων· σημειώνεται, δεν συμπληρώνεται.</li>
+          <li>Γνωστά κενά με απόδειξη: 9-15/10/2026 «Από AI» υποεκτίμηση.</li>
+          <li>Google: καθαρό = άνθρωποι από Google· τα κλικ του Search Console μένουν ακατέργαστα, και μια μέρα σημειώνεται όταν τα κλικ ΗΠΑ είναι ≥ 10 και ≥ 3 × (άνθρωποι ΗΠΑ από Google + 1).</li>
+          <li>Αλλαγές στο site: commits στο main από το GitHub.</li>
+          <li>Τίποτα από το υπάρχον ημερολόγιο δεν αλλάζει.</li>
+          <li>Τα ακατέργαστα φαίνονται δίπλα, με λίστα κάθε σημειωμένης μέρας.</li>
+        </ol>
+        <p className="mt-2 text-xs" style={{ color: INK3 }}>Πλήρες κείμενο: docs/LOGBOOK-CLEAN-RULES.md στο repo του GY Command.</p>
+      </details>
+    </Card>
   );
 }
 
@@ -428,7 +711,7 @@ const METRICS: { id: Metric; label: string }[] = [
   { id: "requests", label: "Αιτήματα" },
 ];
 
-export default function LogbookClient({ data }: { data: LogbookData }) {
+export default function LogbookClient({ data, clean = null }: { data: LogbookData; clean?: LogbookClean | null }) {
   const latest = Object.keys(data.index?.days || {}).sort().pop() || null;
   if (!latest) {
     return (
@@ -441,10 +724,10 @@ export default function LogbookClient({ data }: { data: LogbookData }) {
       </div>
     );
   }
-  return <Logbook data={data} latest={latest} />;
+  return <Logbook data={data} latest={latest} clean={clean} />;
 }
 
-function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
+function Logbook({ data, latest, clean }: { data: LogbookData; latest: string; clean: LogbookClean | null }) {
   const days: Record<string, DayCounts> = useMemo(() => data.index?.days || {}, [data.index]);
   const gsc: Record<string, GscDay> = useMemo(() => data.gsc?.days || {}, [data.gsc]);
   const visitorDates = useMemo(() => Object.keys(days).sort(), [days]);
@@ -676,6 +959,9 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
         ) : null}
       </header>
 
+      {/* The clean numbers, US and every other country (16/11/2026) */}
+      <CleanSection clean={clean} days={days} gsc={gsc} />
+
       {/* The day at a glance */}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -758,6 +1044,7 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
             onSelect={(id) => setSelected(id)}
             format={fmt}
             lowerIsBetter={metric === "position"}
+            marks={buildMarks(clean, buckets.map((b) => b.id), metric === "people" || metric === "requests" ? PEOPLE_KINDS : GOOGLE_KINDS)}
           />
         </div>
         <p className="mt-2 text-xs" style={{ color: INK3 }}>
@@ -1011,7 +1298,7 @@ function Logbook({ data, latest }: { data: LogbookData; latest: string }) {
         </Card>
       ) : null}
 
-      <SeoSection data={data} gsc={gsc} gscDates={gscDates} days={days} visitorDates={visitorDates} />
+      <SeoSection data={data} gsc={gsc} gscDates={gscDates} days={days} visitorDates={visitorDates} clean={clean} />
 
       {/* How it is counted */}
       <p className="px-2 pb-6 text-xs leading-relaxed" style={{ color: INK3 }}>
@@ -1047,7 +1334,8 @@ const SEO_METRICS: { id: string; label: string; monthOnly?: boolean }[] = [
   { id: "ai", label: "Άνθρωποι από AI", monthOnly: true },
 ];
 
-function SeoSection({ data, gsc, gscDates, days, visitorDates }: {
+function SeoSection({ data, gsc, gscDates, days, visitorDates, clean }: {
+  clean: LogbookClean | null;
   data: LogbookData;
   gsc: Record<string, GscDay>;
   gscDates: string[];
@@ -1317,7 +1605,7 @@ function SeoSection({ data, gsc, gscDates, days, visitorDates }: {
         </div>
       ) : null}
       <div className="mt-3">
-        <Chart buckets={chartBuckets} series={chartSeries} kind={chartKind} selected={null} onSelect={() => {}} format={chartFormat} lowerIsBetter={activeMetric === "position"} />
+        <Chart buckets={chartBuckets} series={chartSeries} kind={chartKind} selected={null} onSelect={() => {}} format={chartFormat} lowerIsBetter={activeMetric === "position"} marks={buildMarks(clean, chartBuckets.map((b) => b.id), GOOGLE_KINDS)} />
       </div>
       <p className="mt-2 text-xs" style={{ color: INK3 }}>
         {activeMetric === "position" ? "Η θέση 1 είναι πάνω: όσο ανεβαίνει η γραμμή, τόσο πιο ψηλά μας δείχνει η Google. " : ""}
