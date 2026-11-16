@@ -106,7 +106,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     if (!pipeline.fu || !pipeline.fu[step]) {
       return NextResponse.json({ error: "no plan on this request yet" }, { status: 400 });
     }
-    pipeline.fu[step] = { ...pipeline.fu[step], due: date };
+    // 16/11: a date George sets by hand is his decision; the automatic
+    // re-plan from the conversation never moves it.
+    pipeline.fu[step] = { ...pipeline.fu[step], due: date, manual: true };
     await mergePipeline(id, { fu: pipeline.fu }, { syncFollowUpAt: true });
     return NextResponse.json({ ok: true, fu: pipeline.fu });
   }

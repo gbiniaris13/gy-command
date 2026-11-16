@@ -31,6 +31,7 @@ export type FuStep = {
   anchor?: string;
   subject?: string;
   ai?: "ai" | "ai_edited" | "manual";
+  manual?: boolean; // George set this date by hand
 };
 
 import { planFollowUps, clientTimezone, localDate, nextSendDay, addDays } from "./followup/calendar";

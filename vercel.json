@@ -13,6 +13,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/cron/helm-replan",
+      "schedule": "20 * * * *"
+    },
+    {
       "path": "/api/cron/post-charter",
       "schedule": "0 9 * * *"
     },

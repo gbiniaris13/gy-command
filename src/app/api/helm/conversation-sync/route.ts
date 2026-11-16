@@ -17,9 +17,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { getSetting, setSetting } from "@/lib/google-api";
+import { autoReplanMany } from "@/lib/helm/followup/replan";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300; // the re-plan of the requests that just got new messages runs here too
 
 async function authed(req: NextRequest): Promise<boolean> {
   const want = await getSetting("conversation_sync_token");
@@ -84,5 +85,13 @@ export async function POST(req: NextRequest) {
     inserted += Math.min(200, rows.length - i);
   }
   await setSetting("conversation_sync_last", JSON.stringify({ at: new Date().toISOString(), received: msgs.length, inserted, sources: body.sources ?? null }));
-  return NextResponse.json({ ok: true, received: msgs.length, inserted });
+  // New words on WhatsApp/iMessage → re-time those clients' plans now, not
+  // at the next hourly sweep (George talks to a client at night; tomorrow's
+  // follow-up must already have moved).
+  const touched = Array.from(new Set(rows.map((r) => r.request_id)));
+  let replanned = 0;
+  if (touched.length) {
+    try { replanned = (await autoReplanMany(touched, { concurrency: 4, deadlineMs: 200000 })).filter((r) => r.changed).length; } catch { /* the hourly sweep will catch up */ }
+  }
+  return NextResponse.json({ ok: true, received: msgs.length, inserted, replanned });
 }

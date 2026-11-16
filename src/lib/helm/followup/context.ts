@@ -69,7 +69,7 @@ export type GmailRead = {
 };
 
 /** Every email to/from these addresses since the request arrived. */
-export async function readGmailByAddress(addresses: string[], sinceIso: string, limit = 40): Promise<GmailRead> {
+export async function readGmailByAddress(addresses: string[], sinceIso: string, limit = 40, opts: { light?: boolean; fullLast?: number } = {}): Promise<GmailRead> {
   const addrs = addresses.map((a) => a.trim().toLowerCase()).filter((a) => a.includes("@"));
   if (!addrs.length) return { items: [], newAddresses: [], ok: true };
   const after = Math.floor((Date.parse(sinceIso) - 2 * 86400000) / 1000);
@@ -79,8 +79,12 @@ export async function readGmailByAddress(addresses: string[], sinceIso: string, 
   const ids = ((await list.json()).messages ?? []) as { id: string }[];
   const seen = new Set<string>();
   const items: TimelineItem[] = [];
+  // light = dates and senders only (the hourly re-plan), except the newest
+  // `fullLast` messages, whose words are needed to spot "wait until…".
+  const fullIds = new Set(ids.slice(0, opts.fullLast ?? (opts.light ? 0 : ids.length)).map((x) => x.id));
   await Promise.all(ids.map(async ({ id }) => {
-    const r = await gmailFetch(`/messages/${id}?format=full`);
+    const full = !opts.light || fullIds.has(id);
+    const r = await gmailFetch(full ? `/messages/${id}?format=full` : `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Message-ID`);
     if (!r.ok) return;
     const m = (await r.json()) as GmailMsg;
     if (m.labelIds?.includes("DRAFT")) return;

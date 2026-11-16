@@ -95,3 +95,76 @@ test("time zone from the phone", () => {
   assert.deepEqual(clientTimezone(null, null), { tz: NY, source: "default" });
   assert.deepEqual(clientTimezone("America/Chicago", "+1 415 555 0100"), { tz: "America/Chicago", source: "stored" });
 });
+
+import { rescheduleFromConversation } from "../../src/lib/helm/followup/calendar.ts";
+
+const step = (due: string, extra: Record<string, unknown> = {}) => ({ due, done_at: null, how: null, kind: "nudge" as const, v: 2 as const, ...extra });
+
+test("George talked on WhatsApp last night → tomorrow's follow-up moves, and so do the rest", () => {
+  const fu = [step("2026-11-17"), step("2026-11-24"), step("2027-01-06"), step("2027-05-28", { kind: "bye" })];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-16T20:00:00Z", tz: "America/New_York", charterFrom: "2027-07-03", sentAtIso: "2026-10-21T10:00:00Z",
+    lastInboundAt: "2026-11-16T01:00:00Z", lastOutboundAt: "2026-11-16T18:00:00Z", hadInboundAfterFirstOut: true, ball: "client_owes", clientFollowupDate: null,
+  });
+  assert.ok(r.changed);
+  assert.ok(r.fu[0].due >= "2026-11-18", r.fu.map((s) => s.due).join(","));
+  for (let i = 1; i < r.fu.length; i++) assert.ok(r.fu[i].due > r.fu[i - 1].due);
+});
+
+test("client said wait (back on the 28th) → nothing before that day", () => {
+  const fu = [step("2026-11-17"), step("2026-11-20"), step("2026-12-10", { kind: "bye" })];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-16T20:00:00Z", tz: "Australia/Sydney", charterFrom: "2027-09-04", sentAtIso: "2026-10-21T10:00:00Z",
+    lastInboundAt: "2026-11-15T02:00:00Z", lastOutboundAt: "2026-11-15T03:00:00Z", hadInboundAfterFirstOut: true, ball: "client_owes", clientFollowupDate: "2026-11-30",
+  });
+  assert.equal(r.fu[0].due, "2026-11-30");
+  assert.ok(r.fu.every((s) => s.due >= "2026-11-30"));
+});
+
+test("client wrote last → the answer is due today", () => {
+  const r = rescheduleFromConversation([step("2026-11-25")], {
+    todayIso: "2026-11-16T12:00:00Z", tz: "America/New_York", charterFrom: "2027-07-03", sentAtIso: "2026-10-21T10:00:00Z",
+    lastInboundAt: "2026-11-16T11:00:00Z", lastOutboundAt: "2026-11-10T10:00:00Z", hadInboundAfterFirstOut: true, ball: "we_owe", clientFollowupDate: null,
+  });
+  assert.equal(r.fu[0].due, "2026-11-16");
+});
+
+test("never replied: a hand-written touch yesterday pushes today's step out, market anchors stay", () => {
+  const fu = [step("2026-11-16"), step("2027-01-06", { anchor: "US planning window opens" })];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-16T12:00:00Z", tz: "America/New_York", charterFrom: "2027-07-03", sentAtIso: "2026-11-01T10:00:00Z",
+    lastInboundAt: null, lastOutboundAt: "2026-11-15T15:00:00Z", hadInboundAfterFirstOut: false, ball: "client_owes", clientFollowupDate: null,
+  });
+  assert.equal(r.fu[0].due, "2026-11-20");
+  assert.equal(r.fu[1].due, "2027-01-06");
+});
+
+test("George's own hand-set date is never moved", () => {
+  const fu = [step("2026-11-18", { manual: true }), step("2026-11-17")];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-16T12:00:00Z", tz: "America/New_York", charterFrom: "2027-07-03", sentAtIso: "2026-11-01T10:00:00Z",
+    lastInboundAt: null, lastOutboundAt: "2026-11-15T15:00:00Z", hadInboundAfterFirstOut: false, ball: "client_owes", clientFollowupDate: null,
+  });
+  assert.ok(r.fu.some((s) => s.due === "2026-11-18" && (s as { manual?: boolean }).manual));
+});
+
+test("went quiet months ago → keep the research plan, no mass close of the file", () => {
+  const fu = [step("2026-11-16"), step("2027-01-06", { anchor: "US planning window opens" }), step("2027-05-28", { kind: "bye" })];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-16T12:00:00Z", tz: "America/New_York", charterFrom: "2027-07-10", sentAtIso: "2026-07-15T10:00:00Z",
+    lastInboundAt: "2026-07-13T10:00:00Z", lastOutboundAt: "2026-08-15T10:00:00Z", hadInboundAfterFirstOut: true, ball: "client_owes", clientFollowupDate: null,
+  });
+  assert.equal(r.fu.length, 3);
+  assert.equal(r.fu[1].due, "2027-01-06");
+  assert.equal(r.fu.at(-1)!.kind, "bye");
+  assert.equal(r.fu.at(-1)!.due, "2027-05-28");
+});
+
+test("a plan never ends up with two closes", () => {
+  const fu = [step("2026-11-24"), step("2027-04-05", { kind: "bye" }), step("2027-04-08", { kind: "bye" })];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-16T12:00:00Z", tz: "America/New_York", charterFrom: "2027-06-01", sentAtIso: "2026-10-01T10:00:00Z",
+    lastInboundAt: null, lastOutboundAt: "2026-10-15T10:00:00Z", hadInboundAfterFirstOut: false, ball: "client_owes", clientFollowupDate: null,
+  });
+  assert.equal(r.fu.filter((s) => s.kind === "bye").length, 1);
+});

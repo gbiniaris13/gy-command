@@ -30,6 +30,7 @@ export type PlannedStep = {
   v: 2;
   touch?: TouchHint;
   anchor?: string; // short human reason, e.g. "2028 rate cards landing"
+  manual?: boolean; // George set this date by hand: the auto re-plan leaves it alone
 };
 
 const DAY = 86400000;
@@ -428,3 +429,89 @@ export const TZ_CHOICES = [
   "America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles",
   "America/Anchorage", "Pacific/Honolulu", "Europe/London", "Europe/Paris", "Europe/Athens", "Asia/Dubai", "Australia/Sydney",
 ];
+
+
+// ── 16/11 (George): the plan follows the conversation, on every channel ────
+// "μπορεί να μιλήσω με κάποιο πελάτη το βράδυ και να μην πρέπει να τον κάνω
+// follow-up αύριο, και μετά πρέπει να αλλάζουν και τα επόμενα". Pure: the
+// server feeds it the facts read from Gmail + WhatsApp + iMessage + notes.
+
+type AnyStep = { due: string; done_at: string | null; how: string | null; kind?: "nudge" | "reopen" | "bye"; manual?: boolean; anchor?: string; touch?: string; v?: 2 };
+
+export type ConversationFacts = {
+  todayIso: string;
+  tz: string;
+  charterFrom: string | null;
+  sentAtIso: string;
+  lastInboundAt: string | null;
+  lastOutboundAt: string | null; // George, any channel
+  hadInboundAfterFirstOut: boolean;
+  ball: "client_owes" | "we_owe" | "none";
+  clientFollowupDate: string | null;
+};
+
+const MIN_GAP: Record<Bucket, number> = { ULTRA_SHORT: 1, SHORT: 2, MEDIUM: 3, LONG: 5, VERY_LONG: 5, UNKNOWN: 3 };
+
+export function rescheduleFromConversation<T extends AnyStep>(fu: T[], f: ConversationFacts): { fu: AnyStep[]; reason: string; changed: boolean } {
+  const today = localDate(Date.parse(f.todayIso), f.tz);
+  const facts = leadFacts(f.sentAtIso, f.charterFrom, f.tz);
+  const weekendOk = facts.bucket === "ULTRA_SHORT";
+  const done = fu.filter((s) => s.done_at);
+  const pending = fu.filter((s) => !s.done_at);
+  const manual = pending.filter((s) => s.manual && s.due >= today);
+  let auto: AnyStep[] = pending.filter((s) => !s.manual);
+  let reason = "";
+  const lastOutDay = f.lastOutboundAt ? localDate(Date.parse(f.lastOutboundAt), f.tz) : null;
+  const lastInDay = f.lastInboundAt ? localDate(Date.parse(f.lastInboundAt), f.tz) : null;
+
+  if (f.clientFollowupDate && f.clientFollowupDate >= today) {
+    // The client (or George) set the day: nothing before it.
+    const first = nextSendDay(f.clientFollowupDate, weekendOk);
+    const rest = auto.filter((s) => s.due > first && s.kind !== undefined);
+    auto = [{ due: first, done_at: null, how: null, kind: "nudge", v: 2, touch: "availability_update", anchor: "η μέρα που συμφωνήσατε" }, ...rest];
+    reason = `συμφωνημένη μέρα ${first}`;
+  } else if (f.ball === "we_owe" && lastInDay) {
+    // The client wrote last: we owe the answer today; the rest waits behind it.
+    const ladder = planGhosted(f.lastInboundAt!, f.tz, f.todayIso).filter((s) => s.due > today);
+    auto = [{ due: nextSendDay(today, true), done_at: null, how: null, kind: "nudge", v: 2, anchor: "ο πελάτης έγραψε: χρωστάς απάντηση" }, ...ladder];
+    reason = "ο πελάτης έγραψε τελευταίος";
+  } else if (f.hadInboundAfterFirstOut && lastInDay && daysBetween(lastInDay, today) <= 35) {
+    // They talked, then went quiet: +2/+5/+10/+20/+35 from THEIR last word,
+    // never sooner than two days after George's last message.
+    const floor = lastOutDay ? addDays(lastOutDay, 2) : today;
+    const ladder = planGhosted(f.lastInboundAt!, f.tz, f.todayIso).map((s) => (s.due < floor ? { ...s, due: nextSendDay(floor) } : s));
+    auto = ladder;
+    reason = `σιωπή μετά από συζήτηση (τελευταίο μήνυμα πελάτη ${lastInDay})`;
+  } else {
+    // Never replied, or went quiet long ago (the +2…+35 ladder has run its
+    // course): keep the research plan with its market anchors, but nothing
+    // sooner than the minimum gap after George's last touch on ANY channel.
+    const floor = [today, lastOutDay ? addDays(lastOutDay, MIN_GAP[facts.bucket]) : today].sort().at(-1)!;
+    auto = auto.map((s) => (s.due < floor ? { ...s, due: nextSendDay(floor, weekendOk) } : s));
+    reason = lastOutDay ? `τελευταία δική σου επαφή ${lastOutDay}` : "";
+  }
+
+  // Merge George's own dates back in, then make the order strict.
+  const merged = [...auto, ...manual].sort((a, b) => a.due.localeCompare(b.due));
+  const out: AnyStep[] = [];
+  for (const s of merged) {
+    let due = s.due;
+    const prev = out.at(-1);
+    if (prev && due <= prev.due) due = nextSendDay(addDays(prev.due, 1), weekendOk);
+    out.push({ ...s, due });
+  }
+  // One close, and it stays last (older plans could carry two).
+  const byes = out.filter((s) => s.kind === "bye");
+  if (byes.length > 1) {
+    const keep = byes[byes.length - 1];
+    for (let i = out.length - 1; i >= 0; i--) if (out[i].kind === "bye" && out[i] !== keep && !out[i].manual) out.splice(i, 1);
+  }
+  const byeIdx = out.findIndex((s) => s.kind === "bye");
+  if (byeIdx >= 0 && byeIdx < out.length - 1) {
+    const [bye] = out.splice(byeIdx, 1);
+    out.push({ ...bye, due: nextSendDay(addDays(out.at(-1)!.due, 3), weekendOk) });
+  }
+  const next = [...done, ...out];
+  const changed = JSON.stringify(pending.map((s) => s.due)) !== JSON.stringify(out.map((s) => s.due));
+  return { fu: next, reason, changed };
+}
