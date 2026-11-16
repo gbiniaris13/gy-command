@@ -229,13 +229,25 @@ export default function HelmFollowUp({
     } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
 
-  // THE PAIR. 16/11: no record is written on a click any more (a click once
-  // recorded a WhatsApp that never left). The real message reaches the Helm
-  // from the Mac (GY Sync, every 10 minutes) once it is actually sent.
-  function waSent() {
-    setWaDone(true);
-    setMsg("Εντάξει. Το Helm θα δει το μήνυμα από το WhatsApp του Mac μέσα σε 10 λεπτά. Αν δεν εμφανιστεί στη συζήτηση, δεν έφυγε.");
-    if (emailDone) { setBody(""); setGen(null); setDraftBody(null); setSubject(""); }
+  // 16/11 SEND ON WHATSAPP: one click → the WhatsApp app on the MacBook sends
+  // it (~20 s) and confirms from WhatsApp's own records. We poll the result.
+  const [waState, setWaState] = useState<{ status: string; detail: string } | null>(null);
+  async function sendOnWhatsApp(text: string) {
+    if (!text.trim()) return;
+    if (!confirm(`Αποστολή στο WhatsApp από το MacBook;\n\n${text.slice(0, 300)}`)) return;
+    setBusy("wa"); setErr(null); setWaState({ status: "queued", detail: "" });
+    try {
+      const r = await fetch(`/api/helm/${requestId}/followup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "wa-queue", text }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "queue-failed");
+      for (let i = 0; i < 40; i++) {
+        await new Promise((res) => setTimeout(res, 3000));
+        const s2 = await fetch(`/api/helm/${requestId}/followup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "wa-status", id: j.id }) }).then((x) => x.json());
+        setWaState({ status: s2.status, detail: s2.detail || "" });
+        if (s2.status === "sent") { setWaDone(true); router.refresh(); break; }
+        if (s2.status === "failed") break;
+      }
+    } catch (e) { setErr((e as Error).message); setWaState(null); } finally { setBusy(null); }
   }
 
   // WhatsApp / call / voice note are done by George by hand; one click records it.
@@ -455,7 +467,12 @@ export default function HelmFollowUp({
           ) : gen?.next_touch.channel === "none" ? null : (
             <>
               {gen?.next_touch.channel === "whatsapp" && waDigits && (
-                <a href={waApp(waDigits, body)} style={{ ...primaryBtn, textDecoration: "none" }}>Open in WhatsApp</a>
+                <>
+                  <button type="button" onClick={() => sendOnWhatsApp(body)} disabled={busy !== null || waDone || !gateOpen} style={{ ...primaryBtn, background: "#1f7a46", borderColor: "#1f7a46" }}>
+                    {busy === "wa" ? "Στέλνεται από το Mac…" : waDone ? "Στάλθηκε ✓" : "Send on WhatsApp"}
+                  </button>
+                  <a href={waApp(waDigits, body)} style={{ ...ghostBtn, textDecoration: "none" }}>Open only</a>
+                </>
               )}
               <button type="button" onClick={() => navigator.clipboard?.writeText(body)} style={ghostBtn}>Copy</button>
               <button type="button" onClick={() => markDoneBy(gen?.next_touch.channel === "whatsapp" ? "whatsapp" : gen?.next_touch.channel === "call" ? "phone call" : "voice note")} disabled={busy !== null} style={ghostBtn}>
@@ -479,14 +496,20 @@ export default function HelmFollowUp({
             )}
             <textarea value={waText} onChange={(e) => setWaText(e.target.value)} rows={4} style={textarea} />
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+              <button type="button" onClick={() => sendOnWhatsApp(waText)} disabled={busy !== null || waDone || !gateOpen || !waText.trim()}
+                style={{ ...primaryBtn, background: "#1f7a46", borderColor: "#1f7a46" }}>
+                {busy === "wa" ? "Στέλνεται από το Mac…" : waDone ? "Στάλθηκε ✓" : "Send on WhatsApp"}
+              </button>
               {gen.whatsapp_companion.wa_link_digits && (
                 <a href={gateOpen ? waApp(gen.whatsapp_companion.wa_link_digits, waText) : undefined} aria-disabled={!gateOpen}
-                  style={{ ...primaryBtn, textDecoration: "none", background: "#1f7a46", borderColor: "#1f7a46" }}>Open in WhatsApp</a>
+                  style={{ ...ghostBtn, textDecoration: "none" }}>Open only (I press send)</a>
               )}
               <button type="button" onClick={() => navigator.clipboard?.writeText(waText)} style={ghostBtn}>Copy</button>
-              <button type="button" onClick={waSent} disabled={busy !== null || waDone || !waText.trim()} style={ghostBtn}>
-                {waDone ? "OK ✓" : "I sent it on WhatsApp"}
-              </button>
+              {waState && (
+                <span style={{ fontSize: 12, color: waState.status === "failed" ? "#b91c1c" : waState.status === "sent" ? "#1f7a46" : "#6b7280" }}>
+                  {waState.status === "queued" ? "Περιμένει το Mac (έως 20″)…" : waState.status === "sending" ? "Το Mac το στέλνει…" : waState.status === "sent" ? "Στάλθηκε και φαίνεται στο WhatsApp σου ✓" : waState.status === "failed" ? `Δεν στάλθηκε: ${waState.detail}` : ""}
+                </span>
+              )}
             </div>
           </div>
         )}

@@ -197,8 +197,115 @@ def imessage(tmp, targets, report):
     rep["messages"] = n
     return found
 
+# ── Send on WhatsApp (16/11/2026) ───────────────────────────────────────────
+# George clicks "Send on WhatsApp" in the Helm → one item in the outbox. Here:
+# save the number in Contacts if it is new, open the chat in the WhatsApp app
+# with the text in place, press Return, then CHECK WhatsApp's own database that
+# the message really left. Never retried: a failed item is reported, not resent.
+import subprocess, urllib.parse
+
+OUTBOX = "https://command.georgeyachts.com/api/helm/wa-outbox"
+WA_DB = os.path.join(HOME, "Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite")
+
+def http_outbox(method, body=None):
+    token = open(os.path.join(BASE, "token")).read().strip()
+    req = urllib.request.Request(OUTBOX, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode())
+
+def osa(script):
+    p = subprocess.run(["/usr/bin/osascript", "-e", script], capture_output=True, text=True, timeout=30)
+    return p.returncode, (p.stdout + p.stderr).strip()
+
+def esc(t):
+    return (t or "").replace("\\", "\\\\").replace('"', '\\"')
+
+def known_phone(phone9):
+    tmp = tempfile.mkdtemp(prefix="gysync-c-")
+    try:
+        names = mac_contacts_name_to_phones(tmp, {})
+        return any(phone9 in v for v in names.values())
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+def save_contact(it):
+    if known_phone(d9(it["phone"])):
+        return "already in contacts"
+    subprocess.run(["/usr/bin/open", "-gj", "-a", "Contacts"], timeout=20)
+    time.sleep(2)
+    code, out = osa(f'''tell application "Contacts"
+  set p to make new person with properties {{first name:"{esc(it['first_name'])}", last name:"{esc(it['last_name'])}", organization:"{esc(it['org'])}", note:"{esc(it['note'])}"}}
+  make new phone at end of phones of p with properties {{label:"mobile", value:"+{it['phone']}"}}
+  save
+end tell''')
+    return "saved to contacts" if code == 0 else f"contacts not saved ({out[:80]})"
+
+def find_sent(text, since_apple):
+    tmp = tempfile.mkdtemp(prefix="gysync-v-")
+    try:
+        con = copy_db(WA_DB, tmp)
+        head = (text or "").strip()[:60]
+        for m in con.execute("select ZSTANZAID, Z_PK, ZMESSAGEDATE, ZTEXT from ZWAMESSAGE where ZISFROMME = 1 and ZMESSAGEDATE > ? order by ZMESSAGEDATE desc limit 30", (since_apple,)):
+            if (m["ZTEXT"] or "").strip()[:60] == head:
+                return m
+        return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+def send_one(it):
+    started = time.time() - APPLE_EPOCH - 5
+    contact = save_contact(it)
+    url = "whatsapp://send?phone=" + it["phone"] + "&text=" + urllib.parse.quote(it["text"])
+    subprocess.run(["/usr/bin/open", url], timeout=20)
+    time.sleep(5)
+    subprocess.run(["/usr/bin/open", "-a", "WhatsApp"], timeout=20)
+    time.sleep(1.5)
+    code, out = osa('''tell application "System Events"
+  set f to name of first application process whose frontmost is true
+  if f is not "WhatsApp" then error "WhatsApp is not in front (" & f & ")"
+  keystroke return
+end tell''')
+    if code != 0:
+        return {"status": "failed", "detail": f"Δεν πάτησα αποστολή: {out[:140]}. Το κείμενο έμεινε γραμμένο στο WhatsApp. {contact}"}
+    for _ in range(5):
+        time.sleep(3)
+        m = find_sent(it["text"], started)
+        if m:
+            ts = apple_ts(m["ZMESSAGEDATE"]).isoformat()
+            key = f"App.shared:{m['ZSTANZAID'] or m['Z_PK']}:{it['request_id'][:8]}"
+            return {"status": "sent", "detail": f"στάλθηκε, {contact}", "key": key, "ts": ts}
+    return {"status": "failed", "detail": f"Πάτησα αποστολή αλλά δεν το βλέπω στο WhatsApp. Έλεγξε τη συνομιλία πριν το ξαναστείλεις. {contact}"}
+
+def run_outbox():
+    try:
+        items = http_outbox("GET").get("items", [])
+    except Exception as e:
+        log("outbox get failed", repr(e)); return
+    for it in items:
+        try:
+            res = send_one(it)
+        except Exception as e:
+            res = {"status": "failed", "detail": "σφάλμα: " + repr(e)[:150]}
+        res["id"] = it["id"]
+        try:
+            http_outbox("POST", res)
+        except Exception as e:
+            log("outbox post failed", repr(e))
+        log("outbox", it["id"][:8], res["status"], res.get("detail", ""))
+
 def main():
     os.makedirs(BASE, exist_ok=True)
+    run_outbox()
+    # The full read runs every ~10 minutes; this agent wakes every 20 seconds
+    # for the outbox.
+    stamp = os.path.join(BASE, "last-full")
+    try:
+        if time.time() - os.path.getmtime(stamp) < 540:
+            return
+    except Exception:
+        pass
+    open(stamp, "w").write(str(time.time()))
     mode = "inspect"
     try:
         mode = open(os.path.join(BASE, "MODE")).read().strip() or "inspect"

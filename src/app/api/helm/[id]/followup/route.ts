@@ -18,6 +18,7 @@ import { readFollowupSettings, sanitizeSettingsPatch } from "@/lib/helm/followup
 import { generateFollowUp, inboundSince, type HelmRow } from "@/lib/helm/followup/engine";
 import { planGhosted, planNurture, clientTimezone } from "@/lib/helm/followup/calendar";
 import { gmailFetch } from "@/lib/google-api";
+import { readOutbox, writeOutbox, type OutboxItem } from "@/lib/helm/followup/outbox";
 
 export const runtime = "nodejs";
 export const maxDuration = 180; // Generate reads every thread, then the model may need a second pass (seen up to ~100 s)
@@ -176,6 +177,38 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       }
     }
     return NextResponse.json({ ok: true });
+  }
+
+  // ── 16/11 SEND ON WHATSAPP: one click puts one message in the outbox; the
+  // WhatsApp app on George's MacBook sends it within ~20 s and confirms from
+  // its own database (see /api/helm/wa-outbox). Never retried by itself.
+  if (action === "wa-queue") {
+    const text = (body?.text ?? "").toString().trim().slice(0, 1500);
+    const phone = (r.client_whatsapp ?? "").replace(/\D/g, "");
+    if (!text) return NextResponse.json({ error: "Το μήνυμα είναι άδειο." }, { status: 400 });
+    if (phone.length < 8) return NextResponse.json({ error: "Δεν υπάρχει τηλέφωνο σε αυτό το αίτημα." }, { status: 400 });
+    const items = await readOutbox();
+    // A second click on the same text within 10 minutes is the same message.
+    const dup = items.find((i) => i.request_id === id && i.text === text && Date.now() - Date.parse(i.created_at) < 10 * 60000 && i.status !== "failed");
+    if (dup) return NextResponse.json({ ok: true, id: dup.id, status: dup.status });
+    const isAgent = r.request_type === "travel_agent";
+    const year = (r.dates_from ?? "").slice(0, 4) || String(new Date().getFullYear() + 1);
+    const surname = (r.client_surname || "").trim();
+    const first = (r.client_name || "").replace(/^(mr|mrs|ms|dr)\.?\s+/i, "").split(/\s+/)[0] || surname || "Client";
+    const item: OutboxItem = {
+      id: crypto.randomUUID(), request_id: id, phone, text,
+      first_name: first,
+      last_name: `${surname && surname.toLowerCase() !== first.toLowerCase() ? surname + " " : ""}GY ${isAgent ? "agent" : "client"} ${year}`,
+      org: isAgent ? "George Yachts B2B" : "George Yachts client",
+      note: `${r.area ?? ""} ${r.dates_from ?? ""} · Added from The Helm, ${new Date().toISOString().slice(0, 10)}`.trim(),
+      created_at: new Date().toISOString(), status: "queued",
+    };
+    await writeOutbox([...items, item]);
+    return NextResponse.json({ ok: true, id: item.id, status: item.status });
+  }
+  if (action === "wa-status") {
+    const it = (await readOutbox()).find((i) => i.id === body?.id);
+    return NextResponse.json({ ok: true, status: it?.status ?? "unknown", detail: it?.detail ?? "" });
   }
 
   // ── 2026-11-16 GENERATE (research engine). Reads Gmail by address (every
