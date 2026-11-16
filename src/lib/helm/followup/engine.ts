@@ -269,6 +269,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
 - If constraints.real_urgency.exists is false: no expiry, deadline, scarcity, "book soon" or "still available" claims of any kind. availability_known is false: never say availability was checked or confirmed.
 - Use only yachts, numbers and facts present in the package. Never invent a testimonial, an event date, a price, a crew name or a crew member's qualities.
 - If lead.whatsapp_imessage_visibility starts with "NOT READ", never write as if there were silence on every channel: no "it has been a while", no "I haven't heard from you", no recap of unanswered emails. Write something that is still right if they spoke yesterday on WhatsApp, and put in warnings_el: "Δεν βλέπω WhatsApp/iMessage: έλεγξε πριν στείλεις."
+- WAIT WHEN ASKED: if the timeline shows the client is away until a time, or asked to wait, or George promised to come back on a date ("I'm in Cambodia for 12 days", "let's talk in January", "I'll wait until you're back"), do NOT propose a touch now. Set next_touch.channel = "none", explain in rationale_el, and put the right date in set_client_requested_followup_date (YYYY-MM-DD, the first sensible day after they are back or the promised day). Still write the email (and WhatsApp) for THAT day in next_touch.body so George can review it, written as if sent on that date.
 - George works alone: never "my team", "our office", "my colleague", "my assistant".
 - No soft scarcity either ("calendars fill up", "secure your yacht now") unless real_urgency exists.
 - If the client asked a factual question (stabilisers, cabins, toys, a crew detail) and the answer is NOT in that yacht's own entry in yachts_proposed, do not guess: say you are confirming it with the captain and will come back the same day, and add a warnings_el line naming what George must check.
@@ -357,13 +358,15 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
   // the subject: the email then simply replies in the thread ("Re: …").
   const enSubject = (s: unknown) => { const c = clean(s); return GREEK.test(c) ? "" : c; };
   const nt = out.next_touch ?? {};
+  const waitUntil = typeof out.set_client_requested_followup_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(out.set_client_requested_followup_date) && out.set_client_requested_followup_date > today
+    ? out.set_client_requested_followup_date : null;
   let channel = asChannel(nt.channel);
   if (!allowed.includes(channel)) channel = "email";
   const s0 = hint.code === "S0";
   // When we owe an answer, or the client is talking now, the right moment is
   // today's next window, not the planned date.
   const answerNow = ["S2", "S3", "S4", "S5"].includes(finalCode);
-  const slot = s0 ? null : nextSendSlot(answerNow ? today : dueForSlot, channel, tz, now.getTime(), weekendOk);
+  const slot = s0 ? null : nextSendSlot(waitUntil ?? (answerNow ? today : dueForSlot), channel, tz, now.getTime(), weekendOk);
   const wholeText = `${nt.body ?? ""} ${lastIn?.text ?? ""}`;
   const humanTopic = /\b(discount|commission|rebate|contract|legal|lawyer|complain|refund|cancel)/i.test(wholeText);
   const requiresHuman = !!out.requires_human || finalCode === "S4" || hint.code === "S4" || humanTopic;
@@ -395,6 +398,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
   if (bl) warnings.push(`Σήμερα είναι ${bl} στις ΗΠΑ: καλύτερα να περιμένει.`);
   if (problems.length) warnings.push(`Έλεγχος κειμένου, θέλει το μάτι σου: ${problems.slice(0, 4).join("; ")}`);
   if (s0) warnings.unshift("Ο πελάτης ζήτησε να μην του ξαναγράψουμε ή είπε όχι. Δεν προτείνεται καμία επαφή.");
+  if (waitUntil && !s0) warnings.unshift(`Μην στείλεις σήμερα: από τη συζήτηση, η επόμενη επαφή πρέπει να γίνει ${waitUntil}. Το κείμενο είναι γραμμένο για εκείνη τη μέρα.`);
   const mustConfirm = !!r.client_whatsapp && !syncFresh;
   const phoneNote = !r.client_whatsapp ? ""
     : syncFresh ? `WhatsApp και iMessage διαβάστηκαν από το Mac (${new Date(syncedAt!).toLocaleString("el-GR", { timeZone: "Europe/Athens", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}).`
@@ -431,7 +435,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
       .slice(0, 2),
     forward_plan: forwardPlan,
     stage_change: out.stage_change ?? null,
-    set_client_requested_followup_date: out.set_client_requested_followup_date ?? null,
+    set_client_requested_followup_date: waitUntil,
     requires_human: requiresHuman,
     requires_human_reason_el: clean(out.requires_human_reason_el) || (requiresHuman ? "Έκπτωση, προμήθεια, συμβόλαιο ή παράπονο: αποφασίζεις εσύ." : ""),
     warnings_el: warnings,

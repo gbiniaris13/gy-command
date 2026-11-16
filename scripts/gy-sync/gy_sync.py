@@ -213,6 +213,14 @@ def main():
         msgs = whatsapp(tmp, targets, report, names) + imessage(tmp, targets, report)
         report["total_messages"] = len(msgs)
         report["requests_with_messages"] = len({m["request_id"] for m in msgs})
+        per = {}
+        for m in msgs:
+            e = per.setdefault(m["request_id"], {"n": 0, "last": "", "channels": []})
+            e["n"] += 1
+            e["last"] = max(e["last"], m["ts"])
+            if m["channel"] not in e["channels"]:
+                e["channels"].append(m["channel"])
+        report["per_request"] = per  # counts and dates only, never text
         if mode == "sync" and msgs:
             sources = {"whatsapp": report.get("whatsapp"), "imessage": report.get("imessage")}
             for i in range(0, len(msgs), 500):

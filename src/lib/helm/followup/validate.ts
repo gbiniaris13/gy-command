@@ -7,7 +7,7 @@ export const BANNED_PHRASES = [
   "circling back", "touching base", "as per my last email", "i never heard back",
   "did you get my email", "thoughts?", "any update?", "last chance", "limited time offer",
   "act now", "don't miss out", "do not miss out", "circle back", "touch base",
-  "i hope this finds you", "i hope this note finds you", "i hope this email finds you",
+  "just checking", "i hope this finds you", "i hope this note finds you", "i hope this email finds you",
   "hope this email finds you", "i hope this message finds you",
 ];
 

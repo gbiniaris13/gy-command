@@ -24,6 +24,7 @@ type Gen = {
   whatsapp_companion: { body: string; hold: boolean; hold_reason_el: string; slot: Slot; wa_link_digits: string } | null;
   alternatives: Draft[];
   forward_plan: { date: string; touch: string; anchor: string; kind: string }[];
+  set_client_requested_followup_date?: string | null;
   requires_human: boolean; requires_human_reason_el: string; warnings_el: string[]; checks: string[];
   facts: { tz: string; tz_source: string; bucket: string; L_days: number | null; decision_deadline: string | null; consecutive_unanswered: number; last_inbound_at: string | null; last_outbound_at: string | null; ball: string; gmail_messages: number };
   reply_thread: { thread_id: string; subject: string } | null;
@@ -210,6 +211,21 @@ export default function HelmFollowUp({
     } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
   }
 
+  // The conversation says "wait": keep that date (fact + next plan step).
+  async function keepWaitDate(d: string) {
+    setBusy("wait"); setErr(null);
+    try {
+      await fetch(`/api/helm/${requestId}/followup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fu-settings", client_followup_date: d }) });
+      if (nextStepIndex >= 0) {
+        await fetch(`/api/helm/${requestId}/followup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "plan-set", step: nextStepIndex, date: d }) });
+      }
+      setClientDate(d);
+      setMsg(`Κρατήθηκε: η επόμενη επαφή είναι ${fmtDate(d)}. Τίποτα δεν στάλθηκε.`);
+      setGen(null); setBody(""); setDraftBody(null); setSubject("");
+      router.refresh();
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+  }
+
   // THE PAIR: the WhatsApp version went from George's phone; record it.
   async function waSent() {
     setBusy("wa"); setErr(null);
@@ -374,6 +390,16 @@ export default function HelmFollowUp({
                     Έλεγξα το WhatsApp/μηνύματα και το κείμενο ταιριάζει
                   </label>
                 )}
+              </div>
+            )}
+            {gen.set_client_requested_followup_date && (
+              <div style={{ ...noteBox, borderColor: "rgba(180,83,9,0.45)", background: "rgba(180,83,9,0.06)", color: "#7c3d06", fontSize: 13 }}>
+                <b>Μην στείλεις σήμερα.</b> Από τη συζήτηση, η σωστή μέρα είναι <b>{fmtDate(gen.set_client_requested_followup_date)}</b>. Το κείμενο από κάτω είναι γραμμένο για τότε.
+                <div style={{ marginTop: 8 }}>
+                  <button type="button" onClick={() => keepWaitDate(gen.set_client_requested_followup_date!)} disabled={busy !== null} style={primaryBtn}>
+                    {busy === "wait" ? "…" : `Κράτα ${fmtDate(gen.set_client_requested_followup_date)} και μην στείλεις τίποτα`}
+                  </button>
+                </div>
               </div>
             )}
             {gen.requires_human && (
