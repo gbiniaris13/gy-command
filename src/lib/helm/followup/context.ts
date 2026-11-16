@@ -12,7 +12,7 @@ import { gmailFetch } from "@/lib/google-api";
 
 export type TimelineItem = {
   ts: string; // ISO
-  channel: "email" | "whatsapp" | "note";
+  channel: "email" | "whatsapp" | "imessage" | "note";
   direction: "in" | "out" | "note";
   author: string;
   subject?: string;
@@ -115,13 +115,20 @@ export async function readGmailByAddress(addresses: string[], sinceIso: string, 
 export function helmItems(msgs: HelmMsg[]): TimelineItem[] {
   return msgs
     .filter((m) => (m.body ?? "").trim() && m.channel !== "email")
-    .map((m) => ({
-      ts: m.created_at,
-      channel: m.channel === "whatsapp" ? ("whatsapp" as const) : ("note" as const),
-      direction: m.channel === "whatsapp" ? (m.direction === "inbound" ? "in" as const : "out" as const) : ("note" as const),
-      author: m.channel === "whatsapp" ? (m.direction === "inbound" ? "Client" : "George") : "George (Helm note)",
-      text: (m.body ?? "").trim().slice(0, 2500),
-    }));
+    .map((m) => {
+      const body = (m.body ?? "").trim();
+      // iMessage/SMS synced from the Mac is stored as a note with a prefix
+      // (the channel column allows email|whatsapp|note) but it IS conversation.
+      const im = m.channel === "note" && body.startsWith("[iMessage/SMS") && !!m.direction;
+      const talk = m.channel === "whatsapp" || im;
+      return {
+        ts: m.created_at,
+        channel: m.channel === "whatsapp" ? ("whatsapp" as const) : im ? ("imessage" as const) : ("note" as const),
+        direction: talk ? (m.direction === "inbound" ? "in" as const : "out" as const) : ("note" as const),
+        author: talk ? (m.direction === "inbound" ? "Client" : "George") : "George (Helm note)",
+        text: (im ? body.replace(/^\[iMessage\/SMS[^\]]*\]\s*/, "") : body).slice(0, 2500),
+      };
+    });
 }
 
 export type TimelineStats = {

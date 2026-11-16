@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { aiChat } from "@/lib/ai";
+import { getSetting } from "@/lib/google-api";
 import { parseLooseJson } from "@/lib/helm/json";
 import { helmSalutation } from "@/lib/helm/addressing";
 import { readPipeline, type FuStep } from "@/lib/helm/pipeline";
@@ -98,6 +99,9 @@ export type FollowUpResult = {
   };
   reply_thread: { thread_id: string; subject: string; rfc_message_id?: string } | null;
   new_addresses: string[];
+  // 16/11: was the Mac's WhatsApp/iMessage read recently? If the client has a
+  // phone and it was not, George must confirm he checked before Send.
+  phone_channels: { synced_at: string | null; fresh: boolean; must_confirm: boolean; note_el: string };
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -150,6 +154,11 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
   const facts = leadFacts(sentAt, r.dates_from, tz);
   const today = localDate(now.getTime(), tz);
   const Lnow = r.dates_from ? Math.round((Date.parse(`${r.dates_from}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86400000) : null;
+
+  // 0) How fresh is the Mac → Helm copy of WhatsApp and iMessage/SMS?
+  let syncedAt: string | null = null;
+  try { syncedAt = (JSON.parse((await getSetting("conversation_sync_last")) || "{}") as { at?: string }).at ?? null; } catch { syncedAt = null; }
+  const syncFresh = !!syncedAt && now.getTime() - Date.parse(syncedAt) < 3 * 3600000;
 
   // 1) Everything said, every channel.
   const addresses = [r.client_email ?? "", ...(settings.extra_emails ?? [])];
@@ -214,6 +223,8 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
       occasion: r.occasion, brief: r.brief, special_requests: r.special_requests,
       george_notes: pipeline.notes ?? null, wanted_nights: pipeline.wanted_nights ?? null,
       phone_available: !!r.client_whatsapp, whatsapp_allowed: waOk, whatsapp_history: hasWaHistory,
+      whatsapp_imessage_visibility: !r.client_whatsapp ? "no phone on file"
+        : syncFresh ? `read from George's Mac at ${syncedAt}` : "NOT READ: George may have talked to this client on WhatsApp/iMessage and you cannot see it",
       client_requested_followup_date: settings.client_followup_date ?? null,
       option_expires_at: settings.option_expires_at ?? null,
       early_booking_deadline: settings.early_booking_deadline ?? null, early_booking_pct: settings.early_booking_pct ?? null,
@@ -257,6 +268,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
 - Do not choose times. The code computed the send window; leave send_at fields empty.
 - If constraints.real_urgency.exists is false: no expiry, deadline, scarcity, "book soon" or "still available" claims of any kind. availability_known is false: never say availability was checked or confirmed.
 - Use only yachts, numbers and facts present in the package. Never invent a testimonial, an event date, a price, a crew name or a crew member's qualities.
+- If lead.whatsapp_imessage_visibility starts with "NOT READ", never write as if there were silence on every channel: no "it has been a while", no "I haven't heard from you", no recap of unanswered emails. Write something that is still right if they spoke yesterday on WhatsApp, and put in warnings_el: "Δεν βλέπω WhatsApp/iMessage: έλεγξε πριν στείλεις."
 - George works alone: never "my team", "our office", "my colleague", "my assistant".
 - No soft scarcity either ("calendars fill up", "secure your yacht now") unless real_urgency exists.
 - If the client asked a factual question (stabilisers, cabins, toys, a crew detail) and the answer is NOT in that yacht's own entry in yachts_proposed, do not guess: say you are confirming it with the captain and will come back the same day, and add a warnings_el line naming what George must check.
@@ -383,6 +395,11 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
   if (bl) warnings.push(`Σήμερα είναι ${bl} στις ΗΠΑ: καλύτερα να περιμένει.`);
   if (problems.length) warnings.push(`Έλεγχος κειμένου, θέλει το μάτι σου: ${problems.slice(0, 4).join("; ")}`);
   if (s0) warnings.unshift("Ο πελάτης ζήτησε να μην του ξαναγράψουμε ή είπε όχι. Δεν προτείνεται καμία επαφή.");
+  const mustConfirm = !!r.client_whatsapp && !syncFresh;
+  const phoneNote = !r.client_whatsapp ? ""
+    : syncFresh ? `WhatsApp και iMessage διαβάστηκαν από το Mac (${new Date(syncedAt!).toLocaleString("el-GR", { timeZone: "Europe/Athens", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}).`
+      : syncedAt ? `Το WhatsApp/iMessage διαβάστηκε τελευταία φορά ${new Date(syncedAt).toLocaleString("el-GR", { timeZone: "Europe/Athens", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}: μπορεί να μιλήσατε μετά. Έλεγξε το WhatsApp πριν στείλεις.`
+        : "Δεν βλέπω το WhatsApp και τα μηνύματά σου με αυτόν τον πελάτη. Έλεγξε τι έχετε πει πριν στείλεις.";
 
   return {
     generated_at: nowIso,
@@ -425,6 +442,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
       last_outbound_at: stats.last_outbound_at, ball: stats.ball, gmail_messages: gm.items.length,
     },
     reply_thread: stats.latest_thread,
+    phone_channels: { synced_at: syncedAt, fresh: syncFresh, must_confirm: mustConfirm, note_el: phoneNote },
     new_addresses: gm.newAddresses,
   };
 }

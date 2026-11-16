@@ -27,6 +27,7 @@ type Gen = {
   requires_human: boolean; requires_human_reason_el: string; warnings_el: string[]; checks: string[];
   facts: { tz: string; tz_source: string; bucket: string; L_days: number | null; decision_deadline: string | null; consecutive_unanswered: number; last_inbound_at: string | null; last_outbound_at: string | null; ball: string; gmail_messages: number };
   reply_thread: { thread_id: string; subject: string } | null;
+  phone_channels?: { synced_at: string | null; fresh: boolean; must_confirm: boolean; note_el: string };
 };
 const nice = (t?: string) => (t || "").replace(/_/g, " ");
 const CH_LABEL: Record<string, string> = { email: "Email", whatsapp: "WhatsApp", imessage: "iMessage", call: "Phone call", voice_note: "Voice note", none: "No contact" };
@@ -90,6 +91,8 @@ export default function HelmFollowUp({
   const [waText, setWaText] = useState("");
   const [waDone, setWaDone] = useState(false);
   const [emailDone, setEmailDone] = useState(false);
+  const [checkedPhone, setCheckedPhone] = useState(false);
+  const gateOpen = !gen?.phone_channels?.must_confirm || checkedPhone;
   // follow-up facts
   const [tz, setTz] = useState(settings.tz || tzInfo.tz);
   const [optExp, setOptExp] = useState(settings.option_expires_at || "");
@@ -172,7 +175,7 @@ export default function HelmFollowUp({
       setGen(g);
       applyDraft(g.next_touch);
       setWaText(g.whatsapp_companion?.body || "");
-      setWaDone(false); setEmailDone(false);
+      setWaDone(false); setEmailDone(false); setCheckedPhone(false);
       setAsNew(false);
       if (g.next_touch.channel !== "none" && !(g.next_touch.body || g.next_touch.voice_note_script || "").trim()) {
         setErr("The draft came back empty. Press Generate again, or write it yourself in the box.");
@@ -362,6 +365,17 @@ export default function HelmFollowUp({
 
         {gen && (
           <div style={{ display: "grid", gap: 12, marginBottom: 12 }}>
+            {gen.phone_channels?.note_el && (
+              <div style={{ ...noteBox, borderColor: gen.phone_channels.must_confirm ? "rgba(178,34,34,0.45)" : "rgba(37,211,102,0.4)", background: gen.phone_channels.must_confirm ? "rgba(178,34,34,0.05)" : "rgba(37,211,102,0.04)", color: gen.phone_channels.must_confirm ? "#8b1c1c" : "#1f7a46", fontSize: 13 }}>
+                {gen.phone_channels.note_el}
+                {gen.phone_channels.must_confirm && (
+                  <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, color: "#374151" }}>
+                    <input type="checkbox" checked={checkedPhone} onChange={(e) => setCheckedPhone(e.target.checked)} />
+                    Έλεγξα το WhatsApp/μηνύματα και το κείμενο ταιριάζει
+                  </label>
+                )}
+              </div>
+            )}
             {gen.requires_human && (
               <div style={{ ...noteBox, borderColor: "rgba(178,34,34,0.4)", background: "rgba(178,34,34,0.05)", color: "#8b1c1c" }}>
                 <b>Αποφασίζεις εσύ.</b> {gen.requires_human_reason_el}
@@ -413,7 +427,7 @@ export default function HelmFollowUp({
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
           {(gen?.next_touch.channel ?? "email") === "email" ? (
-            <button type="button" onClick={() => send()} disabled={busy !== null || !clientEmail || !body.trim()} style={primaryBtn}>
+            <button type="button" onClick={() => send()} disabled={busy !== null || !clientEmail || !body.trim() || !gateOpen} title={gateOpen ? "" : "Τσέκαρε πρώτα ότι έλεγξες το WhatsApp"} style={primaryBtn}>
               {busy === "send" ? "Sending…" : `Send follow-up ${nextNumber} to ${clientEmail || who}`}
             </button>
           ) : gen?.next_touch.channel === "none" ? null : (
@@ -444,7 +458,7 @@ export default function HelmFollowUp({
             <textarea value={waText} onChange={(e) => setWaText(e.target.value)} rows={4} style={textarea} />
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
               {gen.whatsapp_companion.wa_link_digits && (
-                <a href={`https://wa.me/${gen.whatsapp_companion.wa_link_digits}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer"
+                <a href={gateOpen ? `https://wa.me/${gen.whatsapp_companion.wa_link_digits}?text=${encodeURIComponent(waText)}` : undefined} target="_blank" rel="noreferrer" aria-disabled={!gateOpen}
                   style={{ ...primaryBtn, textDecoration: "none", background: "#1f7a46", borderColor: "#1f7a46" }}>Open in WhatsApp</a>
               )}
               <button type="button" onClick={() => navigator.clipboard?.writeText(waText)} style={ghostBtn}>Copy</button>
