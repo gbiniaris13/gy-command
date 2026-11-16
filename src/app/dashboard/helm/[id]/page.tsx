@@ -5,6 +5,8 @@ import Link from "next/link";
 import { getRequestLight, getMessages, isEmailOnNewsletter } from "@/lib/helm-admin";
 import { phoneCountry } from "@/lib/phone-country";
 import { isFlexibleWindow, readPipeline } from "@/lib/helm/pipeline";
+import { readFollowupSettings } from "@/lib/helm/followup/settings";
+import { clientTimezone } from "@/lib/helm/followup/calendar";
 import StageSelect from "./StageSelect";
 import HelmDetailActions from "./HelmDetailActions";
 import GeneratePanel from "./GeneratePanel";
@@ -391,6 +393,10 @@ export default async function HelmDetailPage({
                 sentCount={sentFollowups}
                 followUpAt={r.follow_up_at ?? null}
                 history={followupHistory}
+                clientWhatsapp={r.client_whatsapp ?? null}
+                settings={readFollowupSettings(r.extraction)}
+                tzInfo={clientTimezone(readFollowupSettings(r.extraction).tz, r.client_whatsapp ?? null)}
+                nextStepIndex={(readPipeline(r.extraction).fu ?? []).findIndex((s) => !s.done_at)}
               />
             </Quiet>
           </>

@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { HelmEmail, LiveRow } from "@/lib/helm/live";
 
-export type FuStepRow = { due: string; done_at: string | null; how: string | null; kind?: "nudge" | "reopen" | "bye" };
+export type FuStepRow = { due: string; done_at: string | null; how: string | null; kind?: "nudge" | "reopen" | "bye"; v?: 2; touch?: string; anchor?: string };
 
 export type CrmRow = {
   id: string;
@@ -127,6 +127,7 @@ function fmtSent(iso: string | null) {
 function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null; status: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const canPlan = ["sent", "in_conversation", "negotiating"].includes(status);
 
   async function post(payload: Record<string, unknown>, key: string) {
@@ -189,6 +190,15 @@ function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null;
       {fu.map((s, i) => {
         const done = !!s.done_at;
         const isDue = !done && s.due <= today;
+        // 2026-11-16: research plans run longer (a 2027 charter can carry a
+        // dozen market-anchored touches). Keep the cell short: the last done
+        // step, the next three, and the rest one click away.
+        if (!showAll && fu.length > 5) {
+          const lastDoneIdx = fu.map((x) => !!x.done_at).lastIndexOf(true);
+          const firstPending = fu.findIndex((x) => !x.done_at);
+          const visible = (done && i === lastDoneIdx) || (!done && i >= firstPending && i < firstPending + 3);
+          if (!visible) return null;
+        }
         return (
           <div key={i} title={marks[i]?.title} style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{
@@ -236,6 +246,15 @@ function FollowUpsCell({ id, fu, status }: { id: string; fu: FuStepRow[] | null;
           </div>
         );
       })}
+      {fu.length > 5 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          style={{ fontSize: 9.5, color: "#6b7280", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", textDecoration: "underline" }}
+        >
+          {showAll ? "show less" : `+${fu.length - Math.min(fu.length, 4)} more · plan to ${fmt(fu[fu.length - 1].due)}`}
+        </button>
+      )}
     </div>
   );
 }

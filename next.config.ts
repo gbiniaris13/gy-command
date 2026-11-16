@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
   // rather than bundled. The proposal generator uses it to normalise every
   // inlined photo before the PDF render (see generate/route.ts fitForPdf).
   serverExternalPackages: ["@sparticuz/chromium-min", "puppeteer-core", "sharp"],
+  // 2026-11-16: the follow-up engine reads its playbook from disk at runtime
+  // (so editing SKILL.md changes behaviour without a code change). Ship the
+  // file with the one function that reads it.
+  outputFileTracingIncludes: {
+    "/api/helm/[id]/followup": ["./.claude/skills/yacht-followup/SKILL.md"],
+  },
 };
 
 export default nextConfig;

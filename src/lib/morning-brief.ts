@@ -110,6 +110,7 @@ export async function buildMorningBrief(): Promise<{ subject: string; text: stri
 
   // 2. The Helm: what needs you today, who opened, who asked.
   const helm: { text: string; html?: string }[] = [];
+  const followUps: { text: string; html?: string }[] = [];
   try {
     const { data: rows } = await db
       .from("helm_requests")
@@ -123,15 +124,23 @@ export async function buildMorningBrief(): Promise<{ subject: string; text: stri
       if (s.hold?.at && s.hold.at >= since) helm.push({ text: `${name(r)} asked you to hold ${s.hold.yacht} for 48 hours.`, html: `<b>${esc(name(r))}</b> asked you to hold <b>${esc(s.hold.yacht)}</b> for 48 hours · ${link(`${BASE}/dashboard/helm/${r.id}`, "open")}` });
       else if (s.last_at && s.last_at >= since) helm.push({ text: `${name(r)} read their edition (${s.views ?? 0} opens so far).`, html: `${esc(name(r))} read their edition (${s.views ?? 0} opens so far) · ${link(`${BASE}/dashboard/helm/${r.id}`, "open")}` });
     }
-    for (const r of rows ?? []) {
-      if (["sent", "in_conversation", "negotiating"].includes(r.status) && r.follow_up_at && new Date(r.follow_up_at).getTime() <= Date.now() + 3600000 * 15) {
-        helm.push({ text: `Follow-up due today: ${name(r)}.`, html: `Follow-up due today: <b>${esc(name(r))}</b> · ${link(`${BASE}/dashboard/helm/${r.id}`, "open")}` });
-      }
+    // 2026-11-16: follow-ups get their own section with the count on top
+    // (George: "σήμερα έχεις 5 follow-ups"), overdue first, then today.
+    // He opens each one, presses Generate, then Send. Nothing is pre-drafted.
+    const endOfToday = Date.now() + 3600000 * 15;
+    for (const r of (rows ?? [])
+      .filter((x) => ["sent", "in_conversation", "negotiating"].includes(x.status) && x.follow_up_at && new Date(x.follow_up_at).getTime() <= endOfToday)
+      .sort((a, b) => String(a.follow_up_at).localeCompare(String(b.follow_up_at)))) {
+      const late = Math.floor((Date.now() - new Date(r.follow_up_at as string).getTime()) / 86400000);
+      const when = late >= 1 ? `${late} ${late === 1 ? "μέρα" : "μέρες"} καθυστέρηση` : "σήμερα";
+      followUps.push({ text: `${name(r)} (${when}).`, html: `<b>${esc(name(r))}</b> · ${when} · ${link(`${BASE}/dashboard/helm/${r.id}`, "άνοιξε και πάτα Generate")}` });
     }
     for (const r of rows ?? []) {
       if (r.created_at >= since) helm.push({ text: `New request: ${name(r)}.`, html: `New request: <b>${esc(name(r))}</b> · ${link(`${BASE}/dashboard/helm/${r.id}`, "open")}` });
     }
   } catch {}
+  const sF = sec(`Follow-ups σήμερα: ${followUps.length}`, followUps.slice(0, 20), followUps.length > 20 ? `Και άλλα ${followUps.length - 20} στο Helm.` : undefined);
+  if (sF) sections.push({ ...sF, count: followUps.length });
   const s2 = sec("The Helm", helm.slice(0, 14));
   if (s2) sections.push(s2);
 
@@ -163,7 +172,8 @@ export async function buildMorningBrief(): Promise<{ subject: string; text: stri
 
   const dstr = new Date().toLocaleDateString("el-GR", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Athens" });
   const total = sections.reduce((n, s) => n + s.count, 0);
-  const subject = total === 0 ? `Σήμερα στην Αθήνα, ${dstr}: ήσυχη μέρα` : `Σήμερα στην Αθήνα, ${dstr}: ${total} ${total === 1 ? "πράγμα" : "πράγματα"} για σένα`;
+  const fuNote = followUps.length ? ` · ${followUps.length} follow-up${followUps.length === 1 ? "" : "s"}` : "";
+  const subject = total === 0 ? `Σήμερα στην Αθήνα, ${dstr}: ήσυχη μέρα` : `Σήμερα στην Αθήνα, ${dstr}: ${total} ${total === 1 ? "πράγμα" : "πράγματα"} για σένα${fuNote}`;
   const text = [`Σήμερα στην Αθήνα, ${dstr}.`, "", ...(sections.length ? sections.flatMap((s) => [...s.lines, ""]) : ["Τίποτα δεν περιμένει. Καλή μέρα."]), `The Helm: ${BASE}/dashboard/helm`].join("\n");
   const html = `
   <div style="background:${G.bg};padding:28px 12px;">

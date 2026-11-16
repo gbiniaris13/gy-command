@@ -147,7 +147,7 @@ export default async function HelmListPage() {
       // six steps. The old `=== 3` test threw those away and the cell drew the
       // "Suggest dates" button instead of the plan George had just made.
       fu: Array.isArray(p.fu) && p.fu.length > 0
-        ? p.fu.map((s) => ({ due: s.due, done_at: s.done_at ?? null, how: s.how ?? null, kind: s.kind }))
+        ? p.fu.map((s) => ({ due: s.due, done_at: s.done_at ?? null, how: s.how ?? null, kind: s.kind, v: s.v, touch: s.touch, anchor: s.anchor }))
         : null,
       notes: p.notes ?? "",
       yachts: r.yacht_labels,

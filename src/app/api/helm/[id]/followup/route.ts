@@ -10,15 +10,17 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
-import { getRequest, getMessages, logHelmMessage, mergePipeline } from "@/lib/helm-admin";
+import { getRequest, getMessages, logHelmMessage, mergePipeline, mergeFollowup } from "@/lib/helm-admin";
 import { createServiceClient } from "@/lib/supabase-server";
-import { helmSalutation } from "@/lib/helm/addressing";
-import { composeFollowUp } from "@/lib/helm/compose";
 import { sendHelmEmail } from "@/lib/helm/gmail-send";
 import { readPipeline, suggestFollowUps, replanKeepingHistory, nextDueTimestamp } from "@/lib/helm/pipeline";
+import { readFollowupSettings, sanitizeSettingsPatch } from "@/lib/helm/followup/settings";
+import { generateFollowUp, inboundSince, type HelmRow } from "@/lib/helm/followup/engine";
+import { planGhosted, planNurture, clientTimezone } from "@/lib/helm/followup/calendar";
+import { gmailFetch } from "@/lib/google-api";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 180; // Generate reads every thread, then the model may need a second pass (seen up to ~100 s)
 
 const FOLLOWUP_TAG = "[Follow-up";
 
@@ -77,12 +79,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const needsPlan = !pipeline.fu || pipeline.fu.length === 0;
     if (needsPlan || action === "plan-replan") {
       const sentAt = pipeline.sent_at || r.last_activity_at || new Date().toISOString();
+      const fs = readFollowupSettings(r.extraction);
+      const opts = { tz: fs.tz, phone: r.client_whatsapp ?? null, earlyBookingDeadline: fs.early_booking_deadline };
       pipeline.fu = needsPlan
-        // Fresh request: the ladder runs from the moment the proposal left.
-        ? suggestFollowUps(sentAt, r.dates_from ?? null)
+        // Fresh request: the research cadence runs from the moment the proposal left.
+        ? suggestFollowUps(sentAt, r.dates_from ?? null, opts)
         // Existing request: every tick George has earned is carried across
-        // untouched, and only the steps still ahead are re-timed, from today.
-        : replanKeepingHistory(pipeline.fu, r.dates_from ?? null);
+        // untouched, and only the steps still ahead are re-timed (2026-11-16:
+        // on the research cadence, measured from the send, kept from today).
+        : replanKeepingHistory(pipeline.fu, r.dates_from ?? null, undefined, { ...opts, sentAtIso: sentAt });
       if (!pipeline.sent_at) pipeline.sent_at = sentAt;
       await mergePipeline(id, { fu: pipeline.fu, sent_at: pipeline.sent_at }, { syncFollowUpAt: true });
     }
@@ -112,12 +117,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if (action === "plan-done") {
     const step = Number(body?.step);
     const how = (body?.how ?? "").toString().slice(0, 40) || null;
+    const touch = (body?.touch ?? "").toString().slice(0, 40) || undefined;
     const pipeline = readPipeline(r.extraction);
     if (!Number.isInteger(step) || step < 0 || !pipeline.fu || !pipeline.fu[step]) {
       return NextResponse.json({ error: "no plan/step" }, { status: 400 });
     }
     if (!pipeline.fu[step].done_at) {
-      pipeline.fu[step] = { ...pipeline.fu[step], done_at: new Date().toISOString(), how };
+      pipeline.fu[step] = { ...pipeline.fu[step], done_at: new Date().toISOString(), how, ...(touch ? { touch } : {}) };
       await mergePipeline(id, { fu: pipeline.fu }, { syncFollowUpAt: true });
       const label = pipeline.fu[step].kind === "bye"
         ? "final courtesy note"
@@ -140,8 +146,43 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ ok: true, fu: pipeline.fu });
   }
 
-  // ── Original actions (compose/send/log) need the Gmail thread ──────────
-  if (!r.gmail_thread_id) {
+  // ── 2026-11-16 FOLLOW-UP FACTS: time zone, real option expiry, real
+  // early-booking deadline, extra addresses, the client's own date. Stored in
+  // extraction.followup; the only source of "real urgency" for a draft. ────
+  if (action === "fu-settings") {
+    const patch = sanitizeSettingsPatch((body ?? {}) as Record<string, unknown>);
+    const followup = await mergeFollowup(id, patch);
+    return NextResponse.json({ ok: true, followup });
+  }
+
+  // ── 2026-11-16 GENERATE (research engine). Reads Gmail by address (every
+  // thread), the pasted WhatsApp and the Helm notes, computes dates and
+  // windows in code, writes with the playbook in SKILL.md, checks in code.
+  // Writes nothing to the client. Saves the draft on the request only so the
+  // "what George changes" report can compare it with what he sent. ─────────
+  if (action === "generate") {
+    try {
+      const msgs0 = await getMessages(id);
+      const result = await generateFollowUp(r as unknown as HelmRow, msgs0, {
+        differentAngle: typeof body?.different_from === "string" ? body.different_from.slice(0, 600) : undefined,
+      });
+      try {
+        await mergeFollowup(id, {
+          last_gen: {
+            at: result.generated_at, model: result.model, scenario: result.scenario_code,
+            touch_type: result.next_touch.touch_type, channel: result.next_touch.channel,
+            subject: result.next_touch.subject, body: (result.next_touch.body ?? "").slice(0, 3000),
+          },
+        });
+      } catch { /* the draft still shows; only the comparison record is lost */ }
+      return NextResponse.json({ ok: true, ...result });
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    }
+  }
+
+  // ── Original actions (send/log) need the Gmail thread ──────────
+  if (!r.gmail_thread_id && !(action === "send" && typeof body?.thread_id === "string" && body.thread_id)) {
     return NextResponse.json({ error: "Send the proposal first - a follow-up replies in that email thread." }, { status: 400 });
   }
 
@@ -152,7 +193,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   ).length;
   const followupNumber = priorFollowups + 1;
 
-  const { salutation, isAgent } = helmSalutation(r);
 
   // ---- LOG: George followed up himself (a call, WhatsApp, an email he wrote by
   // hand) and just wants it on the record. One button. Records the follow-up so
@@ -199,55 +239,56 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
   }
 
-  // ---- GENERATE: compose an editable draft (no send, no DB write) ----
-  if (action === "generate") {
-    try {
-      // 2026-08-05 continuity: the plan knows WHAT this step is (a nudge, the
-      // re-open after a long park, or the goodbye) - the tone follows the step,
-      // not just a counter. And the notes already sent in this thread ride
-      // along so each new one continues the conversation instead of restarting
-      // it: same person, same thread, never the same angle twice.
-      const pipeline = readPipeline(r.extraction);
-      const currentStep = (pipeline.fu ?? []).find((s) => !s.done_at);
-      const priorBodies = msgs
-        .filter((m) => m.direction === "outbound" && (m.body ?? "").startsWith(FOLLOWUP_TAG) && m.channel === "email")
-        .map((m) => (m.body ?? "").replace(/^\[Follow-up \d+\]\s*/, "").trim())
-        .filter(Boolean)
-        .slice(-3); // the last three are plenty of memory; keeps the prompt lean
-      const charterWhen = r.dates_from
-        ? new Date(r.dates_from + "T00:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })
-        : undefined;
-      const draft = await composeFollowUp({
-        salutation,
-        agent: isAgent,
-        followupNumber,
-        occasion: r.occasion || undefined,
-        brief: r.brief || undefined,
-        original_email: r.email_intro || undefined,
-        kind: currentStep?.kind,
-        charter_when: charterWhen,
-        prior_followups: priorBodies,
-      });
-      return NextResponse.json({ ok: true, body: draft.body, followupNumber });
-    } catch (e) {
-      return NextResponse.json({ error: (e as Error).message }, { status: 500 });
-    }
-  }
-
-  // ---- SEND: reply in the same thread to the same recipient. Explicit confirm only. ----
+  // ---- SEND: George pressed Send. Explicit confirm only. ----
+  // 2026-11-16: replies in the client's NEWEST thread (the one Generate read),
+  // with the real Message-ID in In-Reply-To so Apple Mail and Outlook thread it
+  // too; or, if George chose it, as a fresh email with the new subject. Refuses
+  // if the client wrote after the draft was made (guardrail 2). Records what
+  // went out on the plan step, and re-times the rest of the plan when the
+  // conversation has changed shape (ghosted → +2/+5/+10/+20/+35, close → nurture).
   if (action === "send") {
     const emailBody = (body?.body ?? "").toString().trim();
     const to = (r.client_email ?? "").toString().trim();
     if (!to) return NextResponse.json({ error: "No recipient email on this request." }, { status: 400 });
     if (!emailBody) return NextResponse.json({ error: "The follow-up box is empty. Write the note, or draft one, then send." }, { status: 400 });
 
+    const generatedAt = typeof body?.generated_at === "string" ? body.generated_at : null;
+    if (generatedAt && !body?.force) {
+      try {
+        if (await inboundSince(r as unknown as HelmRow, generatedAt)) {
+          return NextResponse.json({ error: "Ο πελάτης έγραψε μετά το πρόχειρο. Πάτα ξανά Generate για να το λάβει υπόψη.", code: "inbound-since" }, { status: 409 });
+        }
+      } catch { /* Gmail unreachable: do not block George's own send */ }
+    }
+
+    const threadId = (typeof body?.thread_id === "string" && body.thread_id) || r.gmail_thread_id || undefined;
+    const newSubject = (body?.subject ?? "").toString().trim();
+    const asNewEmail = !!body?.as_new_email && !!newSubject;
+    let subject = r.email_subject || "Your Greek charter";
+    let inReplyTo: string | undefined = r.gmail_last_message_id || undefined;
+    if (!asNewEmail && threadId) {
+      try {
+        const t = await gmailFetch(`/threads/${threadId}?format=metadata&metadataHeaders=Message-ID&metadataHeaders=Subject`);
+        if (t.ok) {
+          const th = (await t.json()) as { messages?: { payload?: { headers?: { name: string; value: string }[] } }[] };
+          const hs = (m?: { payload?: { headers?: { name: string; value: string }[] } }, n?: string) =>
+            m?.payload?.headers?.find((h) => h.name.toLowerCase() === n)?.value;
+          const first = th.messages?.[0];
+          const last = th.messages?.[th.messages.length - 1];
+          const subj = hs(first, "subject");
+          if (subj) subject = /^re:/i.test(subj) ? subj : `Re: ${subj}`;
+          inReplyTo = hs(last, "message-id") || inReplyTo;
+        }
+      } catch { /* fall back to the stored subject/id */ }
+    }
+
     try {
       const sent = await sendHelmEmail({ utm: { source: "helm", campaign: "follow-up" },
         to,
-        subject: r.email_subject || "Your Greek charter",
+        subject: asNewEmail ? newSubject : subject,
         body: emailBody,
-        threadId: r.gmail_thread_id || undefined,
-        inReplyTo: r.gmail_last_message_id || undefined,
+        threadId: asNewEmail ? undefined : threadId,
+        inReplyTo: asNewEmail ? undefined : inReplyTo,
       });
       await logHelmMessage(id, {
         direction: "outbound",
@@ -255,29 +296,45 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         body: `[Follow-up ${followupNumber}]\n\n${emailBody}`,
         gmail_message_id: sent.messageId,
       });
-      // Keep the thread chain current. Plan-aware (2026-07-24): an emailed
-      // follow-up ticks the first not-done step of the 3-step plan and the
-      // reminder moves to the next planned date; without a plan, +5 days.
+
+      const touch = typeof body?.touch_type === "string" ? body.touch_type.slice(0, 40) : undefined;
+      const scenario = typeof body?.scenario_code === "string" ? body.scenario_code : "";
+      const draftBody = typeof body?.draft_body === "string" ? body.draft_body : null;
+      const ai: "ai" | "ai_edited" | "manual" = draftBody === null ? "manual" : draftBody.trim() === emailBody ? "ai" : "ai_edited";
       const pipeline = readPipeline(r.extraction);
-      let nextFollowUp: string | null;
-      if (pipeline.fu?.length && pipeline.fu.some((s) => !s.done_at)) {
-        const idx = pipeline.fu.findIndex((s) => !s.done_at);
-        pipeline.fu[idx] = { ...pipeline.fu[idx], done_at: new Date().toISOString(), how: "email" };
-        await mergePipeline(id, { fu: pipeline.fu });
-        nextFollowUp = nextDueTimestamp(pipeline.fu);
+      const nowIso = new Date().toISOString();
+      const stepDone = { done_at: nowIso, how: "email", ...(touch ? { touch } : {}), subject: asNewEmail ? newSubject : subject, ai };
+      let fu = pipeline.fu ?? [];
+      if (fu.some((s) => !s.done_at)) {
+        const idx = fu.findIndex((s) => !s.done_at);
+        fu[idx] = { ...fu[idx], ...stepDone };
       } else {
-        nextFollowUp = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+        fu = [...fu, { due: nowIso.slice(0, 10), kind: "nudge", v: 2, ...stepDone }];
       }
+      const fs = readFollowupSettings(r.extraction);
+      const { tz } = clientTimezone(fs.tz, r.client_whatsapp ?? null);
+      const lastIn = typeof body?.last_inbound_at === "string" ? body.last_inbound_at : null;
+      const done = fu.filter((s) => s.done_at);
+      if (scenario === "S9" || touch === "permission_to_close") {
+        fu = [...done, ...planNurture(nowIso, tz)];
+      } else if (["S2", "S3", "S4", "S5", "S7"].includes(scenario)) {
+        // Ghosted: the +2/+5/+10/+20/+35 ladder runs from the client's last
+        // word. After answering an engaged client, it runs from our reply.
+        fu = [...done, ...planGhosted(scenario === "S7" && lastIn ? lastIn : nowIso, tz, nowIso)];
+      }
+      await mergePipeline(id, { fu });
+      const nextFollowUp = nextDueTimestamp(fu);
       const db = createServiceClient();
       await db
         .from("helm_requests")
         .update({
           gmail_last_message_id: sent.messageId,
           follow_up_at: nextFollowUp,
-          updated_at: new Date().toISOString(),
+          updated_at: nowIso,
         })
         .eq("id", id);
-      return NextResponse.json({ ok: true, sent: 1, followupNumber });
+      try { await mergeFollowup(id, { last_sent: { at: nowIso, ai, touch_type: touch ?? null, scenario, final_body: emailBody.slice(0, 3000) } }); } catch {}
+      return NextResponse.json({ ok: true, sent: 1, followupNumber, next: nextFollowUp });
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 500 });
     }

@@ -12,14 +12,14 @@ const MODEL = process.env.AI_MODEL || "gemini-2.5-flash";
 export async function aiChat(
   systemPrompt: string,
   userMessage: string,
-  options?: { maxTokens?: number; temperature?: number }
+  options?: { maxTokens?: number; temperature?: number; model?: string }
 ): Promise<string> {
   if (!process.env.AI_API_KEY) {
     throw new Error("AI_API_KEY not configured");
   }
 
   const response = await ai.chat.completions.create({
-    model: MODEL,
+    model: options?.model || MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },

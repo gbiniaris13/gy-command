@@ -22,7 +22,18 @@ export type FuStep = {
   //   reopen = coming back after a long park, near the charter
   //   bye    = the courteous close
   kind?: "nudge" | "reopen" | "bye";
+  // 2026-11-16 research engine (src/lib/helm/followup/calendar.ts). v = 2
+  // marks a plan built from the research cadence; the old auto-extender
+  // leaves those alone. touch/anchor say WHAT the step should carry and WHY
+  // it sits on that day; subject/touch_sent record what actually went out.
+  v?: 2;
+  touch?: string;
+  anchor?: string;
+  subject?: string;
+  ai?: "ai" | "ai_edited" | "manual";
 };
+
+import { planFollowUps, clientTimezone, localDate, nextSendDay, addDays } from "./followup/calendar";
 
 export type HelmPipeline = {
   sent_at?: string; // ISO — when the proposal email left for the client
@@ -89,7 +100,7 @@ function avoidDeadDays(ms: number): number {
 /** The urgency-scaled plan. Four nudges then a goodbye, with a park-and-reopen
  *  in the middle when the charter is far enough away to deserve patience.
  *  Returns 3 to 6 steps; the LAST is always the courteous close. */
-export function suggestFollowUps(sentAtIso: string, charterFromIso: string | null | undefined): FuStep[] {
+function legacySuggestFollowUps(sentAtIso: string, charterFromIso: string | null | undefined): FuStep[] {
   const sentMs = Date.parse(sentAtIso);
   const base = Number.isFinite(sentMs) ? sentMs : Date.now();
   let leadDays: number | null = null;
@@ -137,6 +148,21 @@ export function suggestFollowUps(sentAtIso: string, charterFromIso: string | nul
   });
 }
 
+/** 2026-11-16 — the plan every NEW request gets: the research cadence
+ *  (docs/followup/followup-research.md, SKILL.md STEP 3), in the client's own
+ *  time zone, off weekends and US holidays, closing at the decision deadline.
+ *  The pre-November ladder above stays only for plans already in the book. */
+export type PlanOpts = { tz?: string | null; phone?: string | null; earlyBookingDeadline?: string | null };
+export function suggestFollowUps(
+  sentAtIso: string,
+  charterFromIso: string | null | undefined,
+  opts: PlanOpts = {},
+): FuStep[] {
+  const { tz } = clientTimezone(opts.tz, opts.phone);
+  const base = Number.isFinite(Date.parse(sentAtIso)) ? sentAtIso : new Date().toISOString();
+  return planFollowUps({ sentAtIso: base, charterFrom: charterFromIso ?? null, tz, earlyBookingDeadline: opts.earlyBookingDeadline ?? null });
+}
+
 /** Labels straight off the plan, so the UI never hardcodes a length or
  *  guesses which step is the goodbye. */
 export function followUpLabels(fu: FuStep[] | undefined): { short: string; title: string }[] {
@@ -152,11 +178,13 @@ export function followUpLabels(fu: FuStep[] | undefined): { short: string; title
       return { short: `F${i + 1}`, title: `Follow-up ${i + 1}` };
     }
     if (s.kind === "bye")
-      return { short: "Bye", title: "Courteous close: thank you, at your disposal, no pressure" };
+      return { short: "Bye", title: s.v === 2
+        ? `Close the file honestly ("Have you set Greece aside?")${s.anchor ? ` · ${s.anchor}` : ""}`
+        : "Courteous close: thank you, at your disposal, no pressure" };
     if (s.kind === "reopen")
       return { short: "Re", title: "Re-open: the week is close enough to decide on now" };
     n += 1;
-    return { short: `F${n}`, title: `Follow-up ${n}` };
+    return { short: `F${n}`, title: `Follow-up ${n}${s.anchor ? ` · ${s.anchor}` : ""}${s.touch ? ` · ${s.touch.replace(/_/g, " ")}` : ""}` };
   });
 }
 
@@ -215,7 +243,10 @@ export function extendPlan(
 ): FuStep[] | null {
   const cur = existing ?? [];
   if (cur.length === 0) return null; // no plan at all → that is plan-init's job
-  const fresh = replanKeepingHistory(cur, charterFromIso, nowIso);
+  // 2026-11-16: a research-engine plan is complete when it is built; the
+  // auto-extender only keeps serving the pre-November plans, exactly as before.
+  if (cur.some((s) => s.v === 2)) return null;
+  const fresh = legacyReplan(cur, charterFromIso, nowIso);
   if (fresh.length <= cur.length) return null;
   // Only the steps BEYOND the saved plan, and only ones that land after every
   // date already in the book — appending must never reorder what George sees.
@@ -237,19 +268,47 @@ export function extendPlan(
  *  Everything else the plan knows (how many steps this lead time deserves, the
  *  park-and-reopen, the goodbye, the dead days) comes from suggestFollowUps.
  */
+function legacyReplan(
+  existing: FuStep[] | undefined,
+  charterFromIso: string | null | undefined,
+  nowIso: string,
+): FuStep[] {
+  const done = (existing ?? []).filter((s) => s.done_at);
+  const fresh = legacySuggestFollowUps(nowIso, charterFromIso);
+  const remaining = Math.max(fresh.length - done.length, 1);
+  const future = fresh.slice(fresh.length - remaining);
+  const lastDone = done.length ? done[done.length - 1].due : null;
+  const kept = future.filter((s) => !lastDone || s.due > lastDone);
+  return [...done, ...(kept.length ? kept : future.slice(-1))];
+}
+
+/** 2026-11-16 re-plan on the research cadence ("re-plan" button, and the
+ *  plan-replan action). Ticked steps are history and pass across untouched.
+ *  The cadence is measured from when the proposal LEFT (so a request sent
+ *  three weeks ago does not restart its opening run), and only steps from
+ *  today on are kept; if the plan missed a touch while nobody was looking,
+ *  one catch-up step is placed on the next send day. */
 export function replanKeepingHistory(
   existing: FuStep[] | undefined,
   charterFromIso: string | null | undefined,
   nowIso: string = new Date().toISOString(),
+  opts: PlanOpts & { sentAtIso?: string | null } = {},
 ): FuStep[] {
   const done = (existing ?? []).filter((s) => s.done_at);
-  // Build the shape of a full plan as if we were starting today, then keep
-  // only as many FUTURE steps as remain after the ones already done.
-  const fresh = suggestFollowUps(nowIso, charterFromIso);
-  const remaining = Math.max(fresh.length - done.length, 1);
-  const future = fresh.slice(fresh.length - remaining);
-  // Never schedule behind a step that is already in the book.
-  const lastDone = done.length ? done[done.length - 1].due : null;
-  const kept = future.filter((s) => !lastDone || s.due > lastDone);
-  return [...done, ...(kept.length ? kept : future.slice(-1))];
+  const { tz } = clientTimezone(opts.tz, opts.phone);
+  const today = localDate(Date.parse(nowIso), tz);
+  const lastDone = done.length ? done.map((s) => s.due).sort().at(-1)! : null;
+  const full = suggestFollowUps(opts.sentAtIso || nowIso, charterFromIso, opts);
+  const after = full.filter((s) => !lastDone || s.due > lastDone);
+  const future = after.filter((s) => s.due >= today);
+  const missed = after.filter((s) => s.due < today && s.kind !== "bye");
+  if (missed.length && (!future.length || future[0].due > addDays(today, 3))) {
+    const m = missed[missed.length - 1];
+    const catchUp = nextSendDay(addDays(today, 1));
+    if (!future.length || catchUp < future[0].due) future.unshift({ ...m, due: catchUp, anchor: "catch-up: a planned touch was missed" });
+  }
+  if (!future.length) {
+    future.push({ due: nextSendDay(addDays(today, 2)), done_at: null, how: null, kind: "bye", v: 2, touch: "permission_to_close" });
+  }
+  return [...done, ...future];
 }

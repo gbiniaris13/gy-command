@@ -47,6 +47,8 @@ import {
 import { upsertContactByEmail, splitName } from "./contacts";
 import { detectAiSource, readAiSource } from "@/lib/helm/ai-source";
 
+import { readFollowupSettings } from "@/lib/helm/followup/settings";
+
 export type HelmListItem = {
   id: string;
   status: string;
@@ -469,14 +471,20 @@ export async function markRequestSent(
   // the ORIGINAL plan (George may have hand-tuned the dates).
   const { data: row } = await db
     .from("helm_requests")
-    .select("extraction, dates_from")
+    .select("extraction, dates_from, client_whatsapp")
     .eq("id", id)
     .maybeSingle();
   const extraction = (row?.extraction as Record<string, unknown> | null) ?? {};
   const pipeline = readPipeline(extraction);
   if (!pipeline.sent_at) pipeline.sent_at = nowIso;
-  if (!pipeline.fu || pipeline.fu.length !== 3) {
-    pipeline.fu = suggestFollowUps(nowIso, row?.dates_from ?? null);
+  // 2026-11-16: build the plan only when there is none (the old `!== 3` test
+  // rebuilt every hand-tuned 4-6 step plan on a re-send), and build it on the
+  // research cadence in the client's own time zone.
+  if (!pipeline.fu || pipeline.fu.length === 0) {
+    const fs = readFollowupSettings(extraction);
+    pipeline.fu = suggestFollowUps(nowIso, row?.dates_from ?? null, {
+      tz: fs.tz, phone: row?.client_whatsapp ?? null, earlyBookingDeadline: fs.early_booking_deadline,
+    });
   }
   const followUp = nextDueTimestamp(pipeline.fu) ?? new Date(Date.now() + 4 * 86400000).toISOString();
 
@@ -522,6 +530,24 @@ export async function mergePipeline(
   const { error } = await db.from("helm_requests").update(update).eq("id", id);
   if (error) throw new Error(error.message);
   return pipeline;
+}
+
+/** 2026-11-16 — merge George's follow-up facts (time zone, option expiry,
+ *  early-booking deadline, extra addresses, client's own date) into
+ *  extraction.followup. Same read-merge-write as mergePipeline; no migration. */
+export async function mergeFollowup(id: string, patch: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const db = createServiceClient();
+  const { data: row, error: readErr } = await db.from("helm_requests").select("extraction").eq("id", id).maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  const extraction = (row?.extraction as Record<string, unknown> | null) ?? {};
+  const cur = (extraction.followup && typeof extraction.followup === "object" ? extraction.followup : {}) as Record<string, unknown>;
+  const followup = { ...cur, ...patch };
+  const { error } = await db
+    .from("helm_requests")
+    .update({ extraction: { ...extraction, followup }, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  return followup;
 }
 
 // Addition B — media (Cloudinary URLs or pasted links) on the request.
