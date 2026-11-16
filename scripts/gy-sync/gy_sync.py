@@ -253,14 +253,34 @@ def find_sent(text, since_apple):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+def bring_front():
+    # A background agent cannot just "activate" another app on recent macOS;
+    # through Accessibility it can set the process frontmost.
+    return osa('''tell application "System Events" to set frontmost of process "WhatsApp" to true''')
+
+def probe():
+    """PROBE file present → test that WhatsApp can be brought to the front, send nothing."""
+    pf = os.path.join(BASE, "PROBE")
+    if not os.path.exists(pf):
+        return
+    os.remove(pf)
+    before = osa('tell application "System Events" to get name of first application process whose frontmost is true')[1]
+    bf = bring_front()
+    time.sleep(1.2)
+    after = osa('tell application "System Events" to get name of first application process whose frontmost is true')[1]
+    with open(os.path.join(BASE, "probe.txt"), "w") as f:
+        f.write(f"before={before} after={after} bring_front={bf}\n")
+    if before and before != "WhatsApp":
+        osa(f'tell application "System Events" to set frontmost of process "{esc(before)}" to true')
+
 def send_one(it):
     started = time.time() - APPLE_EPOCH - 5
     contact = save_contact(it)
     url = "whatsapp://send?phone=" + it["phone"] + "&text=" + urllib.parse.quote(it["text"])
     subprocess.run(["/usr/bin/open", url], timeout=20)
     time.sleep(5)
-    subprocess.run(["/usr/bin/open", "-a", "WhatsApp"], timeout=20)
-    time.sleep(1.5)
+    bring_front()
+    time.sleep(1.2)
     code, out = osa('''tell application "System Events"
   set f to name of first application process whose frontmost is true
   if f is not "WhatsApp" then error "WhatsApp is not in front (" & f & ")"
@@ -275,7 +295,7 @@ end tell''')
             ts = apple_ts(m["ZMESSAGEDATE"]).isoformat()
             key = f"App.shared:{m['ZSTANZAID'] or m['Z_PK']}:{it['request_id'][:8]}"
             return {"status": "sent", "detail": f"στάλθηκε, {contact}", "key": key, "ts": ts}
-    return {"status": "failed", "detail": f"Πάτησα αποστολή αλλά δεν το βλέπω στο WhatsApp. Έλεγξε τη συνομιλία πριν το ξαναστείλεις. {contact}"}
+    return {"status": "failed", "detail": f"Πάτησα αποστολή αλλά δεν το βλέπω στο WhatsApp (ίσως ο αριθμός δεν έχει WhatsApp). Έλεγξε τη συνομιλία πριν το ξαναστείλεις. {contact}"}
 
 def run_outbox():
     try:
@@ -296,6 +316,7 @@ def run_outbox():
 
 def main():
     os.makedirs(BASE, exist_ok=True)
+    probe()
     run_outbox()
     # The full read runs every ~10 minutes; this agent wakes every 20 seconds
     # for the outbox.
