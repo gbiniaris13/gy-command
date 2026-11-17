@@ -83,9 +83,13 @@ export async function autoReplan(r: Row, opts: { force?: boolean; dry?: boolean 
     if (stats.ball === "we_owe" && w.needsReply !== null) needsReply = w.needsReply;
   }
 
+  // A step George ticked (a call, a WhatsApp from the phone, an email by hand)
+  // is a contact too, even when no message reached the Helm (17/11, Maya Clem).
+  const lastTicked = fu.filter((s) => s.done_at).map((s) => s.done_at as string).sort().at(-1) ?? null;
+  const lastOut = [stats.last_outbound_at, lastTicked].filter(Boolean).sort().at(-1) ?? null;
   const res = rescheduleFromConversation(fu as Parameters<typeof rescheduleFromConversation>[0], {
     todayIso: nowIso, tz, charterFrom: r.dates_from, sentAtIso: pipeline.sent_at || r.created_at,
-    lastInboundAt: stats.last_inbound_at, lastOutboundAt: stats.last_outbound_at,
+    lastInboundAt: stats.last_inbound_at, lastOutboundAt: lastOut,
     hadInboundAfterFirstOut: stats.had_inbound_after_first_outbound, ball: stats.ball,
     clientFollowupDate: clientDate && clientDate >= today ? clientDate : null,
     lastInboundNeedsReply: stats.ball === "we_owe" ? needsReply : null,

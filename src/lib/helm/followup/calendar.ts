@@ -457,6 +457,8 @@ export type ConversationFacts = {
 // After a client acknowledges ("thanks, I'll look at it"), give them room.
 const ACK_GAP: Record<Bucket, number> = { ULTRA_SHORT: 1, SHORT: 4, MEDIUM: 6, LONG: 7, VERY_LONG: 7, UNKNOWN: 5 };
 
+const MIN_SPACING: Record<Bucket, number> = { ULTRA_SHORT: 1, SHORT: 2, MEDIUM: 3, LONG: 3, VERY_LONG: 3, UNKNOWN: 3 };
+
 const MIN_GAP: Record<Bucket, number> = { ULTRA_SHORT: 1, SHORT: 2, MEDIUM: 3, LONG: 5, VERY_LONG: 5, UNKNOWN: 3 };
 
 export function rescheduleFromConversation<T extends AnyStep>(fu: T[], f: ConversationFacts): { fu: AnyStep[]; reason: string; changed: boolean } {
@@ -471,10 +473,13 @@ export function rescheduleFromConversation<T extends AnyStep>(fu: T[], f: Conver
   const lastOutDay = f.lastOutboundAt ? localDate(Date.parse(f.lastOutboundAt), f.tz) : null;
   const lastInDay = f.lastInboundAt ? localDate(Date.parse(f.lastInboundAt), f.tz) : null;
 
+  // The research plan for this lead; after any reset (an agreed day, an
+  // answer owed, an acknowledgment) the plan carries on from it, a week on.
+  const research = (): AnyStep[] => planFollowUps({ sentAtIso: f.sentAtIso, charterFrom: f.charterFrom, tz: f.tz });
   if (f.clientFollowupDate && f.clientFollowupDate >= today) {
     // The client (or George) set the day: nothing before it.
     const first = nextSendDay(f.clientFollowupDate, weekendOk);
-    const rest = auto.filter((s) => s.due > first && s.kind !== undefined);
+    const rest = research().filter((s) => s.due > addDays(first, 6));
     auto = [{ due: first, done_at: null, how: null, kind: "nudge", v: 2, touch: "availability_update", anchor: "η μέρα που συμφωνήσατε" }, ...rest];
     reason = `συμφωνημένη μέρα ${first}`;
   } else if (f.ball === "we_owe" && lastInDay && f.lastInboundNeedsReply === false) {
@@ -483,14 +488,16 @@ export function rescheduleFromConversation<T extends AnyStep>(fu: T[], f: Conver
     const first = nextSendDay(addDays(lastInDay, ACK_GAP[facts.bucket]), weekendOk);
     // After that touch: the research plan for this lead (market anchors, the
     // close at the decision deadline), not leftovers of an earlier chase.
-    const research = planFollowUps({ sentAtIso: f.sentAtIso, charterFrom: f.charterFrom, tz: f.tz });
-    const rest: AnyStep[] = research.filter((s) => s.due > addDays(first, 6));
+    const rest: AnyStep[] = research().filter((s) => s.due > addDays(first, 6));
     auto = [{ due: first, done_at: null, how: null, kind: "nudge", v: 2, anchor: "ο πελάτης είπε ότι θα το δει: δώσ' του χρόνο" }, ...rest];
     reason = `ο πελάτης απάντησε (${lastInDay}) ότι θα το δει: επόμενη επαφή ${first}`;
   } else if (f.ball === "we_owe" && lastInDay) {
-    // The client wrote last: we owe the answer today; the rest waits behind it.
-    const ladder = planGhosted(f.lastInboundAt!, f.tz, f.todayIso).filter((s) => s.due > today);
-    auto = [{ due: nextSendDay(today, true), done_at: null, how: null, kind: "nudge", v: 2, anchor: "ο πελάτης έγραψε: χρωστάς απάντηση" }, ...ladder];
+    // The client wrote and it needs an answer: the answer is today. No
+    // follow-ups stacked behind it (17/11, Erika Varcak: "they're 14 and 15"
+    // got today + tomorrow + the 23rd). Once George answers, the plan is
+    // re-timed from his answer; until then only the research plan, a week on.
+    const rest = research().filter((s) => s.due > addDays(today, ACK_GAP[facts.bucket]));
+    auto = [{ due: nextSendDay(today, true), done_at: null, how: null, kind: "nudge", v: 2, anchor: "ο πελάτης έγραψε: χρωστάς απάντηση" }, ...rest];
     reason = "ο πελάτης έγραψε τελευταίος";
   } else if (f.hadInboundAfterFirstOut && lastInDay && daysBetween(lastInDay, today) <= 35) {
     // They talked, then went quiet: +2/+5/+10/+20/+35 from THEIR last word,
@@ -515,13 +522,20 @@ export function rescheduleFromConversation<T extends AnyStep>(fu: T[], f: Conver
     reason = lastOutDay ? `τελευταία δική σου επαφή ${lastOutDay}` : "";
   }
 
-  // Merge George's own dates back in, then make the order strict.
+  // Merge George's own dates back in, then make the order strict. An
+  // automatic step within a few days of a date George set by hand gives way
+  // to his (17/11, Anderson: auto 1/12 beside his own 2/12).
+  const near = (a: string, b: string) => Math.abs(daysBetween(a, b)) < 4;
+  auto = auto.filter((s) => s.kind === "bye" || !manual.some((m) => near(m.due, s.due)));
   const merged = [...auto, ...manual].sort((a, b) => a.due.localeCompare(b.due));
   const out: AnyStep[] = [];
+  const spacing = MIN_SPACING[facts.bucket];
   for (const s of merged) {
     let due = s.due;
     const prev = out.at(-1);
-    if (prev && due <= prev.due) due = nextSendDay(addDays(prev.due, 1), weekendOk);
+    // Never two touches on top of each other (19/4 then 20/4).
+    if (prev && !s.manual && daysBetween(prev.due, due) < spacing) due = nextSendDay(addDays(prev.due, spacing), weekendOk);
+    else if (prev && due <= prev.due) due = nextSendDay(addDays(prev.due, 1), weekendOk);
     out.push({ ...s, due });
   }
   // One close, and it stays last (older plans could carry two).

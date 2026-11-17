@@ -192,3 +192,32 @@ test("long lead that went quiet recently: the ladder does not close the file a y
   assert.equal(byes[0].due, "2027-06-26");
   assert.ok(r.fu.some((s) => s.due === "2027-01-06"));
 });
+
+test("17/11 Erika: client answered our question → reply today, nothing stacked tomorrow", () => {
+  const fu = [step("2026-11-17"), step("2026-11-18"), step("2026-11-23")];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-17T14:00:00Z", tz: "Pacific/Honolulu", charterFrom: "2027-07-10", sentAtIso: "2026-11-13T15:41:00Z",
+    lastInboundAt: "2026-11-16T19:21:00Z", lastOutboundAt: "2026-11-16T18:11:00Z", hadInboundAfterFirstOut: true, ball: "we_owe",
+    clientFollowupDate: null, lastInboundNeedsReply: true,
+  });
+  assert.equal(r.fu[0].due, "2026-11-17");
+  assert.ok(r.fu[1].due >= "2026-11-25", r.fu.map((s) => s.due).join(","));
+});
+
+test("agreed day: the next touch is not the day after", () => {
+  const r = rescheduleFromConversation([step("2027-04-19"), step("2027-04-20")], {
+    todayIso: "2026-11-17T14:00:00Z", tz: "America/New_York", charterFrom: "2028-07-01", sentAtIso: "2026-10-01T10:00:00Z",
+    lastInboundAt: "2026-10-16T10:00:00Z", lastOutboundAt: "2026-10-17T10:00:00Z", hadInboundAfterFirstOut: true, ball: "client_owes", clientFollowupDate: "2027-04-19",
+  });
+  assert.equal(r.fu[0].due, "2027-04-19");
+  assert.ok(r.fu[1].due >= "2027-04-26", r.fu.map((s) => s.due).join(","));
+});
+
+test("George's own date wins over an automatic one next to it", () => {
+  const r = rescheduleFromConversation([step("2026-12-02", { manual: true })], {
+    todayIso: "2026-11-17T14:00:00Z", tz: "America/New_York", charterFrom: "2028-07-01", sentAtIso: "2026-10-01T10:00:00Z",
+    lastInboundAt: "2026-11-01T10:00:00Z", lastOutboundAt: "2026-11-02T10:00:00Z", hadInboundAfterFirstOut: true, ball: "client_owes", clientFollowupDate: "2026-12-01",
+  });
+  assert.equal(r.fu[0].due, "2026-12-02");
+  assert.ok(!r.fu.some((s) => s.due === "2026-12-01"));
+});
