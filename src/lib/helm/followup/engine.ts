@@ -204,6 +204,8 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
     lastOutboundText: [...items].reverse().find((i) => i.direction === "out")?.text ?? "",
   });
   const nextDue = pending[0]?.due ?? today;
+  const fRaw0 = ((r.extraction as { followup?: Record<string, unknown> } | null)?.followup ?? {}) as Record<string, unknown>;
+  const ackUntilForModel = typeof fRaw0.ack_until === "string" && fRaw0.ack_until > today ? fRaw0.ack_until : null;
   const dueForSlot = hint.code === "S6" && settings.client_followup_date ? settings.client_followup_date : nextDue < today ? today : nextDue;
   const weekendOk = facts.bucket === "ULTRA_SHORT";
   const emailSlot = nextSendSlot(dueForSlot, "email", tz, now.getTime(), weekendOk);
@@ -239,6 +241,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
       ball: stats.ball, last_inbound_at: stats.last_inbound_at, last_outbound_at: stats.last_outbound_at,
       planned_touch_for_today: pending[0] ? { date: pending[0].due, touch_type: pending[0].touch ?? null, anchor: pending[0].anchor ?? null } : null,
       forward_plan: forwardPlan,
+      ack_until: ackUntilForModel,
       greece_off_season_dates: !!(r.dates_from && ["11", "12", "01", "02", "03"].includes(r.dates_from.slice(5, 7))),
     },
     constraints: {
@@ -269,6 +272,7 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
 - If constraints.real_urgency.exists is false: no expiry, deadline, scarcity, "book soon" or "still available" claims of any kind. availability_known is false: never say availability was checked or confirmed.
 - Use only yachts, numbers and facts present in the package. Never invent a testimonial, an event date, a price, a crew name or a crew member's qualities.
 - If lead.whatsapp_imessage_visibility starts with "NOT READ", never write as if there were silence on every channel: no "it has been a while", no "I haven't heard from you", no recap of unanswered emails. Write something that is still right if they spoke yesterday on WhatsApp, and put in warnings_el: "Δεν βλέπω WhatsApp/iMessage: έλεγξε πριν στείλεις."
+- ACKNOWLEDGED: if the client's last message is only an acknowledgment ("thank you", "ok", "let me look at the email", "I'll talk to my wife"), George owes nothing: do not chase. Treat it like WAIT WHEN ASKED with a date about a week later (computed.ack_until if given).
 - WAIT WHEN ASKED: if the timeline shows the client is away until a time, or asked to wait, or George promised to come back on a date ("I'm in Cambodia for 12 days", "let's talk in January", "I'll wait until you're back"), do NOT propose a touch now. Set next_touch.channel = "none", explain in rationale_el, and put the right date in set_client_requested_followup_date (YYYY-MM-DD, the first sensible day after they are back or the promised day). Still write the email (and WhatsApp) for THAT day in next_touch.body so George can review it, written as if sent on that date.
 - George works alone: never "my team", "our office", "my colleague", "my assistant".
 - No soft scarcity either ("calendars fill up", "secure your yacht now") unless real_urgency exists.
@@ -343,10 +347,11 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
   //    when the client's message has been answered, and S0/S1 are the code's.
   const modelCode = (typeof out.scenario === "string" ? out.scenario : "").match(/S\d+/)?.[0] ?? "";
   const hadIn = stats.had_inbound_after_first_outbound;
-  let finalCode = hint.code;
+  const acknowledged = !!ackUntilForModel && fRaw0.last_in_ts === stats.last_inbound_at && fRaw0.last_in_needs_reply === false;
+  let finalCode = hint.code === "S2" && acknowledged ? "S6" : hint.code;
   // S0 (do not contact) is decided only by the code, from the CLIENT's words
   // or the stage. George's own "I'll close the file" is not an opt-out.
-  if (!["S0", "S1", "S10", "S11"].includes(hint.code) && modelCode && modelCode !== "S0" && modelCode !== "S1") {
+  if (!acknowledged && !["S0", "S1", "S10", "S11"].includes(hint.code) && modelCode && modelCode !== "S0" && modelCode !== "S1") {
     const needsInbound = ["S2", "S3", "S4", "S5", "S7"].includes(modelCode);
     const contradicts = (needsInbound && !hadIn) || (modelCode === "S2" && stats.ball !== "we_owe") || (modelCode === "S8" && hadIn)
       || (modelCode === "S9" && stats.consecutive_unanswered < 7) || (modelCode === "S6" && !settings.client_followup_date);
@@ -358,8 +363,14 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
   // the subject: the email then simply replies in the thread ("Re: …").
   const enSubject = (s: unknown) => { const c = clean(s); return GREEK.test(c) ? "" : c; };
   const nt = out.next_touch ?? {};
-  const waitUntil = typeof out.set_client_requested_followup_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(out.set_client_requested_followup_date) && out.set_client_requested_followup_date > today
+  // 17/11: the hourly re-plan also knows when the client only acknowledged
+  // ("thanks, let me look at the email") and has given them room until a day.
+  const fRaw = ((r.extraction as { followup?: Record<string, unknown> } | null)?.followup ?? {}) as Record<string, unknown>;
+  const ackUntil = typeof fRaw.ack_until === "string" && fRaw.ack_until > today && fRaw.last_in_ts === stats.last_inbound_at && fRaw.last_in_needs_reply === false
+    ? (fRaw.ack_until as string) : null;
+  const modelWait = typeof out.set_client_requested_followup_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(out.set_client_requested_followup_date) && out.set_client_requested_followup_date > today
     ? out.set_client_requested_followup_date : null;
+  const waitUntil = modelWait ?? ackUntil;
   let channel = asChannel(nt.channel);
   if (!allowed.includes(channel)) channel = "email";
   const s0 = hint.code === "S0";
@@ -398,7 +409,9 @@ export async function generateFollowUp(r: HelmRow, msgs: HelmMsg[], opts: { diff
   if (bl) warnings.push(`Σήμερα είναι ${bl} στις ΗΠΑ: καλύτερα να περιμένει.`);
   if (problems.length) warnings.push(`Έλεγχος κειμένου, θέλει το μάτι σου: ${problems.slice(0, 4).join("; ")}`);
   if (s0) warnings.unshift("Ο πελάτης ζήτησε να μην του ξαναγράψουμε ή είπε όχι. Δεν προτείνεται καμία επαφή.");
-  if (waitUntil && !s0) warnings.unshift(`Μην στείλεις σήμερα: από τη συζήτηση, η επόμενη επαφή πρέπει να γίνει ${waitUntil}. Το κείμενο είναι γραμμένο για εκείνη τη μέρα.`);
+  if (waitUntil && !s0) warnings.unshift(!modelWait && ackUntil
+    ? `Μην στείλεις σήμερα: ο πελάτης απάντησε ότι θα το δει. Δώσ' του χρόνο ως ${waitUntil}. Το κείμενο είναι γραμμένο για εκείνη τη μέρα.`
+    : `Μην στείλεις σήμερα: από τη συζήτηση, η επόμενη επαφή πρέπει να γίνει ${waitUntil}. Το κείμενο είναι γραμμένο για εκείνη τη μέρα.`);
   const mustConfirm = !!r.client_whatsapp && !syncFresh;
   const phoneNote = !r.client_whatsapp ? ""
     : syncFresh ? `WhatsApp και iMessage διαβάστηκαν από το Mac (${new Date(syncedAt!).toLocaleString("el-GR", { timeZone: "Europe/Athens", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" })}).`

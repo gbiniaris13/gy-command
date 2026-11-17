@@ -30,21 +30,23 @@ type Row = {
 
 const OPEN = ["sent", "in_conversation", "negotiating"];
 
-async function detectWait(items: { ts: string; direction: string; channel: string; text: string }[], today: string): Promise<{ date: string | null; why: string }> {
+async function detectWait(items: { ts: string; direction: string; channel: string; text: string }[], today: string): Promise<{ date: string | null; why: string; needsReply: boolean | null }> {
   const recent = items.filter((i) => i.direction !== "note" && i.text.trim()).slice(-12)
     .map((i) => `[${i.ts.slice(0, 16)} ${i.channel} ${i.direction === "in" ? "CLIENT" : "GEORGE"}] ${i.text.slice(0, 600)}`).join("\n");
-  if (!recent) return { date: null, why: "" };
+  if (!recent) return { date: null, why: "", needsReply: null };
   const sys = `You read the latest messages between a yacht charter broker (George) and a client. Today is ${today}.
 Answer ONE question: does the conversation say the next contact should wait until a certain day? Examples: the client is travelling or away until a date, says "talk in January", "after the holidays", "we'll decide next week", "I'll come back to you on Monday"; or George promised to wait or to write on a specific day.
 If yes, give the first sensible day to write again (YYYY-MM-DD, in the future: the day after they return, the 2nd business day of the month they named, etc.). If the client is simply silent, or nothing was agreed, answer null.
-Output JSON only: {"wait_until": "YYYY-MM-DD" | null, "why_el": "one short Greek sentence"}`;
+Second question, only about the LAST message if it is from the CLIENT: does it need an answer from George? A question, a request, a new fact or objection to respond to = true. An acknowledgment such as "thanks", "ok", "let me look at the email", "I'll discuss with my wife", "will get back to you" = false (the ball is with the client). If the last message is from George, answer null.
+Output JSON only: {"wait_until": "YYYY-MM-DD" | null, "client_last_needs_reply": true | false | null, "why_el": "one short Greek sentence"}`;
   try {
     const raw = await aiChat(sys, recent, { maxTokens: 2048, temperature: 0, model: process.env.FOLLOWUP_AI_MODEL || undefined });
-    const o = parseLooseJson(raw) as { wait_until?: string | null; why_el?: string };
+    const o = parseLooseJson(raw) as { wait_until?: string | null; why_el?: string; client_last_needs_reply?: boolean | null };
     const d = typeof o?.wait_until === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.wait_until) && o.wait_until > today ? o.wait_until : null;
-    return { date: d, why: (o?.why_el ?? "").toString().slice(0, 200) };
+    const nr = typeof o?.client_last_needs_reply === "boolean" ? o.client_last_needs_reply : null;
+    return { date: d, why: (o?.why_el ?? "").toString().slice(0, 200), needsReply: nr };
   } catch {
-    return { date: null, why: "" };
+    return { date: null, why: "", needsReply: null };
   }
 }
 
@@ -71,10 +73,14 @@ export async function autoReplan(r: Row, opts: { force?: boolean; dry?: boolean 
   const newestTs = items.filter((i) => i.direction !== "note").at(-1)?.ts ?? "";
   let clientDate = settings.client_followup_date ?? null;
   let waitWhy = "";
+  // Does the client's last message need an answer? Remembered per message.
+  let needsReply: boolean | null = stats.last_inbound_at && fState.last_in_ts === stats.last_inbound_at && typeof fState.last_in_needs_reply === "boolean"
+    ? (fState.last_in_needs_reply as boolean) : null;
   const recentEnough = newestTs && now.getTime() - Date.parse(newestTs) < 45 * 86400000;
   if ((opts.force || newestTs > lastSeen) && recentEnough) {
     const w = await detectWait(items, today);
     if (w.date && (!clientDate || clientDate < today)) { clientDate = w.date; waitWhy = w.why; }
+    if (stats.ball === "we_owe" && w.needsReply !== null) needsReply = w.needsReply;
   }
 
   const res = rescheduleFromConversation(fu as Parameters<typeof rescheduleFromConversation>[0], {
@@ -82,7 +88,9 @@ export async function autoReplan(r: Row, opts: { force?: boolean; dry?: boolean 
     lastInboundAt: stats.last_inbound_at, lastOutboundAt: stats.last_outbound_at,
     hadInboundAfterFirstOut: stats.had_inbound_after_first_outbound, ball: stats.ball,
     clientFollowupDate: clientDate && clientDate >= today ? clientDate : null,
+    lastInboundNeedsReply: stats.ball === "we_owe" ? needsReply : null,
   });
+  const ackFirst = stats.ball === "we_owe" && needsReply === false ? res.fu.filter((s) => !s.done_at).map((s) => s.due).sort()[0] ?? null : null;
 
   if (opts.dry) {
     return { id: r.id, changed: res.changed, reason: res.reason, wait_until: waitWhy ? clientDate : null,
@@ -92,6 +100,9 @@ export async function autoReplan(r: Row, opts: { force?: boolean; dry?: boolean 
   if (res.changed) await mergePipeline(r.id, { fu: res.fu as FuStep[] }, { syncFollowUpAt: true });
   await mergeFollowup(r.id, {
     replan_seen_ts: newestTs || lastSeen || null,
+    last_in_ts: stats.last_inbound_at ?? null,
+    last_in_needs_reply: needsReply,
+    ack_until: ackFirst,
     replanned_at: nowIso,
     replan_reason: waitWhy ? `${res.reason}. ${waitWhy}` : res.reason,
     ...(waitWhy && clientDate ? { client_followup_date: clientDate, client_followup_source: "conversation" } : {}),

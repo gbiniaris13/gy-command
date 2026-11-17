@@ -448,7 +448,14 @@ export type ConversationFacts = {
   hadInboundAfterFirstOut: boolean;
   ball: "client_owes" | "we_owe" | "none";
   clientFollowupDate: string | null;
+  // 17/11: does the client's LAST message actually need an answer? "Thank
+  // you, let me look at the email" does not: the ball is with the client.
+  // null = unknown (treated as needing an answer).
+  lastInboundNeedsReply?: boolean | null;
 };
+
+// After a client acknowledges ("thanks, I'll look at it"), give them room.
+const ACK_GAP: Record<Bucket, number> = { ULTRA_SHORT: 1, SHORT: 4, MEDIUM: 6, LONG: 7, VERY_LONG: 7, UNKNOWN: 5 };
 
 const MIN_GAP: Record<Bucket, number> = { ULTRA_SHORT: 1, SHORT: 2, MEDIUM: 3, LONG: 5, VERY_LONG: 5, UNKNOWN: 3 };
 
@@ -470,6 +477,16 @@ export function rescheduleFromConversation<T extends AnyStep>(fu: T[], f: Conver
     const rest = auto.filter((s) => s.due > first && s.kind !== undefined);
     auto = [{ due: first, done_at: null, how: null, kind: "nudge", v: 2, touch: "availability_update", anchor: "η μέρα που συμφωνήσατε" }, ...rest];
     reason = `συμφωνημένη μέρα ${first}`;
+  } else if (f.ball === "we_owe" && lastInDay && f.lastInboundNeedsReply === false) {
+    // The client acknowledged and will come back: no chasing. One calm touch
+    // after a real pause, then the research plan carries on from there.
+    const first = nextSendDay(addDays(lastInDay, ACK_GAP[facts.bucket]), weekendOk);
+    // After that touch: the research plan for this lead (market anchors, the
+    // close at the decision deadline), not leftovers of an earlier chase.
+    const research = planFollowUps({ sentAtIso: f.sentAtIso, charterFrom: f.charterFrom, tz: f.tz });
+    const rest: AnyStep[] = research.filter((s) => s.due > addDays(first, 6));
+    auto = [{ due: first, done_at: null, how: null, kind: "nudge", v: 2, anchor: "ο πελάτης είπε ότι θα το δει: δώσ' του χρόνο" }, ...rest];
+    reason = `ο πελάτης απάντησε (${lastInDay}) ότι θα το δει: επόμενη επαφή ${first}`;
   } else if (f.ball === "we_owe" && lastInDay) {
     // The client wrote last: we owe the answer today; the rest waits behind it.
     const ladder = planGhosted(f.lastInboundAt!, f.tz, f.todayIso).filter((s) => s.due > today);
@@ -479,7 +496,14 @@ export function rescheduleFromConversation<T extends AnyStep>(fu: T[], f: Conver
     // They talked, then went quiet: +2/+5/+10/+20/+35 from THEIR last word,
     // never sooner than two days after George's last message.
     const floor = lastOutDay ? addDays(lastOutDay, 2) : today;
-    const ladder = planGhosted(f.lastInboundAt!, f.tz, f.todayIso).map((s) => (s.due < floor ? { ...s, due: nextSendDay(floor) } : s));
+    let ladder: AnyStep[] = planGhosted(f.lastInboundAt!, f.tz, f.todayIso).map((s) => (s.due < floor ? { ...s, due: nextSendDay(floor) } : s));
+    // A summer charter a year away is not closed in December: for long leads
+    // the +35 close becomes a plain touch and the market anchors carry on.
+    if ((facts.bucket === "LONG" || facts.bucket === "VERY_LONG") && facts.dd && daysBetween(today, facts.dd) > 90) {
+      ladder = ladder.map((s) => (s.kind === "bye" ? { ...s, kind: "nudge" as const, touch: "no_oriented_question" } : s));
+      const lastLadder = ladder.at(-1)?.due ?? today;
+      ladder = [...ladder, ...auto.filter((s) => s.due > lastLadder)];
+    }
     auto = ladder;
     reason = `σιωπή μετά από συζήτηση (τελευταίο μήνυμα πελάτη ${lastInDay})`;
   } else {

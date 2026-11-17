@@ -168,3 +168,27 @@ test("a plan never ends up with two closes", () => {
   });
   assert.equal(r.fu.filter((s) => s.kind === "bye").length, 1);
 });
+
+test("17/11 Sean: 'Thank you. Let me look at the email.' → no chasing, one touch a week later, no December close", () => {
+  const fu = [step("2026-11-17", { anchor: "ο πελάτης έγραψε: χρωστάς απάντηση" }), step("2026-11-18"), step("2026-11-23"), step("2027-01-06", { anchor: "US planning window opens" }), step("2027-06-26", { kind: "bye" })];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-17T14:00:00Z", tz: "America/Chicago", charterFrom: "2027-08-01", sentAtIso: "2026-09-22T11:06:00Z",
+    lastInboundAt: "2026-11-16T22:53:00Z", lastOutboundAt: "2026-11-16T18:08:00Z", hadInboundAfterFirstOut: true, ball: "we_owe",
+    clientFollowupDate: null, lastInboundNeedsReply: false,
+  });
+  assert.equal(r.fu[0].due, "2026-11-23", r.fu.map((s) => s.due).join(","));
+  assert.ok(!r.fu.some((s) => s.due === "2026-11-17" || s.due === "2026-11-18"));
+  assert.ok(r.fu.some((s) => s.due === "2027-01-06"));
+});
+
+test("long lead that went quiet recently: the ladder does not close the file a year early", () => {
+  const fu = [step("2027-01-06", { anchor: "US planning window opens" }), step("2027-06-26", { kind: "bye" })];
+  const r = rescheduleFromConversation(fu, {
+    todayIso: "2026-11-17T14:00:00Z", tz: "America/New_York", charterFrom: "2027-08-01", sentAtIso: "2026-09-22T11:06:00Z",
+    lastInboundAt: "2026-11-10T15:00:00Z", lastOutboundAt: "2026-11-11T15:00:00Z", hadInboundAfterFirstOut: true, ball: "client_owes", clientFollowupDate: null,
+  });
+  const byes = r.fu.filter((s) => s.kind === "bye");
+  assert.equal(byes.length, 1);
+  assert.equal(byes[0].due, "2027-06-26");
+  assert.ok(r.fu.some((s) => s.due === "2027-01-06"));
+});
