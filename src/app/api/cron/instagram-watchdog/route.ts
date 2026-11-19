@@ -79,7 +79,7 @@ async function stealthSkippedDays(
 
 // What the feed crons reported over the silent stretch, so the alarm can
 // say why and not only that. Reads the cron-observer END rows.
-const FEED_CRONS = ["instagram-fleet-post", "instagram-publish", "instagram-generate-weekly"];
+const FEED_CRONS = ["instagram-fleet-post", "instagram-guide", "instagram-publish"];
 async function feedCronCauses(
   sb: ReturnType<typeof createServiceClient>,
   sinceIso: string,
@@ -106,26 +106,6 @@ async function feedCronCauses(
   return tallyCauses(runs);
 }
 
-async function fireGenerateWeekly(week: "current" | "next"): Promise<{
-  ok: boolean;
-  body: any;
-}> {
-  try {
-    const res = await fetch(
-      `${SITE}/api/cron/instagram-generate-weekly?week=${week}`,
-      // The cron lock (middleware.ts) refuses calls without the secret.
-      { method: "GET", headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` } },
-    );
-    const body = await res.json().catch(() => ({}));
-    return { ok: res.ok, body };
-  } catch (err) {
-    return {
-      ok: false,
-      body: { error: err instanceof Error ? err.message : "fetch failed" },
-    };
-  }
-}
-
 async function _observedImpl() {
   const sb = createServiceClient();
 
@@ -145,28 +125,14 @@ async function _observedImpl() {
   let currentWeekResult: any = null;
   let nextWeekResult: any = null;
 
-  if (queueLow || stale) {
-    triggers.push(
-      stale ? `last_published ${staleDays}d ago` : `queue depth ${queueDepth}`,
-    );
-
-    // Fire current-week first so today/tomorrow can still publish if
-    // the captions get approved fast.
-    currentWeekResult = await fireGenerateWeekly("current");
-    nextWeekResult = await fireGenerateWeekly("next");
-
-    const currentInserted = currentWeekResult?.body?.inserted ?? 0;
-    const nextInserted = nextWeekResult?.body?.inserted ?? 0;
-    if (currentInserted + nextInserted > 0) {
-      await sendTelegram(
-        `🛟 <b>IG watchdog auto-triggered</b>\n` +
-          `Reason: ${triggers.join(", ")}\n` +
-          `Current week: ${currentInserted} captions queued for approval\n` +
-          `Next week: ${nextInserted} captions queued for approval\n` +
-          `Tap ✅ on the Telegram cards to schedule.`,
-      ).catch(() => {});
-    }
-  }
+  // 2026-11-19: the watchdog no longer refills a queue. It used to call
+  // the weekly caption generator whenever fewer than three posts were
+  // scheduled; that generator is retired (the feed is now the yacht
+  // carousels, Tue to Fri, and the guide carousels, Mon and Sat, each
+  // built at the hour it publishes), so there is no queue to refill and
+  // calling it would only bring the generated captions back.
+  void queueLow;
+  void stale;
 
   // 2026-11-19: the silence alarm. Everything above tries to refill the
   // queue and stays quiet when that fails, which is how the feed sat

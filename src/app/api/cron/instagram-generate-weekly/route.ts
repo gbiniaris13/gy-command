@@ -147,6 +147,12 @@ function currentMondayUtc(now = new Date()): Date {
 }
 
 async function _observedImpl(req?: any) {
+  // Retired 2026-11-19 (George, after the Instagram research). This job
+  // wrote generated captions over stock photographs: the content Instagram
+  // stopped recommending in April 2026. Monday and Saturday now carry the
+  // guide carousels (instagram-guide), written from the site's own words.
+  // The code below stays for reference and does not run.
+  return NextResponse.json({ skipped: "retired_2026_11_19", replaced_by: "instagram-guide" });
   const sb = createServiceClient();
   const url = (() => {
     try {

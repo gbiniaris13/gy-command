@@ -34,8 +34,7 @@ const WINDOW_MS = 7 * 86400000;
 const EXPECTED_WEEKLY_RUNS: Record<string, number> = {
   "instagram-publish": 7, // daily 08:00
   "instagram-stories": 21, // 3x/day
-  "instagram-carousel": 1, // Wed
-  "instagram-generate-weekly": 1, // Sun
+  "instagram-guide": 2, // Mon + Sat
   "instagram-engagement-digest": 5, // Mon-Fri
   "instagram-dm-followup": 7,
   "instagram-ugc": 7,

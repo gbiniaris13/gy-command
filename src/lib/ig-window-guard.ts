@@ -30,7 +30,9 @@ const FLEET_YACHT_DAYS = new Set([2, 3, 4, 5]); // Tue, Wed, Thu, Fri (JS Date: 
 // 2026-09-03 — George opened Saturday for feed posts (holiday audience
 // scrolls on weekends; we were dark Sat+Sun). Sunday stays story-only.
 const FEED_WEEKDAYS = new Set([1, 2, 3, 4, 5, 6]); // Mon-Sat
-const CAROUSEL_DAYS = new Set([1, 4]); // Mon + Thu
+// 2026-11-19: the guide carousels (instagram-guide) took over Monday and
+// Saturday from the generated captions. Thursday went back to the yachts.
+const CAROUSEL_DAYS = new Set([1, 6]); // Mon + Sat
 
 export type PostType = "feed" | "fleet_yacht" | "reel" | "carousel";
 
@@ -169,13 +171,13 @@ export async function assertPublishAllowed({
     return { allowed: false, reason: "weekend_blackout", detail };
   }
 
-  // Rule 2c — carousel only Mon + Thu.
+  // Rule 2c — carousel only Mon + Sat.
   if (postType === "carousel" && !CAROUSEL_DAYS.has(dayOfWeek)) {
     const weekdayName = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayOfWeek] ?? "?";
-    const detail = `carousel on ${weekdayName} — only Mon + Thu are permitted`;
+    const detail = `carousel on ${weekdayName} — only Mon + Sat are permitted`;
     if (!dryRun) {
       await sendTelegram(
-        `⛔ <b>Carousel blocked</b>\n${detail}\nRe-queued to next Mon/Thu.`
+        `⛔ <b>Carousel blocked</b>\n${detail}\nThe next one goes on Mon or Sat.`
       ).catch(() => {});
     }
     return { allowed: false, reason: "carousel_bad_day", detail };

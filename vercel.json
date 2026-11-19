@@ -133,20 +133,12 @@
       "schedule": "0 5,10,17 * * *"
     },
     {
-      "path": "/api/cron/instagram-carousel",
-      "schedule": "5 16 * * 1,4"
+      "path": "/api/cron/instagram-guide",
+      "schedule": "5 16 * * 1,6"
     },
     {
       "path": "/api/cron/instagram-fleet-story-followup",
       "schedule": "0 */3 * * *"
-    },
-    {
-      "path": "/api/cron/instagram-evergreen",
-      "schedule": "0 7 1 * *"
-    },
-    {
-      "path": "/api/cron/instagram-generate-weekly",
-      "schedule": "0 7 * * 0"
     },
     {
       "path": "/api/cron/instagram-health-check",

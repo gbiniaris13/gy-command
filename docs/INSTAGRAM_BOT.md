@@ -39,16 +39,17 @@
 
 | Cron | Schedule | Does |
 |---|---|---|
-| `instagram-fleet-post` | `0 16 * * 2,3,4,5` | Tue–Fri fleet/yacht feed post (cleared yachts only) |
-| `instagram-publish` | `10 16 * * *` | Feed post for Mon/Sat slots filled by the weekly generator |
+| `instagram-fleet-post` | `0 16 * * 2,3,4,5` | Tue–Fri yacht carousel with text cards (cleared yachts only), §6d |
+| `instagram-guide` | `5 16 * * 1,6` | Mon + Sat guide carousel (costs, how it works, where, who, shortlists), §6e |
+| `instagram-publish` | `10 16 * * *` | Publishes any row still queued in `ig_posts` (normally none since 2026-11-19) |
 | `instagram-publish-reel` | _not scheduled_ | Removed (no stock reels); route kept for manual use |
 | `instagram-stories` | `0 5,10,17 * * *` | 3×/day stories |
-| `instagram-carousel` | `5 16 * * 1,4` | Mon/Thu carousel (currently `carousel_auto_publish` off) |
+| `instagram-carousel` | _not scheduled_ | Replaced by `instagram-guide` on 2026-11-19 |
 | `instagram-fleet-story-followup` | `0 */3 * * *` | Story follow-ups |
-| `instagram-evergreen` | `0 7 1 * *` | Monthly evergreen |
-| `instagram-generate-weekly` | `0 7 * * 0` | Weekly content generation |
+| `instagram-evergreen` | _not scheduled_ | Retired 2026-11-19 (generated rewrites of old captions) |
+| `instagram-generate-weekly` | _not scheduled_ | Retired 2026-11-19 (generated "lifestyle" captions); the route answers `retired` |
 | `instagram-health-check` | `0 7 * * 1` | Weekly health check |
-| `instagram-watchdog` | `30 6 * * *` | Daily watchdog |
+| `instagram-watchdog` | `30 6 * * *` | Daily silence alarm (§6b). No longer refills a queue |
 | `instagram-analytics` | `17 */6 * * *` | Engagement pull (every 6h) |
 | `instagram-followers` | `11 3 * * *` | Follower count history |
 | `instagram-monthly-report` | `0 8 1 * *` | Monthly report |
@@ -200,6 +201,50 @@ to be saved, sent and answered:
   or the cron bearer) returns the caption and the slides in order;
   `?yacht_id=` forces a yacht; `?render=1` also draws and stores the cards,
   to prove the whole path.
+
+## 6e. Guide carousels, Monday and Saturday (2026-11-19)
+
+Monday and Saturday used to carry a generated caption over a stock photograph
+("The first light of dawn paints the Aegean..."). That job, the monthly
+"evergreen" rewrite and the watchdog's habit of calling them are retired.
+In their place `/api/cron/instagram-guide` publishes one guide carousel,
+1080x1350, with no approval step (switch: `settings.guide_posts_enabled`,
+anything but `false` is on).
+
+- **Written guides** (11): what a week costs, the APA, booking in five
+  steps, when to book, Cyclades or Saronic or Ionian, the best month, what
+  a MYBA contract fixes, four checks on a broker, weeks not days, who
+  answers, no owned yachts. **Every sentence comes from the public site**
+  (`george-yachts/lib/houseFaq.js`, `lib/apaFacts.js`), turned into the first
+  person where the site says George does the thing himself. Nothing is
+  generated at publish time. No price is written by hand: the cost guide's
+  worked example reads a live yacht's fee and applies the published bands.
+- **Live shortlists** (7): "Five crewed yachts for ten guests in Greece" and
+  the like, built at publish time from the cleared fleet, cheapest first,
+  each slide her photograph, her facts, her weekly fee and George's own line
+  about her. Only cleared yachts with a stated per-week fee and a known
+  exterior photograph. Fewer than three matches: no shortlist that day.
+- **Rotation**: two written guides, then a shortlist; the turn number lives
+  in `settings.guide_turn_v1` and advances only when a post is published.
+  Turn 0 is the cost guide.
+- **Every slide is needed.** Each is drawn by `/api/og/guide-card` (cron
+  secret or dashboard session only), tried twice, stored under
+  `gy-ig/guides/`. If the planned deck cannot be drawn (usually a photograph
+  that will not load) a written guide with no photograph goes instead. If
+  Instagram refuses a slide, nothing is published and Telegram says why.
+- **Caption**: the deck's own paragraph (plain search words first), the same
+  "DM me \"COST\" ..." line as the closing card, three to five hashtags.
+  Alt text on every slide is the slide's words. First comment: the site page
+  that says the same at length.
+- **Files**: `src/lib/guide-decks.ts` (the words and the rotation; pure,
+  tests in `scripts/ig-tests/guide-decks.test.ts`, which also enforce the
+  house rules on every deck: no dashes, no "we", no price per person, no
+  figure on VAT, nothing invented), `src/lib/guide-pool.ts`,
+  `src/lib/guide-render.ts`, `src/app/api/og/guide-card/route.tsx`.
+- **Preview without publishing**: `GET /api/admin/guide-dryrun`
+  (`?turn=`, `?deck=apa`, `?shortlist=ten-guests`, `?list=1`, `?render=1`).
+- **To add a guide**: append to `GUIDE_DECKS` with the site file the words
+  come from, run the tests. To change a fact, change the site first.
 
 ## 7. Facebook Page mirror — how to activate (free, ~5 min, one-time)
 
