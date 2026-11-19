@@ -347,6 +347,20 @@ night note can be set once, by hand and for free, in Meta Business Suite
 (Inbox, Automations, Away message, 00:00 to 08:00) with the text from
 `awayNote()`.
 
+## 6h. The Monday scorecard (2026-11-19)
+
+The weekly health report (`instagram-health-check`, Monday 07:00 UTC, on
+Telegram) now ends with the numbers the research says predict an enquiry,
+this week against last week and against the research's target for this
+point in the plan (day 30, 60, 90 from 2026-11-19): people reached per reel,
+saves per post, sends per 1,000 reached, profile visits per post, site
+visits from Instagram, messages received, comments from people, briefs sent
+by visitors who came from Instagram. A post the analytics job has not read
+yet shows as "not measured yet", never as zero. Words and sums:
+`src/lib/ig-scorecard.ts` (tests in `scripts/ig-tests/ig-scorecard.test.ts`).
+The targets are the research's judgement, printed so a number has something
+to be read against; they are not a promise.
+
 ## 7. Facebook Page mirror — how to activate (free, ~5 min, one-time)
 
 The mirror code is correct and **posted successfully before** — it only broke

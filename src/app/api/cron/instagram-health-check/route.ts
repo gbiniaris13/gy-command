@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { scorecardLines, kindOf, type WeekNumbers } from "@/lib/ig-scorecard";
 import { observeCron } from "@/lib/cron-observer";
 import { getIgTokenOptional } from "@/lib/ig-token";
 import { CTA_LOG_KEY, ctaReportLines, type CtaLogEntry } from "@/lib/story-cta";
@@ -318,7 +319,7 @@ async function reportToTelegram(
     lines.push(
       "",
       "🚨 <b>Auto-paused all outbound crons.</b>",
-      "Webhooks (comment + DM auto-reply) still work.",
+      "Comments and messages still reach you on Telegram; nothing is answered for you.",
       "",
       "Recovery checklist:",
       "1. Open IG → Profile → Settings → Account Status — screenshot any warnings",
@@ -361,7 +362,70 @@ async function reportToTelegram(
     // The health report must go out even if this section cannot be built.
   }
 
+  // 2026-11-19: the scorecard. The numbers that say whether Instagram is
+  // turning into enquiries (src/lib/ig-scorecard.ts), this week against
+  // last week and against the research's target for this point in the plan.
+  try {
+    const sb = createServiceClient();
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
+    const twoWeeksAgo = new Date(now.getTime() - 14 * 86_400_000);
+    const [thisWeek, lastWeek] = await Promise.all([
+      weekNumbers(sb, weekAgo.toISOString(), now.toISOString()),
+      weekNumbers(sb, twoWeeksAgo.toISOString(), weekAgo.toISOString()),
+    ]);
+    lines.push(...scorecardLines(thisWeek, lastWeek, now));
+  } catch {
+    // Same rule: the report goes out without it.
+  }
+
   await sendTelegram(lines.join("\n"));
+}
+
+/** What happened between two moments, for the scorecard. */
+async function weekNumbers(sb: any, fromIso: string, toIso: string): Promise<WeekNumbers> {
+  const { data: posts } = await sb
+    .from("ig_posts")
+    .select("ig_media_id, metadata")
+    .eq("status", "published")
+    .gte("published_at", fromIso)
+    .lt("published_at", toIso);
+  const ids = (posts ?? []).map((p: any) => p.ig_media_id).filter(Boolean);
+  const byId = new Map<string, any>();
+  if (ids.length) {
+    const { data: an } = await sb.from("ig_post_analytics").select("media_id, reach, saves, shares, profile_visits").in("media_id", ids);
+    for (const a of an ?? []) byId.set(String(a.media_id), a);
+  }
+  const num = (v: unknown) => (typeof v === "number" ? v : null);
+  const count = async (q: any) => {
+    try {
+      const { count: c } = await q;
+      return c ?? 0;
+    } catch {
+      return 0;
+    }
+  };
+  const fromInstagram = (q: any) =>
+    q.gte("started_at", fromIso).lt("started_at", toIso).or("utm_source.in.(instagram,ig,instagram_george),referrer.ilike.%instagram%");
+  return {
+    posts: (posts ?? []).map((p: any) => {
+      const a = byId.get(String(p.ig_media_id));
+      return {
+        kind: kindOf(p.metadata?.kind),
+        // A post the analytics job has not read yet is "not measured", not zero.
+        reach: a ? num(a.reach) : null,
+        saves: a ? num(a.saves) : null,
+        shares: a ? num(a.shares) : null,
+        profileVisits: a ? num(a.profile_visits) : null,
+      };
+    }),
+    messages: await count(sb.from("ig_dm_replies").select("id", { count: "exact", head: true }).gte("sent_at", fromIso).lt("sent_at", toIso)),
+    comments: await count(
+      sb.from("ig_comment_replies").select("id", { count: "exact", head: true }).gte("created_at", fromIso).lt("created_at", toIso).eq("error", "left for George to answer"),
+    ),
+    siteVisits: await count(fromInstagram(sb.from("sessions").select("id", { count: "exact", head: true }))),
+    briefs: await count(fromInstagram(sb.from("sessions").select("id", { count: "exact", head: true }).eq("lead_captured", true))),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────
