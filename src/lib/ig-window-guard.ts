@@ -65,6 +65,33 @@ export function athensNow(): {
   };
 }
 
+/**
+ * The UTC instant of a wall-clock time in Athens on a given Athens date
+ * (YYYY-MM-DD). DST-aware: 18:00 Athens is 15:00 UTC in summer (EEST,
+ * +3) and 16:00 UTC in winter (EET, +2).
+ *
+ * 2026-11-19: every IG feed slot was hard-coded to 15:00 UTC. The clocks
+ * went back on 25 October, 15:00 UTC became 17:00 Athens, the window
+ * guard and the ig_posts_window_check constraint both refused it, and
+ * the feed went silent from 24 October. Anything that writes a
+ * schedule_time must come through here, never through setUTCHours.
+ */
+export function athensWallClockToUtc(ymd: string, hour: number, minute = 0): Date {
+  const [y, m, d] = ymd.split("-").map((n) => parseInt(n, 10));
+  const want = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Athens",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  for (const offset of [2, 3]) {
+    const t = new Date(Date.UTC(y, m - 1, d, hour - offset, minute));
+    if (fmt.format(t) === want) return t;
+  }
+  return new Date(Date.UTC(y, m - 1, d, hour - 2, minute));
+}
+
 export function isInWindow(hour: number, minute: number): boolean {
   if (hour < WINDOW_START_HOUR) return false;
   if (hour > WINDOW_END_HOUR) return false;

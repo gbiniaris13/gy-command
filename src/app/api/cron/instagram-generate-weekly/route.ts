@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { sanitizeCaption } from "@/lib/caption-sanitizer";
 import { observeCron } from "@/lib/cron-observer";
+import { athensWallClockToUtc } from "@/lib/ig-window-guard";
 
 // Cron: every Sunday at 07:00 UTC (10:00 Athens) Gemini generates 7
 // captions in George Biniaris voice and schedules them for Mon-Sun of
@@ -30,13 +31,18 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 // FEED_WEEKDAYS now includes it). Day indices: Mon=0 ... Sun=6.
 const RESERVED_DAY_INDICES = new Set<number>([1, 2, 3, 4, 6]);
 
-// 15:00 UTC = 18:00 Athens summer (DST Mar–Oct).
-// In winter (Nov–Mar) 15:00 UTC = 17:00 Athens, which falls outside
-// the DB window check. The Sunday weekly cron flips
-// PUBLISH_HOUR_UTC_WINTER below for the cold half of the year.
-// George's directive 2026-04-28: "σήμερα 6 η ώρα να ποστάρει" — i.e.
-// 18:00 Athens sharp.
-const PUBLISH_HOUR_UTC = 15;
+// George's directive 2026-04-28: "σήμερα 6 η ώρα να ποστάρει", i.e.
+// 18:00 Athens sharp. Slots are computed in Athens wall-clock time
+// (DST-aware), never as a fixed UTC hour: a fixed 15:00 UTC turned
+// into 17:00 Athens when the clocks went back on 25 Oct 2026, the DB
+// window check refused every row, and the feed went silent.
+const PUBLISH_HOUR_ATHENS = 18;
+
+/** 18:00 Athens on the UTC calendar date of `d` (+ optional minute/sec/ms). */
+function atAthensSlot(d: Date, minute = 0, sec = 0, ms = 0): Date {
+  const t = athensWallClockToUtc(d.toISOString().slice(0, 10), PUBLISH_HOUR_ATHENS, minute);
+  return new Date(t.getTime() + sec * 1000 + ms);
+}
 
 const SYSTEM_PROMPT = `You write Instagram captions for George Yachts, a boutique luxury yacht charter brokerage in Greece (crewed yachts, by the week, Greek waters only). Write as the BRAND, not as a person. NEVER use first person ("I", "my experience", "I've been"). NEVER claim years of experience or personal history.
 
@@ -110,23 +116,22 @@ OUTPUT — strict JSON only, no markdown, no preamble. Include "style":
 }
 
 /**
- * Next Monday at PUBLISH_HOUR_UTC. If today IS Monday and it's still
- * before PUBLISH_HOUR_UTC, we start with today; otherwise we jump to
+ * Next Monday at 18:00 Athens. If today IS Monday and it's still
+ * before 18:00 Athens, we start with today; otherwise we jump to
  * next week.
  */
 function upcomingMondayUtc(now = new Date()): Date {
   const d = new Date(now.getTime());
   const day = d.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
   let daysUntilMonday: number;
-  if (day === 1 && d.getUTCHours() < PUBLISH_HOUR_UTC) {
+  if (day === 1 && d.getTime() < atAthensSlot(d).getTime()) {
     daysUntilMonday = 0;
   } else {
     daysUntilMonday = (1 - day + 7) % 7;
     if (daysUntilMonday === 0) daysUntilMonday = 7;
   }
   d.setUTCDate(d.getUTCDate() + daysUntilMonday);
-  d.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
-  return d;
+  return atAthensSlot(d);
 }
 
 /**
@@ -138,8 +143,7 @@ function currentMondayUtc(now = new Date()): Date {
   const day = d.getUTCDay(); // 0=Sun
   const daysSinceMonday = (day + 6) % 7; // Mon=0, Tue=1, ..., Sun=6
   d.setUTCDate(d.getUTCDate() - daysSinceMonday);
-  d.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
-  return d;
+  return atAthensSlot(d);
 }
 
 async function _observedImpl(req?: any) {
@@ -154,8 +158,7 @@ async function _observedImpl(req?: any) {
   const weekParam = url?.searchParams.get("week") ?? "next";
   const startMonday =
     weekParam === "current" ? currentMondayUtc() : upcomingMondayUtc();
-  const endSunday = new Date(startMonday.getTime() + 6 * 86400000);
-  endSunday.setUTCHours(PUBLISH_HOUR_UTC, 59, 59, 999);
+  const endSunday = atAthensSlot(new Date(startMonday.getTime() + 6 * 86400000), 59, 59, 999);
 
   // Per-day idempotency: look up which days of the upcoming week
   // already have scheduled posts so we only generate captions for the
@@ -192,8 +195,7 @@ async function _observedImpl(req?: any) {
     // takes the OLDEST scheduled row, so that stale row went out at
     // 18:33 and Saturday's own post never did. A past slot is not a
     // hole to fill; it is history.
-    const slot = new Date(d.getTime());
-    slot.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
+    const slot = atAthensSlot(d);
     if (slot.getTime() < nowMs) continue;
     const key = d.toISOString().slice(0, 10);
     if (!takenDayKeys.has(key)) emptyDays.push(i);
@@ -307,8 +309,7 @@ async function _observedImpl(req?: any) {
     const dayName = DAYS[i];
     const entry = byDay.get(dayName.toLowerCase());
     if (!entry) continue;
-    const scheduleTime = new Date(startMonday.getTime() + i * 86400000);
-    scheduleTime.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
+    const scheduleTime = atAthensSlot(new Date(startMonday.getTime() + i * 86400000));
     rows.push({
       schedule_time: scheduleTime.toISOString(),
       caption: entry.caption,

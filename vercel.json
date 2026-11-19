@@ -122,11 +122,11 @@
     },
     {
       "path": "/api/cron/instagram-fleet-post",
-      "schedule": "0 15 * * 2,3,4,5"
+      "schedule": "0 16 * * 2,3,4,5"
     },
     {
       "path": "/api/cron/instagram-publish",
-      "schedule": "30 15 * * *"
+      "schedule": "10 16 * * *"
     },
     {
       "path": "/api/cron/instagram-stories",
@@ -134,7 +134,7 @@
     },
     {
       "path": "/api/cron/instagram-carousel",
-      "schedule": "5 15 * * 1,4"
+      "schedule": "5 16 * * 1,4"
     },
     {
       "path": "/api/cron/instagram-fleet-story-followup",
@@ -174,11 +174,11 @@
     },
     {
       "path": "/api/cron/facebook-mirror",
-      "schedule": "45 15 * * *"
+      "schedule": "45 16 * * *"
     },
     {
       "path": "/api/cron/tiktok-mirror",
-      "schedule": "15 16 * * 1-5"
+      "schedule": "50 16 * * 1-5"
     },
     {
       "path": "/api/cron/tracking-digest",

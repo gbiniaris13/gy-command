@@ -28,15 +28,22 @@
 - **Media:** **Cloudinary** (cloud `ddicit8fz`, folder `gy-ig/`). _Migrated off
   Supabase Storage on 2026-06-02 — Supabase was over its free 1 GB quota._
 
-## 2. The cron schedule (all times UTC; Athens = +2/+3)
+## 2. The cron schedule (all times UTC; Athens = +2 winter / +3 summer)
+
+> **DST rule (2026-11-19).** Vercel crons are UTC-only. The feed window is
+> 18:00–19:30 Athens, which is 15:00–16:30 UTC in summer and 16:00–17:30 UTC
+> in winter. Feed crons therefore sit in **16:00–16:30 UTC**, the only slot
+> inside the window all year. Any code that writes a `schedule_time` must use
+> `athensWallClockToUtc()` (`src/lib/ig-window-guard.ts`), never a fixed
+> `setUTCHours`. Ignoring this silenced the feed from 24 Oct to 19 Nov 2026.
 
 | Cron | Schedule | Does |
 |---|---|---|
-| `instagram-fleet-post` | `0 15 * * 1,2,3,4` | Mon–Thu fleet/yacht feed post |
-| `instagram-publish` | `30 15 * * *` | Daily feed photo post (caption + library photo) |
-| `instagram-publish-reel` | `15 15 * * 3,5` | Wed/Fri reel (video) — gated by `reels_enabled` |
+| `instagram-fleet-post` | `0 16 * * 2,3,4,5` | Tue–Fri fleet/yacht feed post (cleared yachts only) |
+| `instagram-publish` | `10 16 * * *` | Feed post for Mon/Sat slots filled by the weekly generator |
+| `instagram-publish-reel` | _not scheduled_ | Removed (no stock reels); route kept for manual use |
 | `instagram-stories` | `0 5,10,17 * * *` | 3×/day stories |
-| `instagram-carousel` | `5 15 * * 1,4` | Mon/Thu multi-image carousel |
+| `instagram-carousel` | `5 16 * * 1,4` | Mon/Thu carousel (currently `carousel_auto_publish` off) |
 | `instagram-fleet-story-followup` | `0 */3 * * *` | Story follow-ups |
 | `instagram-evergreen` | `0 7 1 * *` | Monthly evergreen |
 | `instagram-generate-weekly` | `0 7 * * 0` | Weekly content generation |
@@ -46,8 +53,8 @@
 | `instagram-followers` | `11 3 * * *` | Follower count history |
 | `instagram-monthly-report` | `0 8 1 * *` | Monthly report |
 | `instagram-weekly-ops-report` | `0 7 * * 4` | Weekly ops report |
-| `facebook-mirror` | `45 15 * * *` | Re-post IG content to FB Page (dormant — §7) |
-| `tiktok-mirror` | `15 16 * * 1-5` | Re-post IG content to TikTok (dormant — §8) |
+| `facebook-mirror` | `45 16 * * *` | Re-post the day's IG post to the FB Page (runs after publish) |
+| `tiktok-mirror` | `50 16 * * 1-5` | Re-post IG content to TikTok (dormant — §8) |
 
 ## 3. Media — how the bot reads & writes (Cloudinary)
 

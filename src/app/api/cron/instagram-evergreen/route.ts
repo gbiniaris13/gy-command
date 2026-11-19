@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase-server";
 import { aiChat } from "@/lib/ai";
 import { observeCron } from "@/lib/cron-observer";
+import { athensWallClockToUtc } from "@/lib/ig-window-guard";
 
 // Cron: 1st of every month at 07:00 UTC (10:00 Athens).
 // Pulls the top-20%-engagement posts older than 6 months from
@@ -17,7 +18,7 @@ import { observeCron } from "@/lib/cron-observer";
 
 const MIN_SOURCE_POSTS = 10; // Need enough signal to pick a top 20%
 const REWRITE_COUNT = 4;
-const PUBLISH_HOUR_UTC = 15;
+const PUBLISH_HOUR_ATHENS = 18; // DST-aware, see athensWallClockToUtc
 const SIX_MONTHS_MS = 180 * 86400000;
 
 const REWRITE_SYSTEM = `You rewrite Instagram captions for George Yachts. Same core message, new angle, new opening, new tone. Return only the new caption text — no JSON, no quotes, no preamble.`;
@@ -31,15 +32,14 @@ ${original}`;
 
 function pickSpreadDates(now: Date, count: number): Date[] {
   // Return {count} evenly spaced dates inside the next 30 days,
-  // each at 15:00 UTC. Skips the first 48h so we don't clash with
+  // each at 18:00 Athens (DST-aware). Skips the first 48h so we don't clash with
   // the weekly generator that runs every Sunday.
   const out: Date[] = [];
   const base = new Date(now.getTime() + 2 * 86400000);
   const stride = Math.floor(28 / count);
   for (let i = 0; i < count; i++) {
     const d = new Date(base.getTime() + i * stride * 86400000);
-    d.setUTCHours(PUBLISH_HOUR_UTC, 0, 0, 0);
-    out.push(d);
+    out.push(athensWallClockToUtc(d.toISOString().slice(0, 10), PUBLISH_HOUR_ATHENS, 0));
   }
   return out;
 }

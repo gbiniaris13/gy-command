@@ -13,7 +13,7 @@ import {
   checkRateLimitHealth,
   logRateLimitAction,
 } from "@/lib/rate-limit-guard";
-import { assertPublishAllowed } from "@/lib/ig-window-guard";
+import { assertPublishAllowed, athensWallClockToUtc } from "@/lib/ig-window-guard";
 import { stripBannedHashtags } from "@/lib/hashtag-guard";
 import { isCaptionTooSimilar } from "@/lib/caption-similarity";
 import { fetchFleetPool, buildFleetUTM } from "@/lib/sanity-fleet";
@@ -295,11 +295,10 @@ async function _observedImpl() {
           const athensYmd = new Intl.DateTimeFormat("en-CA", {
             timeZone: "Europe/Athens",
           }).format(cand);
-          // 18:30 Athens = 15:30 UTC in summer DST. Build ISO from
-          // Athens date + "T15:30:00.000Z" — the constraint check in
-          // the DB does its own AT TIME ZONE conversion, so exact
-          // summer/winter offset isn't critical for scheduling intent.
-          return `${athensYmd}T15:30:00.000Z`;
+          // 18:30 Athens on that Athens date, DST-aware (15:30 UTC in
+          // summer, 16:30 UTC in winter). A fixed T15:30Z is 17:30 Athens
+          // in winter and the DB window check refuses the row.
+          return athensWallClockToUtc(athensYmd, 18, 30).toISOString();
         }
       }
       return new Date().toISOString();
