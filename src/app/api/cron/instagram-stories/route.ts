@@ -24,6 +24,15 @@ import {
   composeAndUploadStoryImage,
   pruneOldStoryComposites,
 } from "@/lib/story-image-uploader";
+import {
+  CTA_COUNTER_KEY,
+  CTA_LOG_KEY,
+  appendCtaLog,
+  facebookCta,
+  instagramCta,
+  variantForCounter,
+  type CtaLogEntry,
+} from "@/lib/story-cta";
 
 // Cron: daily 09:00 UTC (12:00 Athens) — publishes 1 Story per day.
 // Uses a photo from the ROBERTO IG library + AI-generated quote overlay.
@@ -63,6 +72,43 @@ interface YachtRotationState {
   lastSlug: string | null;
   cycleStartedAt: string | null;
   cyclesCompleted: number;
+}
+
+// 2026-11-19: the call-to-action test (see src/lib/story-cta.ts). A
+// counter that advances with every published story decides whether the
+// banner says "Link in bio" or "DM us"; a durable log keeps which story
+// carried which, so the weekly report can compare them. The rate-limit
+// log is no use for that: it is pruned after a week.
+async function loadCtaCounter(sb: any): Promise<number> {
+  try {
+    const { data } = await sb.from("settings").select("value").eq("key", CTA_COUNTER_KEY).maybeSingle();
+    const n = Number(JSON.parse(data?.value ?? "{}").counter);
+    return Number.isInteger(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function recordCtaStory(sb: any, counter: number, entry: CtaLogEntry): Promise<void> {
+  const now = new Date().toISOString();
+  try {
+    await sb.from("settings").upsert(
+      { key: CTA_COUNTER_KEY, value: JSON.stringify({ counter: counter + 1, updated_at: now }), updated_at: now },
+      { onConflict: "key" },
+    );
+    const { data } = await sb.from("settings").select("value").eq("key", CTA_LOG_KEY).maybeSingle();
+    let log: CtaLogEntry[] = [];
+    try {
+      const parsed = JSON.parse(data?.value ?? "[]");
+      if (Array.isArray(parsed)) log = parsed;
+    } catch {}
+    await sb.from("settings").upsert(
+      { key: CTA_LOG_KEY, value: JSON.stringify(appendCtaLog(log, entry)), updated_at: now },
+      { onConflict: "key" },
+    );
+  } catch {
+    // Best-effort: a lost log line must never fail a published story.
+  }
 }
 
 async function loadSlotCounter(sb: any): Promise<number> {
@@ -350,22 +396,15 @@ async function _observedImpl(req?: Request) {
   // to /yachts/<slug> via the synthetic tag injected above.
   const linkTarget: StoryLinkResult = classifyPhotoForStory(photo);
 
-  // 2026-05-14 — bake a visible URL banner onto the story image.
-  // Meta's Content Publishing API does NOT permit adding Instagram
-  // Link Stickers programmatically (app-only feature, no API path
-  // even for Business accounts), so we make the destination URL
-  // visible directly inside the photo. Viewers can long-press the
-  // URL on iOS to open it, or simply type it into a browser.
-  //
-  // We hand the story-image generator the SHORT display URL (without
-  // the long UTM tail) so the banner stays legible.
-  let displayUrlForBanner = linkTarget.url
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .split("?")[0];
-  if (displayUrlForBanner.length > 64) {
-    displayUrlForBanner = displayUrlForBanner.slice(0, 60) + "…";
-  }
+  // 2026-11-19: the banner used to show the destination address under
+  // the words "Tap to view yacht". Meta does not let the API attach a
+  // link sticker, so nothing was tappable, and in seven months no visit
+  // reached the site from a story. The banner now asks for something the
+  // viewer can do inside Instagram, alternating between two requests so
+  // the numbers can say which works (src/lib/story-cta.ts).
+  const ctaCounter = await loadCtaCounter(sb);
+  const ctaVariant = variantForCounter(ctaCounter);
+  const cta = instagramCta({ variant: ctaVariant, yachtName: yachtChoice?.yachtName ?? null });
   // The cron's app baseUrl — we read the Vercel system env var so
   // dev/preview deploys generate against their own host.
   const appHost =
@@ -416,12 +455,19 @@ async function _observedImpl(req?: Request) {
     : (theme || "").slice(0, 90);
   const composedStoryImageUrl = await composeAndUploadStoryImage({
     photoUrl: photo.public_url,
-    displayUrl: displayUrlForBanner,
-    eyebrow: yachtChoice ? "Tap to view yacht" : "Visit georgeyachts.com",
+    displayUrl: cta.main,
+    eyebrow: cta.eyebrow,
+    icon: cta.icon,
     title: ogTitle,
     subtitle: ogSubtitle,
     appBaseUrl,
   });
+  // 2026-11-19: when the composer fails it hands back the bare photo, and
+  // the story still goes out, with no heading and no banner. That used to
+  // happen silently (18 of 20 stories in one week). It is now said out
+  // loud in the Telegram card, and a bare story is kept out of the
+  // call-to-action test: it asked the viewer for nothing.
+  const composeFailed = composedStoryImageUrl === photo.public_url;
   // Best-effort housekeeping — don't await on the critical path.
   pruneOldStoryComposites().catch(() => {});
 
@@ -526,6 +572,15 @@ async function _observedImpl(req?: Request) {
         story_link_category: linkTarget.category,
         slot_kind: isYachtSlot ? "yacht" : "greece",
         yacht_slug: yachtChoice?.yachtSlug ?? null,
+        cta_variant: composeFailed ? null : ctaVariant,
+        composed: !composeFailed,
+      });
+      if (!composeFailed) await recordCtaStory(sb, ctaCounter, {
+        media_id: String(publishData.id),
+        at: new Date().toISOString(),
+        variant: ctaVariant,
+        slot: isYachtSlot ? "yacht" : "greece",
+        yacht_slug: yachtChoice?.yachtSlug ?? null,
       });
       // 2026-05-14 — Telegram now carries the resolved link target so
       // George can swipe-into the just-published story on his phone
@@ -538,7 +593,19 @@ async function _observedImpl(req?: Request) {
       // mirror reads identically across both platforms.
       let fbMirrorLine = "";
       try {
-        const fb = await publishPhotoStory({ photoUrl: composedStoryImageUrl });
+        // "Link in bio" means nothing on a Facebook Page, so the mirror
+        // gets its own picture with the address, short enough to type.
+        const fbCta = facebookCta();
+        const fbStoryImageUrl = await composeAndUploadStoryImage({
+          photoUrl: photo.public_url,
+          displayUrl: fbCta.main,
+          eyebrow: fbCta.eyebrow,
+          icon: fbCta.icon,
+          title: ogTitle,
+          subtitle: ogSubtitle,
+          appBaseUrl,
+        });
+        const fb = await publishPhotoStory({ photoUrl: fbStoryImageUrl });
         if (fb.ok) {
           fbMirrorLine = `\n📘 FB Story mirrored · post_id ${fb.post_id}`;
         } else {
@@ -560,15 +627,13 @@ async function _observedImpl(req?: Request) {
         `📱 <b>Story published</b> · ${slotKind}`,
         `Theme: ${theme}${yachtLine}${fbMirrorLine}`,
         ``,
-        `🔗 <b>Link target:</b>`,
-        `<code>${linkTarget.url}</code>`,
+        composeFailed
+          ? `⚠️ <b>The banner could not be drawn, so this story went out as a bare photo.</b> Not counted in the call-to-action test.`
+          : `<b>On the story:</b> ${cta.eyebrow} · ${cta.main} <i>(test: ${ctaVariant === "bio" ? "link in bio" : "DM"})</i>`,
+        `<i>A story posted through the API cannot carry a tappable link, so the banner asks for a profile visit or a message.</i>`,
         ``,
-        `<b>Want the official clickable Link sticker?</b>`,
-        `1. Tap the image below → Save Image`,
-        `2. IG app → swipe right (Story camera) → 🖼️ pick saved image`,
-        `3. 🎁 sticker → <b>Link</b> → paste the URL above`,
-        `4. Post the new story`,
-        `<i>(Optional — the auto-posted story already shows the URL banner readable in the photo.)</i>`,
+        `🔗 Page this story is about:`,
+        `<code>${linkTarget.url}</code>`,
         ``,
         `🖼️ <a href="${composedStoryImageUrl}">Composed story image (1080×1920)</a>`,
         ``,

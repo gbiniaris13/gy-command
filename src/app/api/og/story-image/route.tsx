@@ -1,146 +1,241 @@
-// Story-image generator with a visible URL banner baked in.
+// Story-image generator: photo, a heading at the top, a banner at the bottom.
 //
-// Meta's Content Publishing API does NOT let us add an Instagram Link
-// Sticker programmatically — link stickers are app-only. Workaround:
-// we compose a 1080×1920 story image where the original photo is the
-// background and a gold-bordered URL banner sits anchored at the
-// bottom. Viewers see the destination clearly and can long-press
-// (iOS) or simply type it into a browser.
-//
-// Uses Next.js's built-in `ImageResponse` (next/og) — Edge runtime,
-// zero new dependencies, free forever.
+// Meta's Content Publishing API does not let us attach a link sticker
+// ("Publishing stickers (i.e., link, poll, location) is not supported"),
+// so whatever the story has to say is drawn into the picture: the yacht
+// or theme at the top, a call to action in a gold-bordered banner at the
+// bottom ("Link in bio", 'DM us "AD ASTRA"'; see src/lib/story-cta.ts).
 //
 // Query params:
 //   photo    = absolute URL of the source photo (required)
-//   url      = display URL string ("georgeyachts.com/yachts/alena")
-//   eyebrow  = optional small line above the URL ("Open in browser")
-//   title    = optional headline shown TOP-CENTER (yacht name / theme)
-//   subtitle = optional second line below the title
+//   url      = main line of the banner
+//   eyebrow  = small line above it
+//   icon     = "none" drops the link glyph before the main line
+//   title    = heading shown top-centre (yacht name / theme)
+//   subtitle = second line below the title
 //
-// 2026-05-14 — added top caption (title + subtitle) after George
-// flagged stories were going up "with no text on them". The story
-// is now visually self-contained: yacht/theme heading at the top,
-// photo in the middle, gold URL banner at the bottom.
+// 2026-11-19: rebuilt after finding that 18 of the last 20 stories went
+// out as bare photographs. The stories cron gives this route 20 seconds,
+// twice, and it kept running out. Rendering depended on three things
+// fetched from the internet at draw time with no time limit: a font for
+// the "✦" around the brand line, the emoji artwork for "🔗", and the
+// photograph at its original size. Any one of them stalling hung the
+// render. Now:
+//   - No glyph outside the bundled font is ever drawn. The ornaments are
+//     shapes, the link glyph is an inline SVG, and incoming text is
+//     reduced to characters the font has (plainText below).
+//   - The photograph is asked for at story size (1080x1920 JPEG) from
+//     Sanity or Cloudinary, fetched here with a time limit, and embedded.
+//     A photo that cannot be fetched is a fast 502, never a hang, so the
+//     cron's retry and fallback happen in seconds.
+//   - The picture is rendered to bytes before anything is returned, so a
+//     failed render is a 500, never a 200 with half a file.
+// The same pass fixed the heading: it sat inside a React fragment, which
+// the renderer laid out as a narrow column in the top-left corner with
+// the title and subtitle on top of each other.
 
 import { ImageResponse } from "next/og";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
+const W = 1080;
+const H = 1920;
+const NAVY = "#0D1B2A";
+const GOLD = "#C9A84C";
+const PHOTO_TIMEOUT_MS = 12_000;
+const PHOTO_MAX_BYTES = 12 * 1024 * 1024;
+
+/** Reduce text to what the bundled font can draw (Basic Latin + Latin-1). */
+function plainText(input: string, max: number): string {
+  return input
+    .replace(/[“”„«»]/g, '"')
+    .replace(/[‘’‚]/g, "'")
+    .replace(/[–—‒―]/g, ", ")
+    .replace(/…/g, "...")
+    .replace(/[•∙⋅]/g, "·")
+    .replace(/[^\x20-\x7E -ÿ]/g, "")
+    .replace(/\s+,/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+/** Ask the image host for the photo already cut to a story, as JPEG. */
+function storyRendition(photo: string): string {
+  try {
+    const u = new URL(photo);
+    if (u.hostname === "cdn.sanity.io") {
+      return `${u.origin}${u.pathname}?w=${W}&h=${H}&fit=crop&fm=jpg&q=82`;
+    }
+    if (u.hostname === "res.cloudinary.com" && u.pathname.includes("/image/upload/")) {
+      // Only add a transformation when the URL does not already carry one.
+      const [head, tail] = u.pathname.split("/image/upload/");
+      const first = tail.split("/")[0] ?? "";
+      const hasTransform = /^[a-z]{1,3}_[^/]+/.test(first) && !/^v\d+$/.test(first);
+      if (!hasTransform) {
+        return `${u.origin}${head}/image/upload/c_fill,g_auto,w_${W},h_${H},q_auto:good,f_jpg/${tail}`;
+      }
+    }
+  } catch {
+    // fall through to the URL as given
+  }
+  return photo;
+}
+
+async function fetchPhotoDataUri(photo: string): Promise<string | null> {
+  for (const url of [storyRendition(photo), photo]) {
+    try {
+      const res = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS) });
+      if (!res.ok) continue;
+      const type = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      if (type !== "image/jpeg" && type !== "image/png") continue;
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.byteLength === 0 || bytes.byteLength > PHOTO_MAX_BYTES) continue;
+      return `data:${type};base64,${bytes.toString("base64")}`;
+    } catch {
+      // try the next candidate
+    }
+    if (url === photo) break; // rendition and original were the same URL
+  }
+  return null;
+}
+
+function Diamond() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        width: 12,
+        height: 12,
+        background: GOLD,
+        transform: "rotate(45deg)",
+      }}
+    />
+  );
+}
+
+function LinkGlyph() {
+  return (
+    <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="#F4E4B8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
 
 export async function GET(request: Request): Promise<Response> {
   const { searchParams } = new URL(request.url);
   const photo = searchParams.get("photo") || "";
-  const displayUrl = (searchParams.get("url") || "georgeyachts.com").slice(0, 70);
-  const eyebrow = (searchParams.get("eyebrow") || "Open in browser").slice(0, 50);
-  const title = (searchParams.get("title") || "").slice(0, 70);
-  const subtitle = (searchParams.get("subtitle") || "").slice(0, 90);
+  const main = plainText(searchParams.get("url") || "georgeyachts.com", 70);
+  const eyebrow = plainText(searchParams.get("eyebrow") || "George Yachts", 50);
+  const showLinkIcon = searchParams.get("icon") !== "none";
+  const title = plainText(searchParams.get("title") || "", 70);
+  const subtitle = plainText(searchParams.get("subtitle") || "", 90);
 
-  // If the photo URL is missing or malformed we still emit a placeholder
-  // story rather than 500 — keeps the IG cron from failing on weird
-  // edge cases.
-  const safePhoto = photo.startsWith("http") ? photo : "";
+  let photoData: string | null = null;
+  if (photo.startsWith("http")) {
+    photoData = await fetchPhotoDataUri(photo);
+    if (!photoData) {
+      return Response.json({ error: "photo could not be fetched as JPEG or PNG" }, { status: 502 });
+    }
+  }
 
-  return new ImageResponse(
-    (
-      <div
-        style={{
-          display: "flex",
-          width: 1080,
-          height: 1920,
-          background: "#0D1B2A",
-          position: "relative",
-          fontFamily: "system-ui, -apple-system, sans-serif",
-        }}
-      >
-        {/* Background photo (cover-fitted to the 9:16 frame) */}
-        {safePhoto ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={safePhoto}
-            alt=""
-            width={1080}
-            height={1920}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: 1080,
-              height: 1920,
-              objectFit: "cover",
-            }}
-          />
-        ) : null}
-
-        {/* Subtle gradient at the bottom so the URL banner sits on a
-            dark base regardless of the underlying photo. */}
+  try {
+    const image = new ImageResponse(
+      (
         <div
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 600,
-            background:
-              "linear-gradient(to top, rgba(13,27,42,0.85) 0%, rgba(13,27,42,0.55) 55%, rgba(13,27,42,0) 100%)",
             display: "flex",
+            width: W,
+            height: H,
+            background: NAVY,
+            position: "relative",
           }}
-        />
+        >
+          {photoData ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={photoData}
+              alt=""
+              width={W}
+              height={H}
+              style={{ position: "absolute", top: 0, left: 0, width: W, height: H, objectFit: "cover" }}
+            />
+          ) : null}
 
-        {/* Top gradient + headline block — only emitted when a title
-            is present. Mirrors the dark band at the bottom so the
-            yacht name / theme reads regardless of the photo's hue. */}
-        {title ? (
-          <>
+          {/* Dark base under the banner, whatever the photo. */}
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              bottom: 0,
+              width: W,
+              height: 600,
+              display: "flex",
+              background:
+                "linear-gradient(to top, rgba(13,27,42,0.85) 0%, rgba(13,27,42,0.55) 55%, rgba(13,27,42,0) 100%)",
+            }}
+          />
+
+          {/* Dark base under the heading. */}
+          {title ? (
             <div
               style={{
                 position: "absolute",
                 left: 0,
-                right: 0,
                 top: 0,
-                height: 500,
-                background:
-                  "linear-gradient(to bottom, rgba(13,27,42,0.85) 0%, rgba(13,27,42,0.55) 55%, rgba(13,27,42,0) 100%)",
+                width: W,
+                height: 520,
                 display: "flex",
+                background:
+                  "linear-gradient(to bottom, rgba(13,27,42,0.88) 0%, rgba(13,27,42,0.55) 55%, rgba(13,27,42,0) 100%)",
               }}
             />
+          ) : null}
+
+          {/* Heading: brand line, title, subtitle. Explicit width, no fragment. */}
+          {title ? (
             <div
               style={{
                 position: "absolute",
                 left: 70,
-                right: 70,
                 top: 130,
+                width: W - 140,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                gap: 16,
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 14,
-                  fontSize: 22,
-                  letterSpacing: "0.42em",
-                  textTransform: "uppercase",
-                  color: "#C9A84C",
-                  fontWeight: 600,
-                }}
-              >
-                <span style={{ display: "flex" }}>✦</span>
-                <span style={{ display: "flex" }}>GEORGE YACHTS</span>
-                <span style={{ display: "flex" }}>✦</span>
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <Diamond />
+                <div
+                  style={{
+                    display: "flex",
+                    margin: "0 22px",
+                    fontSize: 22,
+                    letterSpacing: "0.42em",
+                    color: GOLD,
+                    fontWeight: 600,
+                  }}
+                >
+                  GEORGE YACHTS
+                </div>
+                <Diamond />
               </div>
               <div
                 style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 22,
+                  width: W - 140,
                   color: "#F8F5F0",
                   fontSize: 64,
                   fontWeight: 700,
                   letterSpacing: "-0.01em",
                   textAlign: "center",
                   lineHeight: 1.1,
-                  display: "flex",
                   textShadow: "0 4px 24px rgba(0,0,0,0.55)",
-                  maxWidth: 940,
                 }}
               >
                 {title}
@@ -148,15 +243,15 @@ export async function GET(request: Request): Promise<Response> {
               {subtitle ? (
                 <div
                   style={{
-                    color: "rgba(248, 245, 240, 0.85)",
+                    display: "flex",
+                    justifyContent: "center",
+                    marginTop: 18,
+                    width: W - 200,
+                    color: "rgba(248, 245, 240, 0.88)",
                     fontSize: 30,
-                    fontWeight: 400,
-                    fontStyle: "italic",
                     letterSpacing: "0.01em",
                     textAlign: "center",
                     lineHeight: 1.35,
-                    display: "flex",
-                    maxWidth: 880,
                     textShadow: "0 2px 12px rgba(0,0,0,0.55)",
                   }}
                 >
@@ -164,69 +259,81 @@ export async function GET(request: Request): Promise<Response> {
                 </div>
               ) : null}
             </div>
-          </>
-        ) : null}
+          ) : null}
 
-        {/* URL banner — gold border, ivory text, anchored above the
-            iOS story controls (which Instagram overlays on the lower
-            ~110 px of every story). */}
-        <div
-          style={{
-            position: "absolute",
-            left: 70,
-            right: 70,
-            bottom: 220,
-            padding: "32px 40px",
-            background: "rgba(13, 27, 42, 0.78)",
-            border: "3px solid #C9A84C",
-            borderRadius: 24,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 10,
-            boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
-          }}
-        >
+          {/* Banner, anchored above the controls Instagram overlays on the
+              lower part of every story. */}
           <div
             style={{
-              color: "rgba(248, 245, 240, 0.65)",
-              fontSize: 28,
-              letterSpacing: "0.32em",
-              textTransform: "uppercase",
-              fontWeight: 500,
+              position: "absolute",
+              left: 70,
+              bottom: 220,
+              width: W - 140,
+              padding: "32px 40px",
+              background: "rgba(13, 27, 42, 0.78)",
+              border: `3px solid ${GOLD}`,
+              borderRadius: 24,
               display: "flex",
-            }}
-          >
-            {eyebrow}
-          </div>
-          <div
-            style={{
-              color: "#F4E4B8",
-              fontSize: 54,
-              fontWeight: 700,
-              letterSpacing: "0.01em",
-              display: "flex",
+              flexDirection: "column",
               alignItems: "center",
-              gap: 14,
-              textAlign: "center",
-              maxWidth: 920,
-              wordBreak: "break-word",
+              boxShadow: "0 24px 60px rgba(0,0,0,0.45)",
             }}
           >
-            <span style={{ fontSize: 56, display: "flex" }}>🔗</span>
-            <span style={{ display: "flex" }}>{displayUrl}</span>
+            <div
+              style={{
+                display: "flex",
+                color: "rgba(248, 245, 240, 0.7)",
+                fontSize: 28,
+                letterSpacing: "0.32em",
+                textTransform: "uppercase",
+                fontWeight: 500,
+                textAlign: "center",
+              }}
+            >
+              {eyebrow}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: 12,
+                color: "#F4E4B8",
+                fontSize: 54,
+                fontWeight: 700,
+                letterSpacing: "0.01em",
+                textAlign: "center",
+              }}
+            >
+              {showLinkIcon ? (
+                <div style={{ display: "flex", marginRight: 16 }}>
+                  <LinkGlyph />
+                </div>
+              ) : null}
+              <div style={{ display: "flex" }}>{main}</div>
+            </div>
           </div>
         </div>
-      </div>
-    ),
-    {
-      width: 1080,
-      height: 1920,
-      // Edge response cache: 1h is plenty — the IG container fetches
-      // once during media creation; we never re-serve.
+      ),
+      { width: W, height: H },
+    );
+
+    // Render to bytes here, so a failure is an honest 500.
+    const bytes = await image.arrayBuffer();
+    if (bytes.byteLength < 1000) {
+      return Response.json({ error: "render produced no image" }, { status: 500 });
+    }
+    return new Response(bytes, {
+      status: 200,
       headers: {
+        "Content-Type": "image/png",
         "Cache-Control": "public, max-age=3600, s-maxage=3600",
       },
-    },
-  );
+    });
+  } catch (err) {
+    return Response.json(
+      { error: err instanceof Error ? err.message.slice(0, 200) : "render failed" },
+      { status: 500 },
+    );
+  }
 }

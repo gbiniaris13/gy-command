@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
 import { observeCron } from "@/lib/cron-observer";
 import { getIgTokenOptional } from "@/lib/ig-token";
+import { CTA_LOG_KEY, ctaReportLines, type CtaLogEntry } from "@/lib/story-cta";
 
 // Cron: Monday 07:00 UTC (10:00 Athens) — weekly account health check.
 //
@@ -336,6 +337,28 @@ async function reportToTelegram(
       "🔧 <b>Infra note (one-time):</b>",
       "Fixed 2026-04-20: Vercel serverless function cap was silently killing ~40% of publish / stories / carousel invocations for the past week (504 timeout inside the 0-900s jitter window). Engagement numbers above compare against that artificially-low baseline — expect a natural bump this week as the fix takes effect.",
     );
+  }
+
+  // 2026-11-19: the story call-to-action test, "Link in bio" against
+  // "DM us" (src/lib/story-cta.ts). Says nothing until the first story of
+  // the test has gone out, and refuses a verdict on a small sample.
+  try {
+    const ctaSb = createServiceClient();
+    const { data: ctaRow } = await ctaSb.from("settings").select("value").eq("key", CTA_LOG_KEY).maybeSingle();
+    let ctaLog: CtaLogEntry[] = [];
+    try {
+      const parsed = JSON.parse((ctaRow?.value as string) ?? "[]");
+      if (Array.isArray(parsed)) ctaLog = parsed;
+    } catch {}
+    // Instagram tags every tap on the profile link itself (utm_source=ig).
+    const { count: bioSessions } = await ctaSb
+      .from("sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("utm_source", "ig")
+      .gte("started_at", new Date(Date.now() - 7 * 86_400_000).toISOString());
+    lines.push(...ctaReportLines({ log: ctaLog, bioLinkSessions7d: bioSessions ?? null }));
+  } catch {
+    // The health report must go out even if this section cannot be built.
   }
 
   await sendTelegram(lines.join("\n"));

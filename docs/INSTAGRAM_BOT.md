@@ -134,6 +134,32 @@ and none went out? Rules live in `src/lib/ig-silence.ts`, tests in
   (stealth roll) is excused. Today never counts: the post goes out at 18:00.
 - Feed posts only. Stories are not covered.
 
+## 6c. Stories: what they ask for, and the test (2026-11-19)
+
+A story published through the API **cannot carry a tappable link** (Meta:
+"Publishing stickers (i.e., link, poll, location) is not supported"). For
+seven months the banner said "Tap to view yacht" over an address nobody could
+tap, and no site visit ever came from a story (0 of 17,030 sessions).
+
+- The banner now asks for something the viewer can do inside Instagram, and
+  alternates with every story: **"Link in bio"** and **"DM us"** (the yacht's
+  name on yacht slots, "your dates" on Greece slots). Copy and rules:
+  `src/lib/story-cta.ts`; tests: `scripts/ig-tests/story-cta.test.ts`.
+- The Facebook mirror gets its own picture with `georgeyachts.com`.
+- Which story carried which request is kept in `settings.story_cta_log_v1`
+  (the rate-limit log is pruned after a week). `instagram-analytics` reads
+  each live story's insights every six hours and keeps the highest reading.
+- The Monday health report compares the two per 1,000 accounts reached:
+  replies (DMs to the story) and profile visits. No verdict before 20
+  measured stories each.
+- **The picture itself** is drawn by `/api/og/story-image`. Rebuilt the same
+  day: it used to fetch a symbol font, emoji artwork and the full-size photo
+  at draw time with no time limit, and 18 of 20 stories in one week went out
+  as bare photos when it stalled. It now draws nothing the bundled font
+  lacks, asks the image host for a 1080x1920 JPEG, and fails fast. If the
+  banner still cannot be drawn, the Telegram card says so and the story is
+  left out of the test.
+
 ## 7. Facebook Page mirror — how to activate (free, ~5 min, one-time)
 
 The mirror code is correct and **posted successfully before** — it only broke

@@ -41,9 +41,11 @@ export async function composeAndUploadStoryImage(args: {
   eyebrow: string;
   title?: string;
   subtitle?: string;
+  /** "none" drops the link glyph before the main line (used when it is not an address). */
+  icon?: "link" | "none";
   appBaseUrl: string;
 }): Promise<string> {
-  const { photoUrl, displayUrl, eyebrow, title, subtitle, appBaseUrl } = args;
+  const { photoUrl, displayUrl, eyebrow, title, subtitle, icon, appBaseUrl } = args;
 
   // Step 1 — render the composed image via our OG endpoint.
   const ogUrl =
@@ -52,7 +54,8 @@ export async function composeAndUploadStoryImage(args: {
     `&url=${encodeURIComponent(displayUrl)}` +
     `&eyebrow=${encodeURIComponent(eyebrow)}` +
     (title ? `&title=${encodeURIComponent(title)}` : "") +
-    (subtitle ? `&subtitle=${encodeURIComponent(subtitle)}` : "");
+    (subtitle ? `&subtitle=${encodeURIComponent(subtitle)}` : "") +
+    (icon === "none" ? "&icon=none" : "");
 
   // 2026-08-01 — retry once. The 10:00 cron was hitting the 25s abort on a
   // COLD OG lambda (Satori render + Sanity photo fetch on first invocation)
@@ -77,7 +80,13 @@ export async function composeAndUploadStoryImage(args: {
         continue;
       }
       const ab = await res.arrayBuffer();
-      if (ab.byteLength > 0) bytes = new Uint8Array(ab);
+      const candidate = new Uint8Array(ab);
+      // Only a real PNG is worth uploading: 0x89 "PNG".
+      const isPng =
+        candidate.byteLength > 1000 &&
+        candidate[0] === 0x89 && candidate[1] === 0x50 && candidate[2] === 0x4e && candidate[3] === 0x47;
+      if (isPng) bytes = candidate;
+      else console.error(`[story-image-uploader] OG returned no PNG (attempt ${attempt}), ${candidate.byteLength} bytes`);
     } catch (e) {
       console.error(`[story-image-uploader] OG fetch threw (attempt ${attempt}):`, e);
     }
