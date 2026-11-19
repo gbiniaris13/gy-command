@@ -2,8 +2,17 @@
 /**
  * Fleet post caption generation — one prompt per angle.
  *
- * Phase D.1. Every prompt enforces the George Yachts brand voice:
- *   - "We" not "I" (brand, not person)
+ * Phase D.1. Every prompt enforces the George Yachts brand voice.
+ *
+ * 2026-11-19 (George, after the Instagram research): fleet captions now
+ * speak as George in the first person, but ONLY from what he has already
+ * written on the yacht's page (insider tip, ideal for). The model may
+ * shape his words; it may not add a view, a memory, a client or a claim
+ * of experience. A caption that does is replaced by the plain fallback
+ * (inventedExperience in fleet-cards.ts). The call to action and the
+ * hashtags are no longer written by the model at all: assembleFleetCaption
+ * adds them in code.
+ *   - "I" for George's own published views, plain fact otherwise
  *   - Never claim years of personal experience
  *   - Editorial framing, not sales pitch
  *   - Natural spec weave, never bullet lists in the caption body
@@ -27,31 +36,51 @@ import {
   detectBannedPhrases,
   detectEmojiViolations,
 } from "./ai-voice-guardrails";
+import { closingLine, fleetHashtags, inventedExperience, shortName } from "./fleet-cards";
+
+// The shared guardrails say "we, never I", ask for a call to action, set
+// a magazine register, allow one closing emoji, and suggest crediting a
+// remark to "agencies we work with". Fleet captions overrule all five (see
+// the header), so those lines are taken out here rather than contradicted
+// further down the same prompt.
+const FLEET_VOICE = VOICE_GUARDRAILS.split("\n")
+  .filter((line) => !/^\s*(PRONOUN|CTA|REGISTER|EMOJI|CLIENT PRIVACY)\b/.test(line))
+  .join("\n");
+
+/** No emoji in a fleet caption: the body is no longer the end of the post. */
+function stripEmoji(text: string): string {
+  return text
+    .replace(/[\p{Extended_Pictographic}\u200D\uFE0F]/gu, "")
+    .replace(/[ \t]+([.,!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+$/gm, "")
+    .trim();
+}
 
 // ── Brand system prompt (post-live-review corrections 2026-04-20) ──
 // Shared VOICE_GUARDRAILS cover pronoun / register / filler phrases /
 // pricing apologetics / emoji policy. Fleet-specific rules layer on top.
-const BRAND_SYSTEM = `You write Instagram captions for George Yachts (luxury yacht brokerage, Greek waters). UHNW audience: travel advisors, charter clients, yacht enthusiasts.
+const BRAND_SYSTEM = `You write Instagram captions for George Yachts (yacht charter brokerage, crewed yachts by the week, Greek waters only) in the voice of George P. Biniaris, the broker. Readers: people planning a week in Greece for a family or a group, and the travel advisors who plan for them.
 
-${VOICE_GUARDRAILS}
+${FLEET_VOICE}
+
+VOICE (George's decision, 2026-11-19):
+- Write as George, first person singular ("I"). Never "we", "our team", "our fleet".
+- You may state a view ONLY if it is in the block "GEORGE'S OWN WORDS" in the request. Rephrase it lightly. Do not add a view, a memory, a client, a voyage, a number or a claim of experience that is not there.
+- Where his words give no view, state the fact plainly, without "I".
+- He is the broker. Never the owner of the yacht, never her captain.
+- REGISTER: plain, specific English, the way a broker talks to a client across a table. Not a brochure and not a magazine. Never write "discerning", "singular", "experience" as a noun for the week, "welcomes", "boasts", "offers", "nestled", "haven", "oasis", "ultimate" or "perfect".
+- NO EMOJI anywhere.
+- CLIENT PRIVACY: never mention or imply a specific past client, guest or charter. Never credit a remark to anyone ("agencies tell me", "clients say", "captains report"): if George's own words say it, say it as his; if they do not, leave it out.
+- Call the yacht by the name given in the request, exactly, with no prefix such as S/Y, M/Y, S/CAT or P/CAT.
 
 FLEET-CAPTION-SPECIFIC RULES:
-
-1. FIRST SENTENCE must begin with the yacht name, yacht type, or a concrete differentiator (e.g. "S/CAT World's End — Fountaine Pajot Galathea 65, 10 guests"). NEVER start with "If", "Imagine", "Picture", or any hypothetical framing. The first 125 characters are the preview before "…more" — spend them on substance.
-
-2. SAVE CTA: near the end, include one of these verbatim variants (rotate naturally):
-   - "Save this for your summer planning."
-   - "Know someone planning Greek summer? Send them this."
-   - "Save for when you're ready to plan your voyage."
-
-3. Editorial, insider, warm. Return ONLY the caption text — no preface, no hashtag block (the caller appends).
-
-4. PRICING: quote the weekly rate for the WHOLE yacht only ("from €28,500 per week"). NEVER divide it per person or per guest — this house sells one product, the crewed yacht by the week.
-
+1. FIRST SENTENCE must begin with the yacht name, yacht type, or a concrete differentiator, and say in plain search words what she is (for example "crewed sailing catamaran", "Greece", the number of guests). NEVER start with "If", "Imagine", "Picture" or a question.
+2. NO CALL TO ACTION. Do not invite the reader to save, share, send, DM, message, click, visit or use the link in bio, and do not end on a question. The closing line is added after you.
+3. Editorial, insider, warm. Return ONLY the caption text, with no preface and no hashtags.
+4. PRICING: quote the weekly rate for the WHOLE yacht only ("from EUR 28,500 per week"). NEVER divide it per person or per guest. This house sells one product, the crewed yacht by the week.
 5. PUNCTUATION: never use an em dash or en dash. Use commas, full stops, or a colon. Short sentences over long ones.
-
 6. Every sentence must be COMPLETE. Never trail off. If you run short of room, end one sentence earlier.
-
 7. TRUTH: only facts present in the data provided. Never invent guests, stories, awards, or numbers.`;
 
 // Weekly rate line for the prompt. ONE PRICE, ONE PRODUCT (George,
@@ -268,7 +297,28 @@ export async function generateFleetCaption(
   if (!builder) {
     throw new Error(`Unknown fleet angle: ${angle}`);
   }
-  const { prompt } = builder(yacht);
+  // The catalogue prefix (S/CAT, M/Y) is how the fleet is filed, not how
+  // anyone speaks of a yacht. The caption uses her name alone.
+  const built = builder({ ...yacht, name: shortName(yacht.name) }).prompt;
+  // The per-angle prompts were written for the old voice and each asks for
+  // a "save CTA". The closing line is now added in code, so those lines go.
+  const withoutCta = built
+    .split("\n")
+    .filter((line) => !/save cta/i.test(line))
+    .join("\n");
+  const ownWords = [
+    (yacht.georgeInsiderTip ?? "").trim() && `Insider tip: ${(yacht.georgeInsiderTip ?? "").trim()}`,
+    (yacht.idealFor ?? "").trim() && `Ideal for: ${(yacht.idealFor ?? "").trim()}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const prompt = `${withoutCta}
+
+GEORGE'S OWN WORDS (the only source for any opinion or "I" statement; if empty, write plain fact with no "I"):
+"""
+${ownWords || "(none)"}
+"""
+- Do not write any call to action, closing invitation or question at the end.`;
 
   // 4000 output tokens: the 2026-09-02 SEA U caption shipped cut off
   // mid-sentence because the model's reasoning ate into the default
@@ -288,9 +338,39 @@ export async function generateFleetCaption(
     }
   }
 
+  // The model may only restate what George has written. If it invented a
+  // memory, a client or a record instead, one retry names the fault; if
+  // that fails too, the plain fallback (his own first sentence and the
+  // yacht's facts) goes out. An invented story under his name is worse
+  // than a plain caption.
+  let invented = inventedExperience(cleaned);
+  if (invented.length > 0) {
+    try {
+      raw = await aiChat(
+        BRAND_SYSTEM,
+        `${prompt}\n\nYour previous attempt invented ${invented.join(", ")}. Remove every such statement. Use only GEORGE'S OWN WORDS and the yacht data.`,
+        { maxTokens: 4000 },
+      );
+      cleaned = raw.replace(/^["']|["']$/g, "").trim();
+      invented = inventedExperience(cleaned);
+    } catch {
+      // keep `invented` as is, the fallback below handles it
+    }
+    if (invented.length > 0) return fallbackFleetCaption(yacht, angle);
+  }
   // Dash scrub + incomplete-sentence trim (brand rules, enforced in
   // code because prompts alone kept leaking both).
-  return sanitizeCaption(cleaned);
+  return stripEmoji(sanitizeCaption(cleaned));
+}
+
+/**
+ * The published caption: the body, then the closing line, then three to
+ * five hashtags. The closing line rotates by day and is written in code,
+ * so the call to action never depends on the model.
+ */
+export function assembleFleetCaption(body: string, yacht: FleetYacht, now: Date = new Date()): string {
+  const dayIndex = Math.floor(now.getTime() / 86_400_000);
+  return `${body.trim()}\n\n${closingLine(yacht.name, dayIndex)}\n\n${fleetHashtags(yacht)}`;
 }
 
 /**
@@ -318,18 +398,18 @@ export function fallbackFleetCaption(
   angle: FleetAngle,
 ): string {
   const specs = yachtSpecsLine(yacht);
-  const opener =
-    angle === "inside_info" && yacht.georgeInsiderTip
-      ? yacht.georgeInsiderTip.split(/[.!?]/)[0].trim() + "."
-      : angle === "ideal_guest" && yacht.idealFor
-        ? `For ${yacht.idealFor.split(/[,.]/)[0].trim().toLowerCase()}.`
-        : `${yacht.name} — one of our private charter yachts in ${yacht.cruisingRegion ?? "Greece"}.`;
+  const name = shortName(yacht.name);
+  // His own first sentence when there is one, the yacht's plain facts
+  // otherwise. No call to action here: assembleFleetCaption adds it.
+  const tipFirst = (yacht.georgeInsiderTip ?? "").split(/(?<=[.!?])\s/)[0]?.trim();
+  const opener = tipFirst && tipFirst.length >= 30
+    ? tipFirst
+    : `${name}, a crewed yacht for charter in ${yacht.cruisingRegion ?? "Greece"}.`;
   return sanitizeCaption(
     [
       opener,
-      specs ? `${yacht.name}${yacht.subtitle ? ` · ${yacht.subtitle}` : ""}: ${specs}.` : yacht.name,
+      specs ? `${name}${yacht.subtitle ? ` · ${yacht.subtitle}` : ""}: ${specs}.` : name,
       (yacht.weeklyRatePrice ?? "").trim() || "Price on request.",
-      "DM us or tap the link in bio to plan your week.",
     ].join("\n\n"),
   );
 }

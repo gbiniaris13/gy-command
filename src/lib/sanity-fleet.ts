@@ -67,6 +67,8 @@ export type FleetYacht = {
   builder: string | null;
   yearBuiltRefit: string | null;
   cruisingRegion: string | null;
+  homePort?: string | null;
+  priceModel?: string | null;
   weeklyRatePrice: string | null;
   features: string[];
   toys: string[];
@@ -93,6 +95,8 @@ const FLEET_QUERY = `*[_type == "yacht" && count(images) >= 6 ${NOT_RETIRED}]{
   builder,
   yearBuiltRefit,
   cruisingRegion,
+  homePort,
+  priceModel,
   weeklyRatePrice,
   "features": coalesce(features, []),
   "toys": coalesce(toys, []),

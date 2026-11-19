@@ -8,7 +8,7 @@ import {
   angleEligibleForYacht,
   eligibleAnglesForYacht,
 } from "@/lib/fleet-rotation";
-import { generateFleetCaption, fleetHashtagBlock } from "@/lib/fleet-caption";
+import { generateFleetCaption, assembleFleetCaption } from "@/lib/fleet-caption";
 import { detectBannedPhrases, detectEmojiViolations } from "@/lib/ai-voice-guardrails";
 import { requireUser } from "@/lib/require-user";
 
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
       });
       continue;
     }
-    const caption = `${body}\n\n${fleetHashtagBlock(yacht)}`;
+    const caption = assembleFleetCaption(body, yacht);
     const bannedPhrases = detectBannedPhrases(body);
     const emojiViolations = detectEmojiViolations(body);
     const pass = bannedPhrases.length === 0 && emojiViolations.length === 0;

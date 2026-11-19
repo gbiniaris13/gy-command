@@ -17,8 +17,11 @@ import {
 import {
   generateFleetCaption,
   fallbackFleetCaption,
-  fleetHashtagBlock,
+  assembleFleetCaption,
 } from "@/lib/fleet-caption";
+import { loadShots, orderForCarousel, igFriendlyUrl } from "@/lib/ig-shots";
+import { buildCards, planSlides, cardSizeFor, photoAltText, cardAltText } from "@/lib/fleet-cards";
+import { cardOgUrl, renderCardToUrl } from "@/lib/fleet-card-render";
 
 // GET /api/admin/fleet-dryrun
 //
@@ -29,6 +32,10 @@ import {
 // Query params (all optional):
 //   ?yacht_id=<sanity _id>   — force a specific yacht (default: auto-pick via rotation)
 //   ?angle=<inside_info|...> — force a specific angle (default: auto-pick)
+//   ?render=1                — also draw the text cards and store them exactly
+//                              as the cron does (three small images in the
+//                              media store), returning their final addresses.
+//                              The one exception to "no writes" below.
 //
 // Returns: { yacht: {...}, angle, caption, photos[], utm_url,
 //            eligible_angles, pool_size }
@@ -66,7 +73,18 @@ export async function GET(req: NextRequest) {
       }
     }
   } else {
-    yacht = selectNextYacht(pool, state);
+    // As the cron does: only yachts with three known exterior photographs
+    // are in the rotation, so the preview picks the yacht the cron would.
+    const poolShots = await loadShots(
+      pool.flatMap((y) => (y.images ?? []).map((i: any) => i.url).filter((u: any) => typeof u === "string")),
+    );
+    const ready = pool.filter(
+      (y) =>
+        (y.images ?? []).filter(
+          (i: any) => i?.url && poolShots.get(i.url) === "exterior" && igFriendlyUrl(i.url),
+        ).length >= 3,
+    );
+    yacht = selectNextYacht(ready, state);
     if (!yacht) {
       return NextResponse.json(
         { error: "No eligible yacht (all on cooldown / no valid angles)" },
@@ -119,12 +137,29 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     captionBody = fallbackFleetCaption(yacht, angle);
   }
-  const caption = `${captionBody}\n\n${fleetHashtagBlock(yacht)}`;
+  const caption = assembleFleetCaption(captionBody, yacht);
 
-  const photos = (yacht.images ?? [])
-    .map((i: any) => i.url)
-    .filter(Boolean)
-    .slice(0, 8);
+  // The same selection the cron makes: exteriors first, at most two deck
+  // shots, seven photographs, then the text cards placed between them.
+  // Cards are returned as preview addresses (drawn on request, not stored).
+  const allUrls = (yacht.images ?? []).map((i: any) => i.url).filter((u: any) => typeof u === "string" && u.length > 10);
+  const shots = await loadShots(allUrls);
+  const photos = orderForCarousel(allUrls.filter(igFriendlyUrl), shots).slice(0, 7);
+  const origin = new URL(req.url).origin;
+  const cardSize = photos.length ? cardSizeFor(photos[0]) : { width: 1080, height: 720 };
+  const slides: any[] = planSlides(photos, buildCards(yacht)).map((slide) =>
+    slide.type === "photo"
+      ? { type: "photo", url: slide.url, alt: photoAltText(yacht, shots.get(slide.url) ?? null) }
+      : { type: "card", kind: slide.card.kind, url: cardOgUrl(origin, slide.card, cardSize), alt: cardAltText(slide.card), card: slide.card },
+  );
+  if (searchParams.get("render") === "1") {
+    for (const s of slides) {
+      if (s.type !== "card") continue;
+      const started = Date.now();
+      s.stored_url = await renderCardToUrl(origin, s.card, cardSize, `preview-${yacht.slug ?? "yacht"}`);
+      s.stored_ms = Date.now() - started;
+    }
+  }
 
   return NextResponse.json({
     pool_size: pool.length,
@@ -149,6 +184,9 @@ export async function GET(req: NextRequest) {
     caption,
     caption_body_only: captionBody,
     photos,
+    card_size: cardSize,
+    slides,
+    would_publish: photos.length >= 3,
     utm_url: buildFleetUTM(yacht, angle),
     story_followup_will_fire_at: new Date(
       Date.now() + 48 * 60 * 60 * 1000,

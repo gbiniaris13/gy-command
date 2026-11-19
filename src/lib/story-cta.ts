@@ -43,7 +43,10 @@ export function instagramCta(opts: {
   variant: CtaVariant;
   yachtName?: string | null;
 }): CtaCopy {
-  const yacht = (opts.yachtName ?? "").trim();
+  // "S/CAT Ad Astra" is a catalogue habit; nobody types the prefix in a DM.
+  const yacht = (opts.yachtName ?? "")
+    .replace(/^\s*(S\/CAT|P\/CAT|M\/CAT|M\/Y|S\/Y|M\/S|S\/V|M\/V)\s+/i, "")
+    .trim();
   if (opts.variant === "bio") {
     return yacht
       ? { eyebrow: "Full details and rates", main: "Link in bio", icon: "link" }

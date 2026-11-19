@@ -35,6 +35,7 @@
 // the title and subtitle on top of each other.
 
 import { ImageResponse } from "next/og";
+import { plainText } from "@/lib/og-plain-text";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -45,21 +46,6 @@ const NAVY = "#0D1B2A";
 const GOLD = "#C9A84C";
 const PHOTO_TIMEOUT_MS = 12_000;
 const PHOTO_MAX_BYTES = 12 * 1024 * 1024;
-
-/** Reduce text to what the bundled font can draw (Basic Latin + Latin-1). */
-function plainText(input: string, max: number): string {
-  return input
-    .replace(/[“”„«»]/g, '"')
-    .replace(/[‘’‚]/g, "'")
-    .replace(/[–—‒―]/g, ", ")
-    .replace(/…/g, "...")
-    .replace(/[•∙⋅]/g, "·")
-    .replace(/[^\x20-\x7E -ÿ]/g, "")
-    .replace(/\s+,/g, ",")
-    .replace(/\s{2,}/g, " ")
-    .trim()
-    .slice(0, max);
-}
 
 /** Ask the image host for the photo already cut to a story, as JPEG. */
 function storyRendition(photo: string): string {

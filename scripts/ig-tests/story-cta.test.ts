@@ -48,6 +48,7 @@ test("the DM banner names the yacht; a very long name falls back", () => {
   assert.equal(instagramCta({ variant: "dm", yachtName: "Majesty of Greece" }).main, 'DM us "MAJESTY OF GREECE"');
   assert.equal(instagramCta({ variant: "dm", yachtName: "A Very Long Yacht Name Indeed" }).main, "DM us her name");
   assert.equal(instagramCta({ variant: "dm", yachtName: null }).main, "DM us your dates");
+  assert.equal(instagramCta({ variant: "dm", yachtName: "S/CAT Ad Astra" }).main, 'DM us "AD ASTRA"', "no catalogue prefix");
   assert.equal(instagramCta({ variant: "bio", yachtName: "Ad Astra" }).main, "Link in bio");
 });
 

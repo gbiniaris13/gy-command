@@ -30,9 +30,11 @@ import {
 import {
   generateFleetCaption,
   fallbackFleetCaption,
-  fleetHashtagBlock,
+  assembleFleetCaption,
   captionVoiceAudit,
 } from "@/lib/fleet-caption";
+import { buildCards, planSlides, cardSizeFor, photoAltText, cardAltText } from "@/lib/fleet-cards";
+import { renderCardToUrl } from "@/lib/fleet-card-render";
 import { getIgTokenOptional } from "@/lib/ig-token";
 
 // Cron: Instagram Fleet Post (Phase D.1).
@@ -230,7 +232,9 @@ async function _observedImpl() {
     }
   }
 
-  const caption = `${captionBody}\n\n${fleetHashtagBlock(yacht)}`;
+  // Body, then the closing line and three to five hashtags, both written
+  // in code (2026-11-19): the call to action never depends on the model.
+  const caption = assembleFleetCaption(captionBody, yacht);
 
   // Phase F — voice audit (banned fillers + emoji policy). Alert only,
   // never blocks the publish. If this fires repeatedly for the same
@@ -334,12 +338,39 @@ async function _observedImpl() {
       .filter(igFriendlyUrl),
     shots,
   ).slice(0, 7);
-  if (photos.length < 4) {
+  // Three photographs are enough since 2026-11-19: the text cards bring
+  // the carousel to five or six slides. A yacht is in the rotation with
+  // three known exteriors, so the old floor of four could pick a yacht and
+  // then drop the whole day's post.
+  if (photos.length < 3) {
     await sendTelegram(
-      `⚠ Fleet post skipped — ${yacht.name} has only ${photos.length} usable images (need ≥4).`,
+      `⚠ Fleet post skipped — ${yacht.name} has only ${photos.length} usable images (need ≥3).`,
     );
     return NextResponse.json({ error: "not enough photos" });
   }
+
+  // 2026-11-19: the carousel is no longer photographs alone. Between them
+  // go up to three text cards built from George's own words on the yacht's
+  // page (his note, who she suits, what the week costs): see
+  // src/lib/fleet-cards.ts. Instagram crops every slide to the shape of the
+  // first, so the cards are drawn at the hero photograph's shape. A card
+  // that cannot be drawn is left out; it never stops the post.
+  const appHost =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    "https://command.georgeyachts.com";
+  const appBaseUrl = appHost.startsWith("http") ? appHost : `https://${appHost}`;
+  const cardSize = cardSizeFor(photos[0]);
+  const items: Array<{ url: string; alt: string; card?: string }> = [];
+  for (const slide of planSlides(photos, buildCards(yacht))) {
+    if (slide.type === "photo") {
+      items.push({ url: slide.url, alt: photoAltText(yacht, shots.get(slide.url) ?? null) });
+    } else {
+      const cardUrl = await renderCardToUrl(appBaseUrl, slide.card, cardSize, yacht.slug ?? "yacht");
+      if (cardUrl) items.push({ url: cardUrl, alt: cardAltText(slide.card), card: slide.card.kind });
+    }
+  }
+  const cardsShown = items.filter((i) => i.card).map((i) => i.card as string);
 
   try {
     // Step 1 — create individual carousel item containers.
@@ -351,18 +382,26 @@ async function _observedImpl() {
     // include in the Telegram alert + the JSON response.
     const childIds: string[] = [];
     const failures: Array<{ idx: number; url: string; err: string }> = [];
-    for (let i = 0; i < photos.length; i++) {
-      const url = photos[i];
-      const res = await fetch(`https://graph.facebook.com/v21.0/${igId}/media`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image_url: url,
-          is_carousel_item: true,
-          access_token: igToken,
-        }),
-      });
-      const data = await res.json();
+    for (let i = 0; i < items.length; i++) {
+      const { url, alt } = items[i];
+      const createChild = async (withAlt: boolean) => {
+        const res = await fetch(`https://graph.facebook.com/v21.0/${igId}/media`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            image_url: url,
+            is_carousel_item: true,
+            ...(withAlt ? { alt_text: alt } : {}),
+            access_token: igToken,
+          }),
+        });
+        return { res, data: await res.json() };
+      };
+      // Alt text describes the slide for search and screen readers. If
+      // Meta refuses the request with it, the slide is tried once more
+      // without: a slide with no alt text is better than a missing slide.
+      let { res, data } = await createChild(true);
+      if (!data.id) ({ res, data } = await createChild(false));
       if (data.id) {
         childIds.push(data.id);
       } else {
@@ -379,12 +418,12 @@ async function _observedImpl() {
         .map((f) => `  [${f.idx}] ${f.err}`)
         .join("\n");
       await sendTelegram(
-        `❌ Fleet post failed — only ${childIds.length}/${photos.length} carousel items succeeded for ${yacht.name}.\n\nFailures:\n${detail || "(no detail)"}`,
+        `❌ Fleet post failed — only ${childIds.length}/${items.length} carousel items succeeded for ${yacht.name}.\n\nFailures:\n${detail || "(no detail)"}`,
       );
       return NextResponse.json({
         error: "carousel items failed",
         succeeded: childIds.length,
-        attempted: photos.length,
+        attempted: items.length,
         failures,
       });
     }
@@ -392,7 +431,7 @@ async function _observedImpl() {
       // Some failed but enough succeeded — log + continue.
       const detail = failures.map((f) => `[${f.idx}] ${f.err}`).join(" · ");
       await sendTelegram(
-        `⚠ Fleet post: ${childIds.length}/${photos.length} carousel items OK for ${yacht.name}. Failures: ${detail}`,
+        `⚠ Fleet post: ${childIds.length}/${items.length} carousel items OK for ${yacht.name}. Failures: ${detail}`,
       );
     }
 
@@ -492,6 +531,7 @@ async function _observedImpl() {
           angle,
           utm_url: utmUrl,
           photos_count: photos.length,
+          cards: cardsShown,
           fleet_tier: yacht.fleetTier,
         },
       });
@@ -553,7 +593,7 @@ async function _observedImpl() {
     await sendTelegram(
       [
         `✅ <b>Fleet post live:</b> ${yacht.name} (angle: <code>${angle}</code>)`,
-        `Carousel: ${photos.length} photos · Fleet tier: ${yacht.fleetTier ?? "n/a"}`,
+        `Carousel: ${photos.length} photos + ${cardsShown.length} text cards (${cardsShown.join(", ") || "none"}) · Fleet tier: ${yacht.fleetTier ?? "n/a"}`,
         `Caption preview: "${captionBody.slice(0, 160).replace(/\n/g, " ")}..."`,
         `Link: https://instagram.com/p/${publishData.id}`,
         `UTM: boat_${(yacht.slug ?? "").toLowerCase()} · angle_${angle}`,

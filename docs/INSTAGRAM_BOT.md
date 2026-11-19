@@ -160,6 +160,47 @@ tap, and no site visit ever came from a story (0 of 17,030 sessions).
   banner still cannot be drawn, the Telegram card says so and the story is
   left out of the test.
 
+## 6d. Yacht posts, second version (2026-11-19)
+
+The yacht carousel (`/api/cron/instagram-fleet-post`, Tue to Fri) used to be
+seven photographs and a caption in the voice of a magazine. It is now built
+to be saved, sent and answered:
+
+- **Text cards between the photographs**, up to three, drawn at the shape of
+  the first photograph (Instagram crops every slide to the first):
+  1. *George's note*: whole sentences, word for word, from the yacht's
+     insider tip in Sanity, signed "George P. Biniaris".
+  2. *Who she suits*: his "ideal for" entry, as short lines when he wrote a
+     list and as one sentence when he wrote a sentence.
+  3. *The week, in numbers*: the weekly fee as the site states it, the APA
+     band for her category, VAT "at the yacht's certified rate", crew
+     gratuity. Figures mirror the public site's `lib/apaFacts.js`. No card
+     when the price is on request or not per yacht per week.
+  Order: hero, note, half the photographs, suits, the rest, cost. All of it
+  is `src/lib/fleet-cards.ts` (pure; tests in
+  `scripts/ig-tests/fleet-cards.test.ts`). The picture is drawn by
+  `/api/og/post-card` and stored under `gy-ig/cards/` by
+  `src/lib/fleet-card-render.ts`. A card that cannot be drawn is left out;
+  a slide Instagram refuses is left out; neither stops the post.
+- **Voice.** First person, as George, and only from what he has written on
+  the yacht's page. The model may rephrase his words; it may not add a
+  view, a memory, a client or years of experience. `inventedExperience()`
+  checks the result: one retry, then the plain fallback (his own first
+  sentence and the yacht's facts). No emoji, no magazine words, the yacht's
+  name without its catalogue prefix.
+- **The closing line is written in code**, not by the model, and rotates by
+  day: DM the yacht's name, send this to whoever is organising, DM your
+  dates. Then three to five hashtags (was a block of generic ones).
+- **Alt text on every slide** (what the photograph shows, or the card's
+  words). If Meta refuses a slide with alt text, it is tried once without.
+- **Three photographs are enough** (was four): a yacht enters the rotation
+  with three known exteriors, and the old floor could pick her and then
+  drop the day's post.
+- **Preview without publishing**: `GET /api/admin/fleet-dryrun` (signed in,
+  or the cron bearer) returns the caption and the slides in order;
+  `?yacht_id=` forces a yacht; `?render=1` also draws and stores the cards,
+  to prove the whole path.
+
 ## 7. Facebook Page mirror — how to activate (free, ~5 min, one-time)
 
 The mirror code is correct and **posted successfully before** — it only broke
