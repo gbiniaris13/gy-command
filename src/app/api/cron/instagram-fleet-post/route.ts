@@ -504,7 +504,7 @@ async function _observedImpl() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              message: `Full specifications, weekly rate and availability: georgeyachts.com/yachts/${yacht.slug} (also linked in our bio)`,
+              message: `Full specifications, weekly rate and availability: georgeyachts.com/yachts/${yacht.slug}`,
               access_token: igToken,
             }),
           },

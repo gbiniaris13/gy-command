@@ -306,6 +306,47 @@ yachts only, and no other company's name, logo or watermark, ever.
   reel and returns its address; `&container=1` also hands it to Instagram as
   an unpublished container to prove Instagram accepts the file.
 
+## 6g. Comments and messages: what the account says on its own (2026-11-19)
+
+Until this date three things answered people by themselves
+(`/api/webhooks/instagram`): a model wrote replies to comments in a brand
+voice, direct messages got one of three canned texts with a booking link
+"with our team", and a story mention got a thank-you with emoji. All gone.
+The research verdict George adopted: no conversational bot, ever; people who
+find out they were talking to one trust less and buy less.
+
+George answers every comment and every message himself. The account does
+exactly two things on its own, both openly automatic and signed
+"George P. Biniaris" (words and rules: `src/lib/ig-inbox.ts`, tests in
+`scripts/ig-tests/ig-inbox.test.ts`):
+
+1. **The night note.** A written message that arrives between 00:00 and
+   08:00 Athens gets one note: this is automatic, it is night in Athens, I
+   am George, I reply by 09:00 Athens (the hour in New York is worked out),
+   tell me your dates, guests and rough budget. Once per person per week.
+   Never by day.
+2. **The keyword note.** A comment that is little more than one of the words
+   a post asked for (`COST`, `APA`, `DATES`, `WHERE`, `WHEN`, `SIX`, `EIGHT`,
+   `TEN`, `TWELVE`, `CAT`, `POWER`, `MOTOR`) gets one private message with
+   the site page the post promised. A sentence that merely contains such a
+   word is a person talking and is left for George.
+
+Everything that arrives is sent to Telegram with the text and "nothing was
+answered for you", logged (`ig_comment_replies`, `ig_dm_replies`) and added
+to the dashboard notifications. Nothing public is posted from the webhook.
+Emoji-only comments and scraper hooks are logged and not pinged.
+
+**Whether any of this reaches the app depends on Meta, not on this code.**
+The old file used an Instagram-login token that stopped working in 2026; the
+new one uses the same token as the publishing crons, through
+`graph.facebook.com`. Messages need the Meta app to hold
+`instagram_manage_messages` and the Page to have the app subscribed to
+`messages` and `comments`. `GET /api/admin/ig-inbox-check` (read-only) says
+which of these is true today. If messages cannot be sent from here, the same
+night note can be set once, by hand and for free, in Meta Business Suite
+(Inbox, Automations, Away message, 00:00 to 08:00) with the text from
+`awayNote()`.
+
 ## 7. Facebook Page mirror — how to activate (free, ~5 min, one-time)
 
 The mirror code is correct and **posted successfully before** — it only broke
