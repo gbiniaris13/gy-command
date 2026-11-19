@@ -70,6 +70,8 @@ export type FleetYacht = {
   homePort?: string | null;
   priceModel?: string | null;
   weeklyRatePrice: string | null;
+  /** Her walkthrough film on the site, when she has one (an mp4 on the Sanity CDN). */
+  video?: { url?: string | null; durationSeconds?: number | null } | null;
   features: string[];
   toys: string[];
   idealFor: string | null;
@@ -98,6 +100,7 @@ const FLEET_QUERY = `*[_type == "yacht" && count(images) >= 6 ${NOT_RETIRED}]{
   homePort,
   priceModel,
   weeklyRatePrice,
+  "video": video{url, durationSeconds},
   "features": coalesce(features, []),
   "toys": coalesce(toys, []),
   idealFor,

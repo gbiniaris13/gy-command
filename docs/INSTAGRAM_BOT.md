@@ -39,7 +39,9 @@
 
 | Cron | Schedule | Does |
 |---|---|---|
-| `instagram-fleet-post` | `0 16 * * 2,3,4,5` | Tue–Fri yacht carousel with text cards (cleared yachts only), §6d |
+| `instagram-fleet-post` | `0 16 * * 3,5` | Wed + Fri yacht carousel with text cards (cleared yachts only), §6d. Also what Tue/Thu fall back to when no reel is ready |
+| `instagram-reel-prepare` | `0 12,14 * * 2,4` | Tue + Thu: makes that evening's walkthrough reel and leaves it ready, §6f |
+| `instagram-reel` | `0 16 * * 2,4` | Tue + Thu: publishes the ready reel (Thursday as a Trial Reel), §6f |
 | `instagram-guide` | `5 16 * * 1,6` | Mon + Sat guide carousel (costs, how it works, where, who, shortlists), §6e |
 | `instagram-publish` | `10 16 * * *` | Publishes any row still queued in `ig_posts` (normally none since 2026-11-19) |
 | `instagram-publish-reel` | _not scheduled_ | Removed (no stock reels); route kept for manual use |
@@ -245,6 +247,64 @@ anything but `false` is on).
   (`?turn=`, `?deck=apa`, `?shortlist=ten-guests`, `?list=1`, `?render=1`).
 - **To add a guide**: append to `GUIDE_DECKS` with the site file the words
   come from, run the tests. To change a fact, change the site first.
+
+## 6f. Walkthrough reels, Tuesday and Thursday (2026-11-19)
+
+Reels are how the account reaches people who do not follow it, and it had
+stopped making them. George's rules: no generated or animated video, he
+records nothing, the yachts' own walkthrough films may be used for cleared
+yachts only, and no other company's name, logo or watermark, ever.
+
+**The week is now:** Mon guide · Tue reel · Wed yacht carousel · Thu reel
+(trial) · Fri yacht carousel · Sat guide · Sun stories only.
+
+- **What a reel is**: eighteen seconds of the yacht's own film (`video.url`
+  on her Sanity document), kept in its own shape in a 1080x810 band across
+  a 1080x1920 navy screen. Her name and facts sit above it. Below it,
+  George's own written words change every six seconds: his note, who she
+  suits, what the week costs and "DM me \"NAME\"". Same words as the
+  carousel cards, cut from his text and never rewritten. No sound: the
+  film's music is not this house's to publish. The caption is not written
+  by a model either: her name and type, his note word for word, her fee.
+- **The logo check.** The opening and closing tenth of a film are never
+  used. From the chosen stretch (the middle first, then two others) a still
+  frame every two seconds is shown to the vision model with one question:
+  is there a company name, logo, watermark, address or caption in this
+  picture (her own name on the hull and the builder's badge do not count).
+  One marked frame, or one frame with no answer, and that stretch is not
+  used. Every stretch marked: the yacht is set aside for sixty days
+  (`settings.reel_state_v1.rejected`). The check errs on the side of
+  refusing; in the first test it turned down a crew jacket with a badge.
+- **Two jobs.** `instagram-reel-prepare` (12:00 and 14:00 UTC) picks the
+  next cleared yacht with a film (never shown first, then longest ago),
+  stores the film in Cloudinary, runs the check, draws the three frames
+  (`/api/og/reel-frame`, transparent PNG), and asks Cloudinary for the reel
+  as a derived version of the stored film. The result waits in
+  `settings.reel_ready_v1`; Telegram gets the address to look at.
+  `instagram-reel` (16:00 UTC) publishes it, writes `ig_posts`
+  (`metadata.kind = "reel_walkthrough"`), comments the yacht's page, and
+  deletes the stored film and frames again, so storage does not grow.
+- **Never a silent day.** No reel waiting, reels switched off
+  (`settings.reel_posts_enabled = "false"`), Instagram refusing the film or
+  not finishing it: the job calls `instagram-fleet-post` and a yacht
+  carousel goes out instead.
+- **Trial Reel on Thursday** (`settings.reel_trial_thursday`, anything but
+  `false` is on): published with `trial_params.graduation_strategy =
+  SS_PERFORMANCE`, so Instagram shows it to non-followers first and moves
+  it to the profile by itself if it does well. A trial that does not do
+  well never appears on the profile grid; that is how the feature works. If
+  Instagram refuses the trial settings, the reel goes out as a normal one.
+- **Cost**: Cloudinary free plan (25 credits a month; the account used 1.6
+  when this was built). A reel is one stored film for a few hours, about
+  ten still frames and one derived video of 2 to 3 MB.
+- **Files**: `src/lib/reel-plan.ts` (pure: frames, stretches, recipe,
+  caption; tests in `scripts/ig-tests/reel-plan.test.ts`),
+  `src/lib/reel-build.ts`, `src/app/api/og/reel-frame/route.tsx`, the two
+  cron routes.
+- **Preview without publishing**: `GET /api/admin/reel-dryrun` (who is next,
+  what is waiting, who was set aside); `?yacht_id=…&make=1` really makes her
+  reel and returns its address; `&container=1` also hands it to Instagram as
+  an unpublished container to prove Instagram accepts the file.
 
 ## 7. Facebook Page mirror — how to activate (free, ~5 min, one-time)
 

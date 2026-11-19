@@ -79,7 +79,7 @@ async function stealthSkippedDays(
 
 // What the feed crons reported over the silent stretch, so the alarm can
 // say why and not only that. Reads the cron-observer END rows.
-const FEED_CRONS = ["instagram-fleet-post", "instagram-guide", "instagram-publish"];
+const FEED_CRONS = ["instagram-fleet-post", "instagram-guide", "instagram-reel", "instagram-reel-prepare", "instagram-publish"];
 async function feedCronCauses(
   sb: ReturnType<typeof createServiceClient>,
   sinceIso: string,
