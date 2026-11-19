@@ -4,7 +4,59 @@ import { createServerClient } from "@supabase/ssr";
 const SUPABASE_URL = "https://ojpcmnnqohxlfsudvxcz.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__yNJKcssEsLPHv0Xuh-f7A_HW447VM0";
 
+// 2026-11-19: the cron lock. Until today 55 of the 78 routes under
+// /api/cron answered anyone who knew the address: a plain GET could fire
+// the weekly caption generator (AI calls), the watchdog (Telegram and
+// email to George) or any other job. A request now passes only if it
+// carries the cron secret (Vercel adds "Authorization: Bearer CRON_SECRET"
+// to its own cron calls when the env var is set) or comes from a browser
+// signed in to the dashboard, so George can still open a cron address by
+// hand. Everything else gets 401 and a log line.
+//
+// Fails closed: with no CRON_SECRET set, only a signed-in browser passes.
+//
+// Two routes keep their own door because they accept a credential this
+// file cannot check: helm-replan (the Mac's conversation sync token) and
+// week-edition (?key=). Both refuse anonymous callers themselves.
+const CRON_SELF_GUARDED = new Set(["helm-replan", "week-edition"]);
+
+async function hasDashboardSession(request: NextRequest): Promise<boolean> {
+  // No Supabase cookie, no session: skip the network call for strangers.
+  if (!request.cookies.getAll().some((c) => c.name.startsWith("sb-"))) return false;
+  try {
+    const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      cookies: { getAll: () => request.cookies.getAll(), setAll: () => {} },
+    });
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    return !!user;
+  } catch {
+    return false;
+  }
+}
+
+async function guardCron(request: NextRequest): Promise<NextResponse> {
+  const name = request.nextUrl.pathname.split("/")[3] ?? "";
+  if (CRON_SELF_GUARDED.has(name)) return NextResponse.next({ request });
+
+  const secret = process.env.CRON_SECRET;
+  const auth = request.headers.get("authorization") || "";
+  if (secret && auth === `Bearer ${secret}`) return NextResponse.next({ request });
+  if (await hasDashboardSession(request)) return NextResponse.next({ request });
+
+  console.warn(
+    `[cron-lock] denied ${request.nextUrl.pathname} ua=${(request.headers.get("user-agent") || "").slice(0, 60)}`,
+  );
+  return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+}
+
 export async function middleware(request: NextRequest) {
+  // Before the host branch below: the lock holds on every hostname.
+  if (request.nextUrl.pathname.startsWith("/api/cron/")) {
+    return guardCron(request);
+  }
+
   // 2026-10-02: edition.georgeyachts.com is the client's address for their
   // edition. "/<surname>-<code>" is served by the Salon page under /p/, same
   // app and same origin, so photographs, fonts and the reading beacons all
@@ -101,6 +153,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   // The edition host needs the root and the short-code paths; everything
-  // else on command.georgeyachts.com is untouched (api/auth still bypass).
-  matcher: ["/dashboard/:path*", "/login", "/", "/:code([a-z0-9]{1,24}-[a-z0-9]{6})"],
+  // else on command.georgeyachts.com is untouched (api/auth still bypass),
+  // except /api/cron, which is locked (see guardCron above).
+  matcher: ["/dashboard/:path*", "/login", "/", "/:code([a-z0-9]{1,24}-[a-z0-9]{6})", "/api/cron/:path*"],
 };

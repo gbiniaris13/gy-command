@@ -303,6 +303,16 @@ briefing.
 
 ### 12. Cron Observer + System Health Check
 
+**The cron lock (2026-11-19).** Every route under `/api/cron/` is locked in
+`src/middleware.ts` (`guardCron`). A request passes only with
+`Authorization: Bearer $CRON_SECRET` (Vercel adds it to its own cron calls)
+or from a browser signed in to the dashboard. Anything else gets 401 and a
+`[cron-lock] denied` log line. A new cron route is locked by default; code
+that calls one cron from another must send the header. To run one by hand:
+`curl -H "Authorization: Bearer $CRON_SECRET" https://command.georgeyachts.com/api/cron/<name>`.
+`helm-replan` and `week-edition` keep their own checks (sync token, `?key=`).
+A blocked call never reaches the cron observer, so it leaves no END row.
+
 Lightweight instrumentation: every IG cron (and the commerce ones)
 wraps its handler in `observeCron(name, fn)` to record START/END
 rows. The Thursday weekly-ops-report cron computes uptime % from

@@ -94,7 +94,10 @@ export async function GET(request: NextRequest) {
     const origin = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : "https://gy-command.vercel.app";
-    const res = await fetch(`${origin}/api/cron/blog-to-social`);
+    // The cron lock (middleware.ts) refuses calls without the secret.
+    const res = await fetch(`${origin}/api/cron/blog-to-social`, {
+      headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` },
+    });
     results.rerun = await res.json().catch(() => ({ ok: res.ok }));
   }
 

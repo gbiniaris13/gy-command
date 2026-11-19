@@ -113,7 +113,8 @@ async function fireGenerateWeekly(week: "current" | "next"): Promise<{
   try {
     const res = await fetch(
       `${SITE}/api/cron/instagram-generate-weekly?week=${week}`,
-      { method: "GET" },
+      // The cron lock (middleware.ts) refuses calls without the secret.
+      { method: "GET", headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` } },
     );
     const body = await res.json().catch(() => ({}));
     return { ok: res.ok, body };
