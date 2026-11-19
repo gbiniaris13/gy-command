@@ -119,6 +119,21 @@ dies whenever the IG password changes — if IG posting suddenly fails with
 - **Banned-hashtag strip** + **caption-similarity** + **stock-photo deny-list**.
 - **Telegram approval** — reels can require a tap (`reel_auto_publish_without_approval`).
 
+## 6b. The silence alarm (2026-11-19)
+
+`instagram-watchdog` (daily, 06:30 UTC) asks one question: since the last
+feed post, on which posting days (Monday to Saturday, Athens) was a post due
+and none went out? Rules live in `src/lib/ig-silence.ts`, tests in
+`scripts/ig-tests/silence.test.ts`.
+
+- **1 missed posting day** → ⚠️ Telegram notice.
+- **2 or more** → 🚨 Telegram **and email** to George, every morning until a
+  post goes out. The message names the missed dates, the last post, and what
+  the feed crons reported (for example `skipped (window_guard) x7`).
+- Sunday never counts. A Monday or Saturday the publisher skipped on purpose
+  (stealth roll) is excused. Today never counts: the post goes out at 18:00.
+- Feed posts only. Stories are not covered.
+
 ## 7. Facebook Page mirror — how to activate (free, ~5 min, one-time)
 
 The mirror code is correct and **posted successfully before** — it only broke
