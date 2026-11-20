@@ -4,30 +4,26 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   variantForCounter, instagramCta, facebookCta, appendCtaLog, mergeInsights,
-  totalsByVariant, ctaReportLines, CTA_LOG_MAX, MIN_STORIES_FOR_VERDICT,
+  totalsByVariant, ctaReportLines, CTA_LOG_MAX,
   type CtaLogEntry,
 } from "../../src/lib/story-cta.ts";
 
 const entry = (i: number, over: Partial<CtaLogEntry> = {}): CtaLogEntry => ({
   media_id: `m${i}`,
   at: new Date(Date.UTC(2026, 10, 20, 5) + i * 6 * 3600_000).toISOString(),
-  variant: variantForCounter(i),
+  // The log still holds stories from the two days both banners ran.
+  variant: i % 2 === 0 ? "bio" : "dm",
   slot: i % 3 === 0 ? "yacht" : "greece",
   yacht_slug: i % 3 === 0 ? "ad-astra" : null,
   ...over,
 });
 
-test("variants alternate with every story", () => {
-  assert.deepEqual([0, 1, 2, 3, 4, 5].map(variantForCounter), ["bio", "dm", "bio", "dm", "bio", "dm"]);
-});
-
-test("over six stories each variant meets the yacht slot once and the Greece slot twice", () => {
-  const seen: Record<string, number> = {};
-  for (let i = 0; i < 6; i++) {
-    const k = `${variantForCounter(i)}/${i % 3 === 0 ? "yacht" : "greece"}`;
-    seen[k] = (seen[k] ?? 0) + 1;
+test("every story asks for a message: 'Link in bio' is retired", () => {
+  assert.deepEqual([0, 1, 2, 3, 4, 5].map(variantForCounter), ["dm", "dm", "dm", "dm", "dm", "dm"]);
+  for (const variant of ["bio", "dm", undefined] as const) {
+    assert.ok(!/bio/i.test(instagramCta({ variant, yachtName: "Ad Astra" }).main), "no banner says 'link in bio'");
+    assert.equal(instagramCta({ variant, yachtName: null }).icon, "none", "no link glyph: nothing may look like a button to a link");
   }
-  assert.deepEqual(seen, { "bio/yacht": 1, "dm/greece": 2, "bio/greece": 2, "dm/yacht": 1 });
 });
 
 test("no Instagram banner promises a tap or shows a web address", () => {
@@ -43,18 +39,19 @@ test("no Instagram banner promises a tap or shows a web address", () => {
   }
 });
 
-test("the DM banner names the yacht; a very long name falls back", () => {
-  assert.equal(instagramCta({ variant: "dm", yachtName: "Ad Astra" }).main, 'DM me "AD ASTRA"');
-  assert.equal(instagramCta({ variant: "dm", yachtName: "Majesty of Greece" }).main, 'DM me "MAJESTY OF GREECE"');
-  assert.equal(instagramCta({ variant: "dm", yachtName: "A Very Long Yacht Name Indeed" }).main, "DM me her name");
-  assert.equal(instagramCta({ variant: "dm", yachtName: null }).main, "DM me your dates");
-  assert.equal(instagramCta({ variant: "dm", yachtName: "S/CAT Ad Astra" }).main, 'DM me "AD ASTRA"', "no catalogue prefix");
-  assert.equal(instagramCta({ variant: "bio", yachtName: "Ad Astra" }).main, "Link in bio");
-  // "Link in bio" may only promise what the bio link leads to: the short brief, not a yacht's page.
-  assert.equal(instagramCta({ variant: "bio", yachtName: "Ad Astra" }).eyebrow, "Tell me your dates");
-  for (const v of ["bio", "dm"] as const) for (const y of ["Ad Astra", null]) {
-    const c = instagramCta({ variant: v, yachtName: y });
-    assert.ok(!/\b(us|our|we)\b/i.test(`${c.eyebrow} ${c.main}`), "one person speaks, not a team");
+test("the banner names the yacht, in the house's voice; a very long name falls back", () => {
+  assert.equal(instagramCta({ yachtName: "Ad Astra" }).main, 'Message us "AD ASTRA"');
+  assert.equal(instagramCta({ yachtName: "Majesty of Greece" }).main, 'Message us "MAJESTY OF GREECE"');
+  assert.equal(instagramCta({ yachtName: "A Very Long Yacht Name Indeed" }).main, "Message us her name");
+  assert.equal(instagramCta({ yachtName: null }).main, "Message us your dates");
+  assert.equal(instagramCta({ yachtName: "S/CAT Ad Astra" }).main, 'Message us "AD ASTRA"', "no catalogue prefix");
+  assert.equal(instagramCta({ yachtName: "Ad Astra" }).eyebrow, "Dates and rates on request");
+  for (const y of ["Majesty of Greece", "ChristAl MiO 80", "Can't Remember", "A Name Of Eighteen!"]) {
+    assert.ok(instagramCta({ yachtName: y }).main.length <= 30, "fits the banner");
+  }
+  for (const y of ["Ad Astra", null]) {
+    const c = instagramCta({ yachtName: y });
+    assert.ok(!/\b(me|my|I)\b/.test(`${c.eyebrow} ${c.main}`), "the profile speaks as the house");
   }
 });
 
@@ -96,18 +93,15 @@ test("totals compare the variants per 1,000 reached", () => {
   assert.deepEqual({ s: dm.stories, m: dm.measured, reach: dm.reach, r1k: dm.replies_per_1000 }, { s: 2, m: 1, reach: 100, r1k: 20 });
 });
 
-test("the report says nothing before the test starts and refuses a verdict too early", () => {
+test("the report says nothing with no stories, and says why 'Link in bio' stopped", () => {
   assert.deepEqual(ctaReportLines({ log: [], bioLinkSessions7d: 3 }), []);
   let log = [entry(0), entry(1)];
   ({ log } = mergeInsights(log, "m0", { reach: 100, replies: 0, profile_visits: 2 }));
   const early = ctaReportLines({ log, bioLinkSessions7d: 4 }).join("\n");
-  assert.ok(early.includes("Too early to call"));
+  assert.ok(early.includes("retired on 20 November"));
+  assert.ok(early.includes("Link in bio (retired 20 Nov): 1 stories") && early.includes("Message us: 1 stories"));
   assert.ok(early.includes("Site visits from the bio link, last 7 days: 4"));
   assert.ok(early.includes("n/a"), "a variant with no reach shows n/a, not a made-up rate");
-  let big: CtaLogEntry[] = [];
-  for (let i = 0; i < MIN_STORIES_FOR_VERDICT * 2; i++) {
-    big = appendCtaLog(big, entry(i));
-    ({ log: big } = mergeInsights(big, `m${i}`, { reach: 100, replies: 1, profile_visits: 1 }));
-  }
-  assert.ok(ctaReportLines({ log: big, bioLinkSessions7d: null }).join("\n").includes("enough stories to compare"));
+  const onlyDm = ctaReportLines({ log: [entry(1)], bioLinkSessions7d: null }).join("\n");
+  assert.ok(!onlyDm.includes("Link in bio (retired 20 Nov):"), "a banner with no stories gets no line");
 });

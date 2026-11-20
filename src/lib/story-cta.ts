@@ -9,22 +9,22 @@
 // arrived from one (0 of 17,030 sessions carried utm_medium=story).
 //
 // A story can only ask for something the viewer can actually do from
-// inside Instagram. There are two such things, and George chose to run
-// them in turn and let the numbers decide:
+// inside Instagram. Two were tried in turn from 19 November: "Link in
+// bio" and a request for a message.
 //
-//   "bio"  Link in bio. Judged by profile visits from the story.
-//   "dm"   DM me the yacht's name. Judged by replies to the story.
+// 2026-11-20 (George): "Link in bio" is retired. The banner is drawn as a
+// gold-bordered box with a link glyph, so it read as a button, and a
+// viewer who tapped it (George among them, three times) went nowhere and
+// concluded there was no link. A story now asks for the one thing that
+// works from where the viewer is: a message, typed in the reply field
+// under the story.
 //
-// 2026-11-20 (George): the stories say what the research says, in his
-// voice ("DM me", never "DM me"), and a story may only say "Link in bio"
-// for something the link in the bio really leads to. That link is
-// georgeyachts.com, and a tap on it lands on /instagram, the short brief
-// ("Tell me the week. I will tell you the yacht."). So the line above
-// "Link in bio" promises that, not a yacht's own page.
+// The same day George settled the voice: the PROFILE (bio, stories) speaks
+// as the house, "us"; the POSTS (captions, cards, reels) stay in his own
+// first person. So the banner says "Message us", not "DM me".
 //
-// The variant alternates with every published story. The yacht slot comes
-// round every third story, so over six stories each variant meets each
-// slot and each time of day equally.
+// The "bio" variant stays in the type and in the log so the stories that
+// ran with it can still be read in the weekly report.
 
 export type CtaVariant = "bio" | "dm";
 
@@ -32,8 +32,9 @@ export const CTA_COUNTER_KEY = "story_cta_v1";
 export const CTA_LOG_KEY = "story_cta_log_v1";
 export const CTA_LOG_MAX = 500; // about five months at three stories a day
 
-export function variantForCounter(counter: number): CtaVariant {
-  return Math.abs(Math.trunc(counter)) % 2 === 0 ? "bio" : "dm";
+/** Every story asks for a message since 2026-11-20 (see the header). */
+export function variantForCounter(_counter: number): CtaVariant {
+  return "dm";
 }
 
 export type CtaCopy = {
@@ -45,26 +46,21 @@ export type CtaCopy = {
   icon: "link" | "none";
 };
 
-/** The banner on the Instagram story. No web address: it could not be tapped. */
+/** The banner on the Instagram story: a request for a message, in the house's voice. */
 export function instagramCta(opts: {
-  variant: CtaVariant;
+  variant?: CtaVariant;
   yachtName?: string | null;
 }): CtaCopy {
-  // "S/CAT Ad Astra" is a catalogue habit; nobody types the prefix in a DM.
+  // "S/CAT Ad Astra" is a catalogue habit; nobody types the prefix in a message.
   const yacht = (opts.yachtName ?? "")
     .replace(/^\s*(S\/CAT|P\/CAT|M\/CAT|M\/Y|S\/Y|M\/S|S\/V|M\/V)\s+/i, "")
     .trim();
-  if (opts.variant === "bio") {
-    return yacht
-      ? { eyebrow: "Tell me your dates", main: "Link in bio", icon: "link" }
-      : { eyebrow: "Plan your week in Greece", main: "Link in bio", icon: "link" };
-  }
   if (yacht) {
     // A long name would overflow the banner at its type size.
-    const name = yacht.length > 22 ? "her name" : `"${yacht.toUpperCase()}"`;
-    return { eyebrow: "Dates and rates", main: `DM me ${name}`, icon: "none" };
+    const name = yacht.length > 17 ? "her name" : `"${yacht.toUpperCase()}"`;
+    return { eyebrow: "Dates and rates on request", main: `Message us ${name}`, icon: "none" };
   }
-  return { eyebrow: "Planning a week in Greece?", main: "DM me your dates", icon: "none" };
+  return { eyebrow: "Planning a week in Greece?", main: "Message us your dates", icon: "none" };
 }
 
 /**
@@ -175,10 +171,10 @@ export function ctaReportLines(opts: {
 }): string[] {
   const totals = totalsByVariant(opts.log, opts.sinceIso);
   if (totals.every((t) => t.stories === 0)) return [];
-  const label = (v: CtaVariant) => (v === "bio" ? "Link in bio" : "DM me");
+  const label = (v: CtaVariant) => (v === "bio" ? "Link in bio (retired 20 Nov)" : "Message us");
   const fmt = (n: number | null) => (n === null ? "n/a" : String(n));
-  const lines = ["", "<b>Story call to action, since the test began:</b>"];
-  for (const t of totals) {
+  const lines = ["", "<b>Story call to action:</b>"];
+  for (const t of totals.filter((x) => x.stories > 0)) {
     lines.push(
       `${label(t.variant)}: ${t.stories} stories (${t.measured} measured) · reach ${t.reach}` +
         ` · replies ${t.replies} (${fmt(t.replies_per_1000)} per 1,000)` +
@@ -188,11 +184,8 @@ export function ctaReportLines(opts: {
   if (opts.bioLinkSessions7d !== null) {
     lines.push(`Site visits from the bio link, last 7 days: ${opts.bioLinkSessions7d}`);
   }
-  const enough = totals.every((t) => t.measured >= MIN_STORIES_FOR_VERDICT);
   lines.push(
-    enough
-      ? "<i>Both have enough stories to compare. Replies and profile visits per 1,000 reached are the numbers to read.</i>"
-      : `<i>Too early to call: wait for ${MIN_STORIES_FOR_VERDICT} measured stories each.</i>`,
+    "<i>\"Link in bio\" was retired on 20 November: drawn as a button, it could not be tapped. Replies per 1,000 reached is the number to read.</i>",
   );
   return lines;
 }

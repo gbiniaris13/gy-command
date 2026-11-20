@@ -163,6 +163,14 @@ tap, and no site visit ever came from a story (0 of 17,030 sessions).
   banner still cannot be drawn, the Telegram card says so and the story is
   left out of the test.
 
+> **2026-11-20, George.** "Link in bio" is retired from the stories: drawn in
+> a gold box with a link glyph it read as a button, and a viewer who tapped
+> it went nowhere. Every story now asks for a message ("Message us \"AD
+> ASTRA\"", "Message us your dates"). The same day he settled the voice:
+> the **profile** (bio, stories) speaks as the house, "us"; the **posts**
+> (captions, cards, reels) stay in his own first person. The bio link is
+> still georgeyachts.com, and a tap on it lands on `/instagram`.
+
 ## 6d. Yacht posts, second version (2026-11-19)
 
 The yacht carousel (`/api/cron/instagram-fleet-post`, Tue to Fri) used to be
