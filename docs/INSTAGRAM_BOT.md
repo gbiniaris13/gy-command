@@ -369,6 +369,32 @@ yet shows as "not measured yet", never as zero. Words and sums:
 The targets are the research's judgement, printed so a number has something
 to be read against; they are not a promise.
 
+## 6i. A story on George's own profile after each post (2026-11-20, dormant)
+
+George's own profile has more followers than the company's. His choice:
+stories only, automatic. `src/lib/personal-story.ts` posts one story on his
+profile each time a yacht carousel, a guide or a reel goes out on the
+company account: the post's lead photograph, what it is, "@georgeyachts",
+with the company account tagged. It is called at the end of
+`instagram-fleet-post`, `instagram-guide` and `instagram-reel`, after the
+post is already out, and it never throws.
+
+- **Dormant until connected.** It runs only when `settings.ig_personal_id`
+  holds the Instagram id of his profile. Before that it does one settings
+  read and returns. `settings.ig_personal_stories = "false"` switches it off.
+- **No second token.** The profile has to be reachable by the token the
+  crons already use: a professional account, linked to a Facebook Page,
+  with that Page assigned to the system user in Meta Business.
+- **What it cannot do.** The API cannot reshare a post into a story and
+  cannot add a link sticker. The story is a picture with words and a tag.
+- **A guide drawn without a photograph gets no story** (a bare text card
+  cropped to a story reads badly).
+- **Check:** `GET /api/admin/ig-personal-check` lists the Instagram accounts
+  the token can reach and which one is configured. With
+  `?account=<id>&container=1` it hands Instagram a story for that account
+  without publishing it, which settles whether stories are accepted there
+  (Meta's own pages disagree about Creator accounts).
+
 ## 7. Facebook Page mirror — how to activate (free, ~5 min, one-time)
 
 The mirror code is correct and **posted successfully before** — it only broke

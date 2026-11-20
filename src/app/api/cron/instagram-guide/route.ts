@@ -7,6 +7,7 @@ export const maxDuration = 300;
 
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { publishPersonalStory, personalStoryLine } from "@/lib/personal-story";
 import { applyPublishJitter, checkRateLimitHealth, logRateLimitAction } from "@/lib/rate-limit-guard";
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { observeCron } from "@/lib/cron-observer";
@@ -230,6 +231,13 @@ async function _observedImpl() {
 
     await logRateLimitAction("post_publish", { media_id: publishData.id, kind: "guide", deck: deck.id });
 
+    // One story on George's own profile (dormant until it is connected).
+    // It needs a photograph: a guide drawn without one gets no story.
+    const cover: any = (deck.slides ?? []).find((s: any) => s?.kind === "cover");
+    const personal = personalStoryLine(
+      await publishPersonalStory({ photoUrl: cover?.photo ?? null, title: cover?.title || "A short guide", subtitle: "A short guide, on our page today" }),
+    );
+
     await sendTelegram(
       [
         `✅ <b>Guide carousel live:</b> ${deck.id} (${deck.kind}, turn ${turn})`,
@@ -237,6 +245,7 @@ async function _observedImpl() {
         `Caption: "${caption.slice(0, 160).replace(/\n/g, " ")}..."`,
         `Link: https://instagram.com/p/${publishData.id}`,
         `First comment (site page): ${firstCommentOk ? "✅ posted" : "⚠ failed"}`,
+        ...(personal ? [personal] : []),
       ].join("\n"),
     );
 

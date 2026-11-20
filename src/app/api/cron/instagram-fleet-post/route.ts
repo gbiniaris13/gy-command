@@ -8,6 +8,7 @@ export const maxDuration = 300;
 
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { publishPersonalStory, personalStoryLine } from "@/lib/personal-story";
 import {
   applyPublishJitter,
   checkRateLimitHealth,
@@ -589,6 +590,12 @@ async function _observedImpl() {
       angle,
     });
 
+    // One story on George's own profile (dormant until it is connected;
+    // never throws, and the post above is already out).
+    const personal = personalStoryLine(
+      await publishPersonalStory({ photoUrl: photos[0], title: String(yacht.name ?? "").replace(/^(M\/Y|S\/Y|M\/S|S\/C|M\/C)\s+/i, ""), subtitle: "On our page today" }),
+    );
+
     // Post-facto Telegram summary (replaces the pre-approval gate).
     await sendTelegram(
       [
@@ -598,6 +605,7 @@ async function _observedImpl() {
         `Link: https://instagram.com/p/${publishData.id}`,
         `UTM: boat_${(yacht.slug ?? "").toLowerCase()} · angle_${angle}`,
         `First comment (yacht page): ${firstCommentOk ? "✅ posted" : "⚠ failed"}`,
+        ...(personal ? [personal] : []),
         ``,
         `📱 Story followup auto-queued for +48h.`,
       ].join("\n"),

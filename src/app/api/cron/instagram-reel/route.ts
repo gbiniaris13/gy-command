@@ -5,6 +5,7 @@ export const maxDuration = 300;
 
 import { createServiceClient } from "@/lib/supabase-server";
 import { sendTelegram } from "@/lib/telegram";
+import { publishPersonalStory, personalStoryLine } from "@/lib/personal-story";
 import { applyPublishJitter, checkRateLimitHealth, logRateLimitAction } from "@/lib/rate-limit-guard";
 import { assertPublishAllowed } from "@/lib/ig-window-guard";
 import { observeCron } from "@/lib/cron-observer";
@@ -193,6 +194,11 @@ async function _observedImpl() {
     // The stored film and frames have done their work.
     await cleanupReel(reel.slug);
 
+    // One story on George's own profile (dormant until it is connected).
+    const personal = personalStoryLine(
+      await publishPersonalStory({ photoUrl: reel.heroUrl, title: String(reel.yachtName ?? "").replace(/^(M\/Y|S\/Y|M\/S|S\/C|M\/C)\s+/i, ""), subtitle: "Her film, on our page today" }),
+    );
+
     await sendTelegram(
       [
         `✅ <b>Reel live:</b> ${reel.yachtName}${trial ? " (Trial Reel: shown to non-followers first, moves to the profile by itself if it does well)" : ""}`,
@@ -200,6 +206,7 @@ async function _observedImpl() {
         `Caption: "${reel.caption.slice(0, 160).replace(/\n/g, " ")}..."`,
         `Media id: ${pubData.id}`,
         `First comment (yacht page): ${firstCommentOk ? "✅ posted" : "⚠ failed"}`,
+        ...(personal ? [personal] : []),
       ].join("\n"),
     );
     return NextResponse.json({ ok: true, media_id: pubData.id, yacht: reel.yachtName, trial });
