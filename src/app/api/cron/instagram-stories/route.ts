@@ -76,7 +76,7 @@ interface YachtRotationState {
 
 // 2026-11-19: the call-to-action test (see src/lib/story-cta.ts). A
 // counter that advances with every published story decides whether the
-// banner says "Link in bio" or "DM us"; a durable log keeps which story
+// banner says "Link in bio" or "DM me"; a durable log keeps which story
 // carried which, so the weekly report can compare them. The rate-limit
 // log is no use for that: it is pruned after a week.
 async function loadCtaCounter(sb: any): Promise<number> {

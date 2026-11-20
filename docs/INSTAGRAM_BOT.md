@@ -145,7 +145,7 @@ seven months the banner said "Tap to view yacht" over an address nobody could
 tap, and no site visit ever came from a story (0 of 17,030 sessions).
 
 - The banner now asks for something the viewer can do inside Instagram, and
-  alternates with every story: **"Link in bio"** and **"DM us"** (the yacht's
+  alternates with every story: **"Link in bio"** and **"DM me"** (the yacht's
   name on yacht slots, "your dates" on Greece slots). Copy and rules:
   `src/lib/story-cta.ts`; tests: `scripts/ig-tests/story-cta.test.ts`.
 - The Facebook mirror gets its own picture with `georgeyachts.com`.

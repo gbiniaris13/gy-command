@@ -13,7 +13,14 @@
 // them in turn and let the numbers decide:
 //
 //   "bio"  Link in bio. Judged by profile visits from the story.
-//   "dm"   DM us the yacht's name. Judged by replies to the story.
+//   "dm"   DM me the yacht's name. Judged by replies to the story.
+//
+// 2026-11-20 (George): the stories say what the research says, in his
+// voice ("DM me", never "DM me"), and a story may only say "Link in bio"
+// for something the link in the bio really leads to. That link is
+// georgeyachts.com, and a tap on it lands on /instagram, the short brief
+// ("Tell me the week. I will tell you the yacht."). So the line above
+// "Link in bio" promises that, not a yacht's own page.
 //
 // The variant alternates with every published story. The yacht slot comes
 // round every third story, so over six stories each variant meets each
@@ -49,15 +56,15 @@ export function instagramCta(opts: {
     .trim();
   if (opts.variant === "bio") {
     return yacht
-      ? { eyebrow: "Full details and rates", main: "Link in bio", icon: "link" }
+      ? { eyebrow: "Tell me your dates", main: "Link in bio", icon: "link" }
       : { eyebrow: "Plan your week in Greece", main: "Link in bio", icon: "link" };
   }
   if (yacht) {
     // A long name would overflow the banner at its type size.
     const name = yacht.length > 22 ? "her name" : `"${yacht.toUpperCase()}"`;
-    return { eyebrow: "Dates and rates", main: `DM us ${name}`, icon: "none" };
+    return { eyebrow: "Dates and rates", main: `DM me ${name}`, icon: "none" };
   }
-  return { eyebrow: "Planning a week in Greece?", main: "DM us your dates", icon: "none" };
+  return { eyebrow: "Planning a week in Greece?", main: "DM me your dates", icon: "none" };
 }
 
 /**
@@ -168,7 +175,7 @@ export function ctaReportLines(opts: {
 }): string[] {
   const totals = totalsByVariant(opts.log, opts.sinceIso);
   if (totals.every((t) => t.stories === 0)) return [];
-  const label = (v: CtaVariant) => (v === "bio" ? "Link in bio" : "DM us");
+  const label = (v: CtaVariant) => (v === "bio" ? "Link in bio" : "DM me");
   const fmt = (n: number | null) => (n === null ? "n/a" : String(n));
   const lines = ["", "<b>Story call to action, since the test began:</b>"];
   for (const t of totals) {

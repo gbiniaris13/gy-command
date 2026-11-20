@@ -44,12 +44,18 @@ test("no Instagram banner promises a tap or shows a web address", () => {
 });
 
 test("the DM banner names the yacht; a very long name falls back", () => {
-  assert.equal(instagramCta({ variant: "dm", yachtName: "Ad Astra" }).main, 'DM us "AD ASTRA"');
-  assert.equal(instagramCta({ variant: "dm", yachtName: "Majesty of Greece" }).main, 'DM us "MAJESTY OF GREECE"');
-  assert.equal(instagramCta({ variant: "dm", yachtName: "A Very Long Yacht Name Indeed" }).main, "DM us her name");
-  assert.equal(instagramCta({ variant: "dm", yachtName: null }).main, "DM us your dates");
-  assert.equal(instagramCta({ variant: "dm", yachtName: "S/CAT Ad Astra" }).main, 'DM us "AD ASTRA"', "no catalogue prefix");
+  assert.equal(instagramCta({ variant: "dm", yachtName: "Ad Astra" }).main, 'DM me "AD ASTRA"');
+  assert.equal(instagramCta({ variant: "dm", yachtName: "Majesty of Greece" }).main, 'DM me "MAJESTY OF GREECE"');
+  assert.equal(instagramCta({ variant: "dm", yachtName: "A Very Long Yacht Name Indeed" }).main, "DM me her name");
+  assert.equal(instagramCta({ variant: "dm", yachtName: null }).main, "DM me your dates");
+  assert.equal(instagramCta({ variant: "dm", yachtName: "S/CAT Ad Astra" }).main, 'DM me "AD ASTRA"', "no catalogue prefix");
   assert.equal(instagramCta({ variant: "bio", yachtName: "Ad Astra" }).main, "Link in bio");
+  // "Link in bio" may only promise what the bio link leads to: the short brief, not a yacht's page.
+  assert.equal(instagramCta({ variant: "bio", yachtName: "Ad Astra" }).eyebrow, "Tell me your dates");
+  for (const v of ["bio", "dm"] as const) for (const y of ["Ad Astra", null]) {
+    const c = instagramCta({ variant: v, yachtName: y });
+    assert.ok(!/\b(us|our|we)\b/i.test(`${c.eyebrow} ${c.main}`), "one person speaks, not a team");
+  }
 });
 
 test("Facebook gets the address, never 'link in bio'", () => {

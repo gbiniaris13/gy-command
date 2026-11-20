@@ -4,7 +4,7 @@
 // ("Publishing stickers (i.e., link, poll, location) is not supported"),
 // so whatever the story has to say is drawn into the picture: the yacht
 // or theme at the top, a call to action in a gold-bordered banner at the
-// bottom ("Link in bio", 'DM us "AD ASTRA"'; see src/lib/story-cta.ts).
+// bottom ("Link in bio", 'DM me "AD ASTRA"'; see src/lib/story-cta.ts).
 //
 // Query params:
 //   photo    = absolute URL of the source photo (required)
