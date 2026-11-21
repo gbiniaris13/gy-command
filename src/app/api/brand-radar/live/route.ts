@@ -129,9 +129,14 @@ function classifyAi(referrer: string | null, referrerUrl: string | null): string
 }
 
 async function fetchReferrals() {
-  const url = process.env.CRM_SUPABASE_URL;
-  const key = process.env.CRM_SUPABASE_SERVICE_KEY;
-  if (!url || !key) return { connected: false, reason: "CRM_SUPABASE_* env missing" };
+  // 2026-11-21: since 19/11 the website's tracker writes visits to THIS
+  // app's own database (the site's commit fc60d6e0). CRM_SUPABASE_* here is
+  // the project the CRM left in June: from that afternoon it held no new
+  // visits and the Logbook showed 0 people for 20/11. Read where the
+  // tracker writes; the old name stays only as a fallback.
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.CRM_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.CRM_SUPABASE_SERVICE_KEY;
+  if (!url || !key) return { connected: false, reason: "visits database env missing" };
 
   const since = isoDaysAgo(30);
   // Supabase caps any single response at 1000 rows regardless of ?limit=,

@@ -285,12 +285,17 @@ export async function readClean(): Promise<LogbookClean | null> {
 }
 
 // ── The visits, from the website's database (read only) ──────────
-// The same database the Brand Radar panel reads (CRM_SUPABASE_*), the one
-// the website's tracker writes to.
+// The same database the Brand Radar panel reads, the one the website's
+// tracker writes to (this app's own since 19/11/2026).
 async function readSessions(sinceIso: string, untilIso: string): Promise<Session[]> {
-  const url = process.env.CRM_SUPABASE_URL;
-  const key = process.env.CRM_SUPABASE_SERVICE_KEY;
-  if (!url || !key) throw new Error("CRM_SUPABASE_* is not configured");
+  // 2026-11-21: since 19/11 the website's tracker writes visits to THIS
+  // app's own database (the site's commit fc60d6e0). CRM_SUPABASE_* here is
+  // the project the CRM left in June: from that afternoon it held no new
+  // visits and the Logbook showed 0 people for 20/11. Read where the
+  // tracker writes; the old name stays only as a fallback.
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.CRM_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.CRM_SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error("the visits database is not configured");
   const rows: Session[] = [];
   for (let from = 0; from < 60000; from += 1000) {
     const res = await fetch(
