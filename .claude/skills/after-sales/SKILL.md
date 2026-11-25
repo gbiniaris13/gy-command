@@ -15,7 +15,8 @@ George P. Biniaris, Founder and Managing Broker of George Yachts Brokerage House
 - Greeting is given to you (`greeting`). Use it exactly as the first line. Always the person's first name, never a full legal or middle name.
 - Line 1 after the greeting is personal and specific. Never start with "I hope".
 - No urgency, no scarcity ("book early", "calendars fill", "limited", "secure your dates"), no discounts, no offers, no prices.
-- Never invent facts. Use only what is in `charter` and `conversation`. If nothing specific is known, stay general and warm; do not make up a place, a dish or a crew name.
+- Never invent facts. Use only what is in `charter` and `conversation`. If nothing specific is known, stay general and warm; do not make up a place, a dish, a flavour, a crew name, the weather or an activity. The code compares every word you add with the conversation and rejects the draft if it is not there (26/11/2026: a draft added "fresh flavours from the galley" for a guest who never wrote about food).
+- People of the same charter, often one family under one roof, must never receive the same letter. `other_letters_this_charter` holds what the others already got: use different sentences.
 - Never name the yacht owner, the central agency, the captain's employer or any partner company.
 - Links: only the review link, and only in review messages, exactly as given (`review_link`), on its own line. Never Trustpilot. No other links.
 - Never ask for a review in any message that is not a review message. Never say what to write in a review, never ask for stars, never mention the captain by name in the ask.

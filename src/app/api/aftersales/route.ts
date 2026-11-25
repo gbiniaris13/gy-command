@@ -93,7 +93,13 @@ export async function POST(req: Request) {
   }
 
   if (b.action === "generate") {
-    const g = await generateTouch(t.kind, c, t.person);
+    // Letters of the same kind, same charter, same year, already written for
+    // the others: this one must read differently (26/11/2026).
+    const siblings = Object.entries(state.touches)
+      .map(([id, st]) => ({ id, st, parts: id.split("|") }))
+      .filter((x) => x.parts[0] === t.kind && x.parts[1] === t.charter_key && x.parts[2] !== t.person.email && x.parts[3]?.slice(0, 4) === t.due.slice(0, 4) && x.st.body)
+      .map((x) => ({ name: c.people.find((pp) => pp.email === x.parts[2])?.first_name ?? "another guest", body: x.st.body! }));
+    const g = await generateTouch(t.kind, c, t.person, { siblings });
     await updateState((s) => {
       s.touches[t.id] = { ...(s.touches[t.id] ?? {}), status: "generated", at: now, subject: g.subject, body: g.body, generated_at: g.generated_at, warnings: g.warnings };
     });
@@ -113,7 +119,7 @@ export async function POST(req: Request) {
     const sent = await sendHelmEmail({ to, subject: live ? subject : `[ΔΟΚΙΜΗ για ${t.person.email}] ${subject}`, body });
     await updateState((s) => {
       const cur = s.touches[t.id] ?? { status: "generated" as const, at: now };
-      if (live) s.touches[t.id] = { status: "sent", at: now, subject, message_id: sent.messageId, sent_to: to };
+      if (live) s.touches[t.id] = { status: "sent", at: now, subject, body, message_id: sent.messageId, sent_to: to };
       else s.touches[t.id] = { ...cur, subject, body, test_sent_at: now };
     });
     if (live && c.request_id && t.person.role !== "guest") {

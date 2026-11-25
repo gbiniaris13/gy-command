@@ -15,6 +15,7 @@ import { GOOGLE_REVIEW_LINK } from "./plan";
 import { baseText, greetingFor } from "./templates";
 import { checkAfterSales } from "./validate";
 import { addDays, athensToday, daysBetween } from "./dates";
+import { ungrounded, tooSimilar } from "./grounding";
 
 const PLAYBOOK_PATH = path.join(process.cwd(), ".claude", "skills", "after-sales", "SKILL.md");
 let cache: { mtime: number; text: string } | null = null;
@@ -34,8 +35,14 @@ export type Generated = {
   recent_inbound: { at: string; snippet: string } | null; // the person wrote recently
 };
 
-export async function generateTouch(kind: Kind, c: Charter, p: Person): Promise<Generated> {
-  const base = baseText(kind, c, p, { problem_note: c.problem.note });
+export type Sibling = { name: string; body: string };
+
+export async function generateTouch(kind: Kind, c: Charter, p: Person, opts: { siblings?: Sibling[] } = {}): Promise<Generated> {
+  // A different wording per person of the charter, so a family never gets
+  // six copies of one letter (26/11/2026).
+  const variant = Math.max(0, c.people.findIndex((x) => x.email === p.email));
+  const base = baseText(kind, c, p, { problem_note: c.problem.note, variant });
+  const siblings = (opts.siblings ?? []).filter((s) => s.body);
   const greeting = greetingFor(kind, p);
   const model = process.env.AFTERSALES_AI_MODEL || process.env.FOLLOWUP_AI_MODEL || process.env.AI_MODEL || "gemini-2.5-flash";
   const now = new Date().toISOString();
@@ -65,36 +72,58 @@ export async function generateTouch(kind: Kind, c: Charter, p: Person): Promise<
     problem_note: kind === "review_after_problem" ? c.problem.note : null,
     conversation,
     base_text: base,
+    // Letters already written for other people of this charter: yours must read differently.
+    other_letters_this_charter: siblings.map((s) => s.body),
   };
-  const system = `${playbook()}\n\nYou personalise the base text for this one person. Keep its shape and length. Add at most ONE specific, true detail taken from the conversation (a place they loved, something they said), only if it is clearly there. If the conversation has nothing usable, return the base text almost unchanged. Return JSON only.`;
+  const system = `${playbook()}\n\nYou personalise the base text for this one person. Keep its shape and length. Add at most ONE specific detail, and ONLY if the guest or George said it in the conversation: use their own words for it. Never add a detail about food, the crew, a place, weather or an activity that is not written in the conversation; the code rejects every word you add that is not in the conversation, the charter facts or the base text. If the conversation has nothing usable, return the base text unchanged. If other_letters_this_charter is not empty, your sentences must not repeat theirs. Return JSON only.`;
   const user = JSON.stringify(ctx, null, 1);
 
   const clean = (d: { subject?: string; body?: string }) => ({ subject: deDash(String(d.subject ?? "")).trim(), body: deDash(String(d.body ?? "")).trim() });
   const expect = { greeting, fullName: p.full_name };
+  const sources = [
+    ...conversation.map((m) => `${m.subject ?? ""} ${m.text}`),
+    c.vessel, c.vessel_type, c.area ?? "", c.port_from ?? "", c.port_to ?? "", c.lead_first_name, p.first_name,
+    kind === "review_after_problem" ? c.problem.note : "",
+  ].join("\n");
+  const names = c.people.map((x) => x.first_name);
+  const extraChecks = (d: { body: string }) => {
+    const out: string[] = [];
+    const added = ungrounded(d.body, base.body, sources);
+    if (added.length) out.push(`adds words that are not in the conversation or the facts: ${added.slice(0, 6).join(", ")}`);
+    const twin = tooSimilar(d.body, siblings, names);
+    if (twin) out.push(`reads like the letter already written for ${twin}; use different sentences`);
+    return out;
+  };
   let draft = base;
   let personalised = false;
   let problems: string[] = [];
-  try {
-    const raw = await aiChat(system, user, { maxTokens: 2048, temperature: 0.5, model });
+  // Nothing was ever said with this person: there is nothing true to add, so
+  // the hand-written wording goes as it is (26/11/2026: rewording for its own
+  // sake made one letter choppy). The model writes only when it has material.
+  const said = conversation.some((m) => m.dir === "guest wrote" && m.text.trim().length > 40);
+  if (said) try {
+    const raw = await aiChat(system, user, { maxTokens: 8192, temperature: 0.5, model });
     let d = clean(parseLooseJson(raw) as { subject?: string; body?: string });
-    problems = checkAfterSales(kind, d, expect);
+    problems = [...checkAfterSales(kind, d, expect), ...extraChecks(d)];
     if (problems.length) {
-      const raw2 = await aiChat(system, `${user}\n\nYOUR LAST DRAFT:\n${JSON.stringify(d)}\n\nFIX THESE PROBLEMS:\n- ${problems.join("\n- ")}`, { maxTokens: 2048, temperature: 0.3, model });
+      const raw2 = await aiChat(system, `${user}\n\nYOUR LAST DRAFT:\n${JSON.stringify(d)}\n\nFIX THESE PROBLEMS:\n- ${problems.join("\n- ")}`, { maxTokens: 8192, temperature: 0.3, model });
       d = clean(parseLooseJson(raw2) as { subject?: string; body?: string });
-      problems = checkAfterSales(kind, d, expect);
+      problems = [...checkAfterSales(kind, d, expect), ...extraChecks(d)];
     }
     if (!problems.length && d.body) { draft = d; personalised = true; }
   } catch {
     problems = ["the model did not answer"];
   }
-  const warnings = personalised ? [] : checkAfterSales(kind, draft, expect);
+  const twinOfBase = personalised ? null : tooSimilar(draft.body, siblings, names);
+  const warnings = personalised ? [] : [...checkAfterSales(kind, draft, expect), ...(twinOfBase ? [`similar to the letter for ${twinOfBase}: change a sentence before Send`] : [])];
   return {
     subject: draft.subject,
     body: draft.body,
     generated_at: now,
     model: personalised ? model : "base text",
     personalised,
-    warnings: warnings.length ? warnings : (problems.length && !personalised ? [`personal touch skipped (${problems[0]}), base text used`] : []),
+    // Only what George must act on; a skipped personal touch is not his problem.
+    warnings,
     recent_inbound: recent,
   };
 }

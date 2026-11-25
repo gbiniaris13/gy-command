@@ -43,6 +43,11 @@ export function checkAfterSales(kind: Kind, d: { subject: string; body: string }
     if (kind !== "advisor_report" && REVIEW_ASK.test(all)) p.push("no review ask in this message");
   }
   if (/\[[^\]\n]{2,60}\]/.test(d.body)) p.push("has [brackets] left to fill in");
+  // A draft cut off mid-sentence must never pass (26/11/2026, seen in a test).
+  if (lines[lines.length - 1] !== "George") p.push('must end with "George" on its own line');
+  const inner = lines.slice(1, lines[lines.length - 1] === "George" ? -1 : undefined).filter((l) => !/^https?:\/\//.test(l) && !/,$/.test(l));
+  const cut = inner.find((l) => !/[.!?:"”')]$/.test(l));
+  if (cut) p.push(`a line stops mid-sentence: "${cut.slice(-40)}"`);
   const w = wordCount(d.body);
   const [min, max] = LIMITS[kind];
   if (w < min || w > max) p.push(`body is ${w} words (target ${min}-${max})`);

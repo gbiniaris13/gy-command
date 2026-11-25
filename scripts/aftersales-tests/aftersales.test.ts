@@ -79,3 +79,43 @@ test("the anniversary names a real region only", () => {
   assert.match(baseText("anniversary", { ...charter, area: "Athens to Athens, Cyclades. Syros to be included (client has an emotional tie)" }, lead).body, /you were in the Cyclades, aboard/);
   assert.match(baseText("anniversary", { ...charter, area: "Greek & International Waters" }, lead).body, /you were aboard EFFIE STAR, and/);
 });
+
+import { ungrounded, tooSimilar } from "../../src/lib/aftersales/grounding";
+test("grounding: words the model adds must come from the emails", () => {
+  const base = baseText("holiday", { ...charter, vessel: "Seabarit LX" }, lead).body;
+  const invented = base.replace("is part of mine.", "with its fresh flavours from the galley, is part of mine.");
+  assert.deepEqual(ungrounded(invented, base, "Thank you George, the week was perfect."), ["fresh", "flavours", "galley"]);
+  const fromMail = base.replace("is part of mine.", "and that evening in Hydra harbour, is part of mine.");
+  assert.deepEqual(ungrounded(fromMail, base, "Hydra was our favourite island, the harbour was so festive"), []);
+});
+
+test("one family never gets the same letter, even six people", () => {
+  const fam: Person[] = ["Tricia", "Mark", "Caroline", "Grant", "Jack", "Madison"].map((n, i) => ({ ...lead, first_name: n, email: `${i}@x.com`, role: i ? "guest" : "lead" }));
+  const c = { ...charter, people: fam };
+  for (const k of ["holiday", "thank_you", "birthday"] as Kind[]) {
+    const letters = fam.map((p, i) => ({ name: p.first_name, body: baseText(k, c, p, { variant: i }).body }));
+    for (let i = 0; i < letters.length; i++) {
+      const others = letters.filter((_, j) => j !== i);
+      assert.equal(tooSimilar(letters[i].body, others, fam.map((p) => p.first_name)), null, `${k}: ${letters[i].name} reads like another`);
+    }
+  }
+  const guests = fam.slice(1);
+  const reviews = guests.map((p, i) => ({ name: p.first_name, body: baseText("review", c, p, { variant: i + 1 }).body }));
+  for (let i = 0; i < reviews.length; i++) assert.equal(tooSimilar(reviews[i].body, reviews.filter((_, j) => j !== i), fam.map((p) => p.first_name)), null, `review: ${reviews[i].name}`);
+});
+
+test("every wording of every letter passes the rules", () => {
+  for (let n = 0; n < 6; n++) {
+    for (const [k, p] of [["thank_you", guest], ["review", guest], ["birthday", guest], ["holiday", guest], ["holiday", greek]] as [Kind, Person][]) {
+      const d = baseText(k, charter, p, { variant: n });
+      assert.deepEqual(checkAfterSales(k, d, { greeting: greetingFor(k, p), fullName: p.full_name }), [], `${k} variant ${n}`);
+    }
+  }
+});
+
+test("a draft cut off mid-sentence never passes", () => {
+  const cut = "Hey Madison,\n\nFor your week aboard Effie Star, thank you. It was a real pleasure to look after you.\n\nI grew up in the Cyclades, and every charter is a little like sharing my home with a guest. My hope is that the week felt like";
+  const p = checkAfterSales("thank_you", { subject: "Thank you for the week", body: cut }, { greeting: "Hey Madison,", fullName: "" });
+  assert.ok(p.some((x) => x.includes('end with "George"')));
+  assert.ok(p.some((x) => x.includes("mid-sentence")));
+});

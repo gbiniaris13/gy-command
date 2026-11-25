@@ -27,18 +27,33 @@ export function regionOf(c: Charter): string | null {
   return null;
 }
 
-export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_note?: string } = {}): { subject: string; body: string } {
+/** Pick one of several wordings: people of the same charter get different
+ *  letters (26/11/2026: six identical Thanksgiving letters to one family). */
+// k shifts the choice for the 2nd and 3rd sentence, so with three wordings
+// per sentence even six people of one charter share at most one sentence.
+const pick = <T,>(arr: T[], n: number, k = 0): T => arr[(n + k * Math.floor(n / arr.length)) % arr.length];
+
+export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_note?: string; variant?: number } = {}): { subject: string; body: string } {
   const g = greetingFor(kind, p);
   const v = c.vessel;
+  const n = extra.variant ?? 0;
   switch (kind) {
     case "thank_you":
       return {
         subject: "Thank you for the week",
         body: [
           g,
-          `Thank you for trusting me with your week aboard ${v}. It was a real pleasure to look after you.`,
-          `I am from the Cyclades, and every charter feels a little like showing a guest my home. I truly hope the week was everything you dreamed of, and that you took some of the islands' energy home with you.`,
-          `If there is anything at all I can do for you, now or later, I am one message away.`,
+          pick([
+            `Thank you for trusting me with your week aboard ${v}. It was a real pleasure to look after you.`,
+            `Thank you for the week aboard ${v}. Looking after you was a real pleasure.`,
+            `Your week aboard ${v} has just ended, and I wanted to thank you for it myself.`,
+          ], n),
+          pick([
+            `I am from the Cyclades, and every charter feels a little like showing a guest my home. I truly hope the week was everything you dreamed of, and that you took some of the islands' energy home with you.`,
+            `I am from the Cyclades, so every week on these waters feels a little like welcoming someone into my home. I truly hope it was the holiday you dreamed of, and that some of the islands' energy travels home with you.`,
+            `I grew up in the Cyclades, and for me every charter is a little like sharing my home with a guest. My wish is that the week felt like a dream, and that you carry some of the islands' energy with you.`,
+          ], n, 1),
+          pick([`If there is anything at all I can do for you, now or later, I am one message away.`, `Whatever you need, now or in the months ahead, I am one message away.`, `If I can ever help with anything, now or later, just write to me.`], n, 2),
           `With warm regards from Athens,\nGeorge`,
         ].join("\n\n"),
       };
@@ -58,8 +73,16 @@ export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_not
             subject: "From George, after your week in Greece",
             body: [
               g,
-              `You came aboard ${v} as ${c.lead_first_name || "your host"}'s guest, but the week was yours too, and I wanted to thank you myself.`,
-              `If you would like to share your experience of George Yachts, a few words on Google would mean a great deal to me, and to the people who come after you.`,
+              pick([
+                `You came aboard ${v} as ${c.lead_first_name || "your host"}'s guest, but the week was yours too, and I wanted to thank you myself.`,
+                `${c.lead_first_name || "Your host"} booked the week aboard ${v}, but it was every bit your week too, and I wanted to thank you personally.`,
+                `The week aboard ${v} belonged to everyone on board, you included, and I wanted to thank you myself.`,
+              ], n),
+              pick([
+                `If you would like to share your experience of George Yachts, a few words on Google would mean a great deal to me, and to the people who come after you.`,
+                `If you have a moment to share your experience of George Yachts on Google, it would mean a great deal to me, and it helps the next guests decide.`,
+                `Should you feel like sharing your experience of George Yachts, a few words on Google would be a real kindness, to me and to those who come next.`,
+              ], n, 1),
               GOOGLE_REVIEW_LINK,
               `Warmly,\nGeorge`,
             ].join("\n\n"),
@@ -78,7 +101,14 @@ export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_not
     case "birthday":
       return {
         subject: "Happy birthday",
-        body: [g, `Happy birthday from Athens. Wishing you a wonderful day with the people you love, and a year as bright as a morning on the water.`, `Warmly,\nGeorge`].join("\n\n"),
+        body: [g, pick([
+          `Happy birthday from Athens. Wishing you a wonderful day with the people you love, and a year as bright as a morning on the water.`,
+          `A very happy birthday to you from Athens. May the day be full of the people you love, and the year ahead as calm as a quiet anchorage.`,
+          `Happy birthday. I hope today brings you the people you love around one table, and a year ahead with plenty of sun in it.`,
+          `Many happy returns from Athens. I hope the day is full of good company and that the year ahead treats you kindly.`,
+          `Wishing you the happiest of birthdays from Greece, a day of good company and a year that feels like a long summer.`,
+          `Happy birthday from all the way across the Aegean. May today be a joyful one, and the year ahead calm and bright.`,
+        ], n), `Warmly,\nGeorge`].join("\n\n"),
       };
     case "holiday":
       return !p.country || p.country === "US"
@@ -86,9 +116,13 @@ export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_not
             subject: "A note of thanks",
             body: [
               g,
-              `Thanksgiving is not a holiday we keep in Greece, but I have come to love the idea of a day set aside simply for gratitude. This year, your week aboard ${v} is part of mine.`,
-              `The islands are quiet now. The harbours have emptied, the tavernas have closed their shutters, and the light has turned soft and low. It is my favourite time to remember the summer.`,
-              `Wishing you and everyone at your table a warm Thanksgiving, and a peaceful end to the year.`,
+              `Thanksgiving is not a holiday we keep in Greece, but I have come to love the idea of a day set aside simply for gratitude. ${pick([`This year, your week aboard ${v} is part of mine.`, `This year, the week you spent aboard ${v} is part of mine.`, `This year, the week aboard ${v} with all of you is part of mine.`], n)}`,
+              pick([
+                `The islands are quiet now, the harbours have emptied, the tavernas have closed their shutters and the light has turned soft and low, my favourite time to remember the summer.`,
+                `The islands have gone quiet for the winter and the light over the sea has turned soft and low, my favourite time to look back on the summer.`,
+                `Here the season has closed, the boats are back in their winter berths and the light has turned soft and low, the moment I like best for remembering the summer.`,
+              ], n, 1),
+              pick([`Wishing you and everyone at your table a warm Thanksgiving, and a peaceful end to the year.`, `Wishing you a warm Thanksgiving with the people you love, and a peaceful end to the year.`, `Wishing you and everyone around your table a warm Thanksgiving, and a peaceful end to the year.`], n, 2),
               `George`,
             ].join("\n\n"),
           }
@@ -96,8 +130,8 @@ export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_not
             subject: "Season's greetings from Athens",
             body: [
               g,
-              `As the year closes, your week aboard ${v} is one of the memories I am most grateful for.`,
-              `The islands are quiet now. The harbours have emptied, and the light has turned soft and low, my favourite time to remember the summer.`,
+              pick([`As the year closes, your week aboard ${v} is one of the memories I am most grateful for.`, `As the year ends, I find myself grateful for the week you spent aboard ${v}.`, `Looking back on this year, the week aboard ${v} with you is one I am truly grateful for.`], n),
+              pick([`The islands are quiet now. The harbours have emptied, and the light has turned soft and low, my favourite time to remember the summer.`, `The islands have gone quiet for the winter, and the light over the sea has turned soft and low.`, `Here the season has closed, the boats are in their winter berths, and the light has turned soft and low.`], n, 1),
               `Wishing you and your family a peaceful Christmas and a very happy new year.`,
               `George`,
             ].join("\n\n"),
