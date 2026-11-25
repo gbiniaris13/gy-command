@@ -35,14 +35,17 @@ export type CharterState = {
   reminded_at?: string;
 };
 export type PersonState = { first_name?: string; never?: boolean; never_at?: string };
+export type LostState = { category: string; reason_el?: string; at: string };
 export type AfterSalesState = {
   touches: Record<string, TouchState>;
+  // Why each request was lost, read from the conversation (25/11/2026 analysis).
+  lost: Record<string, LostState>;
   charters: Record<string, CharterState>;
   people: Record<string, PersonState>;
   mode: "test" | "live";
 };
 
-const EMPTY: AfterSalesState = { touches: {}, charters: {}, people: {}, mode: "test" };
+const EMPTY: AfterSalesState = { touches: {}, lost: {}, charters: {}, people: {}, mode: "test" };
 
 export async function readState(): Promise<AfterSalesState> {
   const raw = await getSetting(STATE_KEY);
@@ -51,6 +54,7 @@ export async function readState(): Promise<AfterSalesState> {
     const s = JSON.parse(raw) as Partial<AfterSalesState>;
     return {
       touches: s.touches ?? {},
+      lost: s.lost ?? {},
       charters: s.charters ?? {},
       people: s.people ?? {},
       mode: s.mode === "live" ? "live" : "test",

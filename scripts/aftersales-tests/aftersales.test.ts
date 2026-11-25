@@ -119,3 +119,38 @@ test("a draft cut off mid-sentence never passes", () => {
   assert.ok(p.some((x) => x.includes('end with "George"')));
   assert.ok(p.some((x) => x.includes("mid-sentence")));
 });
+
+import { lostCategory, lostTouches } from "../../src/lib/aftersales/plan";
+const lostCharter = (category: any, lost_at: string, dates_from: string | null = "2027-07-10"): Charter => ({
+  ...charter, key: "lost:r9", vessel: "", people: [{ ...lead, email: "l@x.com", first_name: "Anna", full_name: "Anna Smith" }],
+  lost: { category, greeting: "Dear Ms. Smith,", lost_at, request_created: "2026-08-01", dates_from, reason_text: "" },
+});
+
+test("lost: the reason comes from the Helm button first, then the analysis, else silence", () => {
+  assert.equal(lostCategory("[budget] Budget · ήθελε ως 12.000", "went_silent_after_talking"), "budget");
+  assert.equal(lostCategory("Δεν απάντησε σε 3 follow-ups", "never_replied"), "silence");
+  assert.equal(lostCategory(null, "short_or_day_charter"), "short");
+  assert.equal(lostCategory(null, null), "silence");
+});
+
+test("lost: notes fall in the January or September window, at most two, then stop", () => {
+  const sil = lostTouches(lostCharter("silence", "2026-09-20"));
+  assert.deepEqual(sil.map((r) => [r.kind, r.due]), [["lost_silence", "2027-01-12"], ["lost_last", "2027-09-15"]]);
+  assert.deepEqual(lostTouches(lostCharter("budget", "2026-08-10")).map((r) => [r.kind, r.due]), [["lost_budget", "2027-01-12"]]);
+  assert.deepEqual(lostTouches(lostCharter("short", "2026-07-01")).map((r) => r.kind), ["lost_short"]);
+  assert.deepEqual(lostTouches(lostCharter("broker", "2026-11-20", "2027-07-10")).map((r) => [r.kind, r.due]), [["lost_broker", "2027-10-15"]]);
+  assert.deepEqual(lostTouches(lostCharter("scope", "2026-08-10")), []);
+  // Lost in February: the first window is September, the last the January after.
+  assert.deepEqual(lostTouches(lostCharter("dates", "2027-02-20")).map((r) => [r.kind, r.due]), [["lost_dates", "2027-09-15"], ["lost_last", "2028-01-12"]]);
+});
+
+test("lost: every text passes the rules, and the season word follows the month", () => {
+  for (const k of ["lost_budget", "lost_silence", "lost_dates", "lost_last", "lost_broker", "lost_short"] as Kind[]) {
+    const c = lostCharter("silence", "2026-09-20");
+    for (const due of ["2027-01-12", "2027-09-15"]) {
+      const d = baseText(k, c, c.people[0], { due });
+      assert.deepEqual(checkAfterSales(k, d, { greeting: "Dear Ms. Smith,", fullName: "Anna Smith" }), [], `${k} ${due}`);
+      if (k === "lost_budget") assert.match(d.body, due.includes("-01-") ? /this summer/ : /next summer/);
+    }
+  }
+});

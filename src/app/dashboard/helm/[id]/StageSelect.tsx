@@ -4,6 +4,7 @@
 // same reason prompts for Won and Lost, one dropdown.
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { chooseLostReason } from "../lost-reason";
 
 const STAGES: [string, string, string][] = [
   // Same colours as the list (HelmCrmTable), so a stage reads the same everywhere.
@@ -27,7 +28,7 @@ export default function StageSelect({ requestId, current }: { requestId: string;
     const to = next.replace(/_/g, " ").toUpperCase();
     if (!window.confirm(`Move this request from ${from} to ${to}?`)) return;
     const body: Record<string, unknown> = { status: next };
-    if (next === "lost") { const reason = window.prompt("Why was this lost? (optional, helps the pipeline learn)"); if (reason) body.lost_reason = reason; }
+    if (next === "lost") { const reason = await chooseLostReason(); if (!reason) return; body.lost_reason = reason; } // 25/11/2026: required, one click
     else if (next === "won") { const reason = window.prompt("Won. Any note? (e.g. which yacht, terms)"); if (reason) body.won_reason = reason; }
     const prev = v; setV(next); setBusy(true); setError(null);
     try {

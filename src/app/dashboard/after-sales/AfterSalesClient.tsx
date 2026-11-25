@@ -19,7 +19,9 @@ type Touch = {
   id: string; kind: string; kind_el: string; charter_key: string; vessel: string; person: Person;
   due: string; expires: string; status: "due" | "upcoming" | "held" | "waiting" | "generated" | "sent" | "skipped"; reason_el: string; state: TouchState | null;
 };
-type Cal = { today: string; mode: "test" | "live"; charters: Charter[]; touches: Touch[] };
+type Lost = Charter & { lost: { category: string; lost_at: string; reason_text: string; dates_from: string | null } };
+type Cal = { today: string; mode: "test" | "live"; charters: Charter[]; lost: Lost[]; touches: Touch[] };
+const LOST_EL: Record<string, string> = { budget: "Budget", silence: "Σιωπή", short: "Ήθελε λίγες μέρες", dates: "Ημερομηνίες", plans: "Άλλαξαν σχέδια", broker: "Άλλος broker", personal: "Προσωπικοί λόγοι" };
 
 const ROLE_EL: Record<Person["role"], string> = { lead: "βασικός πελάτης", guest: "επιβάτης", advisor: "advisor" };
 const fmt = (iso: string | null) => (iso ? new Date(iso.slice(0, 10) + "T12:00:00Z").toLocaleDateString("el-GR", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "");
@@ -58,7 +60,17 @@ export default function AfterSalesClient() {
   }, []);
 
   const today = useMemo(() => (cal?.touches ?? []).filter((t) => ["due", "generated", "waiting"].includes(t.status)), [cal]);
-  const upcoming = useMemo(() => (cal?.touches ?? []).filter((t) => t.status === "upcoming").slice(0, 40), [cal]);
+  const upcoming = useMemo(() => (cal?.touches ?? []).filter((t) => t.status === "upcoming" && !t.kind.startsWith("lost_")).slice(0, 40), [cal]);
+  const lostWaves = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of cal?.touches ?? []) if (t.kind.startsWith("lost_") && t.status === "upcoming") m.set(t.due, (m.get(t.due) ?? 0) + 1);
+    return [...m.entries()].sort();
+  }, [cal]);
+  const lostByCat = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const l of cal?.lost ?? []) m[l.lost.category] = (m[l.lost.category] ?? 0) + 1;
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  }, [cal]);
   const done = useMemo(() => (cal?.touches ?? []).filter((t) => t.status === "sent" || t.status === "skipped").slice(-20).reverse(), [cal]);
   const charters = useMemo(() => {
     if (!cal) return [];
@@ -215,6 +227,19 @@ export default function AfterSalesClient() {
           )}
         </div>
       ))}
+
+      <h2 style={h2}>Οι χαμένοι · {cal.lost?.length ?? 0}</h2>
+      <p className="text-sm text-muted-blue" style={{ marginBottom: 6 }}>
+        Όσοι ρώτησαν και δεν έκλεισαν. Ένα προσωπικό σημείωμα ανάλογα με το γιατί χάθηκαν, το πολύ δύο σε δώδεκα μήνες, και μετά τέλος. Δεν γράφουμε σε όσους ήταν εκτός αντικειμένου, σε πελάτες advisor ή σε όποιον έκλεισε στο μεταξύ.
+      </p>
+      <div style={box}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {lostByCat.map(([k, n]) => <span key={k} style={chip}>{LOST_EL[k] ?? k}: {n}</span>)}
+        </div>
+        <div style={{ fontSize: 13, color: "#0D1B2A", marginTop: 10 }}>
+          {lostWaves.length ? lostWaves.map(([d, n]) => <div key={d}>{fmt(d)}: <b>{n}</b> σημειώματα έτοιμα για Generate εκείνη τη μέρα</div>) : "Κανένα σημείωμα τις επόμενες εβδομάδες."}
+        </div>
+      </div>
 
       <h2 style={h2}>Έρχονται</h2>
       {!upcoming.length && <p className="text-sm text-muted-blue">Τίποτα τις επόμενες εβδομάδες.</p>}

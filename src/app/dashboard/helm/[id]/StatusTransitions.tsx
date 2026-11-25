@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { chooseLostReason } from "../lost-reason";
 
 const FLOW = [
   { key: "new",             label: "New" },
@@ -40,8 +41,10 @@ export default function StatusTransitions({
 
     const body: Record<string, unknown> = { status: next };
     if (next === "lost") {
-      const reason = prompt("Why was this lost? (optional, helps the pipeline learn)");
-      if (reason) body.lost_reason = reason;
+      // 25/11/2026: the reason is required, in one click (After sales uses it).
+      const reason = await chooseLostReason();
+      if (!reason) return;
+      body.lost_reason = reason;
     } else if (next === "won") {
       const reason = prompt("Won — any note? (e.g. which yacht, terms)");
       if (reason) body.won_reason = reason;

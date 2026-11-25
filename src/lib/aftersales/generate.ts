@@ -37,13 +37,13 @@ export type Generated = {
 
 export type Sibling = { name: string; body: string };
 
-export async function generateTouch(kind: Kind, c: Charter, p: Person, opts: { siblings?: Sibling[] } = {}): Promise<Generated> {
+export async function generateTouch(kind: Kind, c: Charter, p: Person, opts: { siblings?: Sibling[]; due?: string } = {}): Promise<Generated> {
   // A different wording per person of the charter, so a family never gets
   // six copies of one letter (26/11/2026).
   const variant = Math.max(0, c.people.findIndex((x) => x.email === p.email));
-  const base = baseText(kind, c, p, { problem_note: c.problem.note, variant });
+  const base = baseText(kind, c, p, { problem_note: c.problem.note, variant, due: opts.due });
   const siblings = (opts.siblings ?? []).filter((s) => s.body);
-  const greeting = greetingFor(kind, p);
+  const greeting = greetingFor(kind, p, c);
   const model = process.env.AFTERSALES_AI_MODEL || process.env.FOLLOWUP_AI_MODEL || process.env.AI_MODEL || "gemini-2.5-flash";
   const now = new Date().toISOString();
 
@@ -51,7 +51,8 @@ export async function generateTouch(kind: Kind, c: Charter, p: Person, opts: { s
   let conversation: { at: string; dir: string; subject?: string; text: string }[] = [];
   let recent: Generated["recent_inbound"] = null;
   try {
-    const since = addDays(c.from ?? c.to, -120);
+    // A lost request: the conversation starts with the request, not the charter.
+    const since = c.lost ? addDays(c.lost.request_created, -2) : addDays(c.from ?? c.to, -120);
     const gm = await readGmailByAddress([p.email], `${since}T00:00:00Z`, 25);
     conversation = gm.items
       .sort((a, b) => a.ts.localeCompare(b.ts))
@@ -59,6 +60,8 @@ export async function generateTouch(kind: Kind, c: Charter, p: Person, opts: { s
       .map((i) => ({ at: i.ts.slice(0, 10), dir: i.direction === "in" ? "guest wrote" : "George wrote", subject: i.subject, text: i.text.slice(0, 900) }));
     const lastIn = [...gm.items].filter((i) => i.direction === "in").sort((a, b) => b.ts.localeCompare(a.ts))[0];
     if (lastIn && daysBetween(lastIn.ts.slice(0, 10), athensToday()) <= 14) recent = { at: lastIn.ts.slice(0, 10), snippet: lastIn.text.slice(0, 220) };
+    // A request marked lost: if they wrote after that, George must see it first.
+    if (c.lost && lastIn && lastIn.ts.slice(0, 10) > c.lost.lost_at) recent = { at: lastIn.ts.slice(0, 10), snippet: lastIn.text.slice(0, 220) };
   } catch {
     conversation = [];
   }

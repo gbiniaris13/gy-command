@@ -22,12 +22,15 @@ import { mergeGuestRecords } from "@/lib/cabin-guest-merge";
 import { normalizeNationality } from "@/lib/national-days";
 import { readState, emailKey, type AfterSalesState, type TouchState } from "./store";
 import { athensToday, addDays, daysBetween, sameDayInYear, thanksgiving, ageOn } from "./dates";
+import { helmSalutation } from "@/lib/helm/addressing";
 
 export const GOOGLE_REVIEW_LINK = "https://g.page/r/CR_fG1ftsKWBEBM/review";
 
 export type Kind =
   | "thank_you" | "review" | "review_after_problem" | "advisor_report"
-  | "birthday" | "holiday" | "anniversary" | "next_season";
+  | "birthday" | "holiday" | "anniversary" | "next_season"
+  // Requests that did not book (25/11/2026), one note per reason, at most two in twelve months.
+  | "lost_budget" | "lost_silence" | "lost_dates" | "lost_last" | "lost_broker" | "lost_short";
 
 export const KIND_EL: Record<Kind, string> = {
   thank_you: "Ευχαριστώ",
@@ -38,12 +41,19 @@ export const KIND_EL: Record<Kind, string> = {
   holiday: "Γιορτινό γράμμα",
   anniversary: "Επέτειος ταξιδιού",
   next_season: "Νέα σεζόν",
+  lost_budget: "Χαμένο: budget",
+  lost_silence: "Χαμένο: σιωπή",
+  lost_dates: "Χαμένο: ημερομηνίες ή σχέδια",
+  lost_last: "Χαμένο: τελευταίο σημείωμα",
+  lost_broker: "Χαμένο: άλλος broker",
+  lost_short: "Χαμένο: ήθελε λίγες μέρες",
 };
 
 // Lower number wins when two fall on one person the same day.
 const PRIORITY: Record<Kind, number> = {
   review_after_problem: 0, thank_you: 1, review: 2, advisor_report: 3,
   birthday: 4, holiday: 5, anniversary: 6, next_season: 7,
+  lost_budget: 8, lost_silence: 8, lost_dates: 8, lost_last: 9, lost_broker: 8, lost_short: 9,
 };
 const KEEP_WARM: Kind[] = ["birthday", "holiday", "anniversary", "next_season"];
 const SPACING_DAYS = 14;
@@ -74,8 +84,25 @@ export type Charter = {
   via_advisor: boolean;
   white_label: boolean;
   people: Person[]; // adults with an email (or the advisor)
+  // Set only for a request that did not book (key "lost:<helm id>").
+  lost?: { category: LostCategory; greeting: string; lost_at: string; request_created: string; dates_from: string | null; reason_text: string };
   problem: { on: boolean; note: string; at: string | null; resolved_at: string | null; overdue: boolean };
 };
+
+export type LostCategory = "budget" | "silence" | "short" | "dates" | "plans" | "broker" | "personal" | "scope";
+
+/** "[budget] Budget · note" (the Helm's one-click reason), else the November
+ *  analysis, else silence. */
+export function lostCategory(reasonText: string | null, analysed: string | null): LostCategory {
+  const m = /^\[(budget|silence|short|dates|plans|broker|personal|scope)\]/.exec(reasonText ?? "");
+  if (m) return m[1] as LostCategory;
+  const map: Record<string, LostCategory> = {
+    budget: "budget", short_or_day_charter: "short", out_of_scope: "scope", dates_or_availability: "dates",
+    changed_plans_or_destination: "plans", chose_other_broker: "broker", personal_reasons: "personal",
+    never_replied: "silence", went_silent_after_talking: "silence", unclear: "silence",
+  };
+  return (analysed && map[analysed]) || "silence";
+}
 
 export type TouchView = {
   id: string;
@@ -256,9 +283,93 @@ export async function loadCharters(state: AfterSalesState): Promise<Charter[]> {
   return out.sort((a, b) => b.to.localeCompare(a.to));
 }
 
+/** Requests that did not book and can be written to again: lost, or open with
+ *  no movement for 30 days. Never a travel advisor's request (that relationship
+ *  is the advisor's), never white label, never someone who has booked since. */
+export async function loadLost(state: AfterSalesState, wonEmails: Set<string>): Promise<Charter[]> {
+  const db = createServiceClient();
+  const { data } = await db
+    .from("helm_requests")
+    .select("id, status, request_type, lost_reason, client_email, client_name, client_surname, client_title, client_is_family, dates_from, area, created_at, last_activity_at, booking:extraction->booking")
+    .in("status", ["lost", "sent", "in_conversation", "negotiating"])
+    .limit(2000);
+  const now = Date.now();
+  const out: Charter[] = [];
+  // One person, one note: if someone sent two requests, only the newest counts.
+  const rowsByEmail = new Map<string, AnyRec>();
+  for (const r of (data ?? []) as AnyRec[]) {
+    const e = emailKey(s(r.client_email));
+    const cur = rowsByEmail.get(e);
+    if (!cur || s(r.created_at) > s(cur.created_at)) rowsByEmail.set(e, r);
+  }
+  for (const r of rowsByEmail.values()) {
+    const e = emailKey(s(r.client_email));
+    const nm = `${s(r.client_name)} ${s(r.client_surname)} ${e}`.toLowerCase();
+    if (!e.includes("@") || /biniaris|test|example\.com/.test(nm) || wonEmails.has(e)) continue;
+    if (s(r.request_type) === "travel_agent") continue;
+    if (((r.booking ?? {}) as AnyRec).white_label === true) continue;
+    const last = s(r.last_activity_at) || s(r.created_at);
+    const stale = s(r.status) !== "lost";
+    if (stale && now - Date.parse(last) < 30 * 86400000) continue;
+    const category = lostCategory(s(r.lost_reason) || null, state.lost[s(r.id)]?.category ?? null);
+    if (category === "scope") continue;
+    const full = [s(r.client_name), s(r.client_surname)].filter(Boolean).join(" ");
+    const p: Person = { email: e, first_name: state.people[e]?.first_name?.trim() || firstNameOf(s(r.client_name)) || "there", name_source: state.people[e]?.first_name ? "george" : "record", full_name: full, role: "lead", dob: null, country: null };
+    let { salutation } = helmSalutation(r as never);
+    // No surname on file: "Dear Guests," reads like a mailing. Use the first name.
+    if (salutation === "Dear Guests,") salutation = p.first_name !== "there" ? `Dear ${p.first_name},` : "Hello,";
+    out.push({
+      key: `lost:${s(r.id)}`, cabin_id: null, request_id: s(r.id), vessel: "", vessel_type: "",
+      from: iso(r.dates_from), to: last.slice(0, 10), port_from: null, port_to: null, area: s(r.area) || null,
+      lead_email: e, lead_first_name: p.first_name, via_advisor: false, white_label: false, people: [p],
+      problem: { on: false, note: "", at: null, resolved_at: null, overdue: false },
+      lost: { category, greeting: salutation, lost_at: last.slice(0, 10), request_created: s(r.created_at).slice(0, 10), dates_from: iso(r.dates_from), reason_text: s(r.lost_reason) || state.lost[s(r.id)]?.reason_el || "" },
+    });
+  }
+  return out;
+}
+
+export const LOST_START = "2026-11-26";
+
+/** The next window on or after a day: 12-31 January, or 15 September to 15 October. */
+function nextWindow(from: string): { start: string; end: string; kind: "jan" | "sep" } {
+  const y = Number(from.slice(0, 4));
+  const cands = [
+    { start: `${y}-01-12`, end: `${y}-01-31`, kind: "jan" as const }, { start: `${y}-09-15`, end: `${y}-10-15`, kind: "sep" as const },
+    { start: `${y + 1}-01-12`, end: `${y + 1}-01-31`, kind: "jan" as const }, { start: `${y + 1}-09-15`, end: `${y + 1}-10-15`, kind: "sep" as const },
+  ];
+  return cands.find((w) => w.start >= from)!;
+}
+
+export function lostTouches(c: Charter): Raw[] {
+  const l = c.lost!;
+  const p = c.people[0];
+  // Never before After sales existed (26/11/2026): the summer backlog goes in
+  // the January wave instead of a window that has already passed.
+  const startFrom = [addDays(l.lost_at, 30), LOST_START].sort().pop()!;
+  const first = nextWindow(startFrom);
+  const out: Raw[] = [];
+  const kindFor: Partial<Record<LostCategory, Kind>> = { budget: "lost_budget", silence: "lost_silence", dates: "lost_dates", plans: "lost_dates", personal: "lost_dates", short: "lost_short" };
+  if (l.category === "broker") {
+    const y = (l.dates_from ?? l.lost_at).slice(0, 4);
+    const due = `${y}-10-15`;
+    if (due >= addDays(l.lost_at, 14)) out.push({ kind: "lost_broker", person: p, due, expires: `${y}-11-15` });
+    return out;
+  }
+  const k = kindFor[l.category];
+  if (!k) return out;
+  out.push({ kind: k, person: p, due: first.start, expires: first.end });
+  if (["silence", "dates", "plans", "personal"].includes(l.category)) {
+    const second = nextWindow(addDays(first.end, 1));
+    out.push({ kind: "lost_last", person: p, due: second.start, expires: second.end });
+  }
+  return out;
+}
+
 type Raw = { kind: Kind; person: Person; due: string; expires: string };
 
 function rawTouches(c: Charter, today: string): Raw[] {
+  if (c.lost) return lostTouches(c);
   const out: Raw[] = [];
   const years = [Number(today.slice(0, 4)), Number(today.slice(0, 4)) + 1];
   for (const p of c.people) {
@@ -303,12 +414,15 @@ export async function buildCalendar(opts: { horizonDays?: number; state?: AfterS
   today: string;
   mode: "test" | "live";
   charters: Charter[];
+  lost: Charter[];
   touches: TouchView[];
 }> {
   const state = opts.state ?? (await readState());
   const today = athensToday();
   const horizon = addDays(today, opts.horizonDays ?? 60);
   const charters = await loadCharters(state);
+  const wonEmails = new Set(charters.flatMap((c) => c.people.map((p) => p.email)));
+  const lost = await loadLost(state, wonEmails);
 
   // Last sent date per person (from what George sent through After sales).
   const lastSent = new Map<string, string>();
@@ -320,7 +434,7 @@ export async function buildCalendar(opts: { horizonDays?: number; state?: AfterS
   }
 
   const views: TouchView[] = [];
-  for (const c of charters) {
+  for (const c of [...charters, ...lost]) {
     for (const r of rawTouches(c, today)) {
       if (r.expires < addDays(today, -30) || r.due > horizon) continue;
       const id = touchId(c, r);
@@ -362,5 +476,5 @@ export async function buildCalendar(opts: { horizonDays?: number; state?: AfterS
   }
 
   views.sort((a, b) => a.due.localeCompare(b.due) || PRIORITY[a.kind] - PRIORITY[b.kind]);
-  return { today, mode: state.mode, charters, touches: views };
+  return { today, mode: state.mode, charters, lost, touches: views };
 }

@@ -8,7 +8,9 @@
 import type { Charter, Kind, Person } from "./plan";
 import { GOOGLE_REVIEW_LINK } from "./plan";
 
-export function greetingFor(kind: Kind, p: Person): string {
+export function greetingFor(kind: Kind, p: Person, c?: Charter): string {
+  // A request that did not book keeps the greeting George used in that thread.
+  if (c?.lost) return c.lost.greeting;
   const warm: Kind[] = ["thank_you", "review", "review_after_problem", "birthday", "advisor_report"];
   return `${warm.includes(kind) ? "Hey" : "Dear"} ${p.first_name},`;
 }
@@ -33,10 +35,12 @@ export function regionOf(c: Charter): string | null {
 // per sentence even six people of one charter share at most one sentence.
 const pick = <T,>(arr: T[], n: number, k = 0): T => arr[(n + k * Math.floor(n / arr.length)) % arr.length];
 
-export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_note?: string; variant?: number } = {}): { subject: string; body: string } {
-  const g = greetingFor(kind, p);
+export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_note?: string; variant?: number; due?: string } = {}): { subject: string; body: string } {
+  const g = greetingFor(kind, p, c);
   const v = c.vessel;
   const n = extra.variant ?? 0;
+  // A note in January speaks of "this summer", one in September of "next summer".
+  const summer = extra.due && Number(extra.due.slice(5, 7)) >= 7 ? "next summer" : "this summer";
   switch (kind) {
     case "thank_you":
       return {
@@ -149,6 +153,66 @@ export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_not
           `The season here is closing gently, and owners are beginning to share their calendars for next summer. If Greece is in your thoughts again, I would be glad to begin quietly, with no commitment, and keep an eye on the weeks and the yachts that would suit you.`,
           `If next summer belongs elsewhere, I understand completely. And if you would rather I did not write about this, a word is enough.`,
           `Warmly,\nGeorge`,
+        ].join("\n\n"),
+      };
+    case "lost_budget":
+      return {
+        subject: "Your plans for Greece",
+        body: [
+          g,
+          `When we last spoke, the yachts we looked at did not sit comfortably with what you had in mind, and I appreciated your candour.`,
+          `I have kept thinking about it. In June and September the same waters are quieter, weekly rates are usually lower than in high summer, and there are smaller yachts with excellent crews that I would happily stand behind. If it would be useful, I can put together two or three options within your range for ${summer}. If not, there is no need to reply.`,
+          `Warm regards,\nGeorge`,
+        ].join("\n\n"),
+      };
+    case "lost_silence":
+      return {
+        subject: "Your summer in Greece",
+        body: [
+          g,
+          `I sent you a few ideas for Greece a while ago and did not want to leave them unanswered on my side. Perhaps the timing was not right, which is entirely fine.`,
+          `If Greece is still on your mind for ${summer}, I am here, and I would be glad to look at the weeks and the yachts again with you, with no commitment.`,
+          `Warm regards,\nGeorge`,
+        ].join("\n\n"),
+      };
+    case "lost_dates":
+      return {
+        subject: "Greece, when the time is right",
+        body: [
+          g,
+          `When we last spoke, the plans for Greece were still taking shape, and I understood completely.`,
+          `If ${summer} is beginning to look clearer, I would be glad to start again quietly, with the weeks that suit you and no commitment at all.`,
+          `Warm regards,\nGeorge`,
+        ].join("\n\n"),
+      };
+    case "lost_last":
+      return {
+        subject: "One last note from me",
+        body: [
+          g,
+          `This is my last note about Greece, as I would never want to crowd your inbox.`,
+          `If a week on the water ever comes back into your plans, for next summer or another, I would be glad to hear from you. Until then, I will not write again about this.`,
+          `Warm regards,\nGeorge`,
+        ].join("\n\n"),
+      };
+    case "lost_broker":
+      return {
+        subject: "I hope it was a wonderful summer",
+        body: [
+          g,
+          `Your week in Greece must be behind you now, and I truly wish it was everything you hoped for. I mean that sincerely.`,
+          `If you ever plan another and would like a second pair of eyes on the islands, I would be glad to help.`,
+          `With warm regards,\nGeorge`,
+        ].join("\n\n"),
+      };
+    case "lost_short":
+      return {
+        subject: "A week in Greece, if it ever fits",
+        body: [
+          g,
+          `You asked about a few days on the water, and I was sorry not to help. I arrange charters only by the week, and I wanted to tell you why: a week is what lets the crew find the quiet anchorages, and lets a family stop counting days.`,
+          `If a full week ever fits your plans, I would be very glad to hear from you.`,
+          `Warm regards,\nGeorge`,
         ].join("\n\n"),
       };
     case "advisor_report":

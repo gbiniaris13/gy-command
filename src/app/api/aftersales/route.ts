@@ -78,7 +78,7 @@ export async function POST(req: Request) {
   const cal = await buildCalendar({ horizonDays: 75, state });
   const t = cal.touches.find((x) => x.id === b.id);
   if (!t) return NextResponse.json({ error: "Δεν βρέθηκε αυτό το μήνυμα (ίσως έληξε ή άλλαξε η ναύλωση)." }, { status: 404 });
-  const c = cal.charters.find((x) => x.key === t.charter_key)!;
+  const c = [...cal.charters, ...cal.lost].find((x) => x.key === t.charter_key)!;
 
   if (b.action === "skip" || b.action === "unskip") {
     await updateState((s) => {
@@ -99,7 +99,7 @@ export async function POST(req: Request) {
       .map(([id, st]) => ({ id, st, parts: id.split("|") }))
       .filter((x) => x.parts[0] === t.kind && x.parts[1] === t.charter_key && x.parts[2] !== t.person.email && x.parts[3]?.slice(0, 4) === t.due.slice(0, 4) && x.st.body)
       .map((x) => ({ name: c.people.find((pp) => pp.email === x.parts[2])?.first_name ?? "another guest", body: x.st.body! }));
-    const g = await generateTouch(t.kind, c, t.person, { siblings });
+    const g = await generateTouch(t.kind, c, t.person, { siblings, due: t.due });
     await updateState((s) => {
       s.touches[t.id] = { ...(s.touches[t.id] ?? {}), status: "generated", at: now, subject: g.subject, body: g.body, generated_at: g.generated_at, warnings: g.warnings };
     });
@@ -111,7 +111,7 @@ export async function POST(req: Request) {
     const subject = (b.subject ?? state.touches[t.id]?.subject ?? "").trim();
     const body = (b.body ?? state.touches[t.id]?.body ?? "").trim();
     if (!subject || !body) return NextResponse.json({ error: "Πάτα πρώτα Generate." }, { status: 400 });
-    const problems = checkAfterSales(t.kind, { subject, body }, { greeting: greetingFor(t.kind, t.person), fullName: t.person.full_name });
+    const problems = checkAfterSales(t.kind, { subject, body }, { greeting: greetingFor(t.kind, t.person, c), fullName: t.person.full_name });
     const hard = problems.filter((p) => /long dash|Greek|review link|only the Google|Trustpilot|no links|no review ask|brackets/.test(p));
     if (hard.length) return NextResponse.json({ error: `Δεν στάλθηκε: ${hard.join("; ")}` }, { status: 422 });
     const live = state.mode === "live";
