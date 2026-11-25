@@ -19,6 +19,8 @@ const nextConfig: NextConfig = {
   // file with the one function that reads it.
   outputFileTracingIncludes: {
     "/api/helm/[id]/followup": ["./.claude/skills/yacht-followup/SKILL.md"],
+    // 2026-11-25: the After sales engine reads its playbook the same way.
+    "/api/aftersales": ["./.claude/skills/after-sales/SKILL.md"],
   },
 };
 

@@ -267,7 +267,10 @@ export async function runTimeline(opts: { dryRun?: boolean } = {}): Promise<RunR
 
   for (const c of charters) {
     const due = dueDates(c.from, c.to);
-    for (const m of MOMENTS) {
+    // 25/11/2026: the thank-you and the review after the week belong to
+    // After sales now (one owner per message); the timeline keeps T-45/T-7/T-1.
+    const run: Moment[] = MOMENTS.filter((x) => x !== "T+3");
+    for (const m of run) {
       const d = due[m];
       const st = c.timeline[m];
       const days = daysBetween(today, d);

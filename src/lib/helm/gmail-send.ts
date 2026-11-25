@@ -89,7 +89,13 @@ export function buildRawEmail(args: {
     `--${alt}--`,
   ].join("\r\n");
 
-  const headers = [`To: ${args.to}`, `Subject: ${args.subject}`, "MIME-Version: 1.0"];
+  // 25/11/2026: a subject with any non-ASCII character (a long dash, Greek, an
+  // accented name) must be RFC 2047 encoded, or Gmail shows "Ã¢Â€Â”" (seen on
+  // a client's review email in July 2026). Plain ASCII subjects are unchanged.
+  const subj = /^[\x20-\x7E]*$/.test(args.subject)
+    ? args.subject
+    : `=?UTF-8?B?${Buffer.from(args.subject, "utf8").toString("base64")}?=`;
+  const headers = [`To: ${args.to}`, `Subject: ${subj}`, "MIME-Version: 1.0"];
   if (args.inReplyTo) {
     headers.push(`In-Reply-To: ${args.inReplyTo}`, `References: ${args.inReplyTo}`);
   }

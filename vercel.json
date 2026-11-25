@@ -17,10 +17,6 @@
       "schedule": "20 * * * *"
     },
     {
-      "path": "/api/cron/post-charter",
-      "schedule": "0 9 * * *"
-    },
-    {
       "path": "/api/cron/deliverability",
       "schedule": "0 8 * * 0"
     },
@@ -31,10 +27,6 @@
     {
       "path": "/api/cron/helm-followup",
       "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/rebooking-ritual",
-      "schedule": "30 7 * * *"
     },
     {
       "path": "/api/cron/backlink-pitch",
@@ -61,10 +53,6 @@
       "schedule": "0 10 * * 0"
     },
     {
-      "path": "/api/cron/after-sales",
-      "schedule": "0 8 * * *"
-    },
-    {
       "path": "/api/cron/gmail-poll-replies",
       "schedule": "*/5 * * * *"
     },
@@ -79,14 +67,6 @@
     {
       "path": "/api/cron/inbox-refresh",
       "schedule": "30 3 * * *"
-    },
-    {
-      "path": "/api/cron/inbox-greetings",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/charter-lifecycle-fire",
-      "schedule": "30 4 * * *"
     },
     {
       "path": "/api/cron/inbox-star-sync",

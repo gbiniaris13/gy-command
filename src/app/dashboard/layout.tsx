@@ -179,6 +179,18 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    label: "After sales",
+    href: "/dashboard/after-sales",
+    group: "operate",
+    // After the charter (25/11/2026): thank-you, the Google review, birthday,
+    // the year's letter, the anniversary, next season. George presses Send.
+    icon: (
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7l9 6 9-6M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zM16.5 2.5l1 1.5 1.5-.5-.5 1.5 1.5 1-1.7.2-.3 1.8-1-1.4-1.6.6.8-1.5-1.3-1.1 1.6-.1z" />
+      </svg>
+    ),
+  },
+  {
     label: "Outreach",
     href: "/dashboard/outreach",
     group: "operate",
