@@ -3,7 +3,10 @@ import { tagSiteLinks } from "@/lib/utm";
 import { NextResponse } from "next/server";
 import { gmailFetch, getSetting, setSetting } from "@/lib/google-api";
 import { observeCron } from "@/lib/cron-observer";
-import { upcomingOccasions, draftFor, occasionKey, loadPeople } from "@/lib/lighthouse";
+import { loadPeople } from "@/lib/lighthouse";
+import { buildCalendar } from "@/lib/aftersales/plan";
+import { baseText } from "@/lib/aftersales/templates";
+import { addDays } from "@/lib/aftersales/dates";
 import { createServiceClient } from "@/lib/supabase-server";
 import { createSeasonEdition } from "@/lib/helm/season-edition";
 
@@ -47,59 +50,33 @@ function rawEmail(to, subject, textBody, htmlBody) {
   ).toString("base64url");
 }
 
-function occasionCard(o, when) {
-  const d = o.draft;
-  const who = o.person?.name ?? "";
-  const detail = o.person?.vessel ? ` · πελάτης ${o.person.vessel}` : "";
-  return `
-  <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${G.gold};border-radius:6px;padding:14px 16px;margin:0 0 12px;">
-    <p style="margin:0;font-family:Georgia,serif;font-size:15px;color:${G.navy};"><strong>${esc(who)}</strong> · ${esc(o.label)} ${when === "today" ? "ΣΗΜΕΡΑ" : "αύριο"}${esc(detail)}</p>
-    ${o.person?.email ? `<p style="margin:4px 0 8px;font-size:12px;color:${G.soft};">${esc(o.person.email)}</p>` : `<p style="margin:4px 0 8px;font-size:12px;color:#A33526;">χωρίς email, θέλει τηλέφωνο ή μήνυμα</p>`}
-    <div style="background:${G.bg};border-radius:5px;padding:10px 12px;">
-      <p style="margin:0 0 4px;font-size:12px;color:${G.soft};">Θέμα: <strong style="color:${G.ink};">${esc(d.subject)}</strong></p>
-      <p style="margin:0;font-size:13px;line-height:1.55;color:${G.ink};white-space:pre-wrap;">${esc(d.body)}</p>
-    </div>
-  </div>`;
-}
-
 async function handler() {
-  // 8-day window: today + tomorrow for action, day 3 for holiday
-  // unlocks, day 7 for the birthday heads-up, and the whole week for
-  // the Sunday review (George's picks 1, 2 and 7, 29/8).
-  const occ = await upcomingOccasions(8);
+  // 2026-11-25: ONE SYSTEM. The morning page now reads the After sales
+  // calendar (the research of 25/11/2026), the same list the Lighthouse
+  // shows: what is due today with the text it starts from, what comes
+  // tomorrow, a charter waiting on "Λύθηκε", and on Sundays the week ahead.
+  // The old per-occasion drafts and mass holidays are retired.
+  const cal = await buildCalendar({ horizonDays: 8 });
+  const todayIso = cal.today;
+  const tomorrowIso = addDays(todayIso, 1);
   const athens = new Date(new Date().toLocaleDateString("en-US", { timeZone: "Europe/Athens" }));
-  const todayIso = new Date(Date.UTC(athens.getFullYear(), athens.getMonth(), athens.getDate()))
-    .toISOString()
-    .slice(0, 10);
-  const tomorrowIso = new Date(Date.parse(todayIso) + 86400000).toISOString().slice(0, 10);
-
-  const fresh = (o) => !occ.sent[occasionKey(o)];
-  // 2026-10-09: a draft George already rewrote on the card goes out in
-  // the morning mail as he wrote it.
-  let edits = {};
-  try {
-    const { getSetting } = await import("@/lib/google-api");
-    const { DRAFT_EDITS_KEY } = await import("@/lib/lighthouse");
-    const raw = await getSetting(DRAFT_EDITS_KEY);
-    edits = raw ? JSON.parse(raw) : {};
-  } catch {}
-  const withDraft = (o) => ({ ...o, draft: draftFor({ ...o, edit: edits[occasionKey(o)] }) });
-  const todayP = occ.personal.filter((o) => o.date === todayIso && fresh(o)).map(withDraft);
-  const tomorrowP = occ.personal.filter((o) => o.date === tomorrowIso && fresh(o)).map(withDraft);
-  const todayH = occ.holidays.filter((h) => h.date === todayIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
-  const tomorrowH = occ.holidays.filter((h) => h.date === tomorrowIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
-
-  // Κουμπιά που ξεκλειδώνουν σήμερα (γιορτή σε ακριβώς 3 μέρες)
-  const unlockIso = new Date(Date.parse(todayIso) + 3 * 86400000).toISOString().slice(0, 10);
-  const unlocksH = occ.holidays.filter((h) => h.date === unlockIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
-  // Προσωπικά σε ακριβώς 7 μέρες: χρόνος για κάτι παραπάνω από ευχή
-  const weekIso = new Date(Date.parse(todayIso) + 7 * 86400000).toISOString().slice(0, 10);
-  const headsUpP = occ.personal.filter((o) => o.date === weekIso && fresh(o));
-  // Κυριακή: σύνοψη ολόκληρης της εβδομάδας, στέλνεται ακόμα κι αν
-  // σήμερα/αύριο είναι ήσυχα
+  const byKey = new Map([...cal.charters, ...cal.lost].map((c) => [c.key, c]));
+  const textOf = (t) => {
+    if (t.state?.body) return { subject: t.state.subject ?? "", body: t.state.body };
+    const c = byKey.get(t.charter_key);
+    if (!c) return null;
+    const variant = Math.max(0, c.people.findIndex((x) => x.email === t.person.email));
+    return baseText(t.kind, c, t.person, { problem_note: c.problem.note, variant, due: t.due });
+  };
+  const isLost = (t) => t.kind.startsWith("lost_");
+  const todayT = cal.touches.filter((t) => (t.status === "due" || t.status === "generated") && t.due <= todayIso);
+  const waitingT = cal.touches.filter((t) => (t.status === "waiting" || t.status === "held") && t.due <= todayIso);
+  const tomorrowT = cal.touches.filter((t) => t.status === "upcoming" && t.due === tomorrowIso);
+  const weekIso = addDays(todayIso, 7);
+  const headsUpT = cal.touches.filter((t) => t.status === "upcoming" && t.due === weekIso && t.kind === "birthday");
   const isSunday = athens.getDay() === 0;
-  const weekAllP = occ.personal.filter((o) => o.date > todayIso && fresh(o));
-  const weekAllH = occ.holidays.filter((h) => h.date > todayIso && !occ.sent[`all:${h.kind}:${h.date.slice(0, 4)}`]);
+  const weekT = cal.touches.filter((t) => t.status === "upcoming" && t.due > todayIso && t.due <= weekIso);
+  const overdue = cal.charters.filter((c) => c.problem.overdue);
 
   // January, Mondays (George, 2 October 2026): the annual edition for every
   // client who sailed with us. One tap per card in the Lighthouse prepares
@@ -138,89 +115,88 @@ async function handler() {
     } catch {}
   }
 
-  const total = todayP.length + tomorrowP.length + todayH.length + tomorrowH.length + unlocksH.length + headsUpP.length + seasonClients.length;
-  if (total === 0 && !(isSunday && (weekAllP.length + weekAllH.length))) {
-    return NextResponse.json({ skipped: "no occasions today or tomorrow" });
+  const total = todayT.length + tomorrowT.length + waitingT.length + headsUpT.length + overdue.length + seasonClients.length;
+  if (total === 0 && !(isSunday && weekT.length)) {
+    return NextResponse.json({ skipped: "nothing today or tomorrow" });
   }
 
-  const holidayCard = (h, when) => `
+  const LINK = "https://command.georgeyachts.com/dashboard/lighthouse";
+  const touchCard = (t, when) => {
+    const d = textOf(t);
+    return `
+  <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${G.gold};border-radius:6px;padding:14px 16px;margin:0 0 12px;">
+    <p style="margin:0;font-family:Georgia,serif;font-size:15px;color:${G.navy};"><strong>${esc(t.person.full_name || t.person.first_name)}</strong> · ${esc(t.kind_el)} ${when === "today" ? "ΣΗΜΕΡΑ" : "αύριο"}${t.vessel ? ` · ${esc(t.vessel)}` : ""}</p>
+    <p style="margin:4px 0 8px;font-size:12px;color:${G.soft};">${esc(t.person.email)}</p>
+    ${d ? `<div style="background:${G.bg};border-radius:5px;padding:10px 12px;">
+      <p style="margin:0 0 4px;font-size:12px;color:${G.soft};">Θέμα: <strong style="color:${G.ink};">${esc(d.subject)}</strong></p>
+      <p style="margin:0;font-size:13px;line-height:1.55;color:${G.ink};white-space:pre-wrap;">${esc(d.body)}</p>
+    </div>` : ""}
+    <p style="margin:8px 0 0;font-size:12px;"><a href="${LINK}" style="color:${G.gold};font-weight:bold;text-decoration:none;">${when === "today" ? "Generate και Send στο Lighthouse" : "Δες το στο Lighthouse"} &rarr;</a></p>
+  </div>`;
+  };
+  const waveCard = (items, when) => `
   <div style="background:${G.navy};border-radius:6px;padding:14px 16px;margin:0 0 12px;">
-    <p style="margin:0;font-family:Georgia,serif;font-size:15px;color:#ffffff;"><strong style="color:${G.gold};">${esc(h.label)}</strong> ${when === "today" ? "ΣΗΜΕΡΑ" : "αύριο"} · ${h.recipients} παραλήπτες</p>
-    <p style="margin:4px 0 8px;font-size:12px;color:#97A5B2;">${esc((h.sample ?? h.names ?? []).slice(0, 5).join(", "))}${h.recipients > 5 ? "…" : ""}</p>
-    <p style="margin:0;font-size:12px;"><a href="https://command.georgeyachts.com/dashboard/lighthouse" style="color:${G.gold};font-weight:bold;text-decoration:none;">Άνοιξε το Lighthouse για έγκριση με ένα κλικ &rarr;</a></p>
+    <p style="margin:0;font-family:Georgia,serif;font-size:15px;color:#ffffff;"><strong style="color:${G.gold};">Οι χαμένοι</strong> ${when === "today" ? "ΣΗΜΕΡΑ" : "αύριο"} · ${items.length} προσωπικά σημειώματα</p>
+    <p style="margin:4px 0 8px;font-size:12px;color:#97A5B2;">${esc(items.slice(0, 6).map((t) => t.person.first_name).join(", "))}${items.length > 6 ? "…" : ""}</p>
+    <p style="margin:0;font-size:12px;"><a href="${LINK}" style="color:${G.gold};font-weight:bold;text-decoration:none;">Άνοιξε το Lighthouse &rarr;</a></p>
+  </div>`;
+  const line = (html) => `
+  <div style="background:#ffffff;border:1px solid ${G.line};border-radius:6px;padding:10px 16px;margin:0 0 8px;">
+    <p style="margin:0;font-size:13px;color:${G.ink};">${html}</p>
   </div>`;
 
   const htmlParts = [];
   const textParts = [];
-  const sec = (title, items, render) => {
+  const sec = (title, items) => {
     if (!items.length) return;
     htmlParts.push(`<p style="font-family:Georgia,serif;font-size:12px;letter-spacing:2px;color:${G.soft};text-transform:uppercase;margin:18px 0 8px;">${esc(title)}</p>`);
-    htmlParts.push(...items.map(render));
+    htmlParts.push(...items);
   };
-  sec("Σήμερα", [...todayP.map((o) => occasionCard(o, "today")), ...todayH.map((h) => holidayCard(h, "today"))], (x) => x);
-  sec("Αύριο, για να προλάβεις", [...tomorrowP.map((o) => occasionCard(o, "tomorrow")), ...tomorrowH.map((h) => holidayCard(h, "tomorrow"))], (x) => x);
-  sec(
-    "Ανοίγει σήμερα το κουμπί",
-    unlocksH.map((h) => `
-  <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${G.gold};border-radius:6px;padding:12px 16px;margin:0 0 10px;">
-    <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong style="color:${G.gold};">${esc(h.label)}</strong> σε 3 μέρες (${esc(h.date)}) · ${h.recipients} άτομα · <a href="https://command.georgeyachts.com/dashboard/lighthouse" style="color:${G.gold};font-weight:bold;text-decoration:none;">έγκριση εδώ &rarr;</a></p>
-  </div>`),
-    (x) => x,
-  );
-  sec(
-    "Σε μία εβδομάδα, για να προλάβεις κάτι καλό",
-    headsUpP.map((o) => `
-  <div style="background:#ffffff;border:1px solid ${G.line};border-radius:6px;padding:12px 16px;margin:0 0 10px;">
-    <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong>${esc(o.person?.name ?? "")}</strong> · ${esc(o.label)} στις ${esc(o.date)}${o.person?.vessel ? ` · πελάτης ${esc(o.person.vessel)}` : ""}</p>
-  </div>`),
-    (x) => x,
-  );
+  const cards = (list, when) => {
+    const lost = list.filter(isLost);
+    return [...list.filter((t) => !isLost(t)).map((t) => touchCard(t, when)), ...(lost.length ? [waveCard(lost, when)] : [])];
+  };
+  sec("Σήμερα", cards(todayT, "today"));
+  sec("Περιμένουν", [
+    ...waitingT.map((t) => line(`<strong style="color:${G.navy};">${esc(t.person.first_name)}</strong> · ${esc(t.kind_el)} · ${esc(t.reason_el)}`)),
+    ...overdue.map((c) => line(`<strong style="color:${G.navy};">${esc(c.vessel)}</strong>: «Κάτι πήγε στραβά» περιμένει πάνω από 10 μέρες. Όταν λυθεί, πάτα «Λύθηκε» στο <a href="${LINK}" style="color:${G.gold};">Lighthouse</a>.`)),
+  ]);
+  sec("Αύριο, για να προλάβεις", cards(tomorrowT, "tomorrow"));
+  sec("Σε μία εβδομάδα, για να προλάβεις κάτι καλό", headsUpT.map((t) => line(`<strong style="color:${G.navy};">${esc(t.person.full_name || t.person.first_name)}</strong> · ${esc(t.kind_el)} στις ${esc(t.due)}${t.vessel ? ` · ${esc(t.vessel)}` : ""}`)));
   sec(
     "Ετήσιες εκδόσεις: η σεζόν άνοιξε",
     seasonClients.map((p) => {
       const d = seasonDrafts.find((x) => x.name === p.name);
-      const link = d ? `https://command.georgeyachts.com/dashboard/helm/${d.id}` : "https://command.georgeyachts.com/dashboard/lighthouse";
+      const link = d ? `https://command.georgeyachts.com/dashboard/helm/${d.id}` : LINK;
       const verb = d ? (d.fresh ? "το πρόχειρο γράφτηκε, άνοιξέ το και στείλ' το" : "το πρόχειρο υπάρχει στο Helm") : "ετοίμασε την έκδοση";
       return `
   <div style="background:#ffffff;border:1px solid ${G.line};border-left:3px solid ${G.gold};border-radius:6px;padding:12px 16px;margin:0 0 10px;">
     <p style="margin:0;font-family:Georgia,serif;font-size:14px;color:${G.navy};"><strong>${esc(p.name)}</strong> · ${esc(p.charter_vessel)}${p.travel_from ? ` · ${esc(String(p.travel_from).slice(0, 10))}` : ""} · <a href="${link}" style="color:${G.gold};font-weight:bold;text-decoration:none;">${verb} &rarr;</a></p>
   </div>`;
     }),
-    (x) => x,
   );
-  if (isSunday && (weekAllP.length || weekAllH.length)) {
-    sec(
-      "Η εβδομάδα μπροστά σου",
-      [
-        ...weekAllP.map((o) => `
-  <div style="background:#ffffff;border:1px solid ${G.line};border-radius:6px;padding:10px 16px;margin:0 0 8px;">
-    <p style="margin:0;font-size:13px;color:${G.ink};"><strong style="color:${G.navy};">${esc(o.date.slice(5))}</strong> · ${esc(o.person?.name ?? "")} · ${esc(o.label)}</p>
-  </div>`),
-        ...weekAllH.map((h) => `
-  <div style="background:#ffffff;border:1px solid ${G.line};border-radius:6px;padding:10px 16px;margin:0 0 8px;">
-    <p style="margin:0;font-size:13px;color:${G.ink};"><strong style="color:${G.navy};">${esc(h.date.slice(5))}</strong> · ${esc(h.label)} · ${h.recipients} άτομα</p>
-  </div>`),
-      ],
-      (x) => x,
-    );
+  if (isSunday && weekT.length) {
+    const lostWeek = weekT.filter(isLost);
+    sec("Η εβδομάδα μπροστά σου", [
+      ...weekT.filter((t) => !isLost(t)).map((t) => line(`<strong style="color:${G.navy};">${esc(t.due.slice(5))}</strong> · ${esc(t.person.first_name)} · ${esc(t.kind_el)}`)),
+      ...(lostWeek.length ? [line(`Οι χαμένοι: ${lostWeek.length} σημειώματα αυτή την εβδομάδα`)] : []),
+    ]);
   }
 
-  for (const o of [...todayP, ...tomorrowP]) {
-    textParts.push(`${o.date === todayIso ? "ΣΗΜΕΡΑ" : "Αύριο"}: ${o.person.name}, ${o.label}. Θέμα: ${o.draft.subject}\n${o.draft.body}`);
+  for (const t of todayT.filter((x) => !isLost(x))) {
+    const d = textOf(t);
+    textParts.push(`ΣΗΜΕΡΑ: ${t.person.first_name}, ${t.kind_el}.${d ? ` Θέμα: ${d.subject}\n${d.body}` : ""}`);
   }
-  for (const h of [...todayH, ...tomorrowH]) {
-    textParts.push(`${h.date === todayIso ? "ΣΗΜΕΡΑ" : "Αύριο"}: ${h.label}, ${h.recipients} παραλήπτες. Έγκριση στο dashboard/lighthouse.`);
-  }
+  if (todayT.some(isLost)) textParts.push(`ΣΗΜΕΡΑ: οι χαμένοι, ${todayT.filter(isLost).length} σημειώματα.`);
+  for (const t of tomorrowT.filter((x) => !isLost(x))) textParts.push(`Αύριο: ${t.person.first_name}, ${t.kind_el}.`);
 
-  const subject = todayP.length + todayH.length
-    ? `Lighthouse: ${todayP.length + todayH.length} ευχές σήμερα`
-    : tomorrowP.length + tomorrowH.length
-      ? `Lighthouse: ετοιμάσου για αύριο (${tomorrowP.length + tomorrowH.length})`
-      : unlocksH.length
-        ? `Lighthouse: άνοιξε το κουμπί για ${unlocksH[0].label}`
-        : isSunday
-          ? `Lighthouse: η εβδομάδα μπροστά σου (${weekAllP.length + weekAllH.length})`
-          : `Lighthouse: σε μία εβδομάδα`;
+  const subject = todayT.length
+    ? `Lighthouse: ${todayT.length} σήμερα`
+    : tomorrowT.length
+      ? `Lighthouse: ετοιμάσου για αύριο (${tomorrowT.length})`
+      : isSunday
+        ? `Lighthouse: η εβδομάδα μπροστά σου (${weekT.length})`
+        : `Lighthouse: ενημέρωση`;
 
   // 2026-09-11: leave a snapshot for the engines digest, which reports
   // "τελευταία εκτέλεση" from each engine's own record. Best-effort.
@@ -229,9 +205,9 @@ async function handler() {
       "lighthouse_daily_latest",
       JSON.stringify({
         generated_at: new Date().toISOString(),
-        today: todayP.length + todayH.length,
-        tomorrow: tomorrowP.length + tomorrowH.length,
-        week: weekAllP.length + weekAllH.length,
+        today: todayT.length,
+        tomorrow: tomorrowT.length,
+        week: weekT.length,
         subject,
         // 2026-10-03: the morning brief folds this page in whole.
         html_inner: htmlParts.join(""),
@@ -246,7 +222,7 @@ async function handler() {
       <p style="font-family:Georgia,serif;font-size:13px;letter-spacing:3px;color:${G.gold};text-transform:uppercase;margin:0 0 2px;">The Lighthouse</p>
       <h1 style="font-family:Georgia,serif;font-size:22px;color:${G.navy};margin:0 0 16px;">Οι άνθρωποί σου σήμερα</h1>
       ${htmlParts.join("")}
-      <p style="font-size:12px;color:${G.soft};margin:16px 0 0;">Αντιγράφεις το draft, το στέλνεις από το mail σου, και πατάς «Το έστειλα» στο <a href="https://command.georgeyachts.com/dashboard/lighthouse" style="color:${G.gold};">Lighthouse</a> για να γραφτεί στο ιστορικό.</p>
+      <p style="font-size:12px;color:${G.soft};margin:16px 0 0;">Στο <a href="${LINK}" style="color:${G.gold};">Lighthouse</a> πατάς Generate, διαβάζεις, και Send. Τίποτα δεν φεύγει μόνο του.</p>
     </div>
   </div>`;
 
@@ -254,14 +230,14 @@ async function handler() {
   // this page travels inside it (snapshot above) and is not sent on its own.
   const briefOn = ((await getSetting("morning_brief_enabled")) ?? "1").trim() !== "0";
   if (briefOn) {
-    return NextResponse.json({ ok: true, folded_into_morning_brief: true, today: todayP.length + todayH.length, tomorrow: tomorrowP.length + tomorrowH.length });
+    return NextResponse.json({ ok: true, folded_into_morning_brief: true, today: todayT.length, tomorrow: tomorrowT.length });
   }
   const res = await gmailFetch("/messages/send", {
     method: "POST",
     body: JSON.stringify({ raw: rawEmail(GEORGE, subject, textParts.join("\n\n"), html) }),
   });
   if (!res.ok) return NextResponse.json({ error: `gmail ${res.status}` });
-  return NextResponse.json({ ok: true, today: todayP.length + todayH.length, tomorrow: tomorrowP.length + tomorrowH.length });
+  return NextResponse.json({ ok: true, today: todayT.length, tomorrow: tomorrowT.length });
 }
 
 export async function GET() {

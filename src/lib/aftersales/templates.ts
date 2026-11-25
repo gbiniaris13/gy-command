@@ -114,7 +114,41 @@ export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_not
           `Happy birthday from all the way across the Aegean. May today be a joyful one, and the year ahead calm and bright.`,
         ], n), `Warmly,\nGeorge`].join("\n\n"),
       };
-    case "holiday":
+    case "holiday": {
+      // A client whose charter is still ahead (signed for next summer): the
+      // letter looks forward to the week instead of back on it (25/11/2026).
+      const today = extra.due ?? new Date().toISOString().slice(0, 10);
+      if (c.from && c.from > today) {
+        const month = new Date(`${c.from}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+        const when = c.from.slice(0, 4) > today.slice(0, 4) ? `next ${month}` : `this ${month}`;
+        const week = regionOf(c) ? `a week in ${regionOf(c)} ${when}` : `a week ${when}`;
+        const ahead = pick([
+          `The islands are quiet now and the light has turned soft and low, the season when I start looking ahead to the summer. Your week is one I am already looking forward to.`,
+          `Here the season has closed and the boats are back in their winter berths. It is the quiet time when the summer ahead starts to take shape, and your week is one I already look forward to.`,
+          `The islands have gone quiet for the winter, but the summer ahead is already taking shape, and I am glad your week is part of it.`,
+        ], n, 1);
+        return !p.country || p.country === "US"
+          ? {
+              subject: "A note of thanks",
+              body: [
+                g,
+                `Thanksgiving is not a holiday we keep in Greece, but I have come to love the idea of a day set aside simply for gratitude. ${pick([`This year, I am grateful that you chose ${v} for ${week}.`, `This year, I am grateful that ${v} will be yours for ${week}.`, `This year, I am grateful for ${week} aboard ${v}, still to come.`], n)}`,
+                ahead,
+                pick([`Wishing you and everyone at your table a warm Thanksgiving, and a peaceful end to the year.`, `Wishing you a warm Thanksgiving with the people you love, and a peaceful end to the year.`, `Wishing you and everyone around your table a warm Thanksgiving, and a peaceful end to the year.`], n, 2),
+                `George`,
+              ].join("\n\n"),
+            }
+          : {
+              subject: "Season's greetings from Athens",
+              body: [
+                g,
+                pick([`As the year closes, I am grateful that you chose ${v} for ${week}.`, `As the year ends, I find myself grateful that ${v} will be yours for ${week}.`, `Looking back on this year, I am grateful for ${week} aboard ${v}, still to come.`], n),
+                ahead,
+                `Wishing you and your family a peaceful Christmas and a very happy new year.`,
+                `George`,
+              ].join("\n\n"),
+            };
+      }
       return !p.country || p.country === "US"
         ? {
             subject: "A note of thanks",
@@ -140,6 +174,7 @@ export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_not
               `George`,
             ].join("\n\n"),
           };
+    }
     case "anniversary":
       return {
         subject: "One year ago this week",

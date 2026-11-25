@@ -147,6 +147,9 @@ export default function AfterSalesClient() {
         </div>
       </div>
 
+      <p style={{ fontSize: 13, color: "#0D1B2A", background: "#FFFBEB", border: "1px solid rgba(218,161,16,0.45)", padding: "8px 12px", marginTop: 12 }}>
+        Από 25/11/2026 όλα αυτά δουλεύουν από το <a href="/dashboard/lighthouse" style={{ color: "#7a6224", textDecoration: "underline" }}>Lighthouse</a>. Αυτή η σελίδα μένει ως αρχείο.
+      </p>
       {flash && <p style={{ color: "#8FD19E", fontSize: 13, marginTop: 12 }}>{flash}</p>}
       {err && <p style={{ color: "#F87171", fontSize: 13, marginTop: 12 }}>{err}</p>}
 

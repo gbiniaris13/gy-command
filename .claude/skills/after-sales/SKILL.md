@@ -23,6 +23,8 @@ George P. Biniaris, Founder and Managing Broker of George Yachts Brokerage House
 - Signature: end with a short sign-off line and "George" on its own line. The full signature is added automatically.
 - Length: thank-you 60-130 words; review 50-110; review after a problem 60-140; birthday 20-60; anniversary 25-70; holiday letter 60-140; next season 50-110; advisor note 80-170.
 
+- A client whose charter is still ahead (`charter.from` is after today) has NOT sailed yet. Never write as if they did: no "your week aboard", no "remember", no "this summer with you". The base text already looks forward to the week; keep it that way (25/11/2026: four clients with 2027 contracts).
+
 ## The messages
 
 **thank_you** (day 0, evening of disembarkation; to every adult guest with an email). Warm thank-you for trusting George with the week. George is from the Cyclades and in a way represents Greece: he truly hopes they had a dreamlike week and took some of the islands' energy home. White glove: he is still here for anything. NO review link, NO ask. Subject example: "Thank you for the week".

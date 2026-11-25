@@ -10,8 +10,9 @@ import { logHelmMessage } from "@/lib/helm-admin";
 import { buildCalendar } from "@/lib/aftersales/plan";
 import { generateTouch } from "@/lib/aftersales/generate";
 import { checkAfterSales } from "@/lib/aftersales/validate";
-import { greetingFor } from "@/lib/aftersales/templates";
+import { greetingFor, baseText } from "@/lib/aftersales/templates";
 import { readState, updateState, emailKey, TEST_INBOX } from "@/lib/aftersales/store";
+import { sendCard, CARD_KINDS } from "@/lib/aftersales/card";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -22,8 +23,19 @@ export async function GET(req: Request) {
   const localPreview = new URL(req.url).hostname === "localhost" && process.env.DEV_LAYOUT_PREVIEW === "1";
   const denied = localPreview ? null : await requireUser(req);
   if (denied) return denied;
-  const cal = await buildCalendar({ horizonDays: 75 });
-  return NextResponse.json(cal);
+  // The Lighthouse shows the year ahead (?days=370); every message carries the
+  // text it will start from, so George can read it before its day.
+  const days = Math.min(400, Math.max(1, Number(new URL(req.url).searchParams.get("days")) || 75));
+  const cal = await buildCalendar({ horizonDays: days });
+  const byKey = new Map([...cal.charters, ...cal.lost].map((c) => [c.key, c]));
+  const touches = cal.touches.map((t) => {
+    if (t.state?.body || t.status === "sent" || t.status === "skipped") return t;
+    const c = byKey.get(t.charter_key);
+    if (!c) return t;
+    const variant = Math.max(0, c.people.findIndex((x) => x.email === t.person.email));
+    return { ...t, preview: baseText(t.kind, c, t.person, { problem_note: c.problem.note, variant, due: t.due }) };
+  });
+  return NextResponse.json({ ...cal, touches });
 }
 
 type Body = {
@@ -38,6 +50,7 @@ type Body = {
   first_name?: string;
   on?: boolean;
   mode?: "test" | "live";
+  test?: boolean; // "Δοκιμή σε μένα": this one send goes to george@, whatever the mode
 };
 
 export async function POST(req: Request) {
@@ -114,9 +127,12 @@ export async function POST(req: Request) {
     const problems = checkAfterSales(t.kind, { subject, body }, { greeting: greetingFor(t.kind, t.person, c), fullName: t.person.full_name });
     const hard = problems.filter((p) => /long dash|Greek|review link|only the Google|Trustpilot|no links|no review ask|brackets/.test(p));
     if (hard.length) return NextResponse.json({ error: `Δεν στάλθηκε: ${hard.join("; ")}` }, { status: 422 });
-    const live = state.mode === "live";
+    const live = state.mode === "live" && b.test !== true;
     const to = live ? t.person.email : TEST_INBOX;
-    const sent = await sendHelmEmail({ to, subject: live ? subject : `[ΔΟΚΙΜΗ για ${t.person.email}] ${subject}`, body });
+    const subj = live ? subject : `[ΔΟΚΙΜΗ για ${t.person.email}] ${subject}`;
+    const sent = CARD_KINDS.includes(t.kind)
+      ? await sendCard({ to, subject: subj, body, kind: t.kind, us: !t.person.country || t.person.country === "US" })
+      : await sendHelmEmail({ to, subject: subj, body });
     await updateState((s) => {
       const cur = s.touches[t.id] ?? { status: "generated" as const, at: now };
       if (live) s.touches[t.id] = { status: "sent", at: now, subject, body, message_id: sent.messageId, sent_to: to };

@@ -12,6 +12,15 @@
 //   anniversary           +1 and +2 years, the lead charterer
 //   next_season           15 Sep to 31 Oct each year, the lead charterer
 //
+// 2026-11-25 (evening): ONE SYSTEM. George built the Lighthouse for exactly
+// this, so this calendar is now the Lighthouse's brain and the Lighthouse is
+// the only screen. Clients are everyone with a contract, from the day they
+// sign: a 2027 booking gets the birthday and the holiday letter now (four
+// such clients were missed on Thanksgiving 2026). Dates of birth and
+// countries also come from the Lighthouse's people (passports, overrides).
+// The old Lighthouse mass holidays are retired: one holiday letter a year,
+// per person, by country. Lost requests get only their notes, no holidays.
+//
 // Rules in code: never two messages to one person on the same day; the
 // keep-warm messages wait 14 days after anything else was sent to that
 // person; advisor bookings: nothing to the client, ever; white-label: nothing;
@@ -23,6 +32,7 @@ import { normalizeNationality } from "@/lib/national-days";
 import { readState, emailKey, type AfterSalesState, type TouchState } from "./store";
 import { athensToday, addDays, daysBetween, sameDayInYear, thanksgiving, ageOn } from "./dates";
 import { helmSalutation } from "@/lib/helm/addressing";
+import { getSetting } from "@/lib/google-api";
 
 export const GOOGLE_REVIEW_LINK = "https://g.page/r/CR_fG1ftsKWBEBM/review";
 
@@ -55,7 +65,10 @@ const PRIORITY: Record<Kind, number> = {
   birthday: 4, holiday: 5, anniversary: 6, next_season: 7,
   lost_budget: 8, lost_silence: 8, lost_dates: 8, lost_last: 9, lost_broker: 8, lost_short: 9,
 };
-const KEEP_WARM: Kind[] = ["birthday", "holiday", "anniversary", "next_season"];
+// The 14-day spacing. A birthday is not spaced: it belongs to its day, and
+// a holiday letter two days earlier must not cost Caroline her birthday wish
+// (25/11/2026: Thanksgiving on 25/11, her birthday on 27/11).
+const KEEP_WARM: Kind[] = ["holiday", "anniversary", "next_season"];
 const SPACING_DAYS = 14;
 
 export type Person = {
@@ -138,8 +151,46 @@ export function firstNameOf(full: string): string {
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
-/** Every charter that ended (or ends) and can be written to after the week. */
-export async function loadCharters(state: AfterSalesState): Promise<Charter[]> {
+/** What the Lighthouse knows about a person (passports, overrides, Helm
+ *  notes, WhatsApp prefixes): date of birth and country, by email. Read from
+ *  the Lighthouse snapshot (one settings row); empty if there is none yet. */
+export type Facts = { byEmail: Map<string, { dob: string | null; country: string | null }>; optOut: Set<string> };
+export async function lighthouseFacts(): Promise<Facts> {
+  const byEmail: Facts["byEmail"] = new Map();
+  const optOut = new Set<string>();
+  try {
+    const raw = await getSetting("lighthouse_cache_v1");
+    const people = raw ? ((JSON.parse(raw)?.payload?.people ?? []) as AnyRec[]) : [];
+    for (const p of people) {
+      const e = emailKey(s(p.email));
+      if (!e.includes("@")) continue;
+      const cur = byEmail.get(e) ?? { dob: null, country: null };
+      byEmail.set(e, { dob: cur.dob ?? iso(p.birthday), country: cur.country ?? (normalizeNationality(s(p.country)) ?? null) });
+    }
+  } catch {}
+  if (!byEmail.size) {
+    // No snapshot yet (or it failed): ask the Lighthouse directly, so a
+    // client's birthday never vanishes because a cache row is missing.
+    try {
+      const { loadPeople } = await import("@/lib/lighthouse");
+      const { people } = await loadPeople();
+      for (const p of people as AnyRec[]) {
+        const e = emailKey(s(p.email));
+        if (!e.includes("@") || byEmail.has(e)) continue;
+        byEmail.set(e, { dob: iso(p.birthday), country: normalizeNationality(s(p.country)) ?? null });
+      }
+    } catch {}
+  }
+  try {
+    // "Βγάλε τον από τις ευχές" in the Lighthouse (contacts.greetings_opt_out).
+    const { data } = await createServiceClient().from("contacts").select("email").eq("greetings_opt_out", true).limit(1000);
+    for (const r of (data ?? []) as AnyRec[]) if (s(r.email)) optOut.add(emailKey(s(r.email)));
+  } catch {}
+  return { byEmail, optOut };
+}
+
+/** Every charter with a contract: sailed, or still to come. */
+export async function loadCharters(state: AfterSalesState, facts?: Facts): Promise<Charter[]> {
   const db = createServiceClient();
   const today = athensToday();
 
@@ -179,14 +230,15 @@ export async function loadCharters(state: AfterSalesState): Promise<Charter[]> {
   const person = (email: string, fullName: string, role: Person["role"], dob: string | null, nat: string | null): Person => {
     const k = emailKey(email);
     const pref = state.people[k]?.first_name?.trim();
+    const f = facts?.byEmail.get(k);
     return {
       email: k,
       first_name: pref || firstNameOf(fullName) || "there",
       name_source: pref ? "george" : "record",
       full_name: fullName,
       role,
-      dob,
-      country: normalizeNationality(nat) ?? null,
+      dob: dob ?? f?.dob ?? null,
+      country: normalizeNationality(nat) ?? f?.country ?? null,
     };
   };
 
@@ -368,7 +420,7 @@ export function lostTouches(c: Charter): Raw[] {
 
 type Raw = { kind: Kind; person: Person; due: string; expires: string };
 
-function rawTouches(c: Charter, today: string): Raw[] {
+export function rawTouches(c: Charter, today: string): Raw[] {
   if (c.lost) return lostTouches(c);
   const out: Raw[] = [];
   const years = [Number(today.slice(0, 4)), Number(today.slice(0, 4)) + 1];
@@ -384,15 +436,20 @@ function rawTouches(c: Charter, today: string): Raw[] {
     } else {
       out.push({ kind: "review", person: p, due: addDays(c.to, 3), expires: addDays(c.to, 7) });
     }
+    // A client is a client from the day the contract is signed: the birthday
+    // and the holiday letter do not wait for the charter (25/11/2026). Only
+    // the charter itself, and the fortnight around it, stay quiet.
+    const start = c.from ?? c.to;
+    const nearCharter = (d: string) => d >= addDays(start, -14) && d <= addDays(c.to, 14);
     for (const y of years) {
       if (p.dob) {
         const d = sameDayInYear(p.dob, y);
-        if (d > c.to) out.push({ kind: "birthday", person: p, due: d, expires: addDays(d, 1) });
+        if (!(d >= start && d <= c.to)) out.push({ kind: "birthday", person: p, due: d, expires: addDays(d, 1) });
       }
       const us = !p.country || p.country === "US";
       const hd = us ? addDays(thanksgiving(y), -3) : `${y}-12-18`;
       const hx = us ? thanksgiving(y) : `${y}-12-24`;
-      if (hd > addDays(c.to, 14)) out.push({ kind: "holiday", person: p, due: hd, expires: hx });
+      if (!nearCharter(hd) && !nearCharter(hx)) out.push({ kind: "holiday", person: p, due: hd, expires: hx });
       if (p.role === "lead") {
         const ns = `${y}-09-15`;
         if (ns > addDays(c.to, 30)) out.push({ kind: "next_season", person: p, due: ns, expires: `${y}-10-31` });
@@ -410,7 +467,7 @@ function rawTouches(c: Charter, today: string): Raw[] {
 export const touchId = (c: Charter, r: Raw) => `${r.kind}|${c.key}|${r.person.email}|${r.due}`;
 
 /** The whole calendar, from 30 days back to `horizonDays` ahead. */
-export async function buildCalendar(opts: { horizonDays?: number; state?: AfterSalesState } = {}): Promise<{
+export async function buildCalendar(opts: { horizonDays?: number; state?: AfterSalesState; today?: string } = {}): Promise<{
   today: string;
   mode: "test" | "live";
   charters: Charter[];
@@ -418,9 +475,12 @@ export async function buildCalendar(opts: { horizonDays?: number; state?: AfterS
   touches: TouchView[];
 }> {
   const state = opts.state ?? (await readState());
-  const today = athensToday();
+  // `today` is only ever passed by the read-only checks (what will the list
+  // say on 27/11?); the app always uses the Athens date.
+  const today = opts.today ?? athensToday();
   const horizon = addDays(today, opts.horizonDays ?? 60);
-  const charters = await loadCharters(state);
+  const facts = await lighthouseFacts();
+  const charters = await loadCharters(state, facts);
   const wonEmails = new Set(charters.flatMap((c) => c.people.map((p) => p.email)));
   const lost = await loadLost(state, wonEmails);
 
@@ -433,18 +493,39 @@ export async function buildCalendar(opts: { horizonDays?: number; state?: AfterS
     if (!lastSent.has(email) || lastSent.get(email)! < d) lastSent.set(email, d);
   }
 
+  // A yearly message already sent to this person this year, by any route
+  // (another charter, or by hand like the four Thanksgiving letters of
+  // 25/11/2026), is never sent twice.
+  const YEARLY: Kind[] = ["birthday", "holiday"];
+  const sentThisYear = new Map<string, string>();
+  for (const [id, t] of Object.entries(state.touches)) {
+    if (t.status !== "sent" || t.test) continue;
+    const [kind, , email, due] = id.split("|");
+    if (YEARLY.includes(kind as Kind)) sentThisYear.set(`${kind}|${email}|${(due ?? t.at).slice(0, 4)}`, t.at.slice(0, 10));
+  }
+
   const views: TouchView[] = [];
+  const seenYearly = new Set<string>();
   for (const c of [...charters, ...lost]) {
     for (const r of rawTouches(c, today)) {
       if (r.expires < addDays(today, -30) || r.due > horizon) continue;
       const id = touchId(c, r);
+      const yearKey = `${r.kind}|${r.person.email}|${r.due.slice(0, 4)}`;
+      if (YEARLY.includes(r.kind)) {
+        // One person on two charters: one birthday, one holiday letter.
+        if (seenYearly.has(yearKey)) continue;
+        seenYearly.add(yearKey);
+      }
       const st = state.touches[id] ?? null;
       const never = state.people[r.person.email]?.never;
+      const optedOut = facts.optOut.has(r.person.email);
       let status: TouchView["status"];
       let reason = "";
       if (st?.status === "sent") { status = "sent"; reason = st.test ? "στάλθηκε ως δοκιμή σε σένα" : "στάλθηκε"; }
+      else if (!st && YEARLY.includes(r.kind) && sentThisYear.has(yearKey)) { status = "sent"; reason = `στάλθηκε στις ${sentThisYear.get(yearKey)}`; }
       else if (st?.status === "skipped") { status = "skipped"; reason = st.skip_reason || "παραλείφθηκε"; }
       else if (never) { status = "skipped"; reason = "«Μην ξαναγράψεις» σε αυτόν τον άνθρωπο"; }
+      else if (optedOut) { status = "skipped"; reason = "βγήκε από τις ευχές στο Lighthouse"; }
       else if (r.expires < today) continue; // missed, never sent out of time
       else if ((r.kind === "review") && c.problem.on && !c.problem.resolved_at) { status = "held"; reason = "Κάτι πήγε στραβά: σε αναμονή μέχρι το «Λύθηκε»"; }
       else if (r.due > today) { status = "upcoming"; }

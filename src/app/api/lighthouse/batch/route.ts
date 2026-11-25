@@ -76,6 +76,16 @@ export async function POST(request) {
     return NextResponse.json({ ok: true, test: true, sent_to: GEORGE, as: sample.name });
   }
 
+  // 2026-11-25: RETIRED. George's decision from the after-sales research:
+  // one holiday letter a year per client, by country, sent one by one from
+  // the Lighthouse list. A mass send to everyone (leads included) is exactly
+  // what the research said not to do, and on Thanksgiving 2026 it would have
+  // reached nine guests a second time. The test send above stays.
+  return NextResponse.json(
+    { error: "Οι μαζικές γιορτές καταργήθηκαν (25/11/2026). Κάθε γιορτινό γράμμα στέλνεται προσωπικά από τα Επερχόμενα του Lighthouse." },
+    { status: 410 },
+  );
+
   // Wishes leave near the day they belong to, never in August for
   // Christmas: the button unlocks 3 days before and locks 2 after.
   const today = new Date(new Date().toLocaleDateString("en-US", { timeZone: "Europe/Athens" }));

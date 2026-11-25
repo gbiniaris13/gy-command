@@ -145,15 +145,19 @@ export async function buildMorningBrief(): Promise<{ subject: string; text: stri
 
   // 2b. After sales (25/11/2026): what is due today after a charter, and any
   // "Κάτι πήγε στραβά" left waiting more than 10 days. Nothing is pre-sent.
-  try {
+  // 2026-11-25 (evening): the Lighthouse page (section 5) now carries all of
+  // this with the texts; this short list stays only as the fallback for a
+  // morning when the Lighthouse page did not run.
+  const lhFresh = await snapshot<{ html_inner?: string }>("lighthouse_daily_latest", 6);
+  if (!lhFresh?.html_inner) try {
     const cal = await buildAfterSalesCalendar({ horizonDays: 1 });
     const due = cal.touches.filter((t) => t.status === "due" || t.status === "generated");
     const asItems: { text: string; html?: string }[] = due.slice(0, 15).map((t) => ({
       text: `${t.kind_el}: ${t.person.first_name} (${t.vessel}).`,
-      html: `${esc(t.kind_el)}: <b>${esc(t.person.first_name)}</b> · ${esc(t.vessel)} · ${link(`${BASE}/dashboard/after-sales`, "άνοιξε και πάτα Generate")}`,
+      html: `${esc(t.kind_el)}: <b>${esc(t.person.first_name)}</b> · ${esc(t.vessel)} · ${link(`${BASE}/dashboard/lighthouse`, "άνοιξε το Lighthouse και πάτα Generate")}`,
     }));
     for (const c of cal.charters.filter((x) => x.problem.overdue)) {
-      asItems.push({ text: `${c.vessel}: «Κάτι πήγε στραβά» περιμένει πάνω από 10 μέρες. Όταν λυθεί, πάτα «Λύθηκε».`, html: `<b>${esc(c.vessel)}</b>: «Κάτι πήγε στραβά» περιμένει πάνω από 10 μέρες · ${link(`${BASE}/dashboard/after-sales`, "Λύθηκε;")}` });
+      asItems.push({ text: `${c.vessel}: «Κάτι πήγε στραβά» περιμένει πάνω από 10 μέρες. Όταν λυθεί, πάτα «Λύθηκε».`, html: `<b>${esc(c.vessel)}</b>: «Κάτι πήγε στραβά» περιμένει πάνω από 10 μέρες · ${link(`${BASE}/dashboard/lighthouse`, "Λύθηκε;")}` });
     }
     const sA = sec(`After sales σήμερα: ${due.length}`, asItems, cal.mode === "test" && due.length ? "Δοκιμαστική λειτουργία: το Send έρχεται μόνο σε σένα." : undefined);
     if (sA) sections.push({ ...sA, count: due.length });

@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import AfterSalesPanel from "./AfterSalesPanel";
 
 // THE LIGHTHOUSE — George's brief (29/8): "σαν iPhone, σαν Apple:
 // απλό, όμορφο, και να κάνει όλες τις δουλειές". So: one column,
@@ -410,8 +411,8 @@ export default function LighthouseClient() {
           Κοντά στους ανθρώπους σου
         </h1>
         <p className="mt-2 text-sm text-muted-blue">
-          Γενέθλια, επέτειοι και γιορτές, από το Helm, το Cabin και τα έγγραφα που ανεβάζεις.
-          Εσύ στέλνεις, ο φάρος θυμάται.
+          Ό,τι παίρνει ένας πελάτης από σένα, με τη σειρά που έρχεται: ευχαριστώ, κριτική,
+          γενέθλια, το γιορτινό γράμμα, επέτειοι, νέα σεζόν και οι χαμένοι. Εσύ στέλνεις, ο φάρος θυμάται.
         </p>
       </div>
 
@@ -447,146 +448,11 @@ export default function LighthouseClient() {
         </div>
       ) : (
         <>
+          {/* 2026-11-25: one list for everything a client receives, the After
+              sales calendar (research of 25/11) as the brain. The old mass
+              holidays and per-occasion drafts are retired here. */}
           {tab === "upcoming" && (
-            <div className="space-y-2.5">
-              {(data?.no_country ?? 0) > 0 && (
-                <button onClick={() => setTab("people")} className="block w-full rounded-2xl border border-amber-400/30 bg-amber-400/10 p-4 text-left text-sm text-soft-white hover:bg-amber-400/15">
-                  ⚠️ {data.no_country} πελάτες χωρίς χώρα, δεν θα πάρουν εθνικές γιορτές. Πάτα εδώ και συμπλήρωσέ τους.
-                </button>
-              )}
-
-              {timeline.map((ev) => {
-                const d = new Date(ev.date + "T00:00:00");
-                const thisYear = d.getFullYear() === new Date().getFullYear();
-                const dateBlock = (
-                  <div className="w-16 shrink-0 text-center">
-                    <p className="text-2xl font-bold leading-none text-soft-white">{d.getDate()}</p>
-                    <p className="mt-0.5 text-[11px] font-bold uppercase tracking-wider text-muted-blue">
-                      {d.toLocaleDateString("el-GR", { month: "short" }).replace(".", "")}
-                    </p>
-                    {!thisYear && <p className="text-[10px] text-muted-blue/70">{d.getFullYear()}</p>}
-                  </div>
-                );
-
-                if (ev.type === "holiday") {
-                  const h = ev.h;
-                  const done = !!data?.sent?.[`all:${h.kind}:${h.date.slice(0, 4)}`];
-                  const open = (new Date(h.date) - new Date()) / 86400000 <= 3.5;
-                  const namesOpen = openDraft === `names:${h.kind}:${h.date}`;
-                  return (
-                    <div key={"h" + h.kind + h.date} className="rounded-2xl border border-white/10 bg-deep-space/60 p-4">
-                      <div className="flex items-center gap-4">
-                        {dateBlock}
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[15px] font-semibold text-soft-white">{h.label}</p>
-                          <button onClick={() => setOpenDraft(namesOpen ? null : `names:${h.kind}:${h.date}`)} className="mt-0.5 text-sm text-muted-blue underline decoration-white/20 underline-offset-2 hover:text-soft-white">
-                            {h.recipients} άτομα {namesOpen ? "▴" : "▾"}
-                          </button>
-                        </div>
-                        {/* 2026-09-06 (George, the day before Labor Day: "θα ήθελα
-                            να δω τι στέλνει"): the preview page shows the card, the
-                            text, the recipients, lets him edit the greeting and send
-                            a test to himself. The gold button stays the only real send. */}
-                        {!done && (
-                          <a href={`/api/lighthouse/preview?kind=${encodeURIComponent(h.kind)}&date=${h.date}`} target="_blank" rel="noreferrer"
-                            className="rounded-full border border-white/25 px-4 py-2.5 text-sm font-semibold text-soft-white hover:border-white/50">
-                            Δες την κάρτα
-                          </a>
-                        )}
-                        {done ? (
-                          <Chip tone="good">Εστάλησαν</Chip>
-                        ) : !open ? (
-                          <Chip tone="neutral">Ανοίγει 3 μέρες πριν</Chip>
-                        ) : (
-                          <button onClick={() => approveBatch(h)} disabled={busyKey === `${h.kind}:${h.date}`}
-                            className="rounded-full px-5 py-2.5 text-sm font-bold text-deep-space disabled:opacity-50" style={{ background: GOLD }}>
-                            {busyKey === `${h.kind}:${h.date}` ? "Στέλνονται…" : "Έγκριση και αποστολή"}
-                          </button>
-                        )}
-                      </div>
-                      {namesOpen && (
-                        <p className="mt-3 border-t border-white/10 pt-3 text-xs leading-relaxed text-muted-blue">
-                          {(h.names ?? h.sample ?? []).join(" · ")}
-                        </p>
-                      )}
-                    </div>
-                  );
-                }
-
-                if (ev.type === "departure") {
-                  const dep = ev.dep;
-                  return (
-                    <div key={"d" + dep.person.key + dep.date} className="rounded-2xl border border-white/10 bg-deep-space/40 p-4">
-                      <div className="flex items-center gap-4">
-                        {dateBlock}
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[15px] font-semibold text-soft-white">⛵ {dep.person.name} σαλπάρει</p>
-                          <p className="mt-0.5 truncate text-sm text-muted-blue">
-                            {dep.to && dep.to > dep.date ? `έως ${fmtDay(dep.to)}` : ""}
-                            {dep.area ? `${dep.to && dep.to > dep.date ? " · " : ""}${String(dep.area).split(/[.,·]/)[0].trim().slice(0, 48)}` : ""}
-                          </p>
-                        </div>
-                        <Chip tone="neutral">Ναύλος</Chip>
-                      </div>
-                    </div>
-                  );
-                }
-
-                const o = ev.o;
-                return (
-                  <div key={o.key} className="rounded-2xl border border-white/10 bg-deep-space/60 p-4">
-                    <div className="flex flex-wrap items-center gap-4">
-                      {dateBlock}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[15px] font-semibold text-soft-white">
-                          {o.person.name}
-                          {o.person.vip && <span className="ml-2 text-xs" style={{ color: GOLD }}>VIP</span>}
-                        </p>
-                        <p className="mt-0.5 text-sm text-muted-blue">
-                          {KIND_GR[o.kind] ?? o.label}
-                          {o.vessel ? ` · ${o.vessel}` : o.person.vessel ? ` · ${o.person.vessel}` : ""}
-                          {Array.isArray(o.person.household_names) && o.person.household_names.length > 0
-                            ? ` · οικογένεια: ${o.person.household_names.join(", ")}`
-                            : ""}
-                          {o.draft?.edited ? " · δικό σου κείμενο" : ""}
-                        </p>
-                      </div>
-                      {o.done ? (
-                        <Chip tone="good">Το έστειλες</Chip>
-                      ) : (
-                        <>
-                          <button onClick={() => setOpenDraft(openDraft === o.key ? null : o.key)}
-                            className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-soft-white hover:bg-white/15">
-                            {openDraft === o.key ? "Κλείσε" : "Δες το draft"}
-                          </button>
-                          <button onClick={() => markSent(o)} disabled={busyKey === o.key}
-                            className="rounded-full px-4 py-2 text-sm font-bold text-deep-space disabled:opacity-50" style={{ background: GOLD }}>
-                            Το έστειλα
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    {openDraft === o.key && (
-                      <DraftEditor
-                        o={o}
-                        act={act}
-                        say={say}
-                        busy={busyKey === o.key}
-                        setBusy={(b) => setBusyKey(b ? o.key : null)}
-                        onSent={() => { setOpenDraft(null); load(); }}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-
-              {timeline.length === 0 && (
-                <div className="rounded-2xl border border-white/10 bg-deep-space/60 p-8 text-center">
-                  <p className="text-base text-soft-white">Το ημερολόγιο είναι άδειο.</p>
-                  <p className="mt-1 text-sm text-muted-blue">Πρόσθεσε γενέθλια στους Πελάτες ή ανέβασε έγγραφα.</p>
-                </div>
-              )}
-            </div>
+            <AfterSalesPanel departures={data?.departures ?? []} noCountry={data?.no_country ?? 0} onPeople={() => setTab("people")} />
           )}
 
           {tab === "people" && (

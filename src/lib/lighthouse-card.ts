@@ -49,7 +49,7 @@ const EYEBROWS: Record<string, string> = {
   greek_independence_day: "Zito i Ellas",
 };
 
-export function greetingCard({ kind, subject, body }: { kind: string; subject: string; body: string }): string {
+export function greetingCard({ kind, subject, body, closing: closingIn }: { kind: string; subject: string; body: string; closing?: string }): string {
   const eyebrow = EYEBROWS[kind] ?? "With Warm Wishes";
   const greek = kind === "name_day";
   const paras = String(body).split(/\n{2,}/).map((x) => x.trim()).filter(Boolean);
@@ -66,7 +66,9 @@ export function greetingCard({ kind, subject, body }: { kind: string; subject: s
 
   const signName = greek ? "Γιώργος Π. Μπινιάρης" : "George P. Biniaris";
   const signTitle = greek ? "George Yachts Brokerage House" : "Founder &amp; Managing Broker · George Yachts Brokerage House";
-  const closing = sign.length ? esc(sign[0]) : greek ? "Με εκτίμηση," : "Warm regards,";
+  // 2026-11-25: the After sales texts end "Warmly,\nGeorge"; the sender
+  // strips that and passes the closing, so the card signs it once.
+  const closing = closingIn ? esc(closingIn) : sign.length ? esc(sign[0]) : greek ? "Με εκτίμηση," : "Warm regards,";
 
   return `<!DOCTYPE html>
 <html>

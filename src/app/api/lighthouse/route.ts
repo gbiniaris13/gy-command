@@ -29,7 +29,10 @@ async function computePayload(days) {
 }
 
 export async function GET(request) {
-  const denied = await requireUser(request);
+  // Local read-only preview (same switch as /api/aftersales): only on
+  // localhost with DEV_LAYOUT_PREVIEW=1, never true in production.
+  const localPreview = new URL(request.url).hostname === "localhost" && process.env.DEV_LAYOUT_PREVIEW === "1";
+  const denied = localPreview ? null : await requireUser(request);
   if (denied) return denied;
   const url = new URL(request.url);
   // The calendar shows the whole year ahead (George 29/8: "ημερολόγιο
