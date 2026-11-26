@@ -27,7 +27,10 @@ const HAIR = "rgba(23,38,58,0.14)";
 const GOLD_HAIR = "rgba(168,135,59,0.42)";
 
 const ASSETS = "https://command.georgeyachts.com/cards";
-const SIGNATURE = { src: `${ASSETS}/george-signature-v1.png`, w: 170, h: 104 };
+// v2 (26/11/2026): transparent, in bronze ink. v1 sat on an ivory square
+// that showed as a beige box when a phone in dark mode darkened the card;
+// navy ink would vanish on the dark card, bronze reads on both.
+const SIGNATURE = { src: `${ASSETS}/george-signature-v2.png`, w: 170, h: 104 };
 
 const DISPLAY = "'Cormorant Garamond',Georgia,'Times New Roman',serif";
 const SERIF = "'Cormorant Garamond',Georgia,'Times New Roman',serif";
@@ -64,7 +67,7 @@ const EYEBROWS: Record<string, string> = {
 // for retina. Sources (all public domain / CC0, via Wikimedia Commons):
 //   birthday      N. Artsay, Ship under Sail, etching, National Gallery of Art (CC0)
 //   thanksgiving  J. S. Sargent, Olive Trees, Corfu, 1909, Art Institute of Chicago
-//   christmas     Punica granatum, Köhler's Medizinal-Pflanzen, 1897 (W. O. Müller)
+//   christmas     Elizabeth Blackwell, A Curious Herbal, 1737, plate 145 (BHL)
 export type CardArt = { src: string; w: number; alt: string; credit: string; accent: string };
 export const CARD_ART: Record<string, CardArt> = {
   birthday: {
@@ -83,11 +86,12 @@ export const CARD_ART: Record<string, CardArt> = {
   },
   // The Greek New Year's pomegranate: abundance for the year ahead, and
   // no faith assumed, so it suits "Season's Greetings" for every client.
+  // v2 (26/11/2026): Elizabeth Blackwell's hand-coloured engraving, 1737.
   western_christmas: {
-    src: `${ASSETS}/christmas-v1.jpg`,
-    w: 240,
-    alt: "A botanical plate of a pomegranate branch",
-    credit: "The pomegranate, botanical plate, 1897",
+    src: `${ASSETS}/christmas-v2.jpg`,
+    w: 300,
+    alt: "An eighteenth-century hand-coloured engraving of a pomegranate branch with fruit",
+    credit: "Elizabeth Blackwell, Pomegranates, A Curious Herbal, 1737",
     accent: "#6B2430",
   },
 };

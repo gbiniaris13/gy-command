@@ -9,6 +9,8 @@
 //   advisor_report        +7 (until +21), to the travel advisor only
 //   birthday              on the day, every adult with a date of birth
 //   holiday               one a year: Thanksgiving for Americans, else Christmas
+//   season                Americans also get a short Season's Greetings card
+//                         in mid-December (George, 26/11/2026)
 //   anniversary           +1 and +2 years, the lead charterer
 //   next_season           15 Sep to 31 Oct each year, the lead charterer
 //
@@ -38,7 +40,7 @@ export const GOOGLE_REVIEW_LINK = "https://g.page/r/CR_fG1ftsKWBEBM/review";
 
 export type Kind =
   | "thank_you" | "review" | "review_after_problem" | "advisor_report"
-  | "birthday" | "holiday" | "anniversary" | "next_season"
+  | "birthday" | "holiday" | "season" | "anniversary" | "next_season"
   // Requests that did not book (25/11/2026), one note per reason, at most two in twelve months.
   | "lost_budget" | "lost_silence" | "lost_dates" | "lost_last" | "lost_broker" | "lost_short";
 
@@ -49,6 +51,7 @@ export const KIND_EL: Record<Kind, string> = {
   advisor_report: "Αναφορά στον advisor",
   birthday: "Γενέθλια",
   holiday: "Γιορτινό γράμμα",
+  season: "Season's Greetings",
   anniversary: "Επέτειος ταξιδιού",
   next_season: "Νέα σεζόν",
   lost_budget: "Χαμένο: budget",
@@ -62,10 +65,11 @@ export const KIND_EL: Record<Kind, string> = {
 // Lower number wins when two fall on one person the same day.
 const PRIORITY: Record<Kind, number> = {
   review_after_problem: 0, thank_you: 1, review: 2, advisor_report: 3,
-  birthday: 4, holiday: 5, anniversary: 6, next_season: 7,
+  birthday: 4, holiday: 5, season: 5, anniversary: 6, next_season: 7,
   lost_budget: 8, lost_silence: 8, lost_dates: 8, lost_last: 9, lost_broker: 8, lost_short: 9,
 };
-// The 14-day spacing. A birthday is not spaced: it belongs to its day, and
+// The 14-day spacing. A birthday is not spaced: it belongs to its day (and
+// so does the Season's Greetings card, which belongs to its week), and
 // a holiday letter two days earlier must not cost Caroline her birthday wish
 // (25/11/2026: Thanksgiving on 25/11, her birthday on 27/11).
 const KEEP_WARM: Kind[] = ["holiday", "anniversary", "next_season"];
@@ -450,6 +454,14 @@ export function rawTouches(c: Charter, today: string): Raw[] {
       const hd = us ? addDays(thanksgiving(y), -3) : `${y}-12-18`;
       const hx = us ? thanksgiving(y) : `${y}-12-24`;
       if (!nearCharter(hd) && !nearCharter(hx)) out.push({ kind: "holiday", person: p, due: hd, expires: hx });
+      // 26/11/2026, George: Americans get Thanksgiving AND, three weeks
+      // later, a short Season's Greetings card ("Season's", not "Merry
+      // Christmas": the 26/11 research, clients of every faith).
+      // Everyone else already gets their year-end letter at Christmas.
+      if (us) {
+        const sd = `${y}-12-17`, sx = `${y}-12-23`;
+        if (!nearCharter(sd) && !nearCharter(sx)) out.push({ kind: "season", person: p, due: sd, expires: sx });
+      }
       if (p.role === "lead") {
         const ns = `${y}-09-15`;
         if (ns > addDays(c.to, 30)) out.push({ kind: "next_season", person: p, due: ns, expires: `${y}-10-31` });
@@ -496,7 +508,7 @@ export async function buildCalendar(opts: { horizonDays?: number; state?: AfterS
   // A yearly message already sent to this person this year, by any route
   // (another charter, or by hand like the four Thanksgiving letters of
   // 25/11/2026), is never sent twice.
-  const YEARLY: Kind[] = ["birthday", "holiday"];
+  const YEARLY: Kind[] = ["birthday", "holiday", "season"];
   const sentThisYear = new Map<string, string>();
   for (const [id, t] of Object.entries(state.touches)) {
     if (t.status !== "sent" || t.test) continue;

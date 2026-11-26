@@ -17,7 +17,7 @@ const BTN_GOLD = "rounded-full px-5 py-2 text-sm font-bold text-deep-space disab
 const INPUT = "w-full rounded-xl border border-white/15 bg-white/5 p-3 text-sm leading-relaxed text-soft-white outline-none focus:border-white/30";
 const LOST_EL = { budget: "Budget", silence: "Σιωπή", short: "Ήθελε λίγες μέρες", dates: "Ημερομηνίες", plans: "Άλλαξαν σχέδια", broker: "Άλλος broker", personal: "Προσωπικοί λόγοι" };
 const ROLE_EL = { lead: "πελάτης", guest: "επιβάτης", advisor: "advisor" };
-const CARD_KINDS = ["birthday", "holiday"];
+const CARD_KINDS = ["birthday", "holiday", "season"];
 
 function Chip({ children, tone = "neutral" }) {
   const map = { good: "bg-emerald/15 text-emerald", warn: "bg-amber/15 text-amber", bad: "bg-hot-red/15 text-hot-red", gold: "bg-[#DAA110]/15 text-[#DAA110]", neutral: "bg-white/10 text-muted-blue" };

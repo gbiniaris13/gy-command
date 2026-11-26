@@ -114,6 +114,27 @@ export function baseText(kind: Kind, c: Charter, p: Person, extra: { problem_not
           `Happy birthday from all the way across the Aegean. May today be a joyful one, and the year ahead calm and bright.`,
         ], n), `Warmly,\nGeorge`].join("\n\n"),
       };
+    case "season":
+      // A card, not a letter: Thanksgiving already said thank you, so this
+      // one only wishes (26/11/2026). The pomegranate on the card is the one
+      // Greeks break at the door on New Year's Day.
+      return {
+        subject: "Season's greetings",
+        body: [
+          g,
+          pick([
+            `Warm wishes from Athens to you and your family for the holidays, and for a calm, bright year ahead.`,
+            `A short note from Athens to wish you and everyone you love a peaceful holiday season and a happy new year.`,
+            `Warmest wishes from Greece for the holidays, and for a new year full of good days with the people you love.`,
+          ], n),
+          pick([
+            `Here, on New Year's Day, we break a pomegranate at the door for luck. I am sending one your way.`,
+            `In Greece we greet the new year by breaking a pomegranate at the door for luck, so here is one for you.`,
+            `On New Year's Day in Greece, a pomegranate is broken at the door for a lucky year. This one is for you.`,
+          ], n, 1),
+          `Warmly,\nGeorge`,
+        ].join("\n\n"),
+      };
     case "holiday": {
       // A client whose charter is still ahead (signed for next summer): the
       // letter looks forward to the week instead of back on it (25/11/2026).

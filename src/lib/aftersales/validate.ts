@@ -6,7 +6,7 @@ import { BANNED_PHRASES, wordCount } from "@/lib/helm/followup/validate";
 
 const LIMITS: Record<Kind, [number, number]> = {
   thank_you: [45, 140], review: [40, 120], review_after_problem: [50, 150], birthday: [15, 70],
-  holiday: [50, 150], anniversary: [20, 80], next_season: [45, 120], advisor_report: [70, 190],
+  holiday: [50, 150], season: [20, 80], anniversary: [20, 80], next_season: [45, 120], advisor_report: [70, 190],
   lost_budget: [50, 140], lost_silence: [40, 120], lost_dates: [35, 120], lost_last: [35, 110], lost_broker: [25, 90], lost_short: [40, 120],
 };
 const URGENCY = /\b(expir(e|es|ing|y)|deadline|last chance|limited|book(ing|ed)? (up )?(fast|early)|going fast|won'?t last|running out|fill(s|ing)? up|calendars? (fill|close)|secure (your|the) (preferred )?(yacht|week|dates)|in high demand|don'?t miss)\b/i;

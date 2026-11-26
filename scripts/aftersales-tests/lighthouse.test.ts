@@ -67,7 +67,7 @@ test("each occasion has its own print, the signature, no portrait, and every ima
     const art = CARD_ART[kind];
     assert.ok(html.includes(art.src), `${kind} shows its print`);
     seen.add(art.src);
-    assert.ok(html.includes("george-signature-v1.png"), `${kind} is signed by hand`);
+    assert.ok(html.includes("george-signature-v2.png"), `${kind} is signed by hand`);
     assert.ok(!html.includes("george-syros-quay"), `${kind} has no portrait`);
     assert.ok(html.includes("light only"), `${kind} keeps its paper in dark mode`);
     assert.equal((html.match(/Warmly,/g) ?? []).length, 1, `${kind} signs once`);
@@ -79,7 +79,30 @@ test("each occasion has its own print, the signature, no portrait, and every ima
     assert.ok(html.indexOf("display:none") < html.indexOf("George&nbsp;Yachts"), `${kind} preheader comes first`);
   }
   assert.equal(seen.size, 3, "three different prints");
-  for (const f of ["birthday-v1.jpg", "thanksgiving-v1.jpg", "christmas-v1.jpg", "george-signature-v1.png"]) {
+  for (const f of ["birthday-v1.jpg", "thanksgiving-v1.jpg", "christmas-v1.jpg", "christmas-v2.jpg", "george-signature-v1.png", "george-signature-v2.png"]) {
     assert.ok(fs.existsSync(`public/cards/${f}`), `public/cards/${f} is in the repo`);
+  }
+});
+
+// 26/11/2026, George: Americans get Thanksgiving AND a Season's Greetings card.
+test("Americans also get Season's Greetings on 17/12; everyone else keeps one year-end letter", () => {
+  const us = rawTouches(future, "2026-11-26");
+  assert.ok(us.some((x) => x.kind === "holiday" && x.due === "2026-11-23"));
+  assert.ok(us.some((x) => x.kind === "season" && x.due === "2026-12-17" && x.expires === "2026-12-23"));
+  const gb = rawTouches({ ...future, people: [{ ...hong, country: "GB" }] }, "2026-11-26");
+  assert.ok(gb.some((x) => x.kind === "holiday" && x.due === "2026-12-18"));
+  assert.ok(!gb.some((x) => x.kind === "season"));
+  // quiet around a December charter
+  const dec = rawTouches({ ...future, from: "2026-12-20", to: "2026-12-27" }, "2026-11-26");
+  assert.ok(!dec.some((x) => x.kind === "season" && x.due.startsWith("2026")));
+});
+
+test("the Season's Greetings text is a wish only, neutral, and passes the rules", () => {
+  for (let v = 0; v < 6; v++) {
+    const d = baseText("season", future, hong, { variant: v, due: "2026-12-17" });
+    assert.match(d.body, /^Dear Wilson,/);
+    assert.match(d.body, /pomegranate/);
+    assert.doesNotMatch(d.body, /Christmas|grateful|chose|Pi2/);
+    assert.deepEqual(checkAfterSales("season", d, { greeting: "Dear Wilson,", fullName: "Wilson Hong" }), [], `v${v}: ${d.body}`);
   }
 });

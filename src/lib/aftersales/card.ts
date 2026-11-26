@@ -5,7 +5,7 @@ import type { Kind } from "@/lib/aftersales/plan";
 
 // Birthdays and the holiday letter leave as the Lighthouse's Edition card
 // (George's card, 29/8/2026); everything else as a plain personal email.
-export const CARD_KINDS: Kind[] = ["birthday", "holiday"];
+export const CARD_KINDS: Kind[] = ["birthday", "holiday", "season"];
 
 /** "...\n\nWarmly,\nGeorge" -> the body without the sign-off, and "Warmly,". */
 export function splitSignOff(body: string): { body: string; closing: string } {
@@ -20,7 +20,7 @@ export function splitSignOff(body: string): { body: string; closing: string } {
 
 export async function sendCard(args: { to: string; subject: string; body: string; kind: Kind; us: boolean }): Promise<{ messageId: string }> {
   const { body, closing } = splitSignOff(args.body);
-  const cardKind = args.kind === "birthday" ? "birthday" : args.us ? "thanksgiving" : "western_christmas";
+  const cardKind = args.kind === "birthday" ? "birthday" : args.kind === "season" ? "western_christmas" : args.us ? "thanksgiving" : "western_christmas";
   const html = greetingCard({ kind: cardKind, subject: args.subject.replace(/^\[ΔΟΚΙΜΗ[^\]]*\]\s*/, ""), body, closing });
   const boundary = `gy_card_${Date.now()}`;
   const raw = Buffer.from(
