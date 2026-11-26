@@ -56,3 +56,26 @@ test("the card signs once: the text's sign-off becomes the card's closing", () =
   assert.deepEqual(splitSignOff("Dear Bruce,\n\nThanks.\n\nGeorge"), { body: "Dear Bruce,\n\nThanks.", closing: "Warmly," });
   assert.equal(splitSignOff("Dear Bruce,\n\nThanks.").body, "Dear Bruce,\n\nThanks.");
 });
+
+// 26/11/2026: a card of the house per occasion, George as his signature.
+import fs from "node:fs";
+import { greetingCard, CARD_ART } from "../../src/lib/lighthouse-card";
+test("each occasion has its own print, the signature, no portrait, and every image file exists", () => {
+  const seen = new Set<string>();
+  for (const kind of ["birthday", "thanksgiving", "western_christmas"]) {
+    const html = greetingCard({ kind, subject: "Happy birthday, Jack", body: "Dear Jack,\n\nA happy day to you.", closing: "Warmly," });
+    const art = CARD_ART[kind];
+    assert.ok(html.includes(art.src), `${kind} shows its print`);
+    seen.add(art.src);
+    assert.ok(html.includes("george-signature-v1.png"), `${kind} is signed by hand`);
+    assert.ok(!html.includes("george-syros-quay"), `${kind} has no portrait`);
+    assert.ok(html.includes("light only"), `${kind} keeps its paper in dark mode`);
+    assert.equal((html.match(/Warmly,/g) ?? []).length, 1, `${kind} signs once`);
+    assert.ok(Buffer.byteLength(html) < 60_000, `${kind} stays far under Gmail's 102 KB clip`);
+    assert.ok(!/data:image/.test(html), `${kind} never inlines images`);
+  }
+  assert.equal(seen.size, 3, "three different prints");
+  for (const f of ["birthday-v1.jpg", "thanksgiving-v1.jpg", "christmas-v1.jpg", "george-signature-v1.png"]) {
+    assert.ok(fs.existsSync(`public/cards/${f}`), `public/cards/${f} is in the repo`);
+  }
+});
