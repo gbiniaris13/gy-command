@@ -246,6 +246,15 @@ export async function loadCharters(state: AfterSalesState, facts?: Facts): Promi
     };
   };
 
+  // George's own additions to a charter (store.ts, extra_people).
+  const addExtras = (key: string, people: Person[]) => {
+    for (const x of state.charters[key]?.extra_people ?? []) {
+      const e = emailKey(x.email);
+      if (!e.includes("@") || people.some((p) => p.email === e)) continue;
+      people.push(person(e, x.name, "guest", x.dob ?? null, x.country ?? null));
+    }
+  };
+
   const out: Charter[] = [];
   const problemOf = (key: string, to: string): Charter["problem"] => {
     const p = state.charters[key] ?? {};
@@ -282,6 +291,7 @@ export async function loadCharters(state: AfterSalesState, facts?: Facts): Promi
         people.push(person(e, g.name || s(c.principal_charterer_name), role, iso(g.date_of_birth), g.nationality || null));
       }
       if (leadEmail && !seen.has(leadEmail)) people.unshift(person(leadEmail, s(c.principal_charterer_name), "lead", null, null));
+      addExtras(s(c.id), people);
     } else if (viaAdvisor && s(req?.client_email)) {
       people.push(person(s(req?.client_email), s(req?.client_name), "advisor", null, null));
     }
@@ -317,6 +327,7 @@ export async function loadCharters(state: AfterSalesState, facts?: Facts): Promi
     const key = `req:${s(r.id)}`;
     const full = [s(r.client_name), s(r.client_surname)].filter(Boolean).join(" ");
     const people = whiteLabel ? [] : [person(e, full, viaAdvisor ? "advisor" : "lead", null, null)];
+    if (!whiteLabel && !viaAdvisor) addExtras(key, people);
     out.push({
       key,
       cabin_id: null,

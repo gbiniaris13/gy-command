@@ -33,6 +33,10 @@ export type CharterState = {
   problem_at?: string;
   resolved_at?: string;
   reminded_at?: string;
+  // People George adds to a charter for the Lighthouse only (26/11/2026:
+  // Megan, Matthew Colford's wife, was in copy on every email but is not in
+  // any guest list). Never written to the Cabin or the port manifest.
+  extra_people?: { email: string; name: string; country?: string; dob?: string; added_at: string }[];
 };
 export type PersonState = { first_name?: string; never?: boolean; never_at?: string };
 export type LostState = { category: string; reason_el?: string; at: string };
