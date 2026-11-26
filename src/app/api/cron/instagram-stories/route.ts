@@ -372,9 +372,27 @@ async function _observedImpl(req?: Request) {
   const slotCounter = await loadSlotCounter(sb);
   const isYachtSlot = slotCounter % 3 === 0;
   let yachtChoice: YachtStoryChoice | null = null;
+  // 2026-11-26: a refused photo used to skip the whole run, and since the
+  // rotation only moves on a published story the same yacht was picked
+  // again five hours later. On 25-26 Nov that silenced the stories for a
+  // day and a half. Now a refused yacht spends her turn and the next one
+  // is tried; if none passes, a library photo goes instead.
+  const refused: string[] = [];
   if (isYachtSlot) {
-    const rotation = await loadYachtRotation(sb);
-    yachtChoice = await pickNextYachtForStory(sb, rotation);
+    let rotation = await loadYachtRotation(sb);
+    for (let attempt = 0; attempt < 3 && !yachtChoice; attempt++) {
+      const choice = await pickNextYachtForStory(sb, rotation);
+      if (!choice) break;
+      const blocked = await socialBlockReason(choice.yachtSlug, "instagram stories");
+      const issue = blocked ? null : await imageBrandIssue(choice.imageUrl, choice.yachtName);
+      if (!blocked && !issue) {
+        yachtChoice = choice;
+        break;
+      }
+      refused.push(`${choice.yachtName}: ${blocked ?? issue}`);
+      rotation = choice.rotation;
+      await persistYachtRotation(sb, rotation);
+    }
     if (yachtChoice) {
       // Synthetic photo object so the rest of the publish pipeline
       // (Meta API, rotation state, Telegram card) sees a uniform
@@ -389,6 +407,31 @@ async function _observedImpl(req?: Request) {
     }
     // If yachtChoice is null (fleet fetch failed) we silently fall
     // back to the library photo selected above — the story still ships.
+  }
+
+  // Library photo (a Greece slot, or a yacht slot where no yacht passed):
+  // up to three tries, each refused photo leaves the pool for good.
+  if (!yachtChoice) {
+    const candidates = [photo, ...pool.filter((p) => p.id !== photo.id)].slice(0, 3);
+    let passed: typeof photo | null = null;
+    for (const c of candidates) {
+      const cSlug = yachtSlugFromFilename((c as { filename?: string | null }).filename);
+      const blocked = cSlug ? await socialBlockReason(cSlug, "instagram stories") : null;
+      const issue = blocked ? null : await imageBrandIssue(c.public_url, null);
+      if (!blocked && !issue) {
+        passed = c;
+        break;
+      }
+      if (issue) await sb.from("ig_photos").update({ tags: ["brand-unsafe"] }).eq("id", c.id);
+      refused.push(`${(c as { filename?: string | null }).filename ?? c.id}: ${blocked ?? issue}`);
+    }
+    if (!passed) {
+      await sendTelegram(
+        `🚫 <b>IG story skipped</b>: every photo tried was refused\n<i>${refused.join("\n").slice(0, 900)}</i>`,
+      ).catch(() => {});
+      return NextResponse.json({ skipped: "brand_safety", reason: refused });
+    }
+    photo = passed;
   }
 
   // 2026-05-14 — classify the photo and pick the destination URL the
@@ -439,16 +482,7 @@ async function _observedImpl(req?: Request) {
     }
   }
 
-  const storyImageIssue = await imageBrandIssue(photo.public_url, yachtChoice?.yachtName ?? null);
-  if (storyImageIssue) {
-    if (!String(photo.id).startsWith("yacht:")) {
-      await sb.from("ig_photos").update({ tags: ["brand-unsafe"] }).eq("id", photo.id);
-    }
-    await sendTelegram(
-      `🚫 <b>IG story skipped by brand safety</b>\n<i>${storyImageIssue}</i>\nPhoto: ${photo.public_url}${yachtChoice ? `\nYacht: ${yachtChoice.yachtName} (remove the image from her Sanity set)` : ""}`
-    ).catch(() => {});
-    return NextResponse.json({ skipped: "brand_safety", reason: storyImageIssue, photo: photo.public_url });
-  }
+  // The photo was looked at above (yacht and library paths both).
   const ogTitle = yachtChoice ? yachtChoice.yachtName : "From Greek Waters";
   const ogSubtitle = yachtChoice
     ? "Crewed yacht charter · Greece"
@@ -638,6 +672,7 @@ async function _observedImpl(req?: Request) {
         `🖼️ <a href="${composedStoryImageUrl}">Composed story image (1080×1920)</a>`,
         ``,
         `<i>Routing reason: ${linkTarget.label} (${linkTarget.matched})</i>`,
+        ...(refused.length ? [``, `🚫 Refused before this one (logo or another company's name):`, ...refused.map((r) => `<i>${r.slice(0, 160)}</i>`)] : []),
       ];
       await sendTelegram(tgLines.join("\n"));
       return NextResponse.json({
