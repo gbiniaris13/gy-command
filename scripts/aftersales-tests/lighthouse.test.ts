@@ -73,6 +73,10 @@ test("each occasion has its own print, the signature, no portrait, and every ima
     assert.equal((html.match(/Warmly,/g) ?? []).length, 1, `${kind} signs once`);
     assert.ok(Buffer.byteLength(html) < 60_000, `${kind} stays far under Gmail's 102 KB clip`);
     assert.ok(!/data:image/.test(html), `${kind} never inlines images`);
+    // The inbox preview opens with the wish, not the masthead or the credit.
+    const pre = html.match(/<div style="display:none;[^>]*>([^&<]*)/)?.[1] ?? "";
+    assert.equal(pre, "A happy day to you.", `${kind} previews the wish in the inbox`);
+    assert.ok(html.indexOf("display:none") < html.indexOf("George&nbsp;Yachts"), `${kind} preheader comes first`);
   }
   assert.equal(seen.size, 3, "three different prints");
   for (const f of ["birthday-v1.jpg", "thanksgiving-v1.jpg", "christmas-v1.jpg", "george-signature-v1.png"]) {

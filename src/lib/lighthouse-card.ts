@@ -117,6 +117,17 @@ export function greetingCard({ kind, subject, body, closing: closingIn }: { kind
   // passes the closing, so the card signs it once, by hand.
   const closing = closingIn ? esc(closingIn) : sign.length ? esc(sign[0]) : greek ? "Με εκτίμηση," : "Warmly,";
 
+  // The line the inbox shows under the subject. Without it Gmail and
+  // Apple Mail preview the masthead and the print's credit ("George Yachts
+  // The Brokerage House N. Artsay, Ship under Sail..."), seen in the test of
+  // 26/11/2026. It shows the first words of the wish instead, then padding
+  // so nothing from the card itself leaks into the preview.
+  const opening = paras.find((t, i) => !(i === 0 && /^(dear|hey|hi|hello|αγαπητ)[^\n]{0,60},$/i.test(t))) ?? "";
+  const preheaderText = opening.replace(/\s+/g, " ").trim().slice(0, 140);
+  const preheader = preheaderText
+    ? `<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;color:transparent;">${esc(preheaderText)}${"&#8199;&#847;&nbsp;".repeat(60)}</div>`
+    : "";
+
   // The print, mounted: a wide ivory margin, one hairline, the credit
   // under it like a museum label. Without a print (other occasions) a
   // small gold rule stands in, so the card is still whole.
@@ -142,6 +153,7 @@ export function greetingCard({ kind, subject, body, closing: closingIn }: { kind
 </style>
 </head>
 <body style="margin:0;padding:0;background:${TABLE};">
+  ${preheader}
   <div style="padding:36px 14px;background:${TABLE};">
     <div style="max-width:560px;margin:0 auto;background:${PAPER};border:1px solid ${HAIR};">
 
