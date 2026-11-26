@@ -133,6 +133,10 @@
       "schedule": "0 7 * * 1"
     },
     {
+      "path": "/api/cron/instagram-story-watch",
+      "schedule": "40 5,10,17 * * *"
+    },
+    {
       "path": "/api/cron/instagram-watchdog",
       "schedule": "30 6 * * *"
     },

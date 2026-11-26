@@ -147,7 +147,7 @@ export function buildSilenceAlert(opts: {
       "",
       queueLine,
       "",
-      "This alarm covers feed posts only. Stories are not checked here and may still be running.",
+      "This alarm covers feed posts only. Stories have their own watch (instagram-story-watch).",
       "This email repeats every morning until a feed post goes out.",
       "To fix: forward this email to Claude Code.",
     ].join("\n"),

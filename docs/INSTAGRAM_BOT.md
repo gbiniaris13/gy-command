@@ -135,7 +135,18 @@ and none went out? Rules live in `src/lib/ig-silence.ts`, tests in
   the feed crons reported (for example `skipped (window_guard) x7`).
 - Sunday never counts. A Monday or Saturday the publisher skipped on purpose
   (stealth roll) is excused. Today never counts: the post goes out at 18:00.
-- Feed posts only. Stories are not covered.
+- Feed posts only. Stories have their own watch, below.
+
+**Stories watch (2026-11-26).** `instagram-story-watch` runs 40 minutes
+after each story slot (05:40, 10:40, 17:40 UTC). If the slot produced no
+story (last entry in `story_cta_log_v1` older than 1.5 h) it runs the
+stories job once more by itself, then reports on Telegram: 🔁 when the
+retry published, ⚠️ when it did not, 🚨 plus one email a day once 12 hours
+have passed without a story. Rules in `src/lib/ig-story-gap.ts`, tests in
+`scripts/ig-tests/story-gap.test.ts`. Built after 25-26 Nov, when every
+run ended `skipped (brand_safety)` on the same yacht for a day and a half
+and nobody was told. The stories job itself now moves on to the next
+yacht or photo when one is refused (gy-command `9bc0ef34`).
 
 ## 6c. Stories: what they ask for, and the test (2026-11-19)
 
